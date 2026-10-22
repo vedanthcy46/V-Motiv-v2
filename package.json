@@ -1,0 +1,33 @@
+{
+  "name": "vmotiv-v2",
+  "version": "0.1.0",
+  "private": true,
+  "overrides": {
+    "@grpc/grpc-js": "1.14.6",
+    "deepmerge-ts": "8.0.2"
+  },
+  "workspaces": [
+    "services/*",
+    "apps/*"
+  ],
+  "engines": {
+    "node": "^22.13.0 || ^24.3.0 || >=26.0.0"
+  },
+  "scripts": {
+    "dev:api": "npm run dev -w @vmotiv/api",
+    "dev:web": "npm run dev -w @vmotiv/customer-web",
+    "dev:mobile": "npm run start -w @vmotiv/customer-mobile",
+    "mobile:android": "npm run android -w @vmotiv/customer-mobile",
+    "mobile:usb": "powershell -NoProfile -ExecutionPolicy Bypass -File tooling/connect-android-usb.ps1",
+    "mobile:ios": "npm run ios -w @vmotiv/customer-mobile",
+    "build": "npm run build --workspaces --if-present",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm run test --workspaces --if-present",
+    "db:generate": "npm run db:generate -w @vmotiv/api",
+    "db:deploy": "npm run db:deploy -w @vmotiv/api",
+    "email:worker": "npm run worker -w @vmotiv/api"
+  },
+  "devDependencies": {
+    "expo": "~57.0.31"
+  }
+}

@@ -1,0 +1,341 @@
+generator client {
+  provider = "prisma-client-js"
+}
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+enum AccountStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+enum EmployeeRole {
+  SALES_EXECUTIVE
+  INSPECTOR
+  INSPECTION_REVIEWER
+  OPERATIONS_MANAGER
+  INVENTORY_MANAGER
+  PRICING_APPROVER
+  FINANCE
+  ADMIN
+}
+enum EmailState {
+  PENDING
+  PROCESSING
+  ACCEPTED
+  FAILED
+  REVIEW_REQUIRED
+}
+enum VehicleListingStatus {
+  DRAFT
+  PUBLISHED
+  RESERVED
+  SOLD
+  WITHDRAWN
+}
+enum TestDriveStatus {
+  REQUESTED
+  CONFIRMED
+  COMPLETED
+  CANCELLED
+  NO_SHOW
+}
+enum AcquisitionLeadStatus {
+  SUBMITTED
+  QUALIFYING
+  INSPECTION_SCHEDULED
+  OFFER_PENDING
+  OFFERED
+  ACCEPTED
+  REJECTED
+  CANCELLED
+}
+enum AcquisitionOfferStatus {
+  OFFERED
+  ACCEPTED
+  DECLINED
+  EXPIRED
+}
+enum SupportCaseStatus {
+  OPEN
+  IN_PROGRESS
+  RESOLVED
+  CLOSED
+}
+enum PurchaseEnquiryStatus {
+  RECEIVED
+  IN_REVIEW
+  CONTACTED
+  CLOSED
+}
+model User {
+  id String @id @default(uuid()) @db.Uuid
+  firebaseUid String @unique
+  email String
+  displayName String?
+  phone String?
+  status AccountStatus @default(ACTIVE)
+  marketingConsent Boolean @default(false)
+  termsAcceptedAt DateTime?
+  termsVersion String?
+  preferredCity String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  employee Employee?
+  emails EmailOutbox[]
+  wishlist WishlistItem[]
+  testDriveRequests TestDriveRequest[]
+  acquisitionLeads AcquisitionLead[]
+  savedSearches SavedSearch[]
+  purchaseEnquiries PurchaseEnquiry[]
+  supportCases SupportCase[]
+  addresses CustomerAddress[]
+  privacyRequests PrivacyRequest[]
+}
+model CustomerAddress {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  label String
+  addressLine String
+  city String
+  pincode String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, createdAt])
+}
+model PrivacyRequest {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  requestType String
+  status String @default("REQUESTED")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([userId, createdAt])
+}
+model Vehicle {
+  id String @id @default(uuid()) @db.Uuid
+  make String
+  model String
+  variant String
+  manufacturingYear Int
+  fuelType String
+  transmission String
+  odometerKm Int
+  color String?
+  ownershipCount Int?
+  city String?
+  registrationYear Int?
+  bodyType String?
+  engineCapacityCc Int?
+  conditionSummary String?
+  inspectionSummary String?
+  inspectionReportUrl String?
+  features String[] @default([])
+  verifiedTags String[] @default([])
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  listing VehicleListing?
+}
+model VehicleListing {
+  id String @id @default(uuid()) @db.Uuid
+  vehicleId String @unique @db.Uuid
+  vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  title String
+  pricePaise BigInt
+  currency String @default("INR")
+  status VehicleListingStatus @default(DRAFT)
+  publishedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  media VehicleMedia[]
+  wishlist WishlistItem[]
+  testDriveRequests TestDriveRequest[]
+  purchaseEnquiries PurchaseEnquiry[]
+  @@index([status, publishedAt])
+}
+model VehicleMedia {
+  id String @id @default(uuid()) @db.Uuid
+  listingId String @db.Uuid
+  listing VehicleListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  url String
+  mediaType String @default("IMAGE")
+  displayOrder Int @default(0)
+  createdAt DateTime @default(now())
+  @@index([listingId, displayOrder])
+}
+model WishlistItem {
+  userId String @db.Uuid
+  listingId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listing VehicleListing @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  @@id([userId, listingId])
+}
+model TestDriveRequest {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  listingId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  listing VehicleListing @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  requestedDate DateTime @db.Date
+  timeSlot String
+  customerNotes String?
+  serviceCity String
+  locationPreference String @default("HUB")
+  address String?
+  status TestDriveStatus @default(REQUESTED)
+  cancelledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([userId, listingId, requestedDate, timeSlot])
+  @@index([userId, createdAt])
+}
+model AcquisitionLead {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  sellerName String
+  sellerPhone String
+  city String
+  pincode String
+  make String
+  model String
+  variant String?
+  manufacturingYear Int
+  fuelType String
+  transmission String
+  odometerKm Int
+  expectedPricePaise BigInt?
+  referenceCode String @unique @default(uuid())
+  idempotencyKey String?
+  ownershipCount Int?
+  registrationYear Int?
+  color String?
+  registrationCity String?
+  insuranceValidUntil DateTime? @db.Date
+  loanOutstanding Boolean?
+  accidentHistory String?
+  serviceHistory String?
+  sellerNotes String?
+  inspectionDate DateTime? @db.Date
+  inspectionTimeSlot String?
+  inspectionLocationType String? @default("HUB")
+  inspectionAddress String?
+  cancelledAt DateTime?
+  status AcquisitionLeadStatus @default(SUBMITTED)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  offers AcquisitionOffer[]
+  @@index([userId, createdAt])
+  @@unique([userId, idempotencyKey])
+}
+model AcquisitionOffer {
+  id String @id @default(uuid()) @db.Uuid
+  leadId String @db.Uuid
+  lead AcquisitionLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  offerAmountPaise BigInt
+  validUntil DateTime
+  status AcquisitionOfferStatus @default(OFFERED)
+  version Int @default(1)
+  terms String?
+  declineReason String?
+  acceptedAt DateTime?
+  declinedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([leadId, createdAt])
+}
+model SupportedCity {
+  id String @id @default(uuid()) @db.Uuid
+  name String @unique
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+}
+model SavedSearch {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name String
+  query Json @default("{}")
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+}
+model PurchaseEnquiry {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  listingId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  listing VehicleListing @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  message String?
+  status PurchaseEnquiryStatus @default(RECEIVED)
+  idempotencyKey String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([userId, idempotencyKey])
+  @@index([userId, createdAt])
+}
+model SupportCase {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  subject String
+  category String
+  description String
+  status SupportCaseStatus @default(OPEN)
+  referenceCode String @unique @default(uuid())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  replies SupportCaseReply[]
+  @@index([userId, createdAt])
+}
+model SupportCaseReply {
+  id String @id @default(uuid()) @db.Uuid
+  caseId String @db.Uuid
+  supportCase SupportCase @relation(fields: [caseId], references: [id], onDelete: Cascade)
+  authorType String @default("CUSTOMER")
+  body String
+  createdAt DateTime @default(now())
+  @@index([caseId, createdAt])
+}
+model Employee {
+  userId String @id @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  role EmployeeRole
+  active Boolean @default(false)
+  permissions String[] @default([])
+  locationIds String[] @default([]) @db.Uuid
+  createdAt DateTime @default(now())
+}
+model AuditEvent {
+  id String @id @default(uuid()) @db.Uuid
+  actorId String? @db.Uuid
+  action String
+  entityId String
+  createdAt DateTime @default(now())
+  @@index([entityId, createdAt])
+}
+model EmailOutbox {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  eventKey String @unique
+  templateVersion String @default("welcome-v1")
+  recipient String
+  sender String?
+  subject String @default("Welcome to V MOTIV")
+  text String @default("Welcome to V MOTIV. Your account is ready. You can use it to manage your vehicle buying and selling requests.")
+  state EmailState @default(PENDING)
+  attempts Int @default(0)
+  availableAt DateTime @default(now())
+  firstAttemptAt DateTime?
+  leaseUntil DateTime?
+  providerMessageId String? @unique
+  lastErrorCode String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([state, availableAt])
+}
+

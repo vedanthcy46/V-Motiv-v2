@@ -1,0 +1,100 @@
+import { describe, it, expect, vi } from 'vitest';
+import request from 'supertest';
+import type { DecodedIdToken } from 'firebase-admin/auth';
+import { createApp } from '../src/app.js';
+import type { IdentityStore } from '../src/identity-store.js';
+import { readConfig } from '../src/config.js';
+import { retryAllowed } from '../src/email.js';
+
+const verified = {
+  uid: 'firebase-one', email: 'customer@example.test', email_verified: true,
+  firebase: { sign_in_provider: 'google.com' },
+} as DecodedIdToken;
+const profile = {
+  id: 'local-one', email: verified.email!, displayName: 'Customer', phone: null,
+  status: 'ACTIVE' as const, marketingConsent: false, createdAt: new Date(), employee: null,
+};
+function setup(token = verified) {
+  const verify = vi.fn().mockResolvedValue(token);
+  const store: IdentityStore = {
+    sync: vi.fn().mockResolvedValue(profile),
+    find: vi.fn().mockResolvedValue(profile),
+    ready: vi.fn().mockResolvedValue(undefined),
+  };
+  return { verify, store, app: createApp({ verify, store, webOrigin: 'http://localhost:3100' }) };
+}
+describe('authentication boundary', () => {
+  it('rejects missing, malformed, expired and revoked tokens', async () => {
+    const { app, verify, store } = setup();
+    expect((await request(app).get('/api/v1/me')).status).toBe(401);
+    expect((await request(app).get('/api/v1/me').set('Authorization', 'Bearer one two')).status).toBe(401);
+    for (const code of ['auth/id-token-expired', 'auth/id-token-revoked']) {
+      verify.mockRejectedValueOnce({ code });
+      expect((await request(app).get('/api/v1/me').set('Authorization', 'Bearer token')).status).toBe(401);
+    }
+    expect(store.find).not.toHaveBeenCalled();
+  });
+  it('verifies preview-shaped tokens rather than trusting a client-selected identity', async () => {
+    const { app, verify, store } = setup();
+    verify.mockRejectedValueOnce({ code: 'auth/argument-error' });
+    const response = await request(app).post('/api/v1/auth/sync').set('Authorization', 'Bearer dev-preview-token:someone@example.test');
+    expect(response.status).toBe(401);
+    expect(verify).toHaveBeenCalledWith('dev-preview-token:someone@example.test', true);
+    expect(store.sync).not.toHaveBeenCalled();
+  });
+  it('checks revocation and uses verified UID, ignoring frontend identity', async () => {
+    const { app, verify, store } = setup();
+    const response = await request(app).post('/api/v1/auth/sync').set('Authorization', 'Bearer real-token');
+    expect(response.status).toBe(200);
+    expect(verify).toHaveBeenCalledWith('real-token', true);
+    expect(store.sync).toHaveBeenCalledWith(expect.objectContaining({ uid: 'firebase-one' }));
+    const tamper = await request(app).post('/api/v1/auth/sync').set('Authorization', 'Bearer real-token').send({ role: 'ADMIN', uid: 'other' });
+    expect(tamper.status).toBe(400);
+  });
+  it.each([
+    { ...verified, email_verified: false },
+    { ...verified, firebase: { sign_in_provider: 'password' } },
+  ])('requires a verified Google identity', async token => {
+    const { app, store } = setup(token as DecodedIdToken);
+    expect((await request(app).get('/api/v1/me').set('Authorization', 'Bearer token')).status).toBe(401);
+    expect(store.find).not.toHaveBeenCalled();
+  });
+  it('denies a suspended user and customers entering employee APIs', async () => {
+    const { app, store } = setup();
+    expect((await request(app).get('/api/v1/employee/me').set('Authorization', 'Bearer token')).status).toBe(403);
+    vi.mocked(store.find).mockResolvedValue({ ...profile, status: 'SUSPENDED' });
+    expect((await request(app).get('/api/v1/me').set('Authorization', 'Bearer token')).status).toBe(403);
+  });
+  it('requires an active employee grant and second factor', async () => {
+    const { app, store } = setup();
+    vi.mocked(store.find).mockResolvedValue({ ...profile, employee: {
+      role: 'ADMIN', active: true, permissions: [], locationIds: [],
+    } });
+    expect((await request(app).get('/api/v1/employee/me').set('Authorization', 'Bearer token')).body.code).toBe('EMPLOYEE_MFA_REQUIRED');
+  });
+  it('returns readiness failure without database details', async () => {
+    const { app, store } = setup();
+    vi.mocked(store.ready).mockRejectedValue(new Error('secret database credentials'));
+    const response = await request(app).get('/api/v1/health/ready');
+    expect(response.status).toBe(503);
+    expect(JSON.stringify(response.body)).not.toContain('secret');
+  });
+});
+describe('environment and retry guardrails', () => {
+  const env = { DATABASE_URL: 'postgresql://local@127.0.0.1:5440/vmotiv_v2_dev', WEB_ORIGIN: 'http://localhost:3100', FIREBASE_PROJECT_ID: 'v2-development' };
+  it('rejects non-V2 and remote development databases', () => {
+    expect(() => readConfig({ ...env, DATABASE_URL: 'postgresql://local@localhost:5433/vmotiv' })).toThrow();
+    expect(() => readConfig({ ...env, DATABASE_URL: 'postgresql://local@remote:5432/vmotiv_v2_dev' })).toThrow();
+  });
+  it('requires real email configuration before enabling sends', () => {
+    expect(() => readConfig({ ...env, EMAIL_DELIVERY_ENABLED: 'true' })).toThrow();
+    expect(readConfig(env).EMAIL_DELIVERY_ENABLED).toBe('false');
+  });
+  it('quarantines retries outside provider deduplication window', () => {
+    const now = new Date();
+    expect(retryAllowed({ attempts: 1, firstAttemptAt: new Date(now.getTime() - 24 * 60 * 60 * 1000) }, now)).toBe(false);
+    expect(retryAllowed({ attempts: 6, firstAttemptAt: now }, now)).toBe(false);
+    expect(retryAllowed({ attempts: 1, firstAttemptAt: now }, now)).toBe(true);
+  });
+});
+

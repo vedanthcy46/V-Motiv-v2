@@ -1,0 +1,19 @@
+name: vmotiv-v2
+services:
+  postgres:
+    image: postgres:18
+    environment:
+      POSTGRES_DB: vmotiv_v2_dev
+      POSTGRES_USER: vmotiv_v2
+      POSTGRES_PASSWORD: ${V2_POSTGRES_PASSWORD:?Set V2_POSTGRES_PASSWORD}
+    ports:
+      - "127.0.0.1:5440:5432"
+    volumes:
+      - vmotiv_v2_postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U vmotiv_v2 -d vmotiv_v2_dev"]
+      interval: 5s
+      retries: 10
+volumes:
+  vmotiv_v2_postgres:
+
