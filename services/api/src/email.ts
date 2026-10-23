@@ -4,11 +4,18 @@ import type { Config } from './config.js';
 import { renderEmailHtml } from './email-templates.js';
 
 export type EmailSender = (event: EmailOutbox) => Promise<string>;
-export function resendSender(config: Config): EmailSender {
-  if (config.EMAIL_DELIVERY_ENABLED !== 'true' || !config.RESEND_API_KEY || !config.EMAIL_FROM) {
+
+export type ResendSenderOptions = {
+  apiKey: string;
+  from: string;
+  webOrigin?: string;
+};
+
+export function createResendSender(options: ResendSenderOptions): EmailSender {
+  if (!options.apiKey || !options.from) {
     throw new Error('Email delivery is disabled or not configured.');
   }
-  const resend = new Resend(config.RESEND_API_KEY);
+  const resend = new Resend(options.apiKey);
 
   return async event => {
     const html = renderEmailHtml({
@@ -16,11 +23,11 @@ export function resendSender(config: Config): EmailSender {
       subject: event.subject,
       text: event.text,
       recipient: event.recipient,
-      webOrigin: config.WEB_ORIGIN,
+      webOrigin: options.webOrigin || 'https://vmotiv.in',
     });
 
     const result = await resend.emails.send({
-      from: event.sender || config.EMAIL_FROM!,
+      from: event.sender || options.from,
       to: event.recipient,
       subject: event.subject,
       text: event.text,
@@ -34,6 +41,31 @@ export function resendSender(config: Config): EmailSender {
     }
     return result.data.id;
   };
+}
+
+export function resendSender(config: Config): EmailSender {
+  if (config.EMAIL_DELIVERY_ENABLED !== 'true' || !config.RESEND_API_KEY || !config.EMAIL_FROM) {
+    throw new Error('Email delivery is disabled or not configured.');
+  }
+  return createResendSender({
+    apiKey: config.RESEND_API_KEY,
+    from: config.EMAIL_FROM,
+    webOrigin: config.WEB_ORIGIN,
+  });
+}
+
+export async function drainOutbox(db: PrismaClient, send: EmailSender, sender: string, maxBatch = 5): Promise<number> {
+  let count = 0;
+  try {
+    while (count < maxBatch) {
+      const processed = await processEmail(db, send, sender);
+      if (!processed) break;
+      count++;
+    }
+  } catch (err: any) {
+    console.error('[EMAIL DRAIN ERROR]', err?.message || err);
+  }
+  return count;
 }
 export function retryAllowed(event: Pick<EmailOutbox, 'attempts' | 'firstAttemptAt'>, now: Date) {
   return event.attempts < 6 && (!event.firstAttemptAt || now.getTime() - event.firstAttemptAt.getTime() < 23 * 60 * 60 * 1000);

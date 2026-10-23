@@ -5,6 +5,7 @@ import { createApp } from './app.js';
 import { readConfig } from './config.js';
 import { PrismaIdentityStore } from './identity-store.js';
 import { PrismaCustomerStore } from './customer-store.js';
+import { createResendSender, drainOutbox } from './email.js';
 
 const config = readConfig(process.env);
 
@@ -38,7 +39,24 @@ const db = new PrismaClient({
   transactionOptions: { timeout: 15000, maxWait: 5000 },
 });
 
-// Vercel owns the HTTP listener. No long-running email loop in a request function.
+const resendApiKey = process.env.RESEND_API_KEY || 're_i8oE9bq9_JZd414LvUod6NhRWCCMn6xtF';
+const emailFrom = process.env.EMAIL_FROM || 'noreply@vmotiv.in';
+
+let drainEmails: (() => Promise<number>) | undefined;
+if (resendApiKey && emailFrom) {
+  try {
+    const send = createResendSender({
+      apiKey: resendApiKey,
+      from: emailFrom,
+      webOrigin: config.WEB_ORIGIN,
+    });
+    drainEmails = async () => drainOutbox(db, send, emailFrom, 5);
+  } catch (err) {
+    console.warn('[VERCEL EMAIL DISPATCHER INIT FAILED]', err);
+  }
+}
+
+// Serverless entry point: transactional outbox drains inline on mutation requests
 export default createApp({
   verify: (token, revoked) => {
     const hasServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
@@ -47,4 +65,5 @@ export default createApp({
   store: new PrismaIdentityStore(db),
   customer: new PrismaCustomerStore(db),
   webOrigin: config.WEB_ORIGIN,
+  drainEmails,
 });
