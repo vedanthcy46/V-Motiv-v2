@@ -124,20 +124,32 @@ export function createApp(deps: { verify: VerifyToken; store: IdentityStore; web
     app.get('/api/v1/me/wishlist', async (_req, res) => res.json(await deps.customer!.wishlist((res.locals.identity as Identity).uid)));
     app.put('/api/v1/me/wishlist/:id', async (req, res) => { await deps.customer!.addWishlist((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
     app.delete('/api/v1/me/wishlist/:id', async (req, res) => { await deps.customer!.removeWishlist((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
+    // Test drive requests (supports canonical and /me/drives alias)
     app.get('/api/v1/me/test-drive-requests', async (_req, res) => res.json(await deps.customer!.drives((res.locals.identity as Identity).uid)));
+    app.get('/api/v1/me/drives', async (_req, res) => res.json(await deps.customer!.drives((res.locals.identity as Identity).uid)));
     app.post('/api/v1/test-drive-requests', async (req, res) => res.status(201).json(await deps.customer!.bookDrive((res.locals.identity as Identity).uid, parsed(driveInput, req.body))));
+    app.post('/api/v1/me/drives', async (req, res) => res.status(201).json(await deps.customer!.bookDrive((res.locals.identity as Identity).uid, parsed(driveInput, req.body))));
     app.patch('/api/v1/test-drive-requests/:id/cancel', async (req, res) => { parsed(z.object({ reason: z.string().trim().min(1).max(200) }).strict(), req.body); await deps.customer!.cancelDrive((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
+    app.patch('/api/v1/me/drives/:id/cancel', async (req, res) => { parsed(z.object({ reason: z.string().trim().min(1).max(200) }).strict(), req.body); await deps.customer!.cancelDrive((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
+
+    // Acquisition leads / Sell car requests (supports canonical and /me/sell alias)
     app.get('/api/v1/me/acquisition-leads', async (_req, res) => res.json(await deps.customer!.leads((res.locals.identity as Identity).uid)));
+    app.get('/api/v1/me/sell', async (_req, res) => res.json(await deps.customer!.leads((res.locals.identity as Identity).uid)));
     app.get('/api/v1/me/acquisition-leads/:id', async (req, res) => res.json(await deps.customer!.lead((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
     app.post('/api/v1/acquisition-leads', async (req, res) => res.status(201).json(await deps.customer!.createLead((res.locals.identity as Identity).uid, parsed(sellInput, req.body))));
+    app.post('/api/v1/me/sell', async (req, res) => res.status(201).json(await deps.customer!.createLead((res.locals.identity as Identity).uid, parsed(sellInput, req.body))));
     app.patch('/api/v1/acquisition-leads/:id/cancel', async (req, res) => { const body = parsed(z.object({ reason: z.string().trim().max(500).optional() }).strict(), req.body); await deps.customer!.cancelLead((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), body.reason); res.status(204).end(); });
     app.patch('/api/v1/acquisition-offers/:id/accept', async (req, res) => { const body = parsed(acceptOfferInput, req.body); res.json(await deps.customer!.acceptOffer((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), body.version)); });
     app.patch('/api/v1/acquisition-offers/:id/decline', async (req, res) => { const body = parsed(declineOfferInput, req.body); res.json(await deps.customer!.declineOffer((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), body)); });
     app.get('/api/v1/me/saved-searches', async (_req, res) => res.json(await deps.customer!.savedSearches((res.locals.identity as Identity).uid)));
     app.post('/api/v1/me/saved-searches', async (req, res) => res.status(201).json(await deps.customer!.createSavedSearch((res.locals.identity as Identity).uid, parsed(savedSearchInput, req.body))));
     app.delete('/api/v1/me/saved-searches/:id', async (req, res) => { await deps.customer!.deleteSavedSearch((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
+
+    // Purchase enquiries (supports canonical and /me/enquiries alias)
     app.get('/api/v1/me/purchase-enquiries', async (_req, res) => res.json(await deps.customer!.purchaseEnquiries((res.locals.identity as Identity).uid)));
+    app.get('/api/v1/me/enquiries', async (_req, res) => res.json(await deps.customer!.purchaseEnquiries((res.locals.identity as Identity).uid)));
     app.post('/api/v1/purchase-enquiries', async (req, res) => res.status(201).json(await deps.customer!.createPurchaseEnquiry((res.locals.identity as Identity).uid, parsed(purchaseInput, req.body))));
+    app.post('/api/v1/me/enquiries', async (req, res) => res.status(201).json(await deps.customer!.createPurchaseEnquiry((res.locals.identity as Identity).uid, parsed(purchaseInput, req.body))));
     app.get('/api/v1/me/support-cases', async (_req, res) => res.json(await deps.customer!.supportCases((res.locals.identity as Identity).uid)));
     app.post('/api/v1/support-cases', async (req, res) => res.status(201).json(await deps.customer!.createSupportCase((res.locals.identity as Identity).uid, parsed(supportInput, req.body))));
     app.get('/api/v1/support-cases/:id', async (req, res) => res.json(await deps.customer!.supportCase((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
