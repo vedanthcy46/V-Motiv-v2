@@ -10,7 +10,8 @@
 
     <!-- Favicons -->
     <link rel="icon" type="image/x-icon" href="/favicon.ico" />
-    <link rel="icon" type="image/png" sizes="32x32" href="/favicon.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/brand/vmotiv-icon.png" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
     <link rel="apple-touch-icon" href="/brand/vmotiv-icon.png" />
 
     <!-- Open Graph / Facebook -->
@@ -32,21 +33,91 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
 
-    <!-- Schema.org Organization Structured Data -->
+    <!-- Schema.org Organization & AutoDealer Structured Data -->
     <script type="application/ld+json">
       {
         "@context": "https://schema.org",
-        "@type": "AutoDealer",
-        "name": "V MOTIV",
-        "url": "https://vmotiv.in/",
-        "logo": "https://vmotiv.in/brand/vmotiv-header-brand-v2.png",
-        "description": "A better way to buy and sell your car. Clear steps, helpful people, and updates throughout your journey.",
-        "slogan": "YOUR VEHICLE. OUR ACCOUNTABILITY.",
-        "priceRange": "₹₹₹",
-        "address": {
-          "@type": "PostalAddress",
-          "addressCountry": "IN"
-        }
+        "@graph": [
+          {
+            "@type": "WebSite",
+            "@id": "https://vmotiv.in/#website",
+            "url": "https://vmotiv.in/",
+            "name": "V MOTIV",
+            "alternateName": ["VMotiv", "V-Motiv", "V MOTIV Cars"],
+            "description": "A better way to buy and sell your car. Clear steps, helpful people and updates throughout your journey.",
+            "publisher": {
+              "@id": "https://vmotiv.in/#organization"
+            },
+            "potentialAction": {
+              "@type": "SearchAction",
+              "target": {
+                "@type": "EntryPoint",
+                "urlTemplate": "https://vmotiv.in/?search={search_term_string}#cars"
+              },
+              "query-input": "required name=search_term_string"
+            }
+          },
+          {
+            "@type": "AutoDealer",
+            "@id": "https://vmotiv.in/#organization",
+            "name": "V MOTIV",
+            "url": "https://vmotiv.in/",
+            "logo": {
+              "@type": "ImageObject",
+              "url": "https://vmotiv.in/brand/vmotiv-header-brand-v2.png",
+              "width": 512,
+              "height": 160
+            },
+            "image": "https://vmotiv.in/brand/vmotiv-footer-lockup.png",
+            "description": "A better way to buy and sell your car. Clear steps, helpful people, and updates throughout your journey.",
+            "slogan": "YOUR VEHICLE. OUR ACCOUNTABILITY.",
+            "priceRange": "₹₹₹",
+            "address": {
+              "@type": "PostalAddress",
+              "addressCountry": "IN"
+            }
+          },
+          {
+            "@type": "ItemList",
+            "itemListElement": [
+              {
+                "@type": "SiteNavigationElement",
+                "position": 1,
+                "name": "Buy Used Cars",
+                "description": "Explore inspected, certified pre-owned cars with transparent details.",
+                "url": "https://vmotiv.in/cars"
+              },
+              {
+                "@type": "SiteNavigationElement",
+                "position": 2,
+                "name": "Sell Your Car",
+                "description": "Get a doorstep evaluation and competitive valuation offer for your vehicle.",
+                "url": "https://vmotiv.in/sell"
+              },
+              {
+                "@type": "SiteNavigationElement",
+                "position": 3,
+                "name": "How It Works",
+                "description": "Understand our verified inspection, purchase, and handover process.",
+                "url": "https://vmotiv.in/how-it-works"
+              },
+              {
+                "@type": "SiteNavigationElement",
+                "position": 4,
+                "name": "About V MOTIV",
+                "description": "Learn about our founding philosophy: Your Vehicle. Our Accountability.",
+                "url": "https://vmotiv.in/about"
+              },
+              {
+                "@type": "SiteNavigationElement",
+                "position": 5,
+                "name": "Contact & Support",
+                "description": "Get in touch with the V MOTIV customer care team.",
+                "url": "https://vmotiv.in/contact"
+              }
+            ]
+          }
+        ]
       }
     </script>
   </head>
