@@ -1,0 +1,222 @@
+import React, { useEffect, useState } from 'react';
+import type { ListingItem } from '../types';
+import { fetchInventory, formatLakh } from '../api';
+
+interface AvailableCarsProps {
+  onSelectCar: (car: ListingItem) => void;
+  onSellClick: () => void;
+}
+
+export const AvailableCars: React.FC<AvailableCarsProps> = ({ onSelectCar, onSellClick }) => {
+  const [cars, setCars] = useState<ListingItem[]>([]);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [error, setError] = useState<string | null>(null);
+  const [fuelFilter, setFuelFilter] = useState<string>('ALL');
+  const [transmissionFilter, setTransmissionFilter] = useState<string>('ALL');
+
+  const loadCars = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetchInventory({
+        limit: 6,
+        fuelType: fuelFilter !== 'ALL' ? fuelFilter : undefined,
+        transmission: transmissionFilter !== 'ALL' ? transmissionFilter : undefined,
+      });
+      setCars(res.items || []);
+    } catch (err: any) {
+      console.warn('Could not fetch inventory:', err);
+      setError('Unable to load live listings right now. Please try again or check back shortly.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void loadCars();
+  }, [fuelFilter, transmissionFilter]);
+
+  return (
+    <section id="cars" className="available-cars-section">
+      <div className="container">
+        <div className="section-header-split">
+          <div>
+            <span className="section-eyebrow">VERIFIED INVENTORY</span>
+            <h2 className="section-title">Available Verified Cars</h2>
+            <p className="section-subtitle">
+              Genuinely published vehicles ready for inspection and test drive. Real photos, real condition.
+            </p>
+          </div>
+
+          {/* Filter Pills */}
+          <div className="filter-chips-row" role="group" aria-label="Filter vehicles by fuel type">
+            <button
+              type="button"
+              className={`chip ${fuelFilter === 'ALL' && transmissionFilter === 'ALL' ? 'active' : ''}`}
+              onClick={() => {
+                setFuelFilter('ALL');
+                setTransmissionFilter('ALL');
+              }}
+            >
+              All Cars
+            </button>
+            <button
+              type="button"
+              className={`chip ${fuelFilter === 'PETROL' ? 'active' : ''}`}
+              onClick={() => {
+                setFuelFilter(fuelFilter === 'PETROL' ? 'ALL' : 'PETROL');
+              }}
+            >
+              Petrol
+            </button>
+            <button
+              type="button"
+              className={`chip ${fuelFilter === 'DIESEL' ? 'active' : ''}`}
+              onClick={() => {
+                setFuelFilter(fuelFilter === 'DIESEL' ? 'ALL' : 'DIESEL');
+              }}
+            >
+              Diesel
+            </button>
+            <button
+              type="button"
+              className={`chip ${transmissionFilter === 'AUTOMATIC' ? 'active' : ''}`}
+              onClick={() => {
+                setTransmissionFilter(transmissionFilter === 'AUTOMATIC' ? 'ALL' : 'AUTOMATIC');
+              }}
+            >
+              Automatic
+            </button>
+          </div>
+        </div>
+
+        {/* Loading State */}
+        {loading && (
+          <div className="inventory-loading-grid" aria-busy="true">
+            {[1, 2, 3].map((n) => (
+              <div key={n} className="car-card skeleton-card">
+                <div className="skeleton-img" />
+                <div className="skeleton-body">
+                  <div className="skeleton-line skeleton-title" />
+                  <div className="skeleton-line skeleton-price" />
+                  <div className="skeleton-line skeleton-meta" />
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Error State */}
+        {!loading && error && (
+          <div className="inventory-empty-state" role="alert">
+            <div className="empty-icon">⚠️</div>
+            <h3>Unable to fetch inventory</h3>
+            <p>{error}</p>
+            <button type="button" className="btn btn-secondary" onClick={() => void loadCars()}>
+              Try Again
+            </button>
+          </div>
+        )}
+
+        {/* Honest Empty State */}
+        {!loading && !error && cars.length === 0 && (
+          <div className="inventory-empty-state">
+            <div className="empty-icon">🚗</div>
+            <h3>New cars are coming soon</h3>
+            <p>
+              We only publish cars that meet our strict verification standards.
+              Check back soon for newly verified vehicles, or tell us about the car you want to sell.
+            </p>
+            <div className="empty-actions">
+              <button type="button" className="btn btn-primary" onClick={onSellClick}>
+                Sell Your Car to V MOTIV
+              </button>
+              <button
+                type="button"
+                className="btn btn-secondary"
+                onClick={() => {
+                  setFuelFilter('ALL');
+                  setTransmissionFilter('ALL');
+                }}
+              >
+                Clear Filters
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Cars Grid */}
+        {!loading && !error && cars.length > 0 && (
+          <div className="cars-grid">
+            {cars.map((item) => {
+              const car = item.vehicle;
+              const photoUrl = item.media?.[0]?.url || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80';
+
+              return (
+                <article key={item.id} className="car-card" aria-labelledby={`car-title-${item.id}`}>
+                  <div className="car-card-media">
+                    <img
+                      src={photoUrl}
+                      alt={`${car.manufacturingYear} ${car.make} ${car.model}`}
+                      loading="lazy"
+                      className="car-image"
+                    />
+                    <div className="media-overlay-badge">
+                      <span className="status-dot-green" />
+                      <span>Available</span>
+                    </div>
+                  </div>
+
+                  <div className="car-card-body">
+                    <div className="car-price-row">
+                      <span className="car-price">{formatLakh(item.pricePaise)}</span>
+                      <span className="car-city-tag">{car.city}</span>
+                    </div>
+
+                    <h3 id={`car-title-${item.id}`} className="car-title">
+                      {item.title || `${car.manufacturingYear} ${car.make} ${car.model} ${car.variant || ''}`}
+                    </h3>
+
+                    <div className="car-specs-grid">
+                      <div className="spec-item">
+                        <span className="spec-label">Year</span>
+                        <span className="spec-value">{car.manufacturingYear}</span>
+                      </div>
+                      <div className="spec-item">
+                        <span className="spec-label">Kilometres</span>
+                        <span className="spec-value">{car.odometerKm.toLocaleString('en-IN')} km</span>
+                      </div>
+                      <div className="spec-item">
+                        <span className="spec-label">Fuel</span>
+                        <span className="spec-value">{car.fuelType}</span>
+                      </div>
+                      <div className="spec-item">
+                        <span className="spec-label">Transmission</span>
+                        <span className="spec-value">{car.transmission}</span>
+                      </div>
+                    </div>
+
+                    {car.conditionSummary && (
+                      <p className="car-condition-snippet">{car.conditionSummary}</p>
+                    )}
+
+                    <div className="car-card-footer">
+                      <button
+                        type="button"
+                        className="btn btn-outline btn-block"
+                        onClick={() => onSelectCar(item)}
+                      >
+                        <span>View Details & Request Drive</span>
+                        <span aria-hidden="true">→</span>
+                      </button>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </section>
+  );
+};

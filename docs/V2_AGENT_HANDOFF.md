@@ -138,3 +138,44 @@ No claim of live email, provider authentication, deployment, app-store release, 
   - Safe area clearance on Android 3-button and gesture navigation bars.
 - **IMPLEMENTED_NOT_FULLY_VERIFIED**:
   - Physical device verification across varied OEM keyboards (Samsung Keyboard, SwiftKey, Gboard) and varied hardware display scaling factors remains a user physical test.
+
+## Official Production Website Landing Page Implementation — 23 October 2026
+
+### Delivered Scope & Routing
+- Built and verified the official public landing page for **V MOTIV** (`https://vmotiv.in/`) in `apps/customer-web` (React 19 + TypeScript + Vite 7).
+- Root route `/` strictly resolves to the public landing page for all visitors (unauthenticated and authenticated alike).
+- Action-triggered Google Sign-In: Public discovery is 100% open without login barriers; Google OAuth via Firebase is only requested when users initiate account-scoped actions (booking test drives, submitting enquiries, submitting sell intake).
+- SPA Routing & Redirects: `apps/customer-web/public/_redirects` (`/* /index.html 200`), with deep-link resolution for `/`, `/cars`, `/sell`, `/how-it-works`, `/about`, `/contact`, `/terms`, `/privacy`, and `/account`.
+
+### Brand Accuracy & Asset Integration
+- Integrated approved official vector and high-resolution brand assets into `apps/customer-web/public/brand/`:
+  - Horizontal header logo (`vmotiv-header-brand-v2.png`)
+  - Vertical lockup with tagline and signature yellow accent (`vmotiv-lockup.svg`)
+  - Official vector emblem (`vmotiv-logo.svg`)
+  - Favicon & App Icon (`favicon.ico`, `favicon.png`, `vmotiv-icon.png`)
+- Strictly adheres to approved brand colors: Primary Navy `#061A38`, Accent Yellow `#F7B503`, and White `#FFFFFF`.
+- Approved Brand Positioning:
+  - Tagline: *"YOUR VEHICLE. OUR ACCOUNTABILITY."*
+  - Headline: *"A better way to buy and sell your car."*
+  - Truthful representation: No exaggerated or unverified claims.
+
+### Complete Section Breakdown
+1. **Header / Sticky Navbar (`Navbar.tsx`)**: Horizontal logo, desktop nav, account button (Sign In / Profile pill), accessible mobile navigation drawer.
+2. **Hero Section (`Hero.tsx`)**: Approved headline, lead text, tagline callout, dual CTAs ("Explore Cars" & "Sell Your Car"), trust highlights bar, verified car visual card.
+3. **Quick Actions (`QuickActions.tsx`)**: Buy a Verified Car vs Sell Your Car action cards with feature lists and direct working action triggers.
+4. **Available Cars Live Preview (`AvailableCars.tsx`)**: Live query against `GET /api/v1/inventory?limit=6`, interactive filter chips (All, Petrol, Diesel, Automatic), car cards with specs, photo, and INR Lakh pricing, plus honest empty state when stock is coming soon.
+5. **How It Works (`HowItWorks.tsx`)**: Tabbed Buying & Selling workflows (4 steps each).
+6. **Why V MOTIV (`WhyVMotiv.tsx`)**: 4 accountability pillars.
+7. **Mobile App Showcase (`MobileAppSection.tsx`)**: Highlights the customer mobile app with Android/iOS badges.
+8. **About V MOTIV (`AboutSection.tsx`)**: Mission, service hubs (Bengaluru, Chennai, Delhi NCR, Hyderabad, Mumbai, Pune), and customer support hours.
+9. **FAQ Accordion (`FAQSection.tsx`)**: Keyboard-accessible accordion with ARIA attributes answering key buyer/seller questions.
+10. **Final Dual-Action CTA (`FinalCTA.tsx`)**: Conversion prompt for exploring cars or requesting valuation.
+11. **Site Footer (`Footer.tsx`)**: Official lockup, tagline, navigation links, hub locations, legal links, dynamic copyright.
+12. **Modals & Dialogs**: `AuthModal`, `AccountModal`, `VehicleDetailModal`, `SellCarModal`, `LegalModal`.
+
+### Verification Status
+- **VERIFIED**:
+  - `npm run typecheck`: 0 errors across `@vmotiv/api`, `@vmotiv/customer-mobile`, and `@vmotiv/customer-web`.
+  - `npm test`: All tests pass across API, Mobile, and Web (Web vitest suite expanded to 12 passing tests).
+  - `npm run build --workspace=@vmotiv/customer-web`: Production bundle built cleanly with gzip optimization and SPA redirect rules.
+

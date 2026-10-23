@@ -1,73 +1,335 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { browserPopupRedirectResolver, GoogleAuthProvider, onIdTokenChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import {
+  browserPopupRedirectResolver,
+  GoogleAuthProvider,
+  onIdTokenChanged,
+  signInWithPopup,
+  signOut,
+  type User,
+} from 'firebase/auth';
 import { auth, configured } from './firebase';
 import { friendlyError, syncProfile, type Profile } from './account-api';
+import { fetchCities } from './api';
+import type { CityItem, ListingItem } from './types';
 import './styles.css';
 
+// Components
+import { Navbar } from './components/Navbar';
+import { Hero } from './components/Hero';
+import { QuickActions } from './components/QuickActions';
+import { AvailableCars } from './components/AvailableCars';
+import { HowItWorks } from './components/HowItWorks';
+import { WhyVMotiv } from './components/WhyVMotiv';
+import { MobileAppSection } from './components/MobileAppSection';
+import { AboutSection } from './components/AboutSection';
+import { FAQSection } from './components/FAQSection';
+import { FinalCTA } from './components/FinalCTA';
+import { Footer } from './components/Footer';
+
+// Modals
+import { AuthModal } from './components/AuthModal';
+import { AccountModal } from './components/AccountModal';
+import { SellCarModal } from './components/SellCarModal';
+import { VehicleDetailModal } from './components/VehicleDetailModal';
+import { LegalModal } from './components/LegalModal';
+
 function App() {
-  const [profile, setProfile] = useState<Profile | null>(null);
   const [user, setUser] = useState<User | null>(null);
-  const [busy, setBusy] = useState(configured);
-  const [error, setError] = useState('');
-  const [connectingGoogle, setConnectingGoogle] = useState(false);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [authBusy, setAuthBusy] = useState(configured);
+  const [authError, setAuthError] = useState('');
+  const [cities, setCities] = useState<CityItem[]>([]);
+
+  // Modal visibility states
+  const [authModalOpen, setAuthModalOpen] = useState(false);
+  const [authReason, setAuthReason] = useState('');
+  const [accountModalOpen, setAccountModalOpen] = useState(false);
+  const [sellModalOpen, setSellModalOpen] = useState(false);
+  const [selectedVehicle, setSelectedVehicle] = useState<ListingItem | null>(null);
+  const [legalModalType, setLegalModalType] = useState<'terms' | 'privacy' | null>(null);
+
   const request = useRef<AbortController | null>(null);
-  async function load(current: User) {
+
+  // Sync profile when authenticated
+  async function loadProfile(current: User) {
     request.current?.abort();
     const controller = new AbortController();
     request.current = controller;
-    setBusy(true); setError(''); setProfile(null);
-    try { const next = await syncProfile(current, controller.signal); if (!controller.signal.aborted) setProfile(next); }
-    catch (failure) { if (!controller.signal.aborted) setError(friendlyError(failure)); }
-    finally { if (!controller.signal.aborted) setBusy(false); }
+    setAuthBusy(true);
+    setAuthError('');
+    try {
+      const next = await syncProfile(current, controller.signal);
+      if (!controller.signal.aborted) setProfile(next);
+    } catch (failure) {
+      if (!controller.signal.aborted) setAuthError(friendlyError(failure));
+    } finally {
+      if (!controller.signal.aborted) setAuthBusy(false);
+    }
   }
+
+  // Firebase auth state subscription
   useEffect(() => {
-    if (!auth) return;
-    const startupTimer = setTimeout(() => { setBusy(false); setError('Restoring your Google session took too long. Please try signing in again.'); }, 15_000);
-    const stop = onIdTokenChanged(auth, current => {
+    if (!auth) {
+      setAuthBusy(false);
+      return;
+    }
+    const startupTimer = setTimeout(() => {
+      setAuthBusy(false);
+    }, 12_000);
+
+    const stop = onIdTokenChanged(auth, (current) => {
       clearTimeout(startupTimer);
       setUser(current);
-      if (current) void load(current);
-      else { request.current?.abort(); setProfile(null); setBusy(false); }
+      if (current) {
+        void loadProfile(current);
+      } else {
+        request.current?.abort();
+        setProfile(null);
+        setAuthBusy(false);
+      }
     });
-    return () => { clearTimeout(startupTimer); stop(); request.current?.abort(); };
+
+    return () => {
+      clearTimeout(startupTimer);
+      stop();
+      request.current?.abort();
+    };
   }, []);
-  async function login() {
-    if (!auth) return;
-    setError(''); setBusy(true);
-    setConnectingGoogle(true);
+
+  // Fetch supported cities for forms
+  useEffect(() => {
+    void fetchCities().then((res) => {
+      if (res && res.length) setCities(res);
+    });
+  }, []);
+
+  // Sync browser path and handle deep links / back navigation
+  useEffect(() => {
+    const handleLocation = () => {
+      const path = window.location.pathname.toLowerCase();
+      const hash = window.location.hash.toLowerCase();
+
+      if (path === '/sell' || hash === '#sell') {
+        scrollToSection('sell');
+        setSellModalOpen(true);
+      } else if (path === '/terms') {
+        setLegalModalType('terms');
+      } else if (path === '/privacy') {
+        setLegalModalType('privacy');
+      } else if (path === '/account') {
+        if (user) {
+          setAccountModalOpen(true);
+        } else {
+          setAuthReason('Sign in to view your V MOTIV account and activity.');
+          setAuthModalOpen(true);
+        }
+      } else if (path === '/cars' || hash === '#cars') {
+        scrollToSection('cars');
+      } else if (path === '/how-it-works' || hash === '#how-it-works') {
+        scrollToSection('how-it-works');
+      } else if (path === '/about' || hash === '#about') {
+        scrollToSection('about');
+      } else if (path === '/contact' || hash === '#contact') {
+        scrollToSection('contact');
+      }
+    };
+
+    handleLocation();
+    window.addEventListener('popstate', handleLocation);
+    window.addEventListener('hashchange', handleLocation);
+    return () => {
+      window.removeEventListener('popstate', handleLocation);
+      window.removeEventListener('hashchange', handleLocation);
+    };
+  }, [user]);
+
+  const scrollToSection = (sectionId: string) => {
+    const target = document.getElementById(sectionId);
+    if (target) {
+      target.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const navigateTo = (sectionId: string) => {
+    scrollToSection(sectionId);
+    if (sectionId === 'sell') {
+      setSellModalOpen(true);
+    }
+    if (window.location.pathname !== '/') {
+      window.history.pushState({}, '', `/#${sectionId}`);
+    } else {
+      window.history.replaceState({}, '', `/#${sectionId}`);
+    }
+  };
+
+  // Google Login popup
+  const handleLogin = async () => {
+    if (!auth) {
+      setAuthError('Sign-in is currently unavailable. Please verify connection.');
+      return;
+    }
+    setAuthError('');
+    setAuthBusy(true);
+
     let loginTimer: ReturnType<typeof setTimeout>;
-    const deadline = new Promise<never>((_, reject) => { loginTimer = setTimeout(() => reject({ code: 'GOOGLE_SIGN_IN_TIMEOUT' }), 120_000); });
-    try { await Promise.race([signInWithPopup(auth, new GoogleAuthProvider(), browserPopupRedirectResolver), deadline]); }
-    catch (failure) { setError(friendlyError(failure)); setBusy(false); }
-    finally { clearTimeout(loginTimer!); setConnectingGoogle(false); }
-  }
-  async function logout() {
+    const deadline = new Promise<never>((_, reject) => {
+      loginTimer = setTimeout(() => reject({ code: 'GOOGLE_SIGN_IN_TIMEOUT' }), 120_000);
+    });
+
+    try {
+      await Promise.race([
+        signInWithPopup(auth, new GoogleAuthProvider(), browserPopupRedirectResolver),
+        deadline,
+      ]);
+      setAuthModalOpen(false);
+    } catch (failure) {
+      setAuthError(friendlyError(failure));
+    } finally {
+      clearTimeout(loginTimer!);
+      setAuthBusy(false);
+    }
+  };
+
+  // Logout
+  const handleLogout = async () => {
     if (!auth) return;
     request.current?.abort();
-    setBusy(true);
-    try { await signOut(auth); setError(''); }
-    catch { setError('We could not sign you out. Please try again.'); }
-    finally { setBusy(false); }
-  }
-  return <div className="shell">
-    <header><a className="wordmark" href="/" aria-label="V MOTIV home">V <span>MOTIV</span><small>YOUR NEXT CHAPTER</small></a><span className="header-note">Customer account</span></header>
-    <main>
-      <section className="intro"><p className="eyebrow">A BETTER WAY FORWARD</p><h1>Your car journey.<br/><span>One account.</span></h1><p className="lead">A place for every step of buying and selling your car.</p><div className="journey"><span>Explore possibilities</span><span>Make your next move</span><span>Stay connected</span></div></section>
-      <section className="card" aria-labelledby="account-title" aria-busy={busy}>
-        <span className="section-label">{profile ? 'YOUR ACCOUNT' : 'LET’S GET STARTED'}</span>
-        <h2 id="account-title">{profile ? 'Welcome, ' + (profile.displayName?.split(' ')[0] || 'there') : 'Welcome to V MOTIV'}</h2>
-        <p className="card-description">{profile ? 'You’re signed in and your account is ready.' : 'Use your Google account to sign in or create your V MOTIV account.'}</p>
-        {!configured && <p className="notice" role="status">Google sign-in is being configured. Please check back shortly.</p>}
-        {busy && <p role="status" className="notice">{connectingGoogle ? 'Complete sign-in in the Google window…' : 'Connecting to your account…'}</p>}
-        {error && <div role="alert" className="error"><p>{error}</p>{user && <button className="secondary" disabled={busy} onClick={() => void load(user)}>Try again</button>}</div>}
-        {profile && <dl><div><dt>Email address</dt><dd>{profile.email}</dd></div><div><dt>Member since</dt><dd>{new Date(profile.createdAt).toLocaleDateString()}</dd></div><div><dt>Marketing emails</dt><dd>{profile.marketingConsent ? 'Subscribed' : 'Not subscribed'}</dd></div></dl>}
-        {!user ? <button className="google" disabled={!configured || busy} onClick={() => void login()}><span aria-hidden="true" className="google-letter">G</span>Continue with Google<span aria-hidden="true">→</span></button> : <button className="secondary" disabled={busy} onClick={() => void logout()}>Sign out</button>}
-        <p className="fine-print">Your Google account helps keep sign-in simple. We won’t subscribe you to promotional emails when you join.</p>
-      </section>
-    </main>
-    <footer><span>V MOTIV</span><p>Move forward with confidence.</p></footer>
-  </div>;
-}
-createRoot(document.getElementById('root')!).render(<React.StrictMode><App/></React.StrictMode>);
+    setAuthBusy(true);
+    try {
+      await signOut(auth);
+      setProfile(null);
+      setUser(null);
+      setAccountModalOpen(false);
+      window.history.replaceState({}, '', '/');
+    } catch {
+      setAuthError('We could not sign you out. Please try again.');
+    } finally {
+      setAuthBusy(false);
+    }
+  };
 
+  const handleOpenAuth = (reason = '') => {
+    setAuthReason(reason);
+    setAuthError('');
+    setAuthModalOpen(true);
+  };
+
+  return (
+    <div className="site-shell">
+      {/* 1. Header & Navigation */}
+      <Navbar
+        user={user}
+        profile={profile}
+        authBusy={authBusy}
+        onOpenAuth={() => handleOpenAuth()}
+        onOpenAccount={() => setAccountModalOpen(true)}
+        onNavigate={navigateTo}
+      />
+
+      <main>
+        {/* 2. Hero Section */}
+        <Hero
+          onExploreCars={() => navigateTo('cars')}
+          onSellCar={() => navigateTo('sell')}
+        />
+
+        {/* 3. Buy / Sell Quick Action Cards */}
+        <QuickActions
+          onBuyClick={() => navigateTo('cars')}
+          onSellClick={() => navigateTo('sell')}
+        />
+
+        {/* 4. Live Available Cars Preview */}
+        <AvailableCars
+          onSelectCar={(car) => setSelectedVehicle(car)}
+          onSellClick={() => navigateTo('sell')}
+        />
+
+        {/* 5. How It Works (Buying & Selling Workflows) */}
+        <HowItWorks />
+
+        {/* 6. Why V MOTIV (Accountability Pillars) */}
+        <WhyVMotiv />
+
+        {/* 7. Mobile App Showcase */}
+        <MobileAppSection />
+
+        {/* 8. About V MOTIV & Presence */}
+        <AboutSection />
+
+        {/* 9. Accessible FAQ Accordion */}
+        <FAQSection />
+
+        {/* 10. Final Call to Action */}
+        <FinalCTA
+          onExploreCars={() => navigateTo('cars')}
+          onSellCar={() => navigateTo('sell')}
+        />
+      </main>
+
+      {/* 11. Footer with Official Lockup and Tagline */}
+      <Footer
+        onNavigate={navigateTo}
+        onOpenPrivacy={() => setLegalModalType('privacy')}
+        onOpenTerms={() => setLegalModalType('terms')}
+      />
+
+      {/* Modals & Dialogs */}
+      <AuthModal
+        isOpen={authModalOpen}
+        onClose={() => setAuthModalOpen(false)}
+        onLogin={handleLogin}
+        busy={authBusy}
+        error={authError}
+        actionReason={authReason}
+      />
+
+      <AccountModal
+        isOpen={accountModalOpen}
+        onClose={() => setAccountModalOpen(false)}
+        user={user}
+        profile={profile}
+        onLogout={handleLogout}
+        busy={authBusy}
+      />
+
+      <SellCarModal
+        isOpen={sellModalOpen}
+        onClose={() => {
+          setSellModalOpen(false);
+          if (window.location.pathname === '/sell' || window.location.hash === '#sell') {
+            window.history.replaceState({}, '', '/');
+          }
+        }}
+        user={user}
+        cities={cities}
+        onRequestAuth={(reason) => handleOpenAuth(reason)}
+      />
+
+      <VehicleDetailModal
+        vehicle={selectedVehicle}
+        user={user}
+        onClose={() => setSelectedVehicle(null)}
+        onRequestAuth={(reason) => handleOpenAuth(reason)}
+      />
+
+      <LegalModal
+        isOpen={Boolean(legalModalType)}
+        type={legalModalType}
+        onClose={() => {
+          setLegalModalType(null);
+          if (window.location.pathname === '/terms' || window.location.pathname === '/privacy') {
+            window.history.replaceState({}, '', '/');
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+createRoot(document.getElementById('root')!).render(
+  <React.StrictMode>
+    <App />
+  </React.StrictMode>
+);
