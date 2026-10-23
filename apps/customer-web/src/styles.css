@@ -471,6 +471,7 @@ a {
   gap: 28px;
   padding-top: 28px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
+  flex-wrap: wrap;
 }
 
 .trust-item {
@@ -2178,11 +2179,12 @@ a {
 @media (max-width: 1024px) {
   .hero-container {
     grid-template-columns: 1fr;
-    gap: 40px;
+    gap: 36px;
   }
 
   .hero-visual {
-    order: -1;
+    order: 2;
+    margin-top: 4px;
   }
 
   .workflow-grid,
