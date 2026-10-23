@@ -10,7 +10,8 @@
     "test": "vitest run",
     "worker": "tsx --env-file-if-exists=.env src/worker.ts",
     "db:generate": "prisma generate",
-    "db:deploy": "node deploy-database.mjs"
+    "db:deploy": "node deploy-database.mjs",
+    "db:seed": "tsx --env-file-if-exists=.env prisma/seed.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",
