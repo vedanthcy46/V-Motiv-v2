@@ -69,7 +69,14 @@ export function createApp(deps: { verify: VerifyToken; store: IdentityStore; web
   ]);
   app.use(cors({
     origin: (origin, callback) => {
-      if (!origin || allowedOrigins.has(origin) || origin.startsWith('http://192.168.')) {
+      if (
+        !origin ||
+        allowedOrigins.has(origin) ||
+        origin.startsWith('http://192.168.') ||
+        origin.endsWith('.vercel.app') ||
+        origin === 'https://vmotiv.in' ||
+        origin === 'https://www.vmotiv.in'
+      ) {
         return callback(null, true);
       }
       return callback(null, false);

@@ -179,3 +179,18 @@ No claim of live email, provider authentication, deployment, app-store release, 
   - `npm test`: All tests pass across API, Mobile, and Web (Web vitest suite expanded to 12 passing tests).
   - `npm run build --workspace=@vmotiv/customer-web`: Production bundle built cleanly with gzip optimization and SPA redirect rules.
 
+## Vercel Deployment & Serverless Function Crash Remediation — 23 October 2026
+
+### Root Cause Analysis
+1. `ERR_REQUIRE_ESM` in `jwks-rsa`: `firebase-admin@14.5.0` had a dependency on `jwks-rsa@4.1.0`. In `jwks-rsa@4.1.0`, `utils.js` executed `const jose = require('jose');`. `jose@6.x` is a pure ES module (`"type": "module"`). When executed inside Vercel's Node.js Serverless runtime (which runs CommonJS module resolution by default for serverless functions), Node rejected `require()` of an ES module and terminated the process with status 1 on every single API request.
+2. Direct Entrypoint Coupling in `api/index.ts`: When Vercel compiled the serverless entry, a static `export { default } from '...'` caused module resolution incompatibilities between CommonJS and ESM artifacts.
+3. Cold-Start Crash on Missing Environment Variable: `services/api/src/vercel.ts` threw immediately at module import if `FIREBASE_SERVICE_ACCOUNT_JSON` was not parsed, blocking public endpoints like `/api/v1/health/live`, `/api/v1/cities`, and `/api/v1/inventory` from booting.
+
+### Fixes Implemented
+1. **Dynamic Import in `api/index.ts`**: Replaced static export with an async handler that dynamically invokes `await import('../services/api/dist/vercel.js')`. This works seamlessly in both CJS and ESM environments.
+2. **Pinned `firebase-admin@13.10.0` and Overrode `jwks-rsa@3.1.0`**: Pinned in `services/api/package.json` and enforced in root `package.json` `overrides` with `package-lock.json` updated. `jwks-rsa@3.1.0` uses `jose@4.x`, which is fully CommonJS-compatible and never triggers `ERR_REQUIRE_ESM`.
+3. **Lazy Firebase Admin Initialization in `vercel.ts`**: Wrapped Firebase Admin initialization inside `getFirebase()` so public endpoints (`/api/v1/cities`, `/api/v1/inventory`, `/api/v1/health/*`) boot without dependencies on private secrets.
+4. **CORS Allowlist for Vercel Domains**: Updated `app.ts` to explicitly allow `*.vercel.app`, `vmotiv.in`, and `www.vmotiv.in`.
+5. **Static Route Rewrite Whitelist in `vercel.json`**: Excluded `brand/`, `favicon`, `robots`, and `sitemap` from the SPA rewrite rule.
+
+

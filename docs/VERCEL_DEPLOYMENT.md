@@ -10,7 +10,20 @@ Import the V2 repository and set Root Directory to the folder containing this `v
 
 The website and `/api/v1` API share one domain. The mobile app itself is distributed through Android/iOS builds, not Vercel.
 
-The `api/` directory has its own ESM package and NodeNext TypeScript configuration, matching the compiled backend's module format. Keep these files in the deployment: without them the root CommonJS default can turn the function entry into `require()` and crash with `ERR_REQUIRE_ESM` before any API route runs.
+## CommonJS / ESM Resolution & jwks-rsa Fix (23 October 2026)
+
+1. **Dynamic Import in `api/index.ts`**:
+   Vercel wraps serverless function entries in an asynchronous runtime handler. `api/index.ts` uses dynamic `await import('../services/api/dist/vercel.js')` so that regardless of whether Vercel processes the entry as CommonJS or ESM, it resolves cleanly without `ERR_REQUIRE_ESM`.
+
+2. **`jwks-rsa` / `jose` Dependency Pinning**:
+   `firebase-admin@14.x` pulled in `jwks-rsa@4.1.0`, which had an unhandled synchronous `require('jose')` of a pure ESM package (`jose@6.x`). This caused Node.js inside Vercel serverless functions to crash on cold start with `ERR_REQUIRE_ESM: require() of ES Module ... jose/dist/webapi/index.js from jwks-rsa/src/utils.js not supported`.
+   We pinned `firebase-admin@13.10.0` and enforced `"jwks-rsa": "3.1.0"` in `package.json` overrides. `jwks-rsa@3.1.0` uses `jose@4.x`, which is fully CommonJS compatible.
+
+3. **Lazy Firebase Admin Initialization in `services/api/src/vercel.ts`**:
+   Firebase Admin credentials check is now evaluated lazily inside token verification. This guarantees that public endpoints (`/api/v1/health/live`, `/api/v1/cities`, `/api/v1/inventory`) boot instantly without crashing if `FIREBASE_SERVICE_ACCOUNT_JSON` is temporarily absent in a preview branch.
+
+4. **CORS Allowlist for Vercel Domains**:
+   `services/api/src/app.ts` permits requests from `*.vercel.app`, `vmotiv.in`, and `www.vmotiv.in`.
 
 ## Environment variables
 
@@ -18,7 +31,7 @@ Set these in Vercel before building:
 
 - `NODE_ENV=production`
 - `DATABASE_URL`: dedicated V2 Neon pooled PostgreSQL URL with SSL
-- `WEB_ORIGIN`: exact HTTPS website origin, without trailing slash
+- `WEB_ORIGIN`: exact HTTPS website origin, without trailing slash (e.g. `https://www.vmotiv.in`)
 - `FIREBASE_PROJECT_ID`: Firebase project ID
 - `FIREBASE_SERVICE_ACCOUNT_JSON`: complete Firebase Admin service-account JSON stored as a secret, never a `VITE_` variable
 - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`: Firebase public web configuration
@@ -26,7 +39,7 @@ Set these in Vercel before building:
 
 Add the deployed website domain to Firebase Authentication's authorized domains. Local credentials file paths do not work in Vercel.
 
-Keep development dependencies installed during the build, even with `NODE_ENV=production`. TypeScript and the Express/CORS/React declaration packages are build tools in devDependencies. Omitting them causes TS7016 and cascading implicit-any errors. If the Vercel dashboard has an Install Command override, change it to `npm ci --include=dev` or disable the override so this repository configuration applies.
+Keep development dependencies installed during the build, even with `NODE_ENV=production`. TypeScript and the Express/CORS/React declaration packages are build tools in devDependencies. If the Vercel dashboard has an Install Command override, change it to `npm ci --include=dev` or disable the override so this repository configuration applies.
 
 ## Database and email
 
