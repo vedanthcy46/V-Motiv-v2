@@ -10,6 +10,8 @@ Import the V2 repository and set Root Directory to the folder containing this `v
 
 The website and `/api/v1` API share one domain. The mobile app itself is distributed through Android/iOS builds, not Vercel.
 
+The `api/` directory has its own ESM package and NodeNext TypeScript configuration, matching the compiled backend's module format. Keep these files in the deployment: without them the root CommonJS default can turn the function entry into `require()` and crash with `ERR_REQUIRE_ESM` before any API route runs.
+
 ## Environment variables
 
 Set these in Vercel before building:
