@@ -3,7 +3,7 @@
 Import the V2 repository and set Root Directory to the folder containing this `vercel.json` (`vmotiv-v2` if importing its parent). Do not select the mobile workspace.
 
 - Framework preset: Other
-- Install command: `npm ci`
+- Install command: `npm ci --include=dev`
 - Build command: `npm run db:generate && npm run build -w @vmotiv/api && npm run build -w @vmotiv/customer-web`
 - Output directory: `apps/customer-web/dist`
 - Node.js: 24.x
@@ -23,6 +23,8 @@ Set these in Vercel before building:
 - `EMAIL_DELIVERY_ENABLED=false` for the HTTP function until a separate email worker is configured
 
 Add the deployed website domain to Firebase Authentication's authorized domains. Local credentials file paths do not work in Vercel.
+
+Keep development dependencies installed during the build, even with `NODE_ENV=production`. TypeScript and the Express/CORS/React declaration packages are build tools in devDependencies. Omitting them causes TS7016 and cascading implicit-any errors. If the Vercel dashboard has an Install Command override, change it to `npm ci --include=dev` or disable the override so this repository configuration applies.
 
 ## Database and email
 
