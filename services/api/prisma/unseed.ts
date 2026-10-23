@@ -57,7 +57,7 @@ async function unseed() {
   console.log(`Removed ${enquiriesDeleted.count} associated purchase enquiries.`);
 
   // 4. Delete associated media
-  const mediaDeleted = await db.listingMedia.deleteMany({
+  const mediaDeleted = await db.vehicleMedia.deleteMany({
     where: { listingId: { in: listingIds } },
   });
   console.log(`Removed ${mediaDeleted.count} associated media items.`);
