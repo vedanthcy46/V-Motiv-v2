@@ -1,6 +1,11 @@
 import express, { type ErrorRequestHandler } from 'express';
 import cors from 'cors';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import helmet from 'helmet';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 import { rateLimit } from 'express-rate-limit';
 import { authentication, optionalAuthentication, type Identity, type VerifyToken } from './auth.js';
 import type { IdentityStore } from './identity-store.js';
@@ -32,13 +37,24 @@ const driveInput = z.object({ listingId: uuid, requestedDate: z.string().regex(/
   if (value.locationPreference === 'HOME' && !value.address) context.addIssue({ code: 'custom', message: 'Address is required for home preference', path: ['address'] });
 });
 const savedSearchInput = z.object({ name: z.string().trim().min(1).max(60), query: z.record(z.string(), z.unknown()).default({}) }).strict();
-const purchaseInput = z.object({ listingId: uuid, message: z.string().trim().max(500).optional(), idempotencyKey: z.string().trim().min(16).max(120) }).strict();
+const purchaseInput = z.object({ listingId: uuid, message: z.string().trim().min(1, 'Enquiry message is required').max(500), idempotencyKey: z.string().trim().min(16).max(120) }).strict();
 const supportInput = z.object({ subject: z.string().trim().min(3).max(120), category: z.enum(['ACCOUNT', 'BUYING', 'SELLING', 'INSPECTION', 'PAYMENT_REFUND', 'DELIVERY', 'OWNERSHIP_TRANSFER', 'PRIVACY', 'OTHER']), description: z.string().trim().min(10).max(2000) }).strict();
 const supportReplyInput = z.object({ body: z.string().trim().min(1).max(2000) }).strict();
 const addressInput = z.object({ label: z.string().trim().min(1).max(40), addressLine: z.string().trim().min(10).max(300), city: z.string().trim().min(2).max(100), pincode: z.string().regex(/^\d{6}$/) }).strict();
 const privacyRequestInput = z.object({ requestType: z.enum(['DATA_ACCESS', 'ACCOUNT_DELETION']) }).strict();
 const inventoryQuery = z.object({ search: z.string().trim().max(80).optional(), page: z.coerce.number().int().min(1).max(10_000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20), city: z.string().trim().max(100).optional(), fuelType: z.string().trim().max(30).optional(), transmission: z.string().trim().max(30).optional(), minYear: z.coerce.number().int().min(1980).max(new Date().getFullYear() + 1).optional(), maxYear: z.coerce.number().int().min(1980).max(new Date().getFullYear() + 1).optional(), maxOdometerKm: z.coerce.number().int().min(0).max(2_000_000).optional(), minPricePaise: z.coerce.number().int().min(0).max(10_000_000_000).optional(), maxPricePaise: z.coerce.number().int().min(0).max(10_000_000_000).optional(), sort: z.enum(['newest', 'price_asc', 'price_desc', 'year_desc']).default('newest') }).strict().superRefine((value, ctx) => { if (value.minYear && value.maxYear && value.minYear > value.maxYear) ctx.addIssue({ code: 'custom', message: 'Invalid year range' }); if (value.minPricePaise && value.maxPricePaise && value.minPricePaise > value.maxPricePaise) ctx.addIssue({ code: 'custom', message: 'Invalid price range' }); });
-function parsed<T>(schema: z.ZodType<T>, value: unknown): T { try { return schema.parse(value); } catch (error) { if (error instanceof ZodError) throw new HttpError(400, 'INVALID_INPUT'); throw error; } }
+function parsed<T>(schema: z.ZodType<T>, value: unknown): T {
+  try {
+    return schema.parse(value);
+  } catch (error) {
+    if (error instanceof ZodError) {
+      const issues = Array.isArray(error.issues) ? error.issues : Array.isArray((error as any).errors) ? (error as any).errors : [];
+      console.error('INVALID_INPUT_FIELDS', JSON.stringify(issues.map((e: any) => ({ path: e.path, message: e.message }))));
+      throw new HttpError(400, 'INVALID_INPUT');
+    }
+    throw error;
+  }
+}
 
 export function createApp(deps: { verify: VerifyToken; store: IdentityStore; webOrigin: string; customer?: CustomerStore }) {
   const app = express();
@@ -61,6 +77,7 @@ export function createApp(deps: { verify: VerifyToken; store: IdentityStore; web
     credentials: false,
   }));
   app.use(express.json({ limit: '8kb' }));
+  app.use('/brand', express.static(path.resolve(__dirname, '../assets/brand')));
   app.get('/api/v1/health/live', (_req, res) => res.json({ status: 'alive' }));
   app.get('/api/v1/health/ready', async (_req, res) => {
     try { await deps.store.ready(); res.json({ database: 'ready' }); }

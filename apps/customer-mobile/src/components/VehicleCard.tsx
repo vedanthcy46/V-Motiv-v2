@@ -7,11 +7,13 @@ import type { VehicleSummary } from '../types';
 
 export function VehicleCard({
   vehicle: listing,
+  hasTestDrive = false,
   onOpen,
   onSave,
   onBook,
 }: {
   vehicle: VehicleSummary;
+  hasTestDrive?: boolean;
   onOpen: () => void;
   onSave: () => void;
   onBook: () => void;
@@ -103,15 +105,28 @@ export function VehicleCard({
         {/* Action Button */}
         <Pressable
           accessibilityRole="button"
-          accessibilityLabel={`Book a test drive for ${listing.title}`}
+          accessibilityLabel={hasTestDrive ? `Test drive requested for ${listing.title}. View in Activity.` : `Book a test drive for ${listing.title}`}
           onPress={(event) => {
             event.stopPropagation();
             onBook();
           }}
-          style={({ pressed }) => [styles.bookBtn, pressed && styles.bookBtnPressed]}
+          style={({ pressed }) => [
+            styles.bookBtn,
+            hasTestDrive && styles.bookBtnRequested,
+            pressed && styles.bookBtnPressed,
+          ]}
         >
-          <Calendar size={15} color={color.navy} />
-          <Text style={styles.bookBtnText}>Book Test Drive</Text>
+          {hasTestDrive ? (
+            <>
+              <CheckCircle2 size={16} color={color.yellow} />
+              <Text style={styles.bookBtnRequestedText}>Drive Requested · View Status</Text>
+            </>
+          ) : (
+            <>
+              <Calendar size={15} color={color.navy} />
+              <Text style={styles.bookBtnText}>Book Test Drive</Text>
+            </>
+          )}
         </Pressable>
       </View>
     </Pressable>
@@ -274,6 +289,17 @@ const styles = StyleSheet.create({
   bookBtnPressed: {
     opacity: 0.85,
     transform: [{ scale: 0.99 }],
+  },
+  bookBtnRequested: {
+    backgroundColor: 'rgba(247, 181, 3, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(247, 181, 3, 0.4)',
+  },
+  bookBtnRequestedText: {
+    color: color.yellow,
+    fontSize: 13.5,
+    fontWeight: '800',
+    letterSpacing: 0.1,
   },
   bookBtnText: {
     color: color.navy,

@@ -30,7 +30,7 @@ export const customer = {
   savedSearches() { return api<SavedSearch[]>('/me/saved-searches'); },
   saveSearch(input: { name: string; query: Record<string, unknown> }) { return api<SavedSearch>('/me/saved-searches', { method: 'POST', body: jsonBody(input) }); },
   removeSavedSearch(id: string) { return api<void>(`/me/saved-searches/${id}`, { method: 'DELETE' }); },
-  createPurchaseEnquiry(input: { listingId: string; message?: string; idempotencyKey: string }) { return api<PurchaseEnquiry>('/purchase-enquiries', { method: 'POST', body: jsonBody(input) }); },
+  createPurchaseEnquiry(input: { listingId: string; message: string; idempotencyKey: string }) { return api<PurchaseEnquiry>('/purchase-enquiries', { method: 'POST', body: jsonBody(input) }); },
   createSupportCase(input: { subject: string; category: 'ACCOUNT' | 'BUYING' | 'SELLING' | 'INSPECTION' | 'PAYMENT_REFUND' | 'DELIVERY' | 'OWNERSHIP_TRANSFER' | 'PRIVACY' | 'OTHER'; description: string }) { return api<SupportCase>('/support-cases', { method: 'POST', body: jsonBody(input) }); },
   bookTestDrive(input: { listingId: string; requestedDate: string; timeSlot: string; serviceCity: string; locationPreference: 'HUB' | 'HOME'; address?: string; customerNotes?: string }) {
     return api<TestDrive>('/test-drive-requests', { method: 'POST', body: jsonBody(input) });

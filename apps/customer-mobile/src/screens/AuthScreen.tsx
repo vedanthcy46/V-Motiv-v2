@@ -1,4 +1,5 @@
 import React from 'react';
+import Constants from 'expo-constants';
 import { StyleSheet, Text, View } from 'react-native';
 import { CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react-native';
 import { useAuth } from '../auth/AuthProvider';
@@ -7,6 +8,7 @@ import { PrimaryButton, Screen, common } from '../components/ui';
 import { color, radius, space } from '../theme';
 
 export function AuthScreen() {
+  const expoGo = Constants.appOwnership === 'expo' || (Constants.executionEnvironment as string) === 'storeClient';
   const { configured, busy, error, signIn } = useAuth();
 
   return (
@@ -69,7 +71,7 @@ export function AuthScreen() {
 
         {/* Google Sign-In Action */}
         <PrimaryButton
-          title="Continue with Google"
+          title={expoGo ? 'Open V MOTIV for Google sign-in' : 'Continue with Google'}
           onPress={() => void signIn()}
           busy={busy}
           disabled={!configured}

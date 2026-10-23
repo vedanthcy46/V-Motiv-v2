@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -46,6 +46,7 @@ type CategoryType = typeof CATEGORIES[number]['key'];
 export function SupportScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
 
   const [activeTab, setActiveTab] = useState<'CASES' | 'NEW'>('CASES');
   const [cases, setCases] = useState<SupportCase[]>([]);
@@ -111,8 +112,8 @@ export function SupportScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
         {/* Header */}
@@ -179,6 +180,7 @@ export function SupportScreen() {
         </View>
 
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={[
             styles.content,
             { paddingBottom: Math.max(insets.bottom, space.md) + 40 },

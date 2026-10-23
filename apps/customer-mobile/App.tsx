@@ -27,7 +27,7 @@ function Root() {
   const { state, profile } = useAuth();
   if (state === 'booting') return <View style={{ flex: 1, backgroundColor: color.canvas, justifyContent: 'center' }}><ActivityIndicator accessibilityLabel="Restoring account" color={color.yellow} /></View>;
   // Discovery is public. Authentication is requested only from actions that create or expose customer data.
-  if (state === 'signed-in' && !profile?.termsAcceptedAt) return <OnboardingScreen />;
+  if (state === 'signed-in' && (!profile?.termsAcceptedAt || !profile?.phone)) return <OnboardingScreen />;
   return <CustomerNavigator />;
 }
 

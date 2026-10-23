@@ -12,6 +12,11 @@ export function readConfig(env: NodeJS.ProcessEnv) {
     EMAIL_DELIVERY_ENABLED: z.enum(['true', 'false']).default('false'),
   }).parse(env);
   const database = new URL(config.DATABASE_URL);
+  if (database.hostname.endsWith('.neon.tech')) {
+    if (!database.searchParams.has('connect_timeout')) database.searchParams.set('connect_timeout', '30');
+    if (!database.searchParams.has('pool_timeout')) database.searchParams.set('pool_timeout', '30');
+    config.DATABASE_URL = database.toString();
+  }
   if (!['postgres:', 'postgresql:'].includes(database.protocol)) throw new Error('PostgreSQL is required.');
   if (config.NODE_ENV !== 'production' &&
     (!['localhost', '127.0.0.1', '[::1]'].includes(database.hostname) || !/^\/vmotiv_v2_(dev|test)$/.test(database.pathname))) {
@@ -19,8 +24,10 @@ export function readConfig(env: NodeJS.ProcessEnv) {
   }
   const origin = new URL(config.WEB_ORIGIN);
   if (origin.origin !== config.WEB_ORIGIN) throw new Error('WEB_ORIGIN must be an exact origin.');
-  if (config.NODE_ENV === 'production' && (origin.protocol !== 'https:' || env.FIREBASE_AUTH_EMULATOR_HOST)) {
-    throw new Error('Production requires HTTPS and forbids the Firebase auth emulator.');
+  const loopbackOrigin = ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname);
+  if (config.NODE_ENV === 'production' &&
+      ((origin.protocol !== 'https:' && !(origin.protocol === 'http:' && loopbackOrigin)) || env.FIREBASE_AUTH_EMULATOR_HOST)) {
+    throw new Error('Production requires HTTPS for public web origins and forbids the Firebase auth emulator. HTTP is permitted only on loopback.');
   }
   if (config.EMAIL_DELIVERY_ENABLED === 'true' &&
       (!config.RESEND_API_KEY || !config.EMAIL_FROM || !config.EMAIL_FROM.includes('@'))) {

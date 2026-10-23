@@ -32,7 +32,14 @@ export class PrismaIdentityStore implements IdentityStore {
         select: profileSelect,
       });
       await tx.emailOutbox.create({
-        data: { userId: user.id, eventKey: 'welcome/' + user.id, recipient: user.email },
+        data: {
+          userId: user.id,
+          eventKey: 'welcome/' + user.id,
+          recipient: user.email,
+          templateVersion: 'welcome-v1',
+          subject: 'Welcome to V MOTIV · Verified Pre-Owned Cars',
+          text: `Welcome to V MOTIV!\n\nYour verified customer account is ready.\n\nWith V MOTIV, you enjoy:\n• 100% 180-Point Inspected & Certified Pre-Owned Vehicles\n• Doorstep Test Drives with flexible scheduling\n• Instant Car Valuation & Guaranteed Direct Purchase Offers\n• 5-Day Money-Back & Exchange Guarantee\n\nExplore verified inventory or request a car valuation anytime in the V MOTIV mobile app.`,
+        },
       });
       await tx.auditEvent.create({
         data: { actorId: user.id, action: 'CUSTOMER_REGISTERED', entityId: user.id },

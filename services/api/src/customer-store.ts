@@ -55,7 +55,7 @@ export interface CustomerStore {
   createSavedSearch(uid: string, input: { name: string; query: Record<string, unknown> }): Promise<unknown>;
   deleteSavedSearch(uid: string, id: string): Promise<void>;
   purchaseEnquiries(uid: string): Promise<unknown>;
-  createPurchaseEnquiry(uid: string, input: { listingId: string; message?: string; idempotencyKey: string }): Promise<unknown>;
+  createPurchaseEnquiry(uid: string, input: { listingId: string; message: string; idempotencyKey: string }): Promise<unknown>;
   supportCases(uid: string): Promise<unknown>;
   createSupportCase(uid: string, input: { subject: string; category: string; description: string }): Promise<unknown>;
   supportCase(uid: string, id: string): Promise<unknown>;
@@ -156,7 +156,10 @@ export class PrismaCustomerStore implements CustomerStore {
       const drive = await this.db.$transaction(async tx => {
         const created = await tx.testDriveRequest.create({ data: { userId: user.id, listingId: input.listingId, requestedDate: new Date(`${input.requestedDate}T00:00:00.000Z`), timeSlot: input.timeSlot, serviceCity, locationPreference: input.locationPreference, address: input.address, customerNotes: input.customerNotes }, include: { listing: { select: { id: true, title: true, pricePaise: true, currency: true } } } });
         await tx.auditEvent.create({ data: { actorId: user.id, action: 'TEST_DRIVE_REQUESTED', entityId: created.id } });
-        await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `test-drive-requested/${created.id}`, recipient: user.email, templateVersion: 'test-drive-requested-v1', subject: 'Your V MOTIV test-drive request', text: `We received your test-drive request for ${created.listing.title} on ${input.requestedDate}, ${input.timeSlot}. We will only confirm it after availability is reviewed.` } });
+        const locationText = input.locationPreference === 'HOME'
+          ? `Doorstep (${input.address || serviceCity})`
+          : `V MOTIV Certified Hub (${serviceCity})`;
+        await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `test-drive-requested/${created.id}`, recipient: user.email, templateVersion: 'test-drive-requested-v1', subject: `Test Drive Requested · ${created.listing.title}`, text: `We received your test drive request for ${created.listing.title}.\n\nAppointment Details:\n• Date: ${input.requestedDate}\n• Time Window: ${input.timeSlot}\n• Location Preference: ${locationText}\n\nWhat to Prepare:\n• Please keep your valid original Driving License available.\n• Doorstep drives: Our technician will contact you prior to arrival.\n\nOur operations team will confirm your slot shortly. You can manage this appointment anytime in the V MOTIV mobile app under Activity.` } });
         return created;
       });
       return driveJson(drive);
@@ -203,7 +206,7 @@ export class PrismaCustomerStore implements CustomerStore {
         include: { offers: true },
       });
       await tx.auditEvent.create({ data: { actorId: user.id, action: 'ACQUISITION_LEAD_SUBMITTED', entityId: created.id } });
-      await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `selling-requested/${created.id}`, recipient: user.email, templateVersion: 'selling-requested-v1', subject: 'Your V MOTIV selling request', text: `We received your request to sell the ${created.manufacturingYear} ${created.make} ${created.model}. Reference: ${created.referenceCode}. A review is required before an inspection or offer is arranged.` } });
+      await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `selling-requested/${created.id}`, recipient: user.email, templateVersion: 'selling-requested-v1', subject: `Selling Request Received [${created.referenceCode}] · ${created.manufacturingYear} ${created.make} ${created.model}`, text: `We received your request to sell your ${created.manufacturingYear} ${created.make} ${created.model} (${created.variant || 'Standard'}).\n\nReference Code: ${created.referenceCode}\nLocation: ${created.city} (${created.pincode})\nOdometer: ${created.odometerKm.toLocaleString('en-IN')} km\nContact Phone: ${created.sellerPhone}\n\nOur Valuation & Purchase Process:\n1. Transparent pricing evaluation based on current market trends.\n2. 180-Point Doorstep or Hub inspection to certify vehicle condition.\n3. Guaranteed direct purchase offer with same-day payment and free RC transfer.\n\nYou can track this request in your V MOTIV mobile app under Activity.` } });
       return created;
     });
     return leadJson(lead);
@@ -306,7 +309,7 @@ export class PrismaCustomerStore implements CustomerStore {
   async cities() { return this.db.supportedCity.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } }); }
   async addresses(uid: string) {
     const user = await this.user(uid);
-    return this.db.$queryRaw<Array<{ id: string; label: string; addressLine: string; city: string; pincode: string; createdAt: Date }>>(Prisma.sql`SELECT "id", "label", "addressLine", "city", "pincode", "createdAt" FROM "CustomerAddress" WHERE "userId" = ${user.id} ORDER BY "createdAt" DESC`);
+    return this.db.$queryRaw<Array<{ id: string; label: string; addressLine: string; city: string; pincode: string; createdAt: Date }>>(Prisma.sql`SELECT "id", "label", "addressLine", "city", "pincode", "createdAt" FROM "CustomerAddress" WHERE "userId" = ${user.id}::uuid ORDER BY "createdAt" DESC`);
   }
   async createAddress(uid: string, input: AddressInput) {
     const user = await this.user(uid);
@@ -328,22 +331,41 @@ export class PrismaCustomerStore implements CustomerStore {
   async createSavedSearch(uid: string, input: { name: string; query: Record<string, unknown> }) { const user = await this.user(uid); return this.db.savedSearch.create({ data: { userId: user.id, name: input.name, query: input.query as Prisma.InputJsonValue } }); }
   async deleteSavedSearch(uid: string, id: string) { const user = await this.user(uid); await this.db.savedSearch.deleteMany({ where: { id, userId: user.id } }); }
   async purchaseEnquiries(uid: string) { const user = await this.user(uid); return this.db.purchaseEnquiry.findMany({ where: { userId: user.id }, include: { listing: { select: { id: true, title: true, pricePaise: true, currency: true } } }, orderBy: { createdAt: 'desc' } }).then(rows => rows.map(driveJson)); }
-  async createPurchaseEnquiry(uid: string, input: { listingId: string; message?: string; idempotencyKey: string }) {
+  async createPurchaseEnquiry(uid: string, input: { listingId: string; message: string; idempotencyKey: string }) {
     const user = await this.user(uid); const listing = await this.db.vehicleListing.findFirst({ where: { id: input.listingId, status: 'PUBLISHED' }, select: { id: true } }); if (!listing) throw new HttpError(404, 'LISTING_NOT_AVAILABLE');
     const enquiry = await this.db.$transaction(async tx => {
       const existing = await tx.purchaseEnquiry.findUnique({ where: { userId_idempotencyKey: { userId: user.id, idempotencyKey: input.idempotencyKey } }, include: { listing: { select: { id: true, title: true, pricePaise: true, currency: true } } } });
       if (existing) return existing;
       const created = await tx.purchaseEnquiry.create({ data: { userId: user.id, ...input }, include: { listing: { select: { id: true, title: true, pricePaise: true, currency: true } } } });
       await tx.auditEvent.create({ data: { actorId: user.id, action: 'PURCHASE_ENQUIRY_CREATED', entityId: created.id } });
-      await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `purchase-enquiry/${created.id}`, recipient: user.email, templateVersion: 'purchase-enquiry-v1', subject: 'Your V MOTIV purchase enquiry', text: `We recorded your interest in ${created.listing.title}. Availability is reviewed by our team before any commitment is made.` } });
+      await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `purchase-enquiry/${created.id}`, recipient: user.email, templateVersion: 'purchase-enquiry-v1', subject: `Purchase Enquiry Recorded · ${created.listing.title}`, text: `We recorded your purchase enquiry for ${created.listing.title}.\n\nYour Question / Message:\n"${input.message}"\n\nNext Steps:\n1. Our sales and hub inventory team is reviewing current availability.\n2. A vehicle specialist will follow up with answers regarding pricing, financing plans, and warranty coverage.\n\nYou can track this enquiry in your V MOTIV mobile app under Activity.` } });
       return created;
     });
     return driveJson(enquiry);
   }
   async supportCases(uid: string) { const user = await this.user(uid); return this.db.supportCase.findMany({ where: { userId: user.id }, orderBy: { updatedAt: 'desc' } }); }
-  async createSupportCase(uid: string, input: { subject: string; category: string; description: string }) { const user = await this.user(uid); return this.db.$transaction(async tx => { const support = await tx.supportCase.create({ data: { userId: user.id, ...input } }); await tx.auditEvent.create({ data: { actorId: user.id, action: 'SUPPORT_CASE_CREATED', entityId: support.id } }); await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `support-case/${support.id}`, recipient: user.email, templateVersion: 'support-case-v1', subject: 'Your V MOTIV support case', text: `We created support case ${support.referenceCode} for: ${support.subject}.` } }); return support; }); }
+  async createSupportCase(uid: string, input: { subject: string; category: string; description: string }) { const user = await this.user(uid); return this.db.$transaction(async tx => { const support = await tx.supportCase.create({ data: { userId: user.id, ...input } }); await tx.auditEvent.create({ data: { actorId: user.id, action: 'SUPPORT_CASE_CREATED', entityId: support.id } }); await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `support-case/${support.id}`, recipient: user.email, templateVersion: 'support-case-v1', subject: `Support Case Created [${support.referenceCode}] · ${support.subject}`, text: `We have opened support case ${support.referenceCode} regarding: ${support.subject}.\n\nCategory: ${support.category.replace(/_/g, ' ')}\n\nCase Description:\n${input.description}\n\nOur customer support team aims to reply within 24 hours. You can reply directly to this case from your V MOTIV mobile app under Support.` } }); return support; }); }
   async supportCase(uid: string, id: string) { const user = await this.user(uid); const support = await this.db.supportCase.findFirst({ where: { id, userId: user.id } }); if (!support) throw new HttpError(404, 'SUPPORT_CASE_NOT_FOUND'); const replies = await this.db.$queryRaw<Array<{ id: string; authorType: string; body: string; createdAt: Date }>>(Prisma.sql`SELECT "id", "authorType", "body", "createdAt" FROM "SupportCaseReply" WHERE "caseId" = ${id}::uuid ORDER BY "createdAt" ASC`); return { ...support, replies }; }
-  async replySupportCase(uid: string, id: string, body: string) { const user = await this.user(uid); const support = await this.db.supportCase.findFirst({ where: { id, userId: user.id }, select: { id: true } }); if (!support) throw new HttpError(404, 'SUPPORT_CASE_NOT_FOUND'); const [reply] = await this.db.$queryRaw<Array<{ id: string; authorType: string; body: string; createdAt: Date }>>(Prisma.sql`INSERT INTO "SupportCaseReply" ("caseId", "body") VALUES (${id}::uuid, ${body}) RETURNING "id", "authorType", "body", "createdAt"`); await this.db.supportCase.update({ where: { id }, data: { status: 'OPEN' } }); return reply; }
+  async replySupportCase(uid: string, id: string, body: string) {
+    const user = await this.user(uid);
+    const support = await this.db.supportCase.findFirst({ where: { id, userId: user.id }, select: { id: true, referenceCode: true, subject: true } });
+    if (!support) throw new HttpError(404, 'SUPPORT_CASE_NOT_FOUND');
+    const rows = await this.db.$queryRaw<Array<{ id: string; authorType: string; body: string; createdAt: Date }>>(Prisma.sql`INSERT INTO "SupportCaseReply" ("caseId", "body") VALUES (${id}::uuid, ${body}) RETURNING "id", "authorType", "body", "createdAt"`);
+    const reply = rows[0];
+    if (!reply) throw new HttpError(500, 'FAILED_TO_RECORD_REPLY');
+    await this.db.supportCase.update({ where: { id }, data: { status: 'OPEN' } });
+    await this.db.emailOutbox.create({
+      data: {
+        userId: user.id,
+        eventKey: `support-reply/${reply.id}`,
+        recipient: user.email,
+        templateVersion: 'support-reply-v1',
+        subject: `Update on Case [${support.referenceCode}] · ${support.subject}`,
+        text: `A new message was added to your support case ${support.referenceCode}:\n\n"${body}"\n\nView the full conversation and reply anytime in the V MOTIV mobile app.`,
+      },
+    }).catch(() => undefined);
+    return reply;
+  }
   async activity(uid: string, page: number, limit: number) {
     const user = await this.user(uid);
     const [drives, leads, purchases, cases] = await Promise.all([

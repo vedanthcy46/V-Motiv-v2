@@ -1,6 +1,7 @@
 import type { EmailOutbox, PrismaClient } from '@prisma/client';
 import { Resend } from 'resend';
 import type { Config } from './config.js';
+import { renderEmailHtml } from './email-templates.js';
 
 export type EmailSender = (event: EmailOutbox) => Promise<string>;
 export function resendSender(config: Config): EmailSender {
@@ -8,11 +9,29 @@ export function resendSender(config: Config): EmailSender {
     throw new Error('Email delivery is disabled or not configured.');
   }
   const resend = new Resend(config.RESEND_API_KEY);
+
   return async event => {
+    const html = renderEmailHtml({
+      templateVersion: event.templateVersion,
+      subject: event.subject,
+      text: event.text,
+      recipient: event.recipient,
+      webOrigin: config.WEB_ORIGIN,
+    });
+
     const result = await resend.emails.send({
-      from: event.sender!, to: event.recipient, subject: event.subject, text: event.text,
+      from: event.sender || config.EMAIL_FROM!,
+      to: event.recipient,
+      subject: event.subject,
+      text: event.text,
+      html,
     }, { idempotencyKey: event.eventKey });
-    if (result.error || !result.data?.id) throw new Error('EMAIL_PROVIDER_REJECTED');
+
+    if (result.error || !result.data?.id) {
+      const msg = result.error?.message || 'EMAIL_PROVIDER_REJECTED';
+      console.error('[EMAIL RESEND REJECTED]', result.error);
+      throw new Error(msg);
+    }
     return result.data.id;
   };
 }
@@ -46,11 +65,12 @@ export async function processEmail(db: PrismaClient, send: EmailSender, sender: 
     await db.emailOutbox.updateMany({ where: { id: event.id, state: 'PROCESSING', attempts: event.attempts }, data: {
       state: 'ACCEPTED', providerMessageId, leaseUntil: null, lastErrorCode: null,
     } });
-  } catch {
+  } catch (err: any) {
+    const errCode = (err?.message || 'EMAIL_SEND_FAILED').slice(0, 100);
     await db.emailOutbox.updateMany({ where: { id: event.id, state: 'PROCESSING', attempts: event.attempts }, data: {
       state: event.attempts >= 6 ? 'FAILED' : 'PENDING', leaseUntil: null,
       availableAt: new Date(Date.now() + Math.min(3600, 30 * 2 ** event.attempts) * 1000),
-      lastErrorCode: 'EMAIL_SEND_FAILED',
+      lastErrorCode: errCode,
     } });
   }
   return true;

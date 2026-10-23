@@ -90,6 +90,12 @@ describe('environment and retry guardrails', () => {
     expect(() => readConfig({ ...env, EMAIL_DELIVERY_ENABLED: 'true' })).toThrow();
     expect(readConfig(env).EMAIL_DELIVERY_ENABLED).toBe('false');
   });
+  it('supports local frontend testing in production mode while requiring HTTPS publicly', () => {
+    const production = { ...env, NODE_ENV: 'production', DATABASE_URL: 'postgresql://test@example.test/dedicated_v2' };
+    expect(readConfig(production).NODE_ENV).toBe('production');
+    expect(() => readConfig({ ...production, WEB_ORIGIN: 'http://example.test' })).toThrow('HTTPS');
+    expect(() => readConfig({ ...production, FIREBASE_AUTH_EMULATOR_HOST: 'localhost:9099' })).toThrow('emulator');
+  });
   it('quarantines retries outside provider deduplication window', () => {
     const now = new Date();
     expect(retryAllowed({ attempts: 1, firstAttemptAt: new Date(now.getTime() - 24 * 60 * 60 * 1000) }, now)).toBe(false);

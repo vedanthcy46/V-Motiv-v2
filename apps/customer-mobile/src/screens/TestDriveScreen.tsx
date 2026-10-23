@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -27,12 +27,13 @@ import type { RootStack } from '../navigation/types';
 import { customer } from '../services/customer';
 import { color, radius, space } from '../theme';
 import { friendlyError } from '../format';
-import type { SupportedCity } from '../types';
+import type { CustomerAddress, SupportedCity } from '../types';
 
 const SLOTS = ['10:00-12:00', '12:00-14:00', '15:00-17:00'] as const;
 
 export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<RootStack, 'TestDrive'>) {
   const insets = useSafeAreaInsets();
+  const scrollRef = useRef<ScrollView>(null);
   const { listingId, title } = route.params;
 
   const dates = useMemo(() => {
@@ -49,6 +50,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
   const [serviceCity, setServiceCity] = useState('');
   const [locationPreference, setLocationPreference] = useState<'HUB' | 'HOME'>('HUB');
   const [address, setAddress] = useState('');
+  const [savedAddresses, setSavedAddresses] = useState<CustomerAddress[]>([]);
   const [notes, setNotes] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -63,6 +65,10 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
         }
       })
       .catch(() => setError('Supported locations could not be loaded.'));
+    customer
+      .addresses()
+      .then((data) => setSavedAddresses(data as CustomerAddress[]))
+      .catch(() => undefined);
   }, []);
 
   const submit = async () => {
@@ -98,8 +104,8 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
         {/* Header */}
@@ -121,6 +127,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
         </View>
 
         <ScrollView
+          ref={scrollRef}
           style={{ flex: 1 }}
           contentContainerStyle={[
             styles.content,
@@ -292,7 +299,44 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
           {/* Address if HOME */}
           {locationPreference === 'HOME' && (
             <View style={styles.section}>
-              <Text style={styles.inputLabel}>Doorstep Address *</Text>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: space.xs }}>
+                <Text style={styles.inputLabel}>Doorstep Address *</Text>
+                {savedAddresses.length > 0 && (
+                  <Text style={{ fontSize: 11, color: color.yellow, fontWeight: '600' }}>Tap saved address to auto-fill</Text>
+                )}
+              </View>
+
+              {savedAddresses.length > 0 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 10 }}>
+                  {savedAddresses.map((sa) => (
+                    <TouchableOpacity
+                      key={sa.id}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                        backgroundColor: color.navy,
+                        borderWidth: 1,
+                        borderColor: color.border,
+                        borderRadius: radius.md,
+                        paddingHorizontal: 12,
+                        paddingVertical: 7,
+                      }}
+                      onPress={() => {
+                        setAddress(`${sa.addressLine}, ${sa.city} - ${sa.pincode}`);
+                        if (cities.some((c) => c.name.toLowerCase() === sa.city.toLowerCase())) {
+                          setServiceCity(sa.city);
+                        }
+                      }}
+                    >
+                      <Home size={13} color={color.yellow} />
+                      <Text style={{ color: color.white, fontSize: 12, fontWeight: '700' }}>{sa.label}</Text>
+                      <Text style={{ color: color.muted, fontSize: 11 }}>({sa.city})</Text>
+                    </TouchableOpacity>
+                  ))}
+                </ScrollView>
+              )}
+
               <TextInput
                 style={styles.textArea}
                 multiline
@@ -301,6 +345,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
                 placeholderTextColor={color.muted}
                 value={address}
                 onChangeText={setAddress}
+                onFocus={() => scrollRef.current?.scrollToEnd({ animated: true })}
                 maxLength={300}
               />
             </View>
@@ -317,6 +362,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
               placeholderTextColor={color.muted}
               value={notes}
               onChangeText={setNotes}
+              onFocus={() => scrollRef.current?.scrollToEnd({ animated: true })}
               maxLength={400}
             />
           </View>

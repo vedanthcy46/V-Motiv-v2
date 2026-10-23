@@ -56,12 +56,17 @@ export function OnboardingScreen() {
   }, []);
 
   const continueApp = async () => {
-    if (!accepted) {
-      setError('Please accept the Terms of Service & Privacy Notice to proceed.');
+    const cleanPhone = phone.trim().replace(/\D/g, '');
+    if (!cleanPhone) {
+      setError('Mobile number is required to proceed.');
       return;
     }
-    if (phone && !/^[6-9]\d{9}$/.test(phone)) {
-      setError('Enter a valid 10-digit Indian mobile number or leave it blank.');
+    if (!/^[6-9]\d{9}$/.test(cleanPhone)) {
+      setError('Please enter a valid 10-digit Indian mobile number starting with 6, 7, 8, or 9.');
+      return;
+    }
+    if (!accepted) {
+      setError('Please accept the Terms of Service & Privacy Notice to proceed.');
       return;
     }
 
@@ -69,7 +74,7 @@ export function OnboardingScreen() {
     setError('');
     try {
       await customer.updateProfile({
-        phone: phone ? `+91${phone}` : undefined,
+        phone: `+91${cleanPhone}`,
         preferredCity: preferredCity || undefined,
         marketingConsent: marketing,
         termsVersion: 'customer-v2-2026-10',
@@ -85,8 +90,8 @@ export function OnboardingScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
         <ScrollView
@@ -113,10 +118,12 @@ export function OnboardingScreen() {
           <View style={styles.card}>
             <View style={styles.cardTitleRow}>
               <Phone size={16} color={color.yellow} />
-              <Text style={styles.cardTitle}>Mobile Number (Optional)</Text>
+              <Text style={styles.cardTitle}>
+                Mobile Number <Text style={{ color: color.yellow }}>*</Text>
+              </Text>
             </View>
             <Text style={styles.cardDesc}>
-              Used by our team for test drive and evaluation appointment coordination.
+              Required for test drive coordination, inspection appointments, and booking status updates.
             </Text>
             <View style={styles.phoneInputRow}>
               <View style={styles.countryCodeBadge}>
@@ -128,7 +135,11 @@ export function OnboardingScreen() {
                 placeholderTextColor={color.muted}
                 keyboardType="phone-pad"
                 value={phone}
-                onChangeText={setPhone}
+                onChangeText={(text) => {
+                  const cleaned = text.replace(/\D/g, '').slice(0, 10);
+                  setPhone(cleaned);
+                  if (error) setError('');
+                }}
                 maxLength={10}
               />
             </View>

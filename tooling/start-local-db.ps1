@@ -10,7 +10,7 @@ if (-not (Test-Path -LiteralPath $v2Data)) {
 }
 & (Join-Path $v2Bin 'pg_ctl.exe') -D $v2Data status
 if ($LASTEXITCODE -ne 0) {
-  & (Join-Path $v2Bin 'pg_ctl.exe') -D $v2Data -l (Join-Path $v2Data 'server.log') -o '-h 127.0.0.1 -p 5440' -w start
+  & (Join-Path $v2Bin 'pg_ctl.exe') -D $v2Data -l (Join-Path $v2Root 'postgres-local.log') -o '-h 127.0.0.1 -p 5440' -w start
   if ($LASTEXITCODE -ne 0) { throw 'V2 database startup failed.' }
 }
 foreach ($v2Name in @('vmotiv_v2_dev', 'vmotiv_v2_test')) {

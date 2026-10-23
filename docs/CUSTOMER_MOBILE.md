@@ -28,6 +28,8 @@ The package identifiers are `in.vmotiv.customer`. Register the Android SHA-1/SHA
 
 For a USB-connected Android development device, run `npm run mobile:usb` from the workspace root before opening the app. This forwards both Metro (8081) and the API (4100). Development requests follow the current Metro host, including USB localhost, so no fixed Wi-Fi IP is needed. For Wi-Fi development, run Metro in LAN mode with a reachable local API. A shipped build still needs an explicit HTTPS API URL.
 
+`npm run dev:mobile` and `npm run mobile:android` now maintain USB routes while the development CLI is running, restoring them after an authorized phone reconnects. The API must also be running via `npm run dev:api`. USB forwarding is temporary and is cleared by device/adb reconnects; manual `npx expo start` does not run this reconnect helper. Override `VMOTIV_API_PORT` if the local API uses a port other than 4100.
+
 This app uses native Firebase and Google Sign-In modules, so Expo Go is not supported. Create a development build using Node 24 LTS:
 
 ```powershell

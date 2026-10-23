@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -19,6 +19,7 @@ import {
   CheckCircle2,
   ChevronLeft,
   Clock,
+  Home,
   IndianRupee,
   MapPin,
   ShieldCheck,
@@ -29,7 +30,7 @@ import { customer } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
 import { color, radius, space } from '../theme';
 import { friendlyError } from '../format';
-import type { SupportedCity } from '../types';
+import type { CustomerAddress, SupportedCity } from '../types';
 
 const DRAFT_KEY = 'vmotiv.v2.sell-draft';
 
@@ -52,11 +53,17 @@ export function SellScreen() {
   const navigation = useNavigation<any>();
   const { user } = useAuth();
   const [cities, setCities] = useState<SupportedCity[]>([]);
+  const [savedAddresses, setSavedAddresses] = useState<CustomerAddress[]>([]);
   const [step, setStep] = useState(1);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [submittedLead, setSubmittedLead] = useState<any | null>(null);
   const [idempotencyKey, setIdempotencyKey] = useState(generateMutationKey);
+  const scrollRef = useRef<ScrollView>(null);
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: false });
+  }, [step]);
 
   // Form state
   const [make, setMake] = useState('');
@@ -131,6 +138,10 @@ export function SellScreen() {
     customer
       .cities()
       .then(setCities)
+      .catch(() => {});
+    customer
+      .addresses()
+      .then((data) => setSavedAddresses(data as CustomerAddress[]))
       .catch(() => {});
   }, []);
 
@@ -229,9 +240,11 @@ export function SellScreen() {
       }
     }
     if (s === 6) {
-      if (inspectionLocationType === 'HOME' && !inspectionAddress.trim()) {
-        setError('Please enter your doorstep address for the inspection appointment.');
-        return false;
+      if (inspectionLocationType === 'HOME') {
+        if (!inspectionAddress.trim() || inspectionAddress.trim().length < 10) {
+          setError('Please enter a complete doorstep address for inspection (minimum 10 characters).');
+          return false;
+        }
       }
     }
     return true;
@@ -244,16 +257,22 @@ export function SellScreen() {
   };
 
   const handleSubmit = async () => {
+    if (!validateStep(1) || !validateStep(2) || !validateStep(5) || !validateStep(6)) {
+      return;
+    }
     setBusy(true);
     setError('');
     try {
-      const year = Number(manufacturingYear);
-      const odo = Number(odometerKm);
-      const expectedPaise = expectedLakhs ? Math.round(Number(expectedLakhs) * 10_000_000) : undefined;
+      const year = Number(manufacturingYear.toString().trim());
+      const odo = Number(odometerKm.toString().replace(/,/g, '').trim());
+      const parsedLakhs = expectedLakhs ? parseFloat(expectedLakhs) : NaN;
+      const expectedPaise = !isNaN(parsedLakhs) && parsedLakhs > 0 ? Math.round(parsedLakhs * 10_000_000) : undefined;
+      const cleanPhone = sellerPhone.replace(/\D/g, '').replace(/^91/, '');
+      const formattedPhone = cleanPhone.length === 10 ? `+91${cleanPhone}` : `+91${sellerPhone.trim().replace(/^\+91/, '')}`;
 
       const result = await customer.sell({
         sellerName: sellerName.trim(),
-        sellerPhone: `+91${sellerPhone.trim()}`,
+        sellerPhone: formattedPhone,
         city: city.trim(),
         pincode: pincode.trim(),
         make: make.trim(),
@@ -265,7 +284,7 @@ export function SellScreen() {
         odometerKm: odo,
         expectedPricePaise: expectedPaise,
         ownershipCount: Number(ownershipCount) || 1,
-        registrationYear: registrationYear ? Number(registrationYear) : undefined,
+        registrationYear: registrationYear && !isNaN(Number(registrationYear)) ? Number(registrationYear) : undefined,
         color: colorName.trim() || undefined,
         registrationCity: registrationCity.trim() || undefined,
         loanOutstanding,
@@ -329,8 +348,8 @@ export function SellScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 20 : 0}
+        behavior="padding"
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
         {/* Header */}
@@ -354,9 +373,10 @@ export function SellScreen() {
         </View>
 
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: Math.max(insets.bottom, space.md) + 40 },
+            { paddingBottom: Math.max(insets.bottom, space.md) + 60 },
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -741,7 +761,43 @@ export function SellScreen() {
 
               {inspectionLocationType === 'HOME' ? (
                 <View style={styles.fieldGroup}>
-                  <Text style={styles.label}>Doorstep Address *</Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <Text style={styles.label}>Doorstep Address *</Text>
+                    {savedAddresses.length > 0 && (
+                      <Text style={{ fontSize: 11, color: color.yellow, fontWeight: '600' }}>Tap to auto-fill</Text>
+                    )}
+                  </View>
+
+                  {savedAddresses.length > 0 && (
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 8 }}>
+                      {savedAddresses.map((sa) => (
+                        <TouchableOpacity
+                          key={sa.id}
+                          style={{
+                            flexDirection: 'row',
+                            alignItems: 'center',
+                            gap: 6,
+                            backgroundColor: color.navy,
+                            borderWidth: 1,
+                            borderColor: color.border,
+                            borderRadius: radius.md,
+                            paddingHorizontal: 12,
+                            paddingVertical: 7,
+                          }}
+                          onPress={() => {
+                            setInspectionAddress(`${sa.addressLine}, ${sa.city} - ${sa.pincode}`);
+                            setCity(sa.city);
+                            setPincode(sa.pincode);
+                          }}
+                        >
+                          <Home size={13} color={color.yellow} />
+                          <Text style={{ color: color.white, fontSize: 12, fontWeight: '700' }}>{sa.label}</Text>
+                          <Text style={{ color: color.muted, fontSize: 11 }}>({sa.city})</Text>
+                        </TouchableOpacity>
+                      ))}
+                    </ScrollView>
+                  )}
+
                   <TextInput
                     style={[styles.input, { height: 80, textAlignVertical: 'top' }]}
                     placeholder="Building, street, landmark"

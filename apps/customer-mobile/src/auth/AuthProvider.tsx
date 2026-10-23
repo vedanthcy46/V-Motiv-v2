@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Constants from 'expo-constants';
-import { api, hasNativeFirebase as linkedFirebase, setDevSessionToken } from '../api';
+import { Linking } from 'react-native';
+import { api, hasNativeFirebase as linkedFirebase } from '../api';
 import { withDeadline } from '../api-network';
 import { friendlyError } from '../format';
 import type { Profile } from '../types';
@@ -196,61 +197,20 @@ function ConfiguredProvider({ children }: React.PropsWithChildren) {
 }
 
 function ExpoGoProvider({ children }: React.PropsWithChildren) {
-  const [state, setState] = useState<AuthContextValue['state']>('signed-out');
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
+  const [error, setError] = useState<string | null>('Google sign-in opens in the installed V MOTIV development app. Expo Go cannot load native Google authentication.');
   const signIn = useCallback(async () => {
-    setBusy(true);
-    setError(null);
-    try {
-      setDevSessionToken('dev-preview-token');
-      const res = await api<Profile>('/auth/sync', { method: 'POST' });
-      setProfile(res);
-      setState('signed-in');
-    } catch (e: any) {
-      setDevSessionToken(undefined);
-      setError(friendlyError(e));
-      setState('signed-out');
-    } finally {
-      setBusy(false);
-    }
+    try { await Linking.openURL('vmotiv://account'); }
+    catch { setError('Install the V MOTIV development app first: run npm run mobile:android from the project folder, then reopen it for Google sign-in.'); }
   }, []);
-
-  const signOut = useCallback(async () => {
-    setDevSessionToken(undefined);
-    setProfile(null);
-    setState('signed-out');
-    setError(null);
-  }, []);
-
-  const refreshProfile = useCallback(async () => {
-    try {
-      const res = await api<Profile>('/me');
-      setProfile(res);
-    } catch (e) {
-      setError(friendlyError(e));
-    }
-  }, []);
-
   const value = useMemo<AuthContextValue>(() => ({
-    state,
-    profile,
-    user: profile,
-    configured: true,
-    busy,
-    error,
-    signIn,
-    signOut,
-    refreshProfile,
-  }), [state, profile, busy, error, signIn, signOut, refreshProfile]);
-
+    state: 'signed-out', profile: null, user: null, configured: true, busy: false,
+    error, signIn, signOut: async () => undefined, refreshProfile: async () => undefined,
+  }), [error, signIn]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 function UnconfiguredProvider({ children }: React.PropsWithChildren) {
-  return <ExpoGoProvider>{children}</ExpoGoProvider>;
+  return <AuthContext.Provider value={{ state: 'signed-out', profile: null, user: null, configured: false, busy: false, error: 'Google OAuth credentials are missing from this build.', signIn: async () => undefined, signOut: async () => undefined, refreshProfile: async () => undefined }}>{children}</AuthContext.Provider>;
 }
 
 export function AuthProvider({ children }: React.PropsWithChildren) {

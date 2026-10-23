@@ -31,6 +31,7 @@ export function WishlistScreen({ navigation }: { navigation: Nav }) {
   const { state } = useAuth();
   const [items, setItems] = useState<VehicleSummary[]>([]);
   const [searches, setSearches] = useState<SavedSearch[]>([]);
+  const [activeDriveIds, setActiveDriveIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -39,12 +40,20 @@ export function WishlistScreen({ navigation }: { navigation: Nav }) {
     if (state !== 'signed-in') return;
     try {
       setError('');
-      const [vehicles, saved] = await Promise.all([
+      const [vehicles, saved, drives] = await Promise.all([
         customer.wishlist(),
         customer.savedSearches(),
+        customer.testDrives(),
       ]);
       setItems(vehicles);
       setSearches(saved);
+      setActiveDriveIds(
+        new Set(
+          drives
+            .filter((d) => d.status === 'REQUESTED')
+            .map((d) => d.listing.id)
+        )
+      );
     } catch (e) {
       setError(friendlyError(e));
     } finally {
@@ -142,20 +151,28 @@ export function WishlistScreen({ navigation }: { navigation: Nav }) {
               </View>
 
               <View style={styles.vehiclesList}>
-                {items.map((item) => (
-                  <VehicleCard
-                    key={item.id}
-                    vehicle={item}
-                    onOpen={() => navigation.navigate('Vehicle', { listingId: item.id })}
-                    onSave={() => void customer.removeWishlist(item.id).then(load)}
-                    onBook={() =>
-                      navigation.navigate('TestDrive', {
-                        listingId: item.id,
-                        title: item.title,
-                      })
-                    }
-                  />
-                ))}
+                {items.map((item) => {
+                  const hasDrive = activeDriveIds.has(item.id);
+                  return (
+                    <VehicleCard
+                      key={item.id}
+                      vehicle={item}
+                      hasTestDrive={hasDrive}
+                      onOpen={() => navigation.navigate('Vehicle', { listingId: item.id })}
+                      onSave={() => void customer.removeWishlist(item.id).then(load)}
+                      onBook={() => {
+                        if (hasDrive) {
+                          navigation.navigate('Tabs', { screen: 'Activity' });
+                        } else {
+                          navigation.navigate('TestDrive', {
+                            listingId: item.id,
+                            title: item.title,
+                          });
+                        }
+                      }}
+                    />
+                  );
+                })}
               </View>
             </View>
           ) : null}

@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import type { CompositeNavigationProp } from '@react-navigation/native';
+import { useFocusEffect, type CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import { Bookmark, Filter, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react-native';
 import { BrandHeader, EmptyState, Loading, PrimaryButton, Screen, common } from '../components/ui';
@@ -39,6 +39,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   const [fuelType, setFuelType] = useState('');
   const [transmission, setTransmission] = useState('');
   const [cities, setCities] = useState<SupportedCity[]>([]);
+  const [activeDriveIds, setActiveDriveIds] = useState<Set<string>>(new Set());
   const [saveMessage, setSaveMessage] = useState('');
   const [savingSearch, setSavingSearch] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
@@ -81,6 +82,25 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   useEffect(() => {
     void customer.cities().then(setCities).catch(() => undefined);
   }, []);
+
+  useFocusEffect(
+    useCallback(() => {
+      if (state === 'signed-in') {
+        customer
+          .testDrives()
+          .then((drives) => {
+            setActiveDriveIds(
+              new Set(
+                drives.filter((d) => d.status === 'REQUESTED').map((d) => d.listing.id)
+              )
+            );
+          })
+          .catch(() => undefined);
+      } else {
+        setActiveDriveIds(new Set());
+      }
+    }, [state])
+  );
 
   const toggleWishlist = async (item: VehicleSummary) => {
     setItems((current) =>
@@ -308,22 +328,30 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
             />
           )
         }
-        renderItem={({ item }) => (
-          <VehicleCard
-            vehicle={item}
-            onOpen={() => navigation.navigate('Vehicle', { listingId: item.id })}
-            onSave={() =>
-              state === 'signed-in'
-                ? void toggleWishlist(item)
-                : navigation.navigate('Tabs', { screen: 'Account' })
-            }
-            onBook={() =>
-              state === 'signed-in'
-                ? navigation.navigate('TestDrive', { listingId: item.id, title: item.title })
-                : navigation.navigate('Tabs', { screen: 'Account' })
-            }
-          />
-        )}
+        renderItem={({ item }) => {
+          const hasDrive = activeDriveIds.has(item.id);
+          return (
+            <VehicleCard
+              vehicle={item}
+              hasTestDrive={hasDrive}
+              onOpen={() => navigation.navigate('Vehicle', { listingId: item.id })}
+              onSave={() =>
+                state === 'signed-in'
+                  ? void toggleWishlist(item)
+                  : navigation.navigate('Tabs', { screen: 'Account' })
+              }
+              onBook={() => {
+                if (state !== 'signed-in') {
+                  navigation.navigate('Tabs', { screen: 'Account' });
+                } else if (hasDrive) {
+                  navigation.navigate('Tabs', { screen: 'Activity' });
+                } else {
+                  navigation.navigate('TestDrive', { listingId: item.id, title: item.title });
+                }
+              }}
+            />
+          );
+        }}
         ItemSeparatorComponent={() => <View style={styles.separator} />}
       />
     </View>

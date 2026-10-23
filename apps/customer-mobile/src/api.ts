@@ -62,7 +62,16 @@ export async function api<T>(path: string, init: RequestInit = {}, forceRefresh 
     } catch (error) {
       if (init.signal?.aborted) throw new ApiError(0, 'REQUEST_CANCELLED');
       if (error instanceof Error && error.message === 'API_CONFIGURATION_REQUIRED') throw error;
-      throw new ApiError(0, 'NETWORK_UNREACHABLE');
+      if (__DEV__ && !controller.signal.aborted) {
+        await new Promise((r) => setTimeout(r, 700));
+        try {
+          response = await fetch(`${apiBaseUrl()}${path}`, { ...init, signal: controller.signal, headers });
+        } catch {
+          throw new ApiError(0, 'NETWORK_UNREACHABLE');
+        }
+      } else {
+        throw new ApiError(0, 'NETWORK_UNREACHABLE');
+      }
     }
     if (response.status === 401 && token && !refresh) return request(true);
     if (response.status === 204) return undefined as T;

@@ -91,6 +91,7 @@ No claim of live email, provider authentication, deployment, app-store release, 
 - Replaced the framed portrait splash bitmap with an official native SVG scene in a full-window Modal. Updated the native Android splash to use a transparent emblem.
 - Built Android debug successfully (317 Gradle tasks) and installed it over the existing app on the connected phone without clearing app data. The Java launcher needed a workspace-local Unix-domain socket directory in this desktop tool environment.
 - Latest automated regression: 21 API tests, 10 mobile tests and 4 web tests pass (35 total); all workspace typechecks/builds pass. Physical Google account selection and visual acceptance after reopening the updated phone app remain user confirmation checks.
+- **Android USB Port Disconnect/Reconnect Resilience**: Diagnosed that unplugging/replugging the physical USB cable causes Android ADB to tear down reverse sockets. Expo Metro only auto-restores port 8081, leaving backend API port 4100 unreversable on the phone (`NETWORK_UNREACHABLE`). Added `tooling/watch-android-usb.ps1` (`npm run mobile:usb:watch`) to continuously detect device reconnection and restore both ports (8081 & 4100) within 1 second. Added a 700ms development network retry in `apps/customer-mobile/src/api.ts` so in-flight requests seamlessly recover without showing error banners.
 
 ## Mobile Keyboard, Input Focus, Safe Area, and Bottom Navigation Hardening — 22 October 2026
 
@@ -103,7 +104,9 @@ No claim of live email, provider authentication, deployment, app-store release, 
 
 ### Architectural improvements implemented
 - **`apps/customer-mobile/src/components/KeyboardAwareFormScreen.tsx`**:
-  - `KeyboardAwareFormScreen`: Platform-aware keyboard wrapper (`behavior="padding"` on iOS, `behavior={undefined}` on Android to work seamlessly with native `adjustResize`), configured with `keyboardShouldPersistTaps="handled"`, `keyboardDismissMode="on-drag"`, and `SafeAreaView` with `edges={['top', 'left', 'right']}` to prevent double padding with system navigation bars.
+  - `KeyboardAwareFormScreen`: Platform-aware keyboard wrapper (`behavior="padding"` universally with `keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}`), guaranteeing that on modern Android (where edge-to-edge transparent system bars suppress OS-level window resizing) the layout dynamically resizes its visible area to make room for the soft keyboard. Configured with `keyboardShouldPersistTaps="handled"`, `keyboardDismissMode="on-drag"`, and `SafeAreaView` with `edges={['top', 'left', 'right']}` to prevent double padding with system navigation bars.
+  - `useKeyboard`: Dedicated hook providing `{ isKeyboardVisible, keyboardHeight }` for custom-positioned interactive elements like chat composers and search popovers.
+  - `KeyboardResizeContainer`: Reusable flex container with `behavior="padding"` for wrapping any arbitrary subview or modal dialog.
   - `FormField`: Accessible controlled text input with `forwardRef`, explicit `returnKeyType` (`next` / `done`), active focus outline in official brand accent (`#F7B503`), helper text, and validation error presentation.
   - `FormFooter`: Flex-based form submission action bar that adapts to keyboard height without absolute jumps.
   - Re-exported via `apps/customer-mobile/src/components/ui.tsx`.
@@ -114,11 +117,16 @@ No claim of live email, provider authentication, deployment, app-store release, 
 
 ### Screen-by-screen audit and remediation
 - `ExploreScreen.tsx`: Extracted search input and filter chips outside `FlatList` to preserve `TextInput` component identity; added `keyboardShouldPersistTaps="handled"`.
-- `SellScreen.tsx`: Debounced `AsyncStorage` draft saves (600ms); converted submit buttons from absolute to natural flex footer; added `returnKeyType`, `keyboardType`, and `autoCapitalize` across all 7 wizard steps.
-- `TestDriveScreen.tsx`: Converted absolute bottom bar to a natural flex footer inside `KeyboardAvoidingView`; set `keyboardShouldPersistTaps="handled"`.
-- `SupportCaseDetailsScreen.tsx`: Converted absolute `composerBar` to flex layout inside keyboard avoidance; configured `keyboardShouldPersistTaps="handled"`.
-- `AddressesScreen.tsx`: Refactored address form container with `edges={['top', 'left', 'right']}` and `keyboardShouldPersistTaps="handled"`.
-- `SupportScreen.tsx`, `PurchaseEnquiryScreen.tsx`, `ProfileEditorScreen.tsx`, `CitySelectionScreen.tsx`, `OnboardingScreen.tsx`, `SellingRequestDetailsScreen.tsx`: Audited and configured `keyboardShouldPersistTaps="handled"` and `keyboardVerticalOffset`.
+- `SellScreen.tsx`: Updated to `behavior="padding"`; debounced `AsyncStorage` draft saves (600ms); converted submit buttons from absolute to natural flex footer; added `ref={scrollRef}` with automatic step-change scroll resets and `returnKeyType`, `keyboardType`, and `autoCapitalize` across all 7 wizard steps.
+- `TestDriveScreen.tsx`: Updated to `behavior="padding"`; converted absolute bottom bar to a natural flex footer inside `KeyboardAvoidingView`; set `keyboardShouldPersistTaps="handled"`; added `onFocus` auto-scrolling on Address and Notes text areas so fields and the Confirm button stay fully visible above the keyboard.
+- `SupportCaseDetailsScreen.tsx`: Updated to `behavior="padding"`; converted absolute `composerBar` to flex layout inside keyboard avoidance; configured `keyboardShouldPersistTaps="handled"`; added `onFocus` auto-scrolling to latest message thread.
+- `AddressesScreen.tsx`: Refactored address form container with `edges={['top', 'left', 'right']}`, `behavior="padding"`, `ref={scrollRef}`, and `keyboardShouldPersistTaps="handled"`.
+- `SupportScreen.tsx`: Updated with `behavior="padding"` and `ref={scrollRef}`; configured `keyboardShouldPersistTaps="handled"`.
+- `PurchaseEnquiryScreen.tsx`: Updated with `behavior="padding"` and `ref={scrollRef}`; configured `keyboardShouldPersistTaps="handled"`.
+- `ProfileEditorScreen.tsx`: Updated with `behavior="padding"`; configured `keyboardShouldPersistTaps="handled"`.
+- `CitySelectionScreen.tsx`: Wrapped search box and city `FlatList` in `KeyboardAvoidingView behavior="padding"`, ensuring city results remain visible and scrollable above the keyboard.
+- `OnboardingScreen.tsx`: Updated with `behavior="padding"`; configured `keyboardShouldPersistTaps="handled"`.
+- `SellingRequestDetailsScreen.tsx`: Updated Decline Offer feedback modal with `behavior="padding"`, ensuring multiline decline reason input centers and elevates above the keyboard.
 - `RequestsScreen.tsx`: Swapped `<SafeAreaView>` for `<View style={[styles.container, { paddingTop: insets.top }]}>` to prevent double bottom-inset padding with the tab bar.
 
 ### Verification status
