@@ -7,20 +7,29 @@ interface AvailableCarsProps {
   user?: User | null;
   onSelectCar: (car: ListingItem) => void;
   onSellClick: () => void;
+  bookedListingIds?: Set<string>;
 }
 
-export const AvailableCars: React.FC<AvailableCarsProps> = ({ user, onSelectCar, onSellClick }) => {
+export const AvailableCars: React.FC<AvailableCarsProps> = ({
+  user,
+  onSelectCar,
+  onSellClick,
+  bookedListingIds: externalBookedListingIds,
+}) => {
   const [cars, setCars] = useState<ListingItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [fuelFilter, setFuelFilter] = useState<string>('ALL');
   const [transmissionFilter, setTransmissionFilter] = useState<string>('ALL');
-  const [bookedListingIds, setBookedListingIds] = useState<Set<string>>(new Set());
+  const [internalBookedListingIds, setInternalBookedListingIds] = useState<Set<string>>(new Set());
+
+  // Use external if provided by parent, otherwise fallback to internal
+  const activeBookedIds = externalBookedListingIds ?? internalBookedListingIds;
 
   // Fetch user booked test drives for live card statuses (parity with mobile app)
   useEffect(() => {
     if (!user) {
-      setBookedListingIds(new Set());
+      setInternalBookedListingIds(new Set());
       return;
     }
     let cancelled = false;
@@ -31,9 +40,9 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({ user, onSelectCar,
           drives
             .filter((d) => d.status === 'REQUESTED' || d.status === 'CONFIRMED')
             .map((d) => d.listing?.id)
-            .filter(Boolean)
+            .filter(Boolean) as string[]
         );
-        setBookedListingIds(requestedIds);
+        setInternalBookedListingIds(requestedIds);
       })
       .catch(() => {});
 
@@ -41,6 +50,29 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({ user, onSelectCar,
       cancelled = true;
     };
   }, [user]);
+
+  // Immediately respond to app-wide drive booking or cancellation events
+  useEffect(() => {
+    const handleDriveChange = (e: Event) => {
+      const customEvent = e as CustomEvent<{ listingId: string; status: 'BOOKED' | 'CANCELLED' }>;
+      if (!customEvent.detail) return;
+      const { listingId, status } = customEvent.detail;
+      setInternalBookedListingIds((prev) => {
+        const next = new Set(prev);
+        if (status === 'CANCELLED') {
+          next.delete(listingId);
+        } else if (status === 'BOOKED') {
+          next.add(listingId);
+        }
+        return next;
+      });
+    };
+
+    window.addEventListener('vmotiv:drive-changed', handleDriveChange);
+    return () => {
+      window.removeEventListener('vmotiv:drive-changed', handleDriveChange);
+    };
+  }, []);
 
   const loadCars = async () => {
     setLoading(true);
@@ -180,7 +212,7 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({ user, onSelectCar,
               const car = item.vehicle;
               const photoUrl = item.media?.[0]?.url || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80';
 
-              const isBooked = bookedListingIds.has(item.id);
+              const isBooked = activeBookedIds.has(item.id);
 
               return (
                 <article key={item.id} className="car-card" aria-labelledby={`car-title-${item.id}`}>

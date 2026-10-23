@@ -16,6 +16,8 @@ interface VehicleDetailModalProps {
   user: User | null;
   onClose: () => void;
   onRequestAuth: (reason: string) => void;
+  onDriveBooked?: (listingId: string) => void;
+  onDriveCancelled?: (listingId: string) => void;
 }
 
 export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
@@ -23,6 +25,8 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
   user,
   onClose,
   onRequestAuth,
+  onDriveBooked,
+  onDriveCancelled,
 }) => {
   if (!vehicle) return null;
 
@@ -50,7 +54,7 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
       .then(([drives, enquiries]) => {
         if (cancelled) return;
         const td = drives.find(
-          (d) => d.listing?.id === vehicle.id && d.status === 'REQUESTED'
+          (d) => d.listing?.id === vehicle.id && (d.status === 'REQUESTED' || d.status === 'CONFIRMED')
         );
         const eq = enquiries.find((e) => e.listing?.id === vehicle.id);
         setHasTestDrive(Boolean(td));
@@ -121,10 +125,19 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
       setExistingDrive(created);
       setSuccessMsg('Test drive requested successfully! Our team will contact you to confirm the appointment.');
       setActiveAction('info');
+      onDriveBooked?.(vehicle.id);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('vmotiv:drive-changed', {
+            detail: { listingId: vehicle.id, status: 'BOOKED' },
+          })
+        );
+      }
     } catch (err: any) {
       const msg = err.message || 'Unable to submit test drive request. Please try again.';
       if (msg.includes('already have') || msg.includes('REQUEST_CONFLICT')) {
         setHasTestDrive(true);
+        onDriveBooked?.(vehicle.id);
       }
       setError(msg);
     } finally {
@@ -142,6 +155,14 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
       setExistingDrive(null);
       setConfirmCancel(false);
       setSuccessMsg('Your test drive request has been cancelled.');
+      onDriveCancelled?.(vehicle.id);
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('vmotiv:drive-changed', {
+            detail: { listingId: vehicle.id, status: 'CANCELLED' },
+          })
+        );
+      }
     } catch (err: any) {
       setError(err.message || 'Failed to cancel test drive request. Please try again.');
     } finally {

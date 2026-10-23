@@ -10,7 +10,7 @@ import {
 } from 'firebase/auth';
 import { auth, configured } from './firebase';
 import { friendlyError, syncProfile, type Profile } from './account-api';
-import { fetchCities } from './api';
+import { fetchCities, fetchUserDrives } from './api';
 import type { CityItem, ListingItem } from './types';
 import './styles.css';
 
@@ -48,6 +48,45 @@ function App() {
   const [sellModalOpen, setSellModalOpen] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<ListingItem | null>(null);
   const [legalModalType, setLegalModalType] = useState<'terms' | 'privacy' | null>(null);
+  const [bookedListingIds, setBookedListingIds] = useState<Set<string>>(new Set());
+
+  // Fetch user booked test drives for live card statuses (parity with mobile app)
+  const refreshUserDrives = async (currentUser: User | null) => {
+    if (!currentUser) {
+      setBookedListingIds(new Set());
+      return;
+    }
+    try {
+      const drives = await fetchUserDrives(currentUser);
+      const requestedIds = new Set(
+        drives
+          .filter((d) => d.status === 'REQUESTED' || d.status === 'CONFIRMED')
+          .map((d) => d.listing?.id)
+          .filter(Boolean) as string[]
+      );
+      setBookedListingIds(requestedIds);
+    } catch {
+      // Ignore background error
+    }
+  };
+
+  useEffect(() => {
+    void refreshUserDrives(user);
+  }, [user]);
+
+  const handleDriveBooked = (listingId: string) => {
+    setBookedListingIds((prev) => new Set(prev).add(listingId));
+    if (user) void refreshUserDrives(user);
+  };
+
+  const handleDriveCancelled = (listingId: string) => {
+    setBookedListingIds((prev) => {
+      const next = new Set(prev);
+      next.delete(listingId);
+      return next;
+    });
+    if (user) void refreshUserDrives(user);
+  };
 
   const request = useRef<AbortController | null>(null);
 
@@ -243,6 +282,7 @@ function App() {
         {/* 4. Live Available Cars Preview */}
         <AvailableCars
           user={user}
+          bookedListingIds={bookedListingIds}
           onSelectCar={(car) => setSelectedVehicle(car)}
           onSellClick={() => navigateTo('sell')}
         />
@@ -313,6 +353,8 @@ function App() {
         user={user}
         onClose={() => setSelectedVehicle(null)}
         onRequestAuth={(reason) => handleOpenAuth(reason)}
+        onDriveBooked={handleDriveBooked}
+        onDriveCancelled={handleDriveCancelled}
       />
 
       <LegalModal
