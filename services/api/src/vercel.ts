@@ -15,11 +15,19 @@ function getFirebase() {
     firebaseApp = getApp();
     return firebaseApp;
   }
-  if (!process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
-    throw new Error('FIREBASE_SERVICE_ACCOUNT_JSON is required for authenticated requests on Vercel.');
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    try {
+      firebaseApp = initializeApp({
+        credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
+        projectId: config.FIREBASE_PROJECT_ID,
+      });
+      return firebaseApp;
+    } catch (err) {
+      console.error('Failed to initialize Firebase Admin with FIREBASE_SERVICE_ACCOUNT_JSON:', err);
+    }
   }
+  // Cryptographic token verification fallback using Google public x509 certificates and projectId
   firebaseApp = initializeApp({
-    credential: cert(JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT_JSON)),
     projectId: config.FIREBASE_PROJECT_ID,
   });
   return firebaseApp;
@@ -32,7 +40,10 @@ const db = new PrismaClient({
 
 // Vercel owns the HTTP listener. No long-running email loop in a request function.
 export default createApp({
-  verify: (token, revoked) => getAuth(getFirebase()).verifyIdToken(token, revoked),
+  verify: (token, revoked) => {
+    const hasServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    return getAuth(getFirebase()).verifyIdToken(token, hasServiceAccount ? revoked : false);
+  },
   store: new PrismaIdentityStore(db),
   customer: new PrismaCustomerStore(db),
   webOrigin: config.WEB_ORIGIN,

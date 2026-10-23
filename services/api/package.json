@@ -11,7 +11,8 @@
     "worker": "tsx --env-file-if-exists=.env src/worker.ts",
     "db:generate": "prisma generate",
     "db:deploy": "node deploy-database.mjs",
-    "db:seed": "tsx --env-file-if-exists=.env prisma/seed.ts"
+    "db:seed": "tsx --env-file-if-exists=.env prisma/seed.ts",
+    "db:unseed": "tsx --env-file-if-exists=.env prisma/unseed.ts"
   },
   "dependencies": {
     "@prisma/client": "6.19.3",

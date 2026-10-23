@@ -13,7 +13,10 @@ export function authentication(verify: VerifyToken): RequestHandler {
 
       let token: DecodedIdToken;
       try { token = await verify(rawToken, true); }
-      catch { throw new HttpError(401, 'INVALID_OR_REVOKED_TOKEN'); }
+      catch (error) {
+        console.error('TOKEN_VERIFY_ERROR', (error as any)?.code || (error as any)?.message || error);
+        throw new HttpError(401, 'INVALID_OR_REVOKED_TOKEN');
+      }
       if (token.firebase.sign_in_provider !== 'google.com' || !token.email_verified || !token.email || !token.uid) {
         throw new HttpError(401, 'VERIFIED_GOOGLE_IDENTITY_REQUIRED');
       }

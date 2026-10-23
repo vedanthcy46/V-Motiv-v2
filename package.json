@@ -28,6 +28,7 @@
     "db:generate": "npm run db:generate -w @vmotiv/api",
     "db:deploy": "npm run db:deploy -w @vmotiv/api",
     "db:seed": "npm run db:seed -w @vmotiv/api",
+    "db:unseed": "npm run db:unseed -w @vmotiv/api",
     "email:worker": "npm run worker -w @vmotiv/api"
   },
   "devDependencies": {
