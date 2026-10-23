@@ -242,6 +242,7 @@ function App() {
 
         {/* 4. Live Available Cars Preview */}
         <AvailableCars
+          user={user}
           onSelectCar={(car) => setSelectedVehicle(car)}
           onSellClick={() => navigateTo('sell')}
         />

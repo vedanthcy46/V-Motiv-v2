@@ -1,18 +1,46 @@
 import React, { useEffect, useState } from 'react';
+import type { User } from 'firebase/auth';
 import type { ListingItem } from '../types';
-import { fetchInventory, formatLakh } from '../api';
+import { fetchInventory, fetchUserDrives, formatLakh } from '../api';
 
 interface AvailableCarsProps {
+  user?: User | null;
   onSelectCar: (car: ListingItem) => void;
   onSellClick: () => void;
 }
 
-export const AvailableCars: React.FC<AvailableCarsProps> = ({ onSelectCar, onSellClick }) => {
+export const AvailableCars: React.FC<AvailableCarsProps> = ({ user, onSelectCar, onSellClick }) => {
   const [cars, setCars] = useState<ListingItem[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [fuelFilter, setFuelFilter] = useState<string>('ALL');
   const [transmissionFilter, setTransmissionFilter] = useState<string>('ALL');
+  const [bookedListingIds, setBookedListingIds] = useState<Set<string>>(new Set());
+
+  // Fetch user booked test drives for live card statuses (parity with mobile app)
+  useEffect(() => {
+    if (!user) {
+      setBookedListingIds(new Set());
+      return;
+    }
+    let cancelled = false;
+    fetchUserDrives(user)
+      .then((drives) => {
+        if (cancelled) return;
+        const requestedIds = new Set(
+          drives
+            .filter((d) => d.status === 'REQUESTED' || d.status === 'CONFIRMED')
+            .map((d) => d.listing?.id)
+            .filter(Boolean)
+        );
+        setBookedListingIds(requestedIds);
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user]);
 
   const loadCars = async () => {
     setLoading(true);
@@ -152,6 +180,8 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({ onSelectCar, onSel
               const car = item.vehicle;
               const photoUrl = item.media?.[0]?.url || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80';
 
+              const isBooked = bookedListingIds.has(item.id);
+
               return (
                 <article key={item.id} className="car-card" aria-labelledby={`car-title-${item.id}`}>
                   <div className="car-card-media">
@@ -161,9 +191,9 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({ onSelectCar, onSel
                       loading="lazy"
                       className="car-image"
                     />
-                    <div className="media-overlay-badge">
-                      <span className="status-dot-green" />
-                      <span>Available</span>
+                    <div className={`media-overlay-badge ${isBooked ? 'booked-overlay-badge' : ''}`}>
+                      <span className={isBooked ? 'status-dot-yellow' : 'status-dot-green'} />
+                      <span>{isBooked ? 'Drive Requested' : 'Available'}</span>
                     </div>
                   </div>
 
@@ -203,11 +233,20 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({ onSelectCar, onSel
                     <div className="car-card-footer">
                       <button
                         type="button"
-                        className="btn btn-outline btn-block"
+                        className={`btn ${isBooked ? 'btn-card-booked' : 'btn-outline'} btn-block`}
                         onClick={() => onSelectCar(item)}
                       >
-                        <span>View Details & Request Drive</span>
-                        <span aria-hidden="true">→</span>
+                        {isBooked ? (
+                          <>
+                            <span className="booked-check-icon">✓</span>
+                            <span>Drive Booked · View Details</span>
+                          </>
+                        ) : (
+                          <>
+                            <span>View Details & Request Drive</span>
+                            <span aria-hidden="true">→</span>
+                          </>
+                        )}
                       </button>
                     </div>
                   </div>

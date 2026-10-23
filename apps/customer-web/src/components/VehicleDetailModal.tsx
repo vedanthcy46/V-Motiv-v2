@@ -1,7 +1,15 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
-import type { ListingItem } from '../types';
-import { formatLakh, formatInrPaise, submitTestDrive, submitEnquiry } from '../api';
+import type { ListingItem, UserTestDrive } from '../types';
+import {
+  formatLakh,
+  formatInrPaise,
+  submitTestDrive,
+  submitEnquiry,
+  fetchUserDrives,
+  fetchUserEnquiries,
+  cancelTestDrive,
+} from '../api';
 
 interface VehicleDetailModalProps {
   vehicle: ListingItem | null;
@@ -21,6 +29,40 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
   const car = vehicle.vehicle;
   const [selectedPhotoIndex, setSelectedPhotoIndex] = useState(0);
   const [activeAction, setActiveAction] = useState<'info' | 'drive' | 'enquire'>('info');
+
+  // Existing booking / enquiry states (parity with mobile app)
+  const [hasTestDrive, setHasTestDrive] = useState(false);
+  const [existingDrive, setExistingDrive] = useState<UserTestDrive | null>(null);
+  const [hasEnquiry, setHasEnquiry] = useState(false);
+  const [cancellingDrive, setCancellingDrive] = useState(false);
+  const [confirmCancel, setConfirmCancel] = useState(false);
+
+  // Check existing drive requests and enquiries for this vehicle
+  useEffect(() => {
+    if (!vehicle || !user) {
+      setHasTestDrive(false);
+      setExistingDrive(null);
+      setHasEnquiry(false);
+      return;
+    }
+    let cancelled = false;
+    Promise.all([fetchUserDrives(user), fetchUserEnquiries(user)])
+      .then(([drives, enquiries]) => {
+        if (cancelled) return;
+        const td = drives.find(
+          (d) => d.listing?.id === vehicle.id && d.status === 'REQUESTED'
+        );
+        const eq = enquiries.find((e) => e.listing?.id === vehicle.id);
+        setHasTestDrive(Boolean(td));
+        setExistingDrive(td || null);
+        setHasEnquiry(Boolean(eq));
+      })
+      .catch(() => {});
+
+    return () => {
+      cancelled = true;
+    };
+  }, [vehicle, user]);
 
   // Test drive state
   const tomorrow = new Date();
@@ -52,6 +94,12 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
       return;
     }
 
+    if (hasTestDrive) {
+      setError('You already have an active test drive booked for this vehicle.');
+      setActiveAction('info');
+      return;
+    }
+
     if (drivePref === 'HOME' && driveAddress.trim().length < 10) {
       setError('Please provide a full address for home test-drive preference (min 10 characters).');
       return;
@@ -60,7 +108,7 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
     setBusy(true);
     setError(null);
     try {
-      await submitTestDrive(user, {
+      const created = await submitTestDrive(user, {
         listingId: vehicle.id,
         requestedDate: driveDate,
         timeSlot: driveSlot,
@@ -69,12 +117,35 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
         address: drivePref === 'HOME' ? driveAddress.trim() : undefined,
         customerNotes: driveNotes.trim() || undefined,
       });
+      setHasTestDrive(true);
+      setExistingDrive(created);
       setSuccessMsg('Test drive requested successfully! Our team will contact you to confirm the appointment.');
       setActiveAction('info');
     } catch (err: any) {
-      setError(err.message || 'Unable to submit test drive request. Please try again.');
+      const msg = err.message || 'Unable to submit test drive request. Please try again.';
+      if (msg.includes('already have') || msg.includes('REQUEST_CONFLICT')) {
+        setHasTestDrive(true);
+      }
+      setError(msg);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const handleCancelTestDrive = async () => {
+    if (!user || !existingDrive) return;
+    setCancellingDrive(true);
+    setError(null);
+    try {
+      await cancelTestDrive(user, existingDrive.id, 'Cancelled by customer on website');
+      setHasTestDrive(false);
+      setExistingDrive(null);
+      setConfirmCancel(false);
+      setSuccessMsg('Your test drive request has been cancelled.');
+    } catch (err: any) {
+      setError(err.message || 'Failed to cancel test drive request. Please try again.');
+    } finally {
+      setCancellingDrive(false);
     }
   };
 
@@ -97,10 +168,15 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
         listingId: vehicle.id,
         message: enquiryMsg.trim(),
       });
+      setHasEnquiry(true);
       setSuccessMsg('Enquiry sent successfully! Our automotive advisor will reply shortly.');
       setActiveAction('info');
     } catch (err: any) {
-      setError(err.message || 'Unable to submit enquiry. Please try again.');
+      const msg = err.message || 'Unable to submit enquiry. Please try again.';
+      if (msg.includes('already submitted') || msg.includes('REQUEST_CONFLICT')) {
+        setHasEnquiry(true);
+      }
+      setError(msg);
     } finally {
       setBusy(false);
     }
@@ -248,17 +324,69 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
                   </div>
                 )}
 
+                {/* Active Test Drive Status Card */}
+                {hasTestDrive && (
+                  <div className="status-booked-card">
+                    <div className="status-booked-icon">✓</div>
+                    <div className="status-booked-text">
+                      <h4>Test Drive Booked</h4>
+                      <p>
+                        {existingDrive
+                          ? `Appointment requested for ${existingDrive.requestedDate} (${existingDrive.timeSlot}) · ${existingDrive.locationPreference === 'HOME' ? 'Doorstep inspection' : 'Certified Hub'}. Our automotive specialist will contact you shortly.`
+                          : 'You already have an active test drive appointment for this vehicle.'}
+                      </p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Cancel Confirmation Prompt */}
+                {confirmCancel && (
+                  <div className="cancel-confirm-box">
+                    <p>Cancel your test drive appointment for this vehicle?</p>
+                    <div className="cancel-confirm-actions">
+                      <button
+                        type="button"
+                        className="btn btn-danger-sm"
+                        onClick={handleCancelTestDrive}
+                        disabled={cancellingDrive}
+                      >
+                        {cancellingDrive ? 'Cancelling…' : 'Yes, Cancel Request'}
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-secondary-sm"
+                        onClick={() => setConfirmCancel(false)}
+                        disabled={cancellingDrive}
+                      >
+                        Keep Booking
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 <div className="modal-cta-buttons">
-                  <button
-                    type="button"
-                    className="btn btn-primary"
-                    onClick={() => {
-                      setError(null);
-                      setActiveAction('drive');
-                    }}
-                  >
-                    Request Test Drive
-                  </button>
+                  {hasTestDrive ? (
+                    <button
+                      type="button"
+                      className="btn btn-booked"
+                      onClick={() => setConfirmCancel(!confirmCancel)}
+                      disabled={cancellingDrive}
+                    >
+                      <span>Drive Booked ✓ (Cancel Slot)</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      className="btn btn-primary"
+                      onClick={() => {
+                        setError(null);
+                        setActiveAction('drive');
+                      }}
+                    >
+                      Request Test Drive
+                    </button>
+                  )}
+
                   <button
                     type="button"
                     className="btn btn-secondary"
@@ -267,7 +395,7 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
                       setActiveAction('enquire');
                     }}
                   >
-                    Ask a Question
+                    {hasEnquiry ? 'Enquiry Recorded ✓' : 'Ask a Question'}
                   </button>
                 </div>
               </div>

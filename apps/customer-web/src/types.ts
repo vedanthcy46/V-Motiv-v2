@@ -89,3 +89,36 @@ export interface EnquiryInput {
   listingId: string;
   message: string;
 }
+
+export type DriveRequestStatus = 'REQUESTED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
+
+export interface UserTestDrive {
+  id: string;
+  requestedDate: string;
+  timeSlot: string;
+  status: DriveRequestStatus;
+  serviceCity: string;
+  locationPreference: 'HUB' | 'HOME';
+  address?: string | null;
+  customerNotes?: string | null;
+  createdAt: string;
+  listing: {
+    id: string;
+    title: string;
+    pricePaise: string | number;
+    currency: string;
+  };
+}
+
+export interface UserPurchaseEnquiry {
+  id: string;
+  message: string;
+  status: string;
+  createdAt: string;
+  listing: {
+    id: string;
+    title: string;
+    pricePaise: string | number;
+    currency: string;
+  };
+}

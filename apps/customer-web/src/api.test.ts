@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
+  cancelTestDrive,
   fetchCities,
   fetchInventory,
+  fetchUserDrives,
   formatInrPaise,
   formatLakh,
   submitEnquiry,
@@ -164,5 +166,64 @@ describe('authenticated customer action APIs', () => {
     const sentBody = JSON.parse(options.body);
     expect(sentBody.message).toBe('I would like to verify the service history documents.');
     expect(sentBody.idempotencyKey).toMatch(/^enq-user-123-22222222-2222-2222-2222-222222222222-\d+$/);
+  });
+
+  it('handles 409 duplicate test drive gracefully', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ code: 'REQUEST_CONFLICT' }), {
+        status: 409,
+        headers: { 'Content-Type': 'application/json' },
+      })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(
+      submitTestDrive(mockUser, {
+        listingId: '11111111-1111-1111-1111-111111111111',
+        requestedDate: '2026-10-25',
+        timeSlot: '10:00-12:00',
+        serviceCity: 'Bengaluru',
+        locationPreference: 'HUB',
+      })
+    ).rejects.toThrow('You already have an active test drive booked for this vehicle.');
+  });
+
+  it('fetches user test drives and allows cancellation', async () => {
+    const mockDrives = [
+      {
+        id: 'drive-123',
+        status: 'REQUESTED',
+        requestedDate: '2026-10-25',
+        listing: { id: 'car-1', title: 'Tata Nexon' },
+      },
+    ];
+
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(mockDrives), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        })
+      )
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 204,
+        })
+      );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const drives = await fetchUserDrives(mockUser);
+    expect(drives).toEqual(mockDrives);
+    expect(fetchMock).toHaveBeenCalledWith('/api/v1/me/drives', expect.any(Object));
+
+    await cancelTestDrive(mockUser, 'drive-123', 'Changed plans');
+    expect(fetchMock).toHaveBeenCalledWith(
+      '/api/v1/me/drives/drive-123/cancel',
+      expect.objectContaining({
+        method: 'PATCH',
+        body: JSON.stringify({ reason: 'Changed plans' }),
+      })
+    );
   });
 });

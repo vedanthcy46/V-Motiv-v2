@@ -1,5 +1,14 @@
 import type { User } from 'firebase/auth';
-import type { CityItem, DriveRequestInput, EnquiryInput, InventoryResponse, ListingItem, SellCarInput } from './types';
+import type {
+  CityItem,
+  DriveRequestInput,
+  EnquiryInput,
+  InventoryResponse,
+  ListingItem,
+  SellCarInput,
+  UserPurchaseEnquiry,
+  UserTestDrive,
+} from './types';
 import { friendlyError } from './account-api';
 
 const API_BASE = '/api/v1';
@@ -96,6 +105,9 @@ export async function submitTestDrive(user: User, input: DriveRequestInput): Pro
 
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
+    if (response.status === 409 || data.code === 'REQUEST_CONFLICT') {
+      throw new Error('You already have an active test drive booked for this vehicle.');
+    }
     throw new Error(data.message || data.code || 'Failed to request test drive');
   }
   return response.json();
@@ -119,7 +131,57 @@ export async function submitEnquiry(user: User, input: EnquiryInput): Promise<an
 
   if (!response.ok) {
     const data = await response.json().catch(() => ({}));
+    if (response.status === 409 || data.code === 'REQUEST_CONFLICT') {
+      throw new Error('You have already submitted an enquiry for this vehicle.');
+    }
     throw new Error(data.message || data.code || 'Failed to submit purchase enquiry');
   }
   return response.json();
+}
+
+export async function fetchUserDrives(user: User): Promise<UserTestDrive[]> {
+  try {
+    const token = await user.getIdToken();
+    const response = await fetch(`${API_BASE}/me/drives`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) return [];
+    return response.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function fetchUserEnquiries(user: User): Promise<UserPurchaseEnquiry[]> {
+  try {
+    const token = await user.getIdToken();
+    const response = await fetch(`${API_BASE}/me/enquiries`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+    if (!response.ok) return [];
+    return response.json();
+  } catch {
+    return [];
+  }
+}
+
+export async function cancelTestDrive(user: User, driveId: string, reason = 'Cancelled by customer'): Promise<void> {
+  const token = await user.getIdToken();
+  const response = await fetch(`${API_BASE}/me/drives/${driveId}/cancel`, {
+    method: 'PATCH',
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`,
+    },
+    body: JSON.stringify({ reason }),
+  });
+
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.message || data.code || 'Failed to cancel test drive');
+  }
 }
