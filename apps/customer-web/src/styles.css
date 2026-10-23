@@ -1690,8 +1690,8 @@ a {
 
 .modal-close-btn {
   position: absolute;
-  top: 20px;
-  right: 20px;
+  top: 18px;
+  right: 18px;
   width: 36px;
   height: 36px;
   border-radius: var(--radius-full);
@@ -1703,12 +1703,40 @@ a {
   justify-content: center;
   cursor: pointer;
   font-size: 1rem;
+  z-index: 100;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
   transition: var(--transition);
 }
 
 .modal-close-btn:hover {
   background-color: #f1f5f9;
   color: var(--color-primary-navy);
+}
+
+/* Vehicle detail modal specific close button styling */
+.vehicle-modal-close-btn,
+.vehicle-modal-dialog .modal-close-btn {
+  top: 14px;
+  right: 14px;
+  width: 40px;
+  height: 40px;
+  border-radius: var(--radius-full);
+  background-color: rgba(6, 26, 56, 0.85);
+  color: #ffffff;
+  border: 1.5px solid rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(8px);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  z-index: 1000;
+  pointer-events: auto;
+  font-size: 1.1rem;
+  font-weight: 700;
+}
+
+.vehicle-modal-close-btn:hover,
+.vehicle-modal-dialog .modal-close-btn:hover {
+  background-color: var(--color-primary-navy);
+  color: var(--color-accent-yellow);
+  transform: scale(1.08);
 }
 
 .modal-header {

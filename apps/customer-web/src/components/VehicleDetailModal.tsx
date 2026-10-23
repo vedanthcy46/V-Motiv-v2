@@ -107,11 +107,19 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
   };
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="vehicle-modal-title">
+    <div
+      className="modal-backdrop"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="vehicle-modal-title"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
       <div className="modal-dialog vehicle-modal-dialog">
         <button
           type="button"
-          className="modal-close-btn"
+          className="modal-close-btn vehicle-modal-close-btn"
           aria-label="Close vehicle details"
           onClick={onClose}
         >
