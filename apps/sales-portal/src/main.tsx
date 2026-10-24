@@ -168,6 +168,7 @@ function App() {
   const [selectedBuyerLead, setSelectedBuyerLead] = useState<BuyerLead | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [prefilledCustomerId, setPrefilledCustomerId] = useState<string>('');
+  const [targetListingId, setTargetListingId] = useState<string>('');
   const [showManualLeadModal, setShowManualLeadModal] = useState(false);
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [showReservationModal, setShowReservationModal] = useState(false);
@@ -233,18 +234,21 @@ function App() {
         const res = await salesApi.inventory(currentUser, { search });
         setInventory(res.items);
       } else if (page === 'testdrives') {
-        const res = await salesApi.testDrives(currentUser, {
-          search,
-          status: statusFilter || undefined,
-        });
-        setTestDrives(res.items);
+        const [tdRes, invRes] = await Promise.all([
+          salesApi.testDrives(currentUser, { search, status: statusFilter || undefined }),
+          salesApi.inventory(currentUser, {}),
+        ]);
+        setTestDrives(tdRes.items);
+        setInventory(invRes.items);
       } else if (page === 'pipeline') {
-        const [quotesRes, reserveRes] = await Promise.all([
+        const [quotesRes, reserveRes, invRes] = await Promise.all([
           salesApi.quotations(currentUser, { search, status: statusFilter || undefined }),
           salesApi.reservations(currentUser, {}),
+          salesApi.inventory(currentUser, {}),
         ]);
         setQuotations(quotesRes.items);
         setReservations(reserveRes.items);
+        setInventory(invRes.items);
       } else if (page === 'tasks') {
         const res = await salesApi.tasks(currentUser, { status: statusFilter || undefined });
         setTasks(res);
@@ -867,11 +871,13 @@ function App() {
                     <thead>
                       <tr>
                         <th>Vehicle & Specs</th>
+                        <th>Listing ID (UUID)</th>
                         <th>City</th>
                         <th>Odometer</th>
                         <th>Fuel & Trans</th>
                         <th>Authorized Price</th>
                         <th>Status</th>
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -881,6 +887,22 @@ function App() {
                             <div className="table-title">{item.title}</div>
                             <div className="table-sub">{item.vehicle.make} {item.vehicle.model} {item.vehicle.variant || ''}</div>
                           </td>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span className="font-mono" style={{ fontSize: '12px', color: 'var(--yellow)' }}>
+                                {item.id.slice(0, 8)}…{item.id.slice(-4)}
+                              </span>
+                              <button
+                                type="button"
+                                className="btn-secondary btn-sm"
+                                style={{ padding: '2px 6px', fontSize: '11px', minHeight: 'unset' }}
+                                onClick={() => navigator.clipboard.writeText(item.id)}
+                                title={`Copy full Listing ID: ${item.id}`}
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          </td>
                           <td>{item.vehicle.city || '—'}</td>
                           <td className="font-mono">{item.vehicle.odometerKm.toLocaleString('en-IN')} km</td>
                           <td>{item.vehicle.fuelType} · {item.vehicle.transmission}</td>
@@ -888,10 +910,44 @@ function App() {
                             {formatCurrency(item.pricePaise)}
                           </td>
                           <td><span className={`badge ${statusBadgeClass(item.status)}`}>{item.status}</span></td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={() => {
+                                  setTargetListingId(item.id);
+                                  setShowQuotationModal(true);
+                                }}
+                                title="Prepare Quotation"
+                              >
+                                Quote
+                              </button>
+                              <button
+                                className="btn-outline btn-sm"
+                                onClick={() => {
+                                  setTargetListingId(item.id);
+                                  setShowTestDriveModal(true);
+                                }}
+                                title="Book Test Drive"
+                              >
+                                Test Drive
+                              </button>
+                              <button
+                                className="btn-outline btn-sm"
+                                onClick={() => {
+                                  setTargetListingId(item.id);
+                                  setShowReservationModal(true);
+                                }}
+                                title="Reserve Stock"
+                              >
+                                Reserve
+                              </button>
+                            </div>
+                          </td>
                         </tr>
                       ))}
                       {inventory.length === 0 && (
-                        <tr><td colSpan={6} className="empty-state">No available vehicles in branch scope.</td></tr>
+                        <tr><td colSpan={8} className="empty-state">No available vehicles in branch scope.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -1392,6 +1448,16 @@ function App() {
             setPrefilledCustomerId(id);
             setPage('communications');
           }}
+          onCreateQuote={(listingId, customerId) => {
+            setTargetListingId(listingId);
+            setPrefilledCustomerId(customerId);
+            setShowQuotationModal(true);
+          }}
+          onBookTestDrive={(listingId, customerId) => {
+            setTargetListingId(listingId);
+            setPrefilledCustomerId(customerId);
+            setShowTestDriveModal(true);
+          }}
         />
       )}
 
@@ -1416,9 +1482,18 @@ function App() {
         <CreateQuotationModal
           user={user}
           customers={customers}
-          onClose={() => setShowQuotationModal(false)}
+          inventory={inventory}
+          initialListingId={targetListingId}
+          initialCustomerId={prefilledCustomerId}
+          onClose={() => {
+            setShowQuotationModal(false);
+            setTargetListingId('');
+            setPrefilledCustomerId('');
+          }}
           onSuccess={() => {
             setShowQuotationModal(false);
+            setTargetListingId('');
+            setPrefilledCustomerId('');
             void loadData();
           }}
         />
@@ -1461,9 +1536,18 @@ function App() {
         <ScheduleTestDriveModal
           user={user}
           customers={customers}
-          onClose={() => setShowTestDriveModal(false)}
+          inventory={inventory}
+          initialListingId={targetListingId}
+          initialCustomerId={prefilledCustomerId}
+          onClose={() => {
+            setShowTestDriveModal(false);
+            setTargetListingId('');
+            setPrefilledCustomerId('');
+          }}
           onSuccess={() => {
             setShowTestDriveModal(false);
+            setTargetListingId('');
+            setPrefilledCustomerId('');
             void loadData();
           }}
         />
@@ -1476,9 +1560,18 @@ function App() {
         <RequestReservationModal
           user={user}
           customers={customers}
-          onClose={() => setShowReservationModal(false)}
+          inventory={inventory}
+          initialListingId={targetListingId}
+          initialCustomerId={prefilledCustomerId}
+          onClose={() => {
+            setShowReservationModal(false);
+            setTargetListingId('');
+            setPrefilledCustomerId('');
+          }}
           onSuccess={() => {
             setShowReservationModal(false);
+            setTargetListingId('');
+            setPrefilledCustomerId('');
             void loadData();
           }}
         />
@@ -2005,20 +2098,31 @@ function BuyerLeadDrawer({
   onClose,
   onRefresh,
   onNotifyCustomer,
+  onCreateQuote,
+  onBookTestDrive,
 }: {
   user: User | null;
   lead: BuyerLead;
   onClose: () => void;
   onRefresh: () => void;
   onNotifyCustomer?: (id: string) => void;
+  onCreateQuote?: (listingId: string, customerId: string) => void;
+  onBookTestDrive?: (listingId: string, customerId: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
-  const [copied, setCopied] = useState(false);
+  const [copiedCustomer, setCopiedCustomer] = useState(false);
+  const [copiedListing, setCopiedListing] = useState(false);
 
-  const copyId = () => {
+  const copyCustomerId = () => {
     navigator.clipboard.writeText(lead.user.id);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopiedCustomer(true);
+    setTimeout(() => setCopiedCustomer(false), 2000);
+  };
+
+  const copyListingId = () => {
+    navigator.clipboard.writeText(lead.listing.id);
+    setCopiedListing(true);
+    setTimeout(() => setCopiedListing(false), 2000);
   };
 
   const updateStatus = async (status: string) => {
@@ -2053,8 +2157,8 @@ function BuyerLeadDrawer({
                 </div>
               </div>
               <div style={{ display: 'flex', gap: '6px' }}>
-                <button type="button" className="btn-secondary btn-sm" onClick={copyId}>
-                  {copied ? '✓ Copied' : 'Copy UUID'}
+                <button type="button" className="btn-secondary btn-sm" onClick={copyCustomerId}>
+                  {copiedCustomer ? '✓ Copied' : 'Copy UUID'}
                 </button>
                 {onNotifyCustomer && (
                   <button
@@ -2071,15 +2175,54 @@ function BuyerLeadDrawer({
               </div>
             </div>
 
+            <div className="metric-card full" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <div className="metric-label">Vehicle Listing ID (UUID)</div>
+                <div style={{ fontWeight: 600, fontSize: '13px' }}>{lead.listing.title}</div>
+                <div className="font-mono" style={{ fontSize: '12px', color: 'var(--yellow)', wordBreak: 'break-all' }}>
+                  {lead.listing.id}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button type="button" className="btn-secondary btn-sm" onClick={copyListingId}>
+                  {copiedListing ? '✓ Copied' : 'Copy Listing ID'}
+                </button>
+                {onCreateQuote && (
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    onClick={() => {
+                      onCreateQuote(lead.listing.id, lead.user.id);
+                      onClose();
+                    }}
+                  >
+                    Quote
+                  </button>
+                )}
+                {onBookTestDrive && (
+                  <button
+                    type="button"
+                    className="btn-outline btn-sm"
+                    onClick={() => {
+                      onBookTestDrive(lead.listing.id, lead.user.id);
+                      onClose();
+                    }}
+                  >
+                    Test Drive
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="metric-card">
               <div className="metric-label">Customer Contact</div>
               <div>{lead.user.email}</div>
               <div className="metric-sub">{lead.user.phone || 'Phone not provided'}</div>
             </div>
             <div className="metric-card">
-              <div className="metric-label">Vehicle Enquired</div>
-              <div style={{ fontWeight: 600 }}>{lead.listing.title}</div>
-              <div className="metric-sub font-mono">{formatCurrency(lead.listing.pricePaise)}</div>
+              <div className="metric-label">Vehicle Price</div>
+              <div className="font-mono" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>{formatCurrency(lead.listing.pricePaise)}</div>
+              <div className="metric-sub">Authorized Company Inventory</div>
             </div>
             <div className="metric-card full">
               <div className="metric-label">Message / Note</div>
@@ -2235,24 +2378,37 @@ function CustomerProfileDrawer({
 function CreateQuotationModal({
   user,
   customers = [],
+  inventory = [],
+  initialListingId = '',
+  initialCustomerId = '',
   onClose,
   onSuccess,
 }: {
   user: User | null;
   customers?: Customer[];
+  inventory?: InventoryItem[];
+  initialListingId?: string;
+  initialCustomerId?: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [copiedListing, setCopiedListing] = useState(false);
+  const [copiedCustomer, setCopiedCustomer] = useState(false);
   const [form, setForm] = useState({
-    listingId: '',
-    customerId: customers[0]?.id || '',
+    listingId: initialListingId || inventory[0]?.id || '',
+    customerId: initialCustomerId || customers[0]?.id || '',
     chargesRupees: '15000',
     discountRupees: '0',
     validDays: 7,
     terms: 'Valid with authorized V MOTIV quality inspection warranty.',
   });
+
+  useEffect(() => {
+    if (initialListingId) setForm(f => ({ ...f, listingId: initialListingId }));
+    if (initialCustomerId) setForm(f => ({ ...f, customerId: initialCustomerId }));
+  }, [initialListingId, initialCustomerId]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2288,8 +2444,43 @@ function CreateQuotationModal({
           <div className="modal-body">
             {error && <div className="error-banner">{error}</div>}
             <div className="form-grid">
+              {inventory.length > 0 && (
+                <div className="form-group full">
+                  <label className="form-label">Pick Available Vehicle from Inventory</label>
+                  <select
+                    className="form-select"
+                    value={inventory.some(i => i.id === form.listingId) ? form.listingId : ''}
+                    onChange={e => {
+                      if (e.target.value) setForm({ ...form, listingId: e.target.value });
+                    }}
+                  >
+                    <option value="">-- Choose from Inventory Stock ({inventory.length} vehicles) --</option>
+                    {inventory.map(i => (
+                      <option key={i.id} value={i.id}>
+                        {i.title} — {formatCurrency(i.pricePaise)} ({i.vehicle.city || 'No city'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="form-group full">
-                <label className="form-label">Vehicle Listing ID (UUID) *</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label">Vehicle Listing ID (UUID) *</label>
+                  {form.listingId && (
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(form.listingId);
+                        setCopiedListing(true);
+                        setTimeout(() => setCopiedListing(false), 2000);
+                      }}
+                    >
+                      {copiedListing ? '✓ Copied' : 'Copy'}
+                    </button>
+                  )}
+                </div>
                 <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
               </div>
               {customers.length > 0 && (
@@ -2312,7 +2503,23 @@ function CreateQuotationModal({
                 </div>
               )}
               <div className="form-group full">
-                <label className="form-label">Customer ID (UUID) *</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label">Customer ID (UUID) *</label>
+                  {form.customerId && (
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(form.customerId);
+                        setCopiedCustomer(true);
+                        setTimeout(() => setCopiedCustomer(false), 2000);
+                      }}
+                    >
+                      {copiedCustomer ? '✓ Copied' : 'Copy'}
+                    </button>
+                  )}
+                </div>
                 <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
               </div>
               <div className="form-group">
@@ -2449,23 +2656,36 @@ function CompleteTaskModal({ user, taskId, onClose, onSuccess }: { user: User | 
 function ScheduleTestDriveModal({
   user,
   customers = [],
+  inventory = [],
+  initialListingId = '',
+  initialCustomerId = '',
   onClose,
   onSuccess,
 }: {
   user: User | null;
   customers?: Customer[];
+  inventory?: InventoryItem[];
+  initialListingId?: string;
+  initialCustomerId?: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [copiedListing, setCopiedListing] = useState(false);
+  const [copiedCustomer, setCopiedCustomer] = useState(false);
   const [form, setForm] = useState({
-    listingId: '',
-    customerId: customers[0]?.id || '',
+    listingId: initialListingId || inventory[0]?.id || '',
+    customerId: initialCustomerId || customers[0]?.id || '',
     requestedDate: new Date().toISOString().slice(0, 10),
     timeSlot: '02:00 PM - 04:00 PM',
     customerNotes: 'Customer prefers showroom test drive.',
   });
+
+  useEffect(() => {
+    if (initialListingId) setForm(f => ({ ...f, listingId: initialListingId }));
+    if (initialCustomerId) setForm(f => ({ ...f, customerId: initialCustomerId }));
+  }, [initialListingId, initialCustomerId]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2499,8 +2719,43 @@ function ScheduleTestDriveModal({
           <div className="modal-body">
             {error && <div className="error-banner">{error}</div>}
             <div className="form-grid">
+              {inventory.length > 0 && (
+                <div className="form-group full">
+                  <label className="form-label">Pick Available Vehicle from Inventory</label>
+                  <select
+                    className="form-select"
+                    value={inventory.some(i => i.id === form.listingId) ? form.listingId : ''}
+                    onChange={e => {
+                      if (e.target.value) setForm({ ...form, listingId: e.target.value });
+                    }}
+                  >
+                    <option value="">-- Choose from Inventory Stock ({inventory.length} vehicles) --</option>
+                    {inventory.map(i => (
+                      <option key={i.id} value={i.id}>
+                        {i.title} — {formatCurrency(i.pricePaise)} ({i.vehicle.city || 'No city'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="form-group full">
-                <label className="form-label">Vehicle Listing ID (UUID) *</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label">Vehicle Listing ID (UUID) *</label>
+                  {form.listingId && (
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(form.listingId);
+                        setCopiedListing(true);
+                        setTimeout(() => setCopiedListing(false), 2000);
+                      }}
+                    >
+                      {copiedListing ? '✓ Copied' : 'Copy'}
+                    </button>
+                  )}
+                </div>
                 <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
               </div>
               {customers.length > 0 && (
@@ -2523,7 +2778,23 @@ function ScheduleTestDriveModal({
                 </div>
               )}
               <div className="form-group full">
-                <label className="form-label">Customer ID (UUID) *</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label">Customer ID (UUID) *</label>
+                  {form.customerId && (
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(form.customerId);
+                        setCopiedCustomer(true);
+                        setTimeout(() => setCopiedCustomer(false), 2000);
+                      }}
+                    >
+                      {copiedCustomer ? '✓ Copied' : 'Copy'}
+                    </button>
+                  )}
+                </div>
                 <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
               </div>
               <div className="form-group">
@@ -2560,22 +2831,35 @@ function ScheduleTestDriveModal({
 function RequestReservationModal({
   user,
   customers = [],
+  inventory = [],
+  initialListingId = '',
+  initialCustomerId = '',
   onClose,
   onSuccess,
 }: {
   user: User | null;
   customers?: Customer[];
+  inventory?: InventoryItem[];
+  initialListingId?: string;
+  initialCustomerId?: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [copiedListing, setCopiedListing] = useState(false);
+  const [copiedCustomer, setCopiedCustomer] = useState(false);
   const [form, setForm] = useState({
-    listingId: '',
-    customerId: customers[0]?.id || '',
+    listingId: initialListingId || inventory[0]?.id || '',
+    customerId: initialCustomerId || customers[0]?.id || '',
     hours: 48,
     notes: 'Token reservation initiated.',
   });
+
+  useEffect(() => {
+    if (initialListingId) setForm(f => ({ ...f, listingId: initialListingId }));
+    if (initialCustomerId) setForm(f => ({ ...f, customerId: initialCustomerId }));
+  }, [initialListingId, initialCustomerId]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -2609,8 +2893,43 @@ function RequestReservationModal({
           <div className="modal-body">
             {error && <div className="error-banner">{error}</div>}
             <div className="form-grid">
+              {inventory.length > 0 && (
+                <div className="form-group full">
+                  <label className="form-label">Pick Available Vehicle from Inventory</label>
+                  <select
+                    className="form-select"
+                    value={inventory.some(i => i.id === form.listingId) ? form.listingId : ''}
+                    onChange={e => {
+                      if (e.target.value) setForm({ ...form, listingId: e.target.value });
+                    }}
+                  >
+                    <option value="">-- Choose from Inventory Stock ({inventory.length} vehicles) --</option>
+                    {inventory.map(i => (
+                      <option key={i.id} value={i.id}>
+                        {i.title} — {formatCurrency(i.pricePaise)} ({i.vehicle.city || 'No city'})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="form-group full">
-                <label className="form-label">Vehicle Listing ID (UUID) *</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label">Vehicle Listing ID (UUID) *</label>
+                  {form.listingId && (
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(form.listingId);
+                        setCopiedListing(true);
+                        setTimeout(() => setCopiedListing(false), 2000);
+                      }}
+                    >
+                      {copiedListing ? '✓ Copied' : 'Copy'}
+                    </button>
+                  )}
+                </div>
                 <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
               </div>
               {customers.length > 0 && (
@@ -2633,7 +2952,23 @@ function RequestReservationModal({
                 </div>
               )}
               <div className="form-group full">
-                <label className="form-label">Customer ID (UUID) *</label>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <label className="form-label">Customer ID (UUID) *</label>
+                  {form.customerId && (
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm"
+                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
+                      onClick={() => {
+                        navigator.clipboard.writeText(form.customerId);
+                        setCopiedCustomer(true);
+                        setTimeout(() => setCopiedCustomer(false), 2000);
+                      }}
+                    >
+                      {copiedCustomer ? '✓ Copied' : 'Copy'}
+                    </button>
+                  )}
+                </div>
                 <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
               </div>
               <div className="form-group">
