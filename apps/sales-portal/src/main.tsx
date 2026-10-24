@@ -167,6 +167,7 @@ function App() {
   const [selectedSellerLead, setSelectedSellerLead] = useState<SellerLead | null>(null);
   const [selectedBuyerLead, setSelectedBuyerLead] = useState<BuyerLead | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [prefilledCustomerId, setPrefilledCustomerId] = useState<string>('');
   const [showManualLeadModal, setShowManualLeadModal] = useState(false);
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [showReservationModal, setShowReservationModal] = useState(false);
@@ -247,8 +248,8 @@ function App() {
       } else if (page === 'tasks') {
         const res = await salesApi.tasks(currentUser, { status: statusFilter || undefined });
         setTasks(res);
-      } else if (page === 'customers') {
-        const res = await salesApi.customers(currentUser, { search });
+      } else if (page === 'customers' || page === 'communications') {
+        const res = await salesApi.customers(currentUser, { search: page === 'customers' ? search : undefined });
         setCustomers(res.items);
       } else if (page === 'reports') {
         const rep = await salesApi.reports(currentUser);
@@ -1219,37 +1220,65 @@ function App() {
                     <thead>
                       <tr>
                         <th>Customer Name</th>
+                        <th>Customer UUID</th>
                         <th>Contact Email</th>
                         <th>Phone</th>
                         <th>Preferred City</th>
                         <th>Registered</th>
-                        <th>Action</th>
+                        <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
                       {customers.map(c => (
                         <tr key={c.id}>
                           <td className="table-title">{c.displayName || 'Customer'}</td>
+                          <td>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                              <span className="font-mono" style={{ fontSize: '12px', color: 'var(--yellow)' }}>
+                                {c.id.slice(0, 8)}…{c.id.slice(-4)}
+                              </span>
+                              <button
+                                type="button"
+                                className="btn-secondary btn-sm"
+                                style={{ padding: '2px 6px', fontSize: '11px', minHeight: 'unset' }}
+                                onClick={() => navigator.clipboard.writeText(c.id)}
+                                title={`Copy ${c.id}`}
+                              >
+                                Copy
+                              </button>
+                            </div>
+                          </td>
                           <td>{c.email}</td>
                           <td>{c.phone || '—'}</td>
                           <td>{c.preferredCity || '—'}</td>
                           <td>{formatDate(c.createdAt)}</td>
                           <td>
-                            <button
-                              className="btn-secondary btn-sm"
-                              onClick={async () => {
-                                if (!user) return;
-                                const details = await salesApi.customer(user, c.id);
-                                setSelectedCustomer(details);
-                              }}
-                            >
-                              View 360 Profile
-                            </button>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={async () => {
+                                  if (!user) return;
+                                  const details = await salesApi.customer(user, c.id);
+                                  setSelectedCustomer(details);
+                                }}
+                              >
+                                View 360 Profile
+                              </button>
+                              <button
+                                className="btn-outline btn-sm"
+                                onClick={() => {
+                                  setPrefilledCustomerId(c.id);
+                                  setPage('communications');
+                                }}
+                              >
+                                Notify
+                              </button>
+                            </div>
                           </td>
                         </tr>
                       ))}
                       {customers.length === 0 && (
-                        <tr><td colSpan={6} className="empty-state">No customers found.</td></tr>
+                        <tr><td colSpan={7} className="empty-state">No customers found.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -1262,7 +1291,11 @@ function App() {
           {/* VIEW: COMMUNICATIONS (APPROVED TRANSACTIONAL EMAIL) */}
           {/* ==================================================== */}
           {page === 'communications' && (
-            <CommunicationsView user={user} customers={customers} />
+            <CommunicationsView
+              user={user}
+              customers={customers}
+              initialCustomerId={prefilledCustomerId}
+            />
           )}
 
           {/* ==================================================== */}
@@ -1355,6 +1388,10 @@ function App() {
           lead={selectedBuyerLead}
           onClose={() => setSelectedBuyerLead(null)}
           onRefresh={() => void loadData()}
+          onNotifyCustomer={id => {
+            setPrefilledCustomerId(id);
+            setPage('communications');
+          }}
         />
       )}
 
@@ -1365,6 +1402,10 @@ function App() {
         <CustomerProfileDrawer
           customer={selectedCustomer}
           onClose={() => setSelectedCustomer(null)}
+          onNotifyCustomer={id => {
+            setPrefilledCustomerId(id);
+            setPage('communications');
+          }}
         />
       )}
 
@@ -1374,6 +1415,7 @@ function App() {
       {showQuotationModal && (
         <CreateQuotationModal
           user={user}
+          customers={customers}
           onClose={() => setShowQuotationModal(false)}
           onSuccess={() => {
             setShowQuotationModal(false);
@@ -1418,6 +1460,7 @@ function App() {
       {showTestDriveModal && (
         <ScheduleTestDriveModal
           user={user}
+          customers={customers}
           onClose={() => setShowTestDriveModal(false)}
           onSuccess={() => {
             setShowTestDriveModal(false);
@@ -1432,6 +1475,7 @@ function App() {
       {showReservationModal && (
         <RequestReservationModal
           user={user}
+          customers={customers}
           onClose={() => setShowReservationModal(false)}
           onSuccess={() => {
             setShowReservationModal(false);
@@ -1960,13 +2004,22 @@ function BuyerLeadDrawer({
   lead,
   onClose,
   onRefresh,
+  onNotifyCustomer,
 }: {
   user: User | null;
   lead: BuyerLead;
   onClose: () => void;
   onRefresh: () => void;
+  onNotifyCustomer?: (id: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const copyId = () => {
+    navigator.clipboard.writeText(lead.user.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const updateStatus = async (status: string) => {
     if (!user) return;
@@ -1992,6 +2045,32 @@ function BuyerLeadDrawer({
         </div>
         <div className="modal-body">
           <div className="form-grid">
+            <div className="metric-card full" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+              <div>
+                <div className="metric-label">Customer UUID</div>
+                <div className="font-mono" style={{ fontSize: '12px', color: 'var(--yellow)', wordBreak: 'break-all' }}>
+                  {lead.user.id}
+                </div>
+              </div>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                <button type="button" className="btn-secondary btn-sm" onClick={copyId}>
+                  {copied ? '✓ Copied' : 'Copy UUID'}
+                </button>
+                {onNotifyCustomer && (
+                  <button
+                    type="button"
+                    className="btn-primary btn-sm"
+                    onClick={() => {
+                      onNotifyCustomer(lead.user.id);
+                      onClose();
+                    }}
+                  >
+                    Notify Customer
+                  </button>
+                )}
+              </div>
+            </div>
+
             <div className="metric-card">
               <div className="metric-label">Customer Contact</div>
               <div>{lead.user.email}</div>
@@ -2034,7 +2113,23 @@ function BuyerLeadDrawer({
 // ==========================================
 // SUBCOMPONENT: CUSTOMER 360 PROFILE
 // ==========================================
-function CustomerProfileDrawer({ customer, onClose }: { customer: Customer; onClose: () => void }) {
+function CustomerProfileDrawer({
+  customer,
+  onClose,
+  onNotifyCustomer,
+}: {
+  customer: Customer;
+  onClose: () => void;
+  onNotifyCustomer?: (id: string) => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const copyId = () => {
+    navigator.clipboard.writeText(customer.id);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
     <div className="modal-overlay">
       <div className="modal-dialog lg">
@@ -2046,6 +2141,33 @@ function CustomerProfileDrawer({ customer, onClose }: { customer: Customer; onCl
           <button onClick={onClose}><Icons.Close size={18} /></button>
         </div>
         <div className="modal-body">
+          {/* Prominent Customer UUID card */}
+          <div className="metric-card full" style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+            <div>
+              <div className="metric-label">Customer UUID (System ID)</div>
+              <div className="font-mono" style={{ fontSize: '13px', color: 'var(--yellow)', wordBreak: 'break-all' }}>
+                {customer.id}
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: '8px' }}>
+              <button type="button" className="btn-secondary btn-sm" onClick={copyId}>
+                {copied ? '✓ Copied' : 'Copy UUID'}
+              </button>
+              {onNotifyCustomer && (
+                <button
+                  type="button"
+                  className="btn-primary btn-sm"
+                  onClick={() => {
+                    onNotifyCustomer(customer.id);
+                    onClose();
+                  }}
+                >
+                  Send Notification
+                </button>
+              )}
+            </div>
+          </div>
+
           <div className="form-grid" style={{ marginBottom: '16px' }}>
             <div className="metric-card">
               <div className="metric-label">Contact Details</div>
@@ -2110,12 +2232,22 @@ function CustomerProfileDrawer({ customer, onClose }: { customer: Customer; onCl
 // ==========================================
 // SUBCOMPONENT: CREATE QUOTATION MODAL
 // ==========================================
-function CreateQuotationModal({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
+function CreateQuotationModal({
+  user,
+  customers = [],
+  onClose,
+  onSuccess,
+}: {
+  user: User | null;
+  customers?: Customer[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     listingId: '',
-    customerId: '',
+    customerId: customers[0]?.id || '',
     chargesRupees: '15000',
     discountRupees: '0',
     validDays: 7,
@@ -2160,6 +2292,25 @@ function CreateQuotationModal({ user, onClose, onSuccess }: { user: User | null;
                 <label className="form-label">Vehicle Listing ID (UUID) *</label>
                 <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
               </div>
+              {customers.length > 0 && (
+                <div className="form-group full">
+                  <label className="form-label">Pick Registered Customer</label>
+                  <select
+                    className="form-select"
+                    value={customers.some(c => c.id === form.customerId) ? form.customerId : ''}
+                    onChange={e => {
+                      if (e.target.value) setForm({ ...form, customerId: e.target.value });
+                    }}
+                  >
+                    <option value="">-- Choose from Directory --</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.displayName || 'Customer'} — {c.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="form-group full">
                 <label className="form-label">Customer ID (UUID) *</label>
                 <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
@@ -2295,12 +2446,22 @@ function CompleteTaskModal({ user, taskId, onClose, onSuccess }: { user: User | 
 // ==========================================
 // SUBCOMPONENT: SCHEDULE TEST DRIVE MODAL
 // ==========================================
-function ScheduleTestDriveModal({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
+function ScheduleTestDriveModal({
+  user,
+  customers = [],
+  onClose,
+  onSuccess,
+}: {
+  user: User | null;
+  customers?: Customer[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     listingId: '',
-    customerId: '',
+    customerId: customers[0]?.id || '',
     requestedDate: new Date().toISOString().slice(0, 10),
     timeSlot: '02:00 PM - 04:00 PM',
     customerNotes: 'Customer prefers showroom test drive.',
@@ -2342,6 +2503,25 @@ function ScheduleTestDriveModal({ user, onClose, onSuccess }: { user: User | nul
                 <label className="form-label">Vehicle Listing ID (UUID) *</label>
                 <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
               </div>
+              {customers.length > 0 && (
+                <div className="form-group full">
+                  <label className="form-label">Pick Registered Customer</label>
+                  <select
+                    className="form-select"
+                    value={customers.some(c => c.id === form.customerId) ? form.customerId : ''}
+                    onChange={e => {
+                      if (e.target.value) setForm({ ...form, customerId: e.target.value });
+                    }}
+                  >
+                    <option value="">-- Choose from Directory --</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.displayName || 'Customer'} — {c.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="form-group full">
                 <label className="form-label">Customer ID (UUID) *</label>
                 <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
@@ -2377,12 +2557,22 @@ function ScheduleTestDriveModal({ user, onClose, onSuccess }: { user: User | nul
 // ==========================================
 // SUBCOMPONENT: REQUEST RESERVATION MODAL
 // ==========================================
-function RequestReservationModal({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
+function RequestReservationModal({
+  user,
+  customers = [],
+  onClose,
+  onSuccess,
+}: {
+  user: User | null;
+  customers?: Customer[];
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     listingId: '',
-    customerId: '',
+    customerId: customers[0]?.id || '',
     hours: 48,
     notes: 'Token reservation initiated.',
   });
@@ -2423,6 +2613,25 @@ function RequestReservationModal({ user, onClose, onSuccess }: { user: User | nu
                 <label className="form-label">Vehicle Listing ID (UUID) *</label>
                 <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
               </div>
+              {customers.length > 0 && (
+                <div className="form-group full">
+                  <label className="form-label">Pick Registered Customer</label>
+                  <select
+                    className="form-select"
+                    value={customers.some(c => c.id === form.customerId) ? form.customerId : ''}
+                    onChange={e => {
+                      if (e.target.value) setForm({ ...form, customerId: e.target.value });
+                    }}
+                  >
+                    <option value="">-- Choose from Directory --</option>
+                    {customers.map(c => (
+                      <option key={c.id} value={c.id}>
+                        {c.displayName || 'Customer'} — {c.email}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               <div className="form-group full">
                 <label className="form-label">Customer ID (UUID) *</label>
                 <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
@@ -2450,12 +2659,36 @@ function RequestReservationModal({ user, onClose, onSuccess }: { user: User | nu
 // ==========================================
 // SUBCOMPONENT: COMMUNICATIONS VIEW
 // ==========================================
-function CommunicationsView({ user, customers }: { user: User | null; customers: Customer[] }) {
+function CommunicationsView({
+  user,
+  customers,
+  initialCustomerId,
+}: {
+  user: User | null;
+  customers: Customer[];
+  initialCustomerId?: string;
+}) {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState('');
   const [error, setError] = useState('');
-  const [customerId, setCustomerId] = useState(customers[0]?.id || '');
+  const [customerId, setCustomerId] = useState(initialCustomerId || customers[0]?.id || '');
   const [template, setTemplate] = useState('ENQUIRY_ACK');
+  const [copied, setCopied] = useState(false);
+
+  useEffect(() => {
+    if (initialCustomerId) {
+      setCustomerId(initialCustomerId);
+    } else if (!customerId && customers.length > 0) {
+      setCustomerId(customers[0].id);
+    }
+  }, [initialCustomerId, customers]);
+
+  const copyId = () => {
+    if (!customerId) return;
+    navigator.clipboard.writeText(customerId);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const templates = [
     { key: 'ENQUIRY_ACK', label: 'Enquiry Acknowledgment' },
@@ -2502,8 +2735,41 @@ function CommunicationsView({ user, customers }: { user: User | null; customers:
           {status && <div className="badge badge-green" style={{ display: 'block', padding: '10px', marginBottom: '14px' }}>{status}</div>}
           {error && <div className="error-banner">{error}</div>}
 
+          {/* Quick Customer Picker Dropdown */}
+          {customers.length > 0 && (
+            <div className="form-group" style={{ marginBottom: '14px' }}>
+              <label className="form-label">Pick Registered Customer</label>
+              <select
+                className="form-select"
+                value={customers.some(c => c.id === customerId) ? customerId : ''}
+                onChange={e => {
+                  if (e.target.value) setCustomerId(e.target.value);
+                }}
+              >
+                <option value="">-- Choose from Customer Directory ({customers.length} registered) --</option>
+                {customers.map(c => (
+                  <option key={c.id} value={c.id}>
+                    {c.displayName || 'Customer'} — {c.email} {c.phone ? `(${c.phone})` : ''}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
           <div className="form-group" style={{ marginBottom: '14px' }}>
-            <label className="form-label">Customer ID (UUID) *</label>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <label className="form-label">Customer ID (UUID) *</label>
+              {customerId && (
+                <button
+                  type="button"
+                  className="btn-secondary btn-sm"
+                  style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
+                  onClick={copyId}
+                >
+                  {copied ? '✓ Copied' : 'Copy'}
+                </button>
+              )}
+            </div>
             <input
               required
               className="form-input font-mono"
@@ -2511,6 +2777,9 @@ function CommunicationsView({ user, customers }: { user: User | null; customers:
               value={customerId}
               onChange={e => setCustomerId(e.target.value)}
             />
+            <span className="caption text-muted" style={{ display: 'block', marginTop: '6px', fontSize: '12px' }}>
+              Tip: You can select a customer from the dropdown above, or copy their UUID from <strong>Customers CRM</strong>, <strong>Customer 360 Profile</strong>, or <strong>Buyer Leads</strong>.
+            </span>
           </div>
 
           <div className="form-group" style={{ marginBottom: '18px' }}>
