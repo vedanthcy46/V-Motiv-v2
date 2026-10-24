@@ -84,6 +84,10 @@ function errorMessage(error: unknown) {
     INVITATION_EXPIRED: 'This invitation expired. Ask an administrator to issue a new invitation.',
     INVALID_OR_REVOKED_TOKEN: 'Your session expired or was revoked. Sign in again.',
     INVALID_INPUT: 'Review the highlighted information and try again.',
+    SELF_APPROVAL_DENIED: 'Dual-control policy: you cannot approve a request you proposed yourself.',
+    APPROVAL_NOT_PENDING: 'This request is no longer awaiting a decision.',
+    APPROVAL_VERSION_MISMATCH: 'This request was updated by another administrator. Please refresh.',
+    APPROVAL_EXPIRED: 'This approval request has expired.',
   };
   return messages[error.code] || `The server rejected this request (${error.code}).`;
 }
@@ -2237,10 +2241,115 @@ function ApprovalsPage({ user, actor }: { user: User; actor: AdminActor }) {
 }
 
 function ApprovalDialog({ user, actor, approval, onClose, onDone }: { user: User; actor: AdminActor; approval: Approval; onClose: () => void; onDone: () => void }) {
-  const ref = useRef<HTMLDialogElement>(null); const [decision, setDecision] = useState<'APPROVE' | 'REJECT'>('APPROVE'); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const canDecide = actor.permissions.includes('approval.decide') && approval.status === 'PENDING';
+  const ref = useRef<HTMLDialogElement>(null);
+  const [decision, setDecision] = useState<'APPROVE' | 'REJECT'>('APPROVE');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const isRequester = approval.requester.user.email === actor.email;
+  const isSuperAdmin = actor.roles.includes('SUPER_ADMIN');
+  const canDecide = actor.permissions.includes('approval.decide') && approval.status === 'PENDING' && (!isRequester || isSuperAdmin);
+
   useEffect(() => { ref.current?.showModal(); }, []);
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); try { const form = new FormData(event.currentTarget); await adminApi.decideApproval(user, approval.id, { version: approval.version, decision, reason: String(form.get('reason')) }); onDone(); } catch (error) { setError(errorMessage(error)); setBusy(false); } }
-  return <dialog ref={ref} onCancel={onClose} className="dialog compact"><form onSubmit={submit}><header><div><p className="eyebrow">Maker-checker decision</p><h2>{humanize(approval.requestType)}</h2></div><button type="button" className="icon-button" aria-label="Close approval review" onClick={onClose}><Icon name="close"/></button></header>{error && <div className="alert error" role="alert">{error}</div>}<dl className="review-list"><div><dt>Requester</dt><dd>{approval.requester.user.displayName || approval.requester.user.email}<small>{approval.requester.user.email}</small></dd></div><div><dt>Employee</dt><dd>{approval.payload.fullName || 'Not supplied'}<small>{approval.payload.email}</small></dd></div><div><dt>Business reason</dt><dd>{approval.payload.reason || 'No reason recorded'}</dd></div><div><dt>Requested at</dt><dd>{new Date(approval.createdAt).toLocaleString()}</dd></div><div><dt>Expires at</dt><dd>{new Date(approval.expiresAt).toLocaleString()}</dd></div></dl>{approval.decision ? <div className="alert"><strong>{humanize(approval.decision.decision)}</strong><span>{approval.decision.reason}</span><small>{approval.decision.actor.user.displayName || approval.decision.actor.user.email} · {new Date(approval.decision.createdAt).toLocaleString()}</small></div> : canDecide ? <><fieldset><legend>Decision</legend><div className="decision-row"><label><input type="radio" checked={decision === 'APPROVE'} onChange={() => setDecision('APPROVE')}/> Approve and execute once</label><label><input type="radio" checked={decision === 'REJECT'} onChange={() => setDecision('REJECT')}/> Reject request</label></div></fieldset><label>Decision reason <span aria-hidden="true">*</span><textarea name="reason" minLength={8} maxLength={500} required placeholder="Record the independent review basis."/></label></> : <p className="helper">This request is read-only for your current permissions or state.</p>}<footer><button type="button" className="button secondary" onClick={onClose}>Close</button>{canDecide && <button className={`button ${decision === 'APPROVE' ? 'primary' : 'danger'}`} disabled={busy}>{busy ? 'Recording decision…' : decision === 'APPROVE' ? 'Approve and execute' : 'Reject request'}</button>}</footer></form></dialog>;
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const form = new FormData(event.currentTarget);
+      await adminApi.decideApproval(user, approval.id, { version: approval.version, decision, reason: String(form.get('reason')) });
+      onDone();
+    } catch (error) {
+      setError(errorMessage(error));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <dialog ref={ref} onCancel={onClose} className="dialog compact">
+      <form onSubmit={submit}>
+        <header>
+          <div>
+            <p className="eyebrow">Maker-checker decision</p>
+            <h2>{humanize(approval.requestType)}</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close approval review" onClick={onClose}>
+            <Icon name="close"/>
+          </button>
+        </header>
+        {error && <div className="alert error" role="alert">{error}</div>}
+        <dl className="review-list">
+          <div>
+            <dt>Requester</dt>
+            <dd>{approval.requester.user.displayName || approval.requester.user.email}<small>{approval.requester.user.email}</small></dd>
+          </div>
+          <div>
+            <dt>Employee</dt>
+            <dd>{approval.payload.fullName || 'Not supplied'}<small>{approval.payload.email}</small></dd>
+          </div>
+          <div>
+            <dt>Business reason</dt>
+            <dd>{approval.payload.reason || 'No reason recorded'}</dd>
+          </div>
+          <div>
+            <dt>Requested at</dt>
+            <dd>{new Date(approval.createdAt).toLocaleString()}</dd>
+          </div>
+          <div>
+            <dt>Expires at</dt>
+            <dd>{new Date(approval.expiresAt).toLocaleString()}</dd>
+          </div>
+        </dl>
+        {isRequester && isSuperAdmin && !approval.decision && (
+          <div className="alert">
+            <strong>Platform Owner Authority</strong>
+            <span>You proposed this request. As Super Administrator, you may independently authorize and execute this decision.</span>
+          </div>
+        )}
+        {isRequester && !isSuperAdmin && !approval.decision && (
+          <div className="alert">
+            <strong>Dual-Control Policy</strong>
+            <span>You proposed this request. Another authorized administrator must independently review and decide it.</span>
+          </div>
+        )}
+        {approval.decision ? (
+          <div className="alert">
+            <strong>{humanize(approval.decision.decision)}</strong>
+            <span>{approval.decision.reason}</span>
+            <small>{approval.decision.actor.user.displayName || approval.decision.actor.user.email} · {new Date(approval.decision.createdAt).toLocaleString()}</small>
+          </div>
+        ) : canDecide ? (
+          <>
+            <fieldset>
+              <legend>Decision</legend>
+              <div className="decision-row">
+                <label>
+                  <input type="radio" checked={decision === 'APPROVE'} onChange={() => setDecision('APPROVE')}/> Approve and execute once
+                </label>
+                <label>
+                  <input type="radio" checked={decision === 'REJECT'} onChange={() => setDecision('REJECT')}/> Reject request
+                </label>
+              </div>
+            </fieldset>
+            <label>
+              Decision reason <span aria-hidden="true">*</span>
+              <textarea name="reason" minLength={8} maxLength={500} required placeholder="Record the review and authorization basis."/>
+            </label>
+          </>
+        ) : (
+          <p className="helper">This request is read-only for your current permissions or dual-control state.</p>
+        )}
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>Close</button>
+          {canDecide && (
+            <button className={`button ${decision === 'APPROVE' ? 'primary' : 'danger'}`} disabled={busy}>
+              {busy ? 'Recording decision…' : decision === 'APPROVE' ? 'Approve and execute' : 'Reject request'}
+            </button>
+          )}
+        </footer>
+      </form>
+    </dialog>
+  );
 }
 
 function AuditPageView({ user }: { user: User }) { const [data, setData] = useState<AuditPage | null>(null); const [error, setError] = useState(''); const [page, setPage] = useState(1); useEffect(() => { adminApi.audit(user, page).then(setData).catch(error => setError(errorMessage(error))); }, [user, page]); return <><PageHeader eyebrow="Append-only history" title="Audit" description="Authorization-filtered security and governance events. Audit records cannot be edited from this portal."/>{error ? <ErrorState message={error}/> : !data ? <TableSkeleton/> : <section className="panel table-panel">{data.items.length ? <div className="table-scroll"><table><thead><tr><th>Time</th><th>Action</th><th>Target</th><th>Outcome</th></tr></thead><tbody>{data.items.map(event => <tr key={event.id}><td><time>{new Date(event.createdAt).toLocaleString()}</time></td><td><strong>{humanize(event.action)}</strong></td><td><span>{event.entityType}</span><small>{event.entityId}</small></td><td><StatusBadge value={event.outcome}/></td></tr>)}</tbody></table></div> : <EmptyState title="No audit events" text="No events are visible within your authorized scope."/>}<Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/></section>}</>; }

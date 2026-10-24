@@ -448,7 +448,7 @@ export class PrismaAdminStore implements AdminStore {
       else if (request.requestType === 'POLICY_VERSION') requirePermission(actor, 'policy.approve');
       else if (request.requestType === 'SENSITIVE_EXPORT_PROPOSAL') requirePermission(actor, 'export.sensitive.approve');
       else throw new HttpError(400, 'APPROVAL_TYPE_NOT_SUPPORTED');
-      if (request.requesterId === actor.userId) throw new HttpError(409, 'SELF_APPROVAL_DENIED');
+      if (request.requesterId === actor.userId && !actor.roles.includes('SUPER_ADMIN')) throw new HttpError(409, 'SELF_APPROVAL_DENIED');
       if (request.status !== 'PENDING' || request.decision) throw new HttpError(409, 'APPROVAL_NOT_PENDING');
       if (request.version !== input.version) throw new HttpError(409, 'APPROVAL_VERSION_MISMATCH');
       if (request.expiresAt <= new Date()) {
