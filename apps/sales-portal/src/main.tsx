@@ -71,7 +71,7 @@ const statusBadgeClass = (status: string): string => {
 };
 
 // ==========================================
-// AUTH SCREEN
+// AUTH SCREEN (IDENTICAL ADMIN THEME)
 // ==========================================
 function SignIn() {
   const [busy, setBusy] = useState(false);
@@ -91,22 +91,41 @@ function SignIn() {
   };
 
   return (
-    <div className="auth-screen">
-      <div className="auth-card">
-        <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
+    <main className="auth-shell">
+      <section className="auth-panel">
+        <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
         <p className="eyebrow">SALES EXECUTIVE PORTAL</p>
         <h1>Authorized Sales Workspace</h1>
         <p>Sign in with your authorized V MOTIV corporate Google account to manage buyer & seller opportunities.</p>
-        {firebaseConfigured ? (
-          <button className="btn-primary" onClick={login} disabled={busy} style={{ width: '100%', justifyContent: 'center' }}>
-            {busy ? 'Authenticating with Google…' : 'Sign In with Google'}
-          </button>
-        ) : (
-          <p className="error-banner">Firebase configuration is missing for this environment.</p>
-        )}
-        {error && <p className="error-banner" style={{ marginTop: '12px' }}>{error}</p>}
-      </div>
-    </div>
+        <div className="auth-actions">
+          {firebaseConfigured ? (
+            <button className="button btn-primary" onClick={login} disabled={busy}>
+              {busy ? 'Connecting to Google…' : 'Continue with Google'}
+            </button>
+          ) : (
+            <div className="error-banner">Firebase configuration is missing for this environment.</div>
+          )}
+        </div>
+        {error && <div className="error-banner">{error}</div>}
+      </section>
+      <aside className="auth-aside">
+        <div>
+          <span className="kicker">Workflow A · Buy</span>
+          <strong>Vehicle Acquisition & Valuation</strong>
+          <span>Seller lead qualification, physical inspections, and approved offers.</span>
+        </div>
+        <div>
+          <span className="kicker">Workflow B · Sell</span>
+          <strong>Inventory & Retail Fulfillment</strong>
+          <span>Inbound buyer enquiries, showroom test drives, and quotations.</span>
+        </div>
+        <div>
+          <span className="kicker">Security & Governance</span>
+          <strong>Role & Branch Scoped</strong>
+          <span>Strict server-side enforcement backed by PostgreSQL transactional audit checks.</span>
+        </div>
+      </aside>
+    </main>
   );
 }
 
@@ -255,16 +274,15 @@ function App() {
 
   if (denied) {
     return (
-      <div className="auth-screen">
-        <div className="auth-card">
-          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-          <h1>Sales Access Required</h1>
-          <p>Your signed-in Google account ({user.email}) does not have an active Sales Executive role and branch assignment. Please contact an administrator.</p>
-          <button className="btn-secondary" onClick={() => auth && signOut(auth)}>
-            Sign In with Another Account
-          </button>
-        </div>
-      </div>
+      <main className="center-state">
+        <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" style={{ margin: '0 auto 1.5rem' }} />
+        <p className="eyebrow">ACCESS NOT GRANTED</p>
+        <h1>Sales Access Required</h1>
+        <p>Your signed-in Google account ({user.email}) does not have an active Sales Executive role and branch assignment. Please contact an administrator to activate your employee account.</p>
+        <button className="button btn-primary" onClick={() => auth && signOut(auth)}>
+          Use another account
+        </button>
+      </main>
     );
   }
 
@@ -272,9 +290,9 @@ function App() {
     <div className="app-shell">
       {/* SIDEBAR NAVIGATION */}
       <aside className="sidebar">
-        <div className="sidebar-header">
-          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" className="brand-logo" />
-          <span className="workspace-badge">SALES CRM · V2</span>
+        <div className="brand">
+          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
+          <span>Sales</span>
         </div>
 
         <nav className="sidebar-nav">
@@ -323,11 +341,9 @@ function App() {
           </button>
         </nav>
 
-        <div className="sidebar-footer">
-          <div className="user-snippet">
-            <span className="user-name">{actor?.displayName || actor?.email}</span>
-            <span className="user-role-pill">{actor?.roles[0]?.replace('_', ' ') || 'SALES'}</span>
-          </div>
+        <div className="sidebar-account">
+          <span>{actor?.displayName || actor?.email}</span>
+          <small>{actor?.roles[0]?.replace('_', ' ') || 'SALES EXECUTIVE'}</small>
           <button className="btn-signout" onClick={() => auth && signOut(auth)}>
             <Icons.Logout size={15} /> Sign Out
           </button>
@@ -339,7 +355,7 @@ function App() {
         {/* TOPBAR */}
         <header className="topbar">
           <div className="topbar-left">
-            <div className="branch-select-badge">
+            <div className="branch-badge">
               <Icons.MapPin size={13} />
               <span>{actor?.globalScope ? 'All Branches (HQ)' : actor?.branches.map(b => b.city).join(', ') || 'Branch'}</span>
             </div>
