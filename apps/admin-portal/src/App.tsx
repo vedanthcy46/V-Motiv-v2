@@ -109,13 +109,34 @@ export function App() {
   useEffect(() => { const handler = () => setRoute(currentRoute()); window.addEventListener('popstate', handler); return () => window.removeEventListener('popstate', handler); }, []);
   useEffect(() => {
     if (!auth) { setLoading(false); return; }
-    // Handle the result of a redirect-based sign-in (fallback for COOP-blocked popups)
-    getRedirectResult(auth).catch(() => {/* ignore errors – user may not have redirected */});
+    // After a signInWithRedirect, Google returns us to the origin root.
+    // We saved the pre-redirect URL in sessionStorage so we can restore it here.
+    getRedirectResult(auth)
+      .then(result => {
+        if (result?.user) {
+          const savedHref = sessionStorage.getItem('vmotiv_signin_redirect_back');
+          if (savedHref) {
+            sessionStorage.removeItem('vmotiv_signin_redirect_back');
+            // Restore the URL (e.g. /accept-invitation?token=...) without a full reload
+            window.history.replaceState({}, '', savedHref);
+            window.dispatchEvent(new PopStateEvent('popstate'));
+          }
+        }
+      })
+      .catch(() => {/* no redirect pending – ignore */});
     return onAuthStateChanged(auth, next => { setUser(next); if (!next) { setActor(null); setLoading(false); } });
   }, []);
   useEffect(() => {
     if (!user) return;
     if (route === '/accept-invitation') { setLoading(false); return; }
+    // If a stored invitation token exists for this user, redirect to acceptance page
+    // (handles the case where signInWithRedirect returns the user to '/' not the invite URL)
+    const storedToken = (() => { try { return sessionStorage.getItem('vmotiv_admin_invitation_token') || ''; } catch { return ''; } })();
+    if (storedToken) {
+      navigate(`/accept-invitation?token=${encodeURIComponent(storedToken)}`);
+      setLoading(false);
+      return;
+    }
     setLoading(true); setError('');
     adminApi.me(user)
       .then(setActor)
@@ -153,6 +174,8 @@ export function App() {
         try {
           const provider = new GoogleAuthProvider();
           provider.setCustomParameters({ prompt: 'select_account' });
+          // Save current URL so we can restore it after the redirect lands on '/'
+          try { sessionStorage.setItem('vmotiv_signin_redirect_back', window.location.pathname + window.location.search); } catch {}
           await signInWithRedirect(auth, provider);
           return; // page will redirect; finally block runs but is harmless
         } catch (redirectError: any) {
@@ -661,7 +684,19 @@ function InvitationAcceptance({ user, onSignIn, onSignOut }: { user: User | null
     if (queryToken) {
       try { sessionStorage.setItem('vmotiv_admin_invitation_token', queryToken); } catch {}
     }
+    // Always save the current URL before any redirect sign-in so Google can return us here
+    try {
+      sessionStorage.setItem('vmotiv_signin_redirect_back', window.location.pathname + window.location.search);
+    } catch {}
   }, [queryToken]);
+
+  function handleSignIn() {
+    // Persist the current URL before triggering sign-in (covers redirect fallback)
+    try {
+      sessionStorage.setItem('vmotiv_signin_redirect_back', window.location.pathname + window.location.search);
+    } catch {}
+    onSignIn();
+  }
 
   async function accept() {
     if (!user || !token) return;
@@ -730,7 +765,7 @@ function InvitationAcceptance({ user, onSignIn, onSignOut }: { user: User | null
             <button
               className="button primary"
               disabled={state === 'working'}
-              onClick={user ? accept : onSignIn}
+              onClick={user ? accept : handleSignIn}
             >
               {state === 'working' ? 'Activating…' : user ? 'Accept Invitation' : 'Continue with Google'}
             </button>
