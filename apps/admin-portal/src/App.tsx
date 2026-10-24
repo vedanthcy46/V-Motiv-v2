@@ -278,11 +278,13 @@ function MfaChallengeDialog({
     setSending(true);
     setError('');
     try {
-      if (!recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
-          size: 'invisible',
-        });
+      if (recaptchaVerifierRef.current) {
+        try { recaptchaVerifierRef.current.clear(); } catch { /* ignore */ }
+        recaptchaVerifierRef.current = null;
       }
+      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible',
+      });
       const phoneProvider = new PhoneAuthProvider(auth);
       const vId = await phoneProvider.verifyPhoneNumber(
         { multiFactorHint: phoneHint, session: resolver.session },
@@ -419,11 +421,13 @@ function MfaEnrollDialog({
     setBusy(true);
     setError('');
     try {
-      if (!recaptchaVerifierRef.current) {
-        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
-          size: 'invisible',
-        });
+      if (recaptchaVerifierRef.current) {
+        try { recaptchaVerifierRef.current.clear(); } catch { /* ignore */ }
+        recaptchaVerifierRef.current = null;
       }
+      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible',
+      });
       const multiFactorUser = multiFactor(user);
       const session = await multiFactorUser.getSession();
       const phoneProvider = new PhoneAuthProvider(auth);
