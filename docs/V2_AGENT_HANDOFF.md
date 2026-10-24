@@ -19,7 +19,7 @@ The user requested a clean V2 rebuild in `vmotiv-v2`. The legacy applications at
 
 ## Database/API changes
 
-Nine additive V2 Prisma migrations are deployed to the isolated development and test databases:
+Ten additive V2 Prisma migrations are validated against isolated local databases:
 
 1. `20261022000000_identity_email_foundation`
 2. `20261022120000_customer_mobile_domain`
@@ -30,6 +30,7 @@ Nine additive V2 Prisma migrations are deployed to the isolated development and 
 7. `20261022160000_customer_addresses`
 8. `20261022170000_support_case_replies`
 9. `20261022180000_privacy_requests`
+10. `20261023120000_admin_foundation`
 
 They cover customer ownership, supported cities, saved searches, purchase enquiries, support cases, public vehicle information, acquisition offers/inspection preferences, test-drive service-location preferences, and saved addresses.
 
@@ -187,10 +188,35 @@ No claim of live email, provider authentication, deployment, app-store release, 
 3. Cold-Start Crash on Missing Environment Variable: `services/api/src/vercel.ts` threw immediately at module import if `FIREBASE_SERVICE_ACCOUNT_JSON` was not parsed, blocking public endpoints like `/api/v1/health/live`, `/api/v1/cities`, and `/api/v1/inventory` from booting.
 
 ### Fixes Implemented
-1. **Dynamic Import in `api/index.ts`**: Replaced static export with an async handler that dynamically invokes `await import('../services/api/dist/vercel.js')`. This works seamlessly in both CJS and ESM environments.
+1. **Explicit ESM Vercel entry**: `api/package.json` declares `type: module`, `api/tsconfig.json` compiles the serverless handler as NodeNext ESM, and the handler lazily imports the built Express application without CommonJS `require()` generation.
 2. **Pinned `firebase-admin@13.10.0` and Overrode `jwks-rsa@3.1.0`**: Pinned in `services/api/package.json` and enforced in root `package.json` `overrides` with `package-lock.json` updated. `jwks-rsa@3.1.0` uses `jose@4.x`, which is fully CommonJS-compatible and never triggers `ERR_REQUIRE_ESM`.
-3. **Lazy Firebase Admin Initialization in `vercel.ts`**: Wrapped Firebase Admin initialization inside `getFirebase()` so public endpoints (`/api/v1/cities`, `/api/v1/inventory`, `/api/v1/health/*`) boot without dependencies on private secrets.
-4. **CORS Allowlist for Vercel Domains**: Updated `app.ts` to explicitly allow `*.vercel.app`, `vmotiv.in`, and `www.vmotiv.in`.
+3. **Verified Firebase Admin initialization**: Firebase is initialized lazily, but protected verification requires `FIREBASE_SERVICE_ACCOUNT_JSON` so token revocation checks cannot silently downgrade.
+4. **Exact CORS allowlist**: Customer and Admin origins are explicitly configured. The unsafe arbitrary `*.vercel.app` allowance was removed.
 5. **Static Route Rewrite Whitelist in `vercel.json`**: Excluded `brand/`, `favicon`, `robots`, and `sitemap` from the SPA rewrite rule.
+
+## Admin Foundation — 23 October 2026
+
+VERIFIED locally:
+
+- Added the real React/TypeScript `apps/admin-portal` with official V MOTIV brand assets, Firebase Google Sign-In, protected routes, MFA/access denial states, responsive scrollable navigation, real dashboard, employee directory, invitation form, access catalogue and audit view.
+- Added normalized `Role`, `Permission`, `RolePermission`, employee role/branch assignments, `Branch`, hashed `EmployeeInvitation`, invitation-branch join and expanded audit metadata in migration `20261023120000_admin_foundation`.
+- Added `ApprovalRequest` and immutable `ApprovalDecision` records in `20261023140000_admin_approvals`; privileged invitation proposals now require an eligible independent decision and execute once only after revalidation.
+- Added `/api/v2/admin/*` and invitation-acceptance APIs with active employee resolution, explicit permission checks, branch scope, MFA, one-time invitation replay protection, self-suspension protection, last-Super-Admin protection and Firebase refresh-token revocation.
+- Added the operator-only first-Super-Admin bootstrap command; there is no public promotion endpoint and it closes after one Super Admin exists.
+- Removed a committed Resend-key fallback, removed the public email drain route, removed fake development token verification, restricted CORS, and stopped persisting raw provider exception text as an email error code.
+- The complete eleven-migration chain applied successfully to the isolated test database. The isolated `vmotiv_v2_test` run passed 49/49 API tests, including strict multi-branch approval visibility, scoped support-reply checks, protected system-health routing and real dashboard-workload fields. Admin client tests passed 3/3 and the Admin production build passed. The built production serverless ESM module also imported and served `health/live` in a runtime smoke test.
+
+IMPLEMENTED_NOT_VERIFIED externally:
+
+- Production migration/deployment, `admin.vmotiv.in`, live Firebase MFA and a real invitation email have not been exercised.
+- The previously exposed Resend key must be revoked/rotated before delivery is enabled.
+
+NOT_IMPLEMENTED from the complete Admin blueprint:
+
+- Phase 2 approval centre, branch/service-area administration, versioned policies/master data and cross-domain oversight.
+- Phase 3 full support/privacy administration, Resend webhook/delivery dashboard, templates, suppression and campaign approval.
+- Phase 4 exports/reports, second-approver download grants, system-health diagnostics, access reviews and end-to-end production verification.
+
+Exact next dependency-ready task: implement master-data change requests and versioned policy governance, reusing the verified approval engine for high-risk changes.
 
 

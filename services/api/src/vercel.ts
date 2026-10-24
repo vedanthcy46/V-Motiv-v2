@@ -6,6 +6,7 @@ import { readConfig } from './config.js';
 import { PrismaIdentityStore } from './identity-store.js';
 import { PrismaCustomerStore } from './customer-store.js';
 import { createResendSender, drainOutbox } from './email.js';
+import { PrismaAdminStore } from './admin-store.js';
 
 const config = readConfig(process.env);
 
@@ -39,8 +40,8 @@ const db = new PrismaClient({
   transactionOptions: { timeout: 15000, maxWait: 5000 },
 });
 
-const resendApiKey = process.env.RESEND_API_KEY || 're_i8oE9bq9_JZd414LvUod6NhRWCCMn6xtF';
-const emailFrom = process.env.EMAIL_FROM || 'noreply@vmotiv.in';
+const resendApiKey = config.RESEND_API_KEY || process.env.RESEND_API_KEY || 're_i8oE9bq9_JZd414LvUod6NhRWCCMn6xtF';
+const emailFrom = config.EMAIL_FROM || process.env.EMAIL_FROM || 'noreply@vmotiv.in';
 
 let drainEmails: (() => Promise<number>) | undefined;
 if (resendApiKey && emailFrom) {
@@ -56,6 +57,8 @@ if (resendApiKey && emailFrom) {
   }
 }
 
+const adminWebOrigin = config.ADMIN_WEB_ORIGIN || (config.NODE_ENV === 'production' ? 'https://admin.vmotiv.in' : 'http://localhost:3200');
+
 // Serverless entry point: transactional outbox drains inline on mutation requests
 export default createApp({
   verify: (token, revoked) => {
@@ -65,5 +68,12 @@ export default createApp({
   store: new PrismaIdentityStore(db),
   customer: new PrismaCustomerStore(db),
   webOrigin: config.WEB_ORIGIN,
+  adminWebOrigin,
+  admin: new PrismaAdminStore(db),
+  revokeTokens: firebaseUid => {
+    const hasServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+    if (!hasServiceAccount) return Promise.resolve();
+    return getAuth(getFirebase()).revokeRefreshTokens(firebaseUid);
+  },
   drainEmails,
 });

@@ -17,6 +17,7 @@
   "scripts": {
     "dev:api": "npm run dev -w @vmotiv/api",
     "dev:web": "npm run dev -w @vmotiv/customer-web",
+    "dev:admin": "npm run dev -w @vmotiv/admin-portal",
     "dev:mobile": "npm run start -w @vmotiv/customer-mobile --",
     "mobile:android": "npm run android -w @vmotiv/customer-mobile",
     "mobile:usb": "powershell -NoProfile -ExecutionPolicy Bypass -File tooling/connect-android-usb.ps1",
@@ -29,6 +30,8 @@
     "db:deploy": "npm run db:deploy -w @vmotiv/api",
     "db:seed": "npm run db:seed -w @vmotiv/api",
     "db:unseed": "npm run db:unseed -w @vmotiv/api",
+    "seed:admin": "npm run seed:admin -w @vmotiv/api",
+    "bootstrap:admin": "npm run bootstrap:admin -w @vmotiv/api",
     "email:worker": "npm run worker -w @vmotiv/api"
   },
   "devDependencies": {

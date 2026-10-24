@@ -62,6 +62,20 @@ describe('V MOTIV Email Templates', () => {
     expect(html).toContain('Browse Verified Cars');
   });
 
+  it('renders a secure employee invitation CTA to the approved one-time link', () => {
+    const invitationUrl = 'https://admin.vmotiv.in/accept-invitation?token=abc_DEF-1234567890';
+    const html = renderEmailHtml({
+      templateVersion: 'employee-invitation-v1',
+      subject: 'Your V MOTIV employee invitation',
+      text: `You have been invited to join V MOTIV.\n\nOpen invitation: ${invitationUrl}`,
+      recipient: 'employee@example.com',
+      webOrigin: 'https://www.vmotiv.in',
+    });
+    expect(html).toContain('EMPLOYEE INVITATION');
+    expect(html).toContain('Review invitation');
+    expect(html).toContain(`href="${invitationUrl}"`);
+  });
+
   it('escapes html entities safely to prevent XSS in email clients', () => {
     const html = renderEmailHtml({
       templateVersion: 'purchase-enquiry-v1',

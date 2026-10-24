@@ -4,11 +4,11 @@ Clean rebuild using Express/TypeScript, PostgreSQL/Prisma, Firebase Google sign-
 
 V1 remains in ../v-motiv-app and ../v-motiv-connect. No V1 source, environment files, migrations, or customer data were copied into V2.
 
-## Implemented foundation and customer mobile slice
+## Implemented customer and Admin foundations
 
-Implemented: central API, verified Google identity boundary, customer registration/profile, employee access gate, audit event, welcome-email transactional outbox and worker, customer website sign-in flow, isolated development/test databases, and a customer-only Expo mobile app with its connected V2 business APIs.
+Implemented: central API, verified Google identity boundary, customer registration/profile, server-controlled employee access, audit trail, transactional email outbox and worker, customer website, customer-only Expo app, and the Phase 1 Admin Control Centre.
 
-The mobile customer scope includes Explore, vehicle details, wishlist, sell-car intake, test-drive requests, request tracking and account/preferences. Inspector and other employee workspaces are deliberately absent. Real Google sign-in, native store builds and email delivery require external configuration. Employee portals remain future milestones.
+The Admin foundation includes MFA-gated access, one-time Super Admin bootstrap, normalized roles/permissions/branches, employee invitation and activation, suspension/session revocation, real dashboard counts and scoped audit views. Sales, Inspector, Operations and other transaction portals are separate future milestones. See `docs/ADMIN_ARCHITECTURE.md` and `docs/ADMIN_TEST_RESULTS.md` for exact status.
 
 ## Run locally
 
@@ -23,8 +23,9 @@ Node 22.12+ LTS or Node 24 LTS is recommended.
 4. Configure a dedicated development Firebase project, Google sign-in, project ID and Application Default Credentials. See docs/AUTHENTICATION.md.
 5. Run npm run db:deploy.
 6. Create apps/customer-web/.env.local from its .env.example and enter the Firebase public app configuration.
-7. Start npm run dev:api and npm run dev:web in separate terminals.
-8. Open http://localhost:3100.
+7. To run Admin locally, also set `ADMIN_WEB_ORIGIN=http://localhost:3200` in the API environment and create `apps/admin-portal/.env.local` from its example.
+8. Start `npm run dev:api`, `npm run dev:web`, and optionally `npm run dev:admin` in separate terminals.
+9. Open customer web at http://localhost:3100 or Admin at http://localhost:3200.
 
 For the customer mobile app, follow docs/CUSTOMER_MOBILE.md. It requires uncommitted Firebase platform files and a native development build; Expo Go cannot load its native authentication modules. Run `npm run dev:mobile` after configuration, or `npm run mobile:android` to create the Android development build.
 

@@ -79,6 +79,17 @@ describe('authentication boundary', () => {
     expect(response.status).toBe(503);
     expect(JSON.stringify(response.body)).not.toContain('secret');
   });
+  it('does not grant CORS to arbitrary Vercel or LAN origins in production configuration', async () => {
+    const verify = vi.fn().mockResolvedValue(verified);
+    const store: IdentityStore = { sync: vi.fn(), find: vi.fn(), ready: vi.fn().mockResolvedValue(undefined) };
+    const app = createApp({ verify, store, webOrigin: 'https://www.vmotiv.in', adminWebOrigin: 'https://admin.vmotiv.in' });
+    const untrusted = await request(app).get('/api/v1/health/live').set('Origin', 'https://attacker.vercel.app');
+    expect(untrusted.headers['access-control-allow-origin']).toBeUndefined();
+    const lan = await request(app).get('/api/v1/health/live').set('Origin', 'http://192.168.1.9:9999');
+    expect(lan.headers['access-control-allow-origin']).toBeUndefined();
+    const trusted = await request(app).get('/api/v1/health/live').set('Origin', 'https://admin.vmotiv.in');
+    expect(trusted.headers['access-control-allow-origin']).toBe('https://admin.vmotiv.in');
+  });
 });
 describe('environment and retry guardrails', () => {
   const env = { DATABASE_URL: 'postgresql://local@127.0.0.1:5440/vmotiv_v2_dev', WEB_ORIGIN: 'http://localhost:3100', FIREBASE_PROJECT_ID: 'v2-development' };

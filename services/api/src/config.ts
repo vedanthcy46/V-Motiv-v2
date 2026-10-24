@@ -6,6 +6,7 @@ export function readConfig(env: NodeJS.ProcessEnv) {
     PORT: z.coerce.number().int().min(1).max(65535).default(4100),
     DATABASE_URL: z.url(),
     WEB_ORIGIN: z.url(),
+    ADMIN_WEB_ORIGIN: z.url().optional(),
     FIREBASE_PROJECT_ID: z.string().trim().min(1),
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().optional(),
@@ -24,10 +25,17 @@ export function readConfig(env: NodeJS.ProcessEnv) {
   }
   const origin = new URL(config.WEB_ORIGIN);
   if (origin.origin !== config.WEB_ORIGIN) throw new Error('WEB_ORIGIN must be an exact origin.');
+  const adminOrigin = config.ADMIN_WEB_ORIGIN ? new URL(config.ADMIN_WEB_ORIGIN) : undefined;
+  if (adminOrigin && adminOrigin.origin !== config.ADMIN_WEB_ORIGIN) throw new Error('ADMIN_WEB_ORIGIN must be an exact origin.');
   const loopbackOrigin = ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname);
+  const adminLoopbackOrigin = adminOrigin ? ['localhost', '127.0.0.1', '[::1]'].includes(adminOrigin.hostname) : false;
   if (config.NODE_ENV === 'production' &&
       ((origin.protocol !== 'https:' && !(origin.protocol === 'http:' && loopbackOrigin)) || env.FIREBASE_AUTH_EMULATOR_HOST)) {
     throw new Error('Production requires HTTPS for public web origins and forbids the Firebase auth emulator. HTTP is permitted only on loopback.');
+  }
+  if (config.NODE_ENV === 'production' && adminOrigin &&
+      adminOrigin.protocol !== 'https:' && !(adminOrigin.protocol === 'http:' && adminLoopbackOrigin)) {
+    throw new Error('Production requires HTTPS for the Admin web origin. HTTP is permitted only on loopback.');
   }
   if (config.EMAIL_DELIVERY_ENABLED === 'true' &&
       (!config.RESEND_API_KEY || !config.EMAIL_FROM || !config.EMAIL_FROM.includes('@'))) {

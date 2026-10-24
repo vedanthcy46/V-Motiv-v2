@@ -11,14 +11,52 @@ enum AccountStatus {
   DEACTIVATED
 }
 enum EmployeeRole {
+  SUPER_ADMIN
+  SECURITY_ADMIN
+  SUPPORT_ADMIN
   SALES_EXECUTIVE
   INSPECTOR
   INSPECTION_REVIEWER
   OPERATIONS_MANAGER
   INVENTORY_MANAGER
+  LISTING_EXECUTIVE
   PRICING_APPROVER
   FINANCE
   ADMIN
+  AUDIT_VIEWER
+}
+enum EmployeeStatus {
+  ACTIVE
+  SUSPENDED
+  DEACTIVATED
+}
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  CANCELLED
+  EXPIRED
+}
+enum MfaStatus {
+  REQUIRED
+  COMPLIANT
+  RECOVERY_REQUIRED
+}
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+  STALE
+}
+enum ApprovalDecisionType {
+  APPROVE
+  REJECT
+}
+enum PolicyStatus {
+  DRAFT
+  ACTIVE
+  SUPERSEDED
+  RETIRED
 }
 enum EmailState {
   PENDING
@@ -92,6 +130,8 @@ model User {
   supportCases SupportCase[]
   addresses CustomerAddress[]
   privacyRequests PrivacyRequest[]
+  auditEvents AuditEvent[]
+  policyVersions PolicyVersion[] @relation("PolicyVersionCreator")
 }
 model CustomerAddress {
   id String @id @default(uuid()) @db.Uuid
@@ -307,20 +347,172 @@ model Employee {
   active Boolean @default(false)
   permissions String[] @default([])
   locationIds String[] @default([]) @db.Uuid
+  employeeCode String? @unique
+  designation String?
+  status EmployeeStatus @default(ACTIVE)
+  mfaStatus MfaStatus @default(REQUIRED)
+  lastAccessAt DateTime?
+  updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+  roleAssignments EmployeeRoleAssignment[]
+  branchAssignments EmployeeBranchAssignment[]
+  invitations EmployeeInvitation[] @relation("ActivatedEmployee")
+  invitationsCreated EmployeeInvitation[] @relation("InvitationCreator")
+  approvalsRequested ApprovalRequest[] @relation("ApprovalRequester")
+  approvalDecisions ApprovalDecision[] @relation("ApprovalDecisionActor")
+}
+model Role {
+  id String @id @default(uuid()) @db.Uuid
+  key EmployeeRole @unique
+  name String
+  description String
+  privileged Boolean @default(false)
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  permissions RolePermission[]
+  assignments EmployeeRoleAssignment[]
+  invitations EmployeeInvitation[]
+}
+model Permission {
+  id String @id @default(uuid()) @db.Uuid
+  key String @unique
+  description String
+  createdAt DateTime @default(now())
+  roles RolePermission[]
+}
+model RolePermission {
+  roleId String @db.Uuid
+  permissionId String @db.Uuid
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Restrict)
+  @@id([roleId, permissionId])
+}
+model EmployeeRoleAssignment {
+  employeeId String @db.Uuid
+  roleId String @db.Uuid
+  employee Employee @relation(fields: [employeeId], references: [userId], onDelete: Restrict)
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  assignedById String? @db.Uuid
+  createdAt DateTime @default(now())
+  @@id([employeeId, roleId])
+  @@index([roleId])
+}
+model Branch {
+  id String @id @default(uuid()) @db.Uuid
+  code String @unique
+  name String
+  city String
+  address String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  employees EmployeeBranchAssignment[]
+  invitations EmployeeInvitationBranch[]
+}
+model EmployeeBranchAssignment {
+  employeeId String @db.Uuid
+  branchId String @db.Uuid
+  employee Employee @relation(fields: [employeeId], references: [userId], onDelete: Restrict)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  @@id([employeeId, branchId])
+  @@index([branchId])
+}
+model EmployeeInvitation {
+  id String @id @default(uuid()) @db.Uuid
+  email String
+  fullName String
+  designation String?
+  tokenHash String @unique
+  status InvitationStatus @default(PENDING)
+  expiresAt DateTime
+  acceptedAt DateTime?
+  cancelledAt DateTime?
+  createdById String @db.Uuid
+  createdBy Employee @relation("InvitationCreator", fields: [createdById], references: [userId], onDelete: Restrict)
+  activatedEmployeeId String? @db.Uuid
+  activatedEmployee Employee? @relation("ActivatedEmployee", fields: [activatedEmployeeId], references: [userId], onDelete: Restrict)
+  roleId String @db.Uuid
+  role Role @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  branches EmployeeInvitationBranch[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@index([email, status])
+  @@index([expiresAt, status])
+}
+model EmployeeInvitationBranch {
+  invitationId String @db.Uuid
+  branchId String @db.Uuid
+  invitation EmployeeInvitation @relation(fields: [invitationId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  @@id([invitationId, branchId])
+  @@index([branchId])
+}
+model ApprovalRequest {
+  id String @id @default(uuid()) @db.Uuid
+  requestType String
+  status ApprovalStatus @default(PENDING)
+  requesterId String @db.Uuid
+  requester Employee @relation("ApprovalRequester", fields: [requesterId], references: [userId], onDelete: Restrict)
+  requiredPermission String
+  scopeBranchIds String[] @default([]) @db.Uuid
+  payload Json
+  version Int @default(1)
+  expiresAt DateTime
+  executedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  decision ApprovalDecision?
+  @@index([status, createdAt])
+  @@index([requesterId, createdAt])
+}
+model ApprovalDecision {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @unique @db.Uuid
+  request ApprovalRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  actorId String @db.Uuid
+  actor Employee @relation("ApprovalDecisionActor", fields: [actorId], references: [userId], onDelete: Restrict)
+  decision ApprovalDecisionType
+  reason String
+  requestVersion Int
+  createdAt DateTime @default(now())
+  @@index([actorId, createdAt])
+}
+model PolicyVersion {
+  id String @id @default(uuid()) @db.Uuid
+  key String
+  version Int
+  title String
+  content Json
+  status PolicyStatus @default(DRAFT)
+  effectiveAt DateTime?
+  createdById String @db.Uuid
+  createdBy User @relation("PolicyVersionCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  @@unique([key, version])
+  @@index([key, status])
 }
 model AuditEvent {
   id String @id @default(uuid()) @db.Uuid
   actorId String? @db.Uuid
+  actor User? @relation(fields: [actorId], references: [id], onDelete: Restrict)
   action String
+  entityType String @default("UNKNOWN")
   entityId String
+  outcome String @default("SUCCEEDED")
+  correlationId String?
+  details Json?
   createdAt DateTime @default(now())
   @@index([entityId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([action, createdAt])
 }
 model EmailOutbox {
   id String @id @default(uuid()) @db.Uuid
-  userId String @db.Uuid
-  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  userId String? @db.Uuid
+  user User? @relation(fields: [userId], references: [id], onDelete: Restrict)
   eventKey String @unique
   templateVersion String @default("welcome-v1")
   recipient String

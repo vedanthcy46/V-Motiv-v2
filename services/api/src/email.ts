@@ -97,8 +97,10 @@ export async function processEmail(db: PrismaClient, send: EmailSender, sender: 
     await db.emailOutbox.updateMany({ where: { id: event.id, state: 'PROCESSING', attempts: event.attempts }, data: {
       state: 'ACCEPTED', providerMessageId, leaseUntil: null, lastErrorCode: null,
     } });
-  } catch (err: any) {
-    const errCode = (err?.message || 'EMAIL_SEND_FAILED').slice(0, 100);
+  } catch {
+    // Provider exception text can contain request metadata. Persist only a stable,
+    // non-sensitive operator code; detailed diagnostics belong in protected logs.
+    const errCode = 'EMAIL_SEND_FAILED';
     await db.emailOutbox.updateMany({ where: { id: event.id, state: 'PROCESSING', attempts: event.attempts }, data: {
       state: event.attempts >= 6 ? 'FAILED' : 'PENDING', leaseUntil: null,
       availableAt: new Date(Date.now() + Math.min(3600, 30 * 2 ** event.attempts) * 1000),

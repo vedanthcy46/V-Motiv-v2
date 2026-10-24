@@ -27,7 +27,7 @@ describe.skipIf(!url)('customer mobile API against PostgreSQL', () => {
   afterAll(async () => {
     await db.testDriveRequest.deleteMany({ where: { userId } }); await db.wishlistItem.deleteMany({ where: { userId } }); await db.acquisitionLead.deleteMany({ where: { userId } }); await db.purchaseEnquiry.deleteMany({ where: { userId } }); await db.supportCase.deleteMany({ where: { userId } }); await db.savedSearch.deleteMany({ where: { userId } });
     await db.vehicleListing.deleteMany({ where: { id: listingId } }); await db.vehicle.deleteMany({ where: { id: vehicleId } });
-    await db.emailOutbox.deleteMany({ where: { userId } }); await db.$executeRaw`DELETE FROM "PrivacyRequest" WHERE "userId" = ${userId}::uuid`; await db.user.deleteMany({ where: { id: userId } }); await db.auditEvent.deleteMany({ where: { actorId: userId } }); await db.supportedCity.deleteMany({ where: { id: cityId } }); await db.$disconnect();
+    await db.emailOutbox.deleteMany({ where: { userId } }); await db.$executeRaw`DELETE FROM "PrivacyRequest" WHERE "userId" = ${userId}::uuid`; await db.auditEvent.deleteMany({ where: { actorId: userId } }); await db.user.deleteMany({ where: { id: userId } }); await db.supportedCity.deleteMany({ where: { id: cityId } }); await db.$disconnect();
   });
 
   it('lists only published inventory and maintains the signed-in customer wishlist', async () => {

@@ -12,6 +12,8 @@ import type { IdentityStore } from './identity-store.js';
 import { HttpError } from './errors.js';
 import { z, ZodError } from 'zod';
 import type { CustomerStore } from './customer-store.js';
+import type { AdminStore } from './admin-store.js';
+import { createAdminRouter } from './admin-router.js';
 
 const uuid = z.string().uuid();
 const profileInput = z.object({ displayName: z.string().trim().min(1).max(80).optional(), phone: z.string().regex(/^\+91[6-9]\d{9}$/).optional(), marketingConsent: z.boolean().optional(), preferredCity: z.string().trim().min(2).max(100).optional(), termsVersion: z.string().trim().min(1).max(40).optional() }).strict().refine(value => Object.keys(value).length > 0);
@@ -61,6 +63,9 @@ export function createApp(deps: {
   store: IdentityStore;
   webOrigin: string;
   customer?: CustomerStore;
+  adminWebOrigin?: string;
+  admin?: AdminStore;
+  revokeTokens?: (firebaseUid: string) => Promise<void>;
   onEmailQueued?: () => Promise<unknown> | unknown;
   drainEmails?: () => Promise<number>;
 }) {
@@ -69,22 +74,22 @@ export function createApp(deps: {
   // Required for Vercel/proxy environments: enables correct IP detection for rate limiting
   app.set('trust proxy', 1);
   app.use(helmet());
+  const configuredWebHost = new URL(deps.webOrigin).hostname;
+  const localDevelopmentOrigin = ['localhost', '127.0.0.1', '[::1]'].includes(configuredWebHost);
   const allowedOrigins = new Set([
     deps.webOrigin,
-    'http://localhost:3100',
-    'http://127.0.0.1:3100',
-    'http://localhost:5173',
-    'http://127.0.0.1:5173',
-  ]);
+    deps.adminWebOrigin,
+    ...(localDevelopmentOrigin ? ['http://localhost:3100', 'http://127.0.0.1:3100', 'http://localhost:3200', 'http://127.0.0.1:3200', 'http://localhost:5173', 'http://127.0.0.1:5173'] : []),
+  ].filter((origin): origin is string => Boolean(origin)));
   app.use(cors({
     origin: (origin, callback) => {
       if (
         !origin ||
         allowedOrigins.has(origin) ||
-        origin.startsWith('http://192.168.') ||
-        origin.endsWith('.vercel.app') ||
+        (localDevelopmentOrigin && origin.startsWith('http://192.168.')) ||
         origin === 'https://vmotiv.in' ||
-        origin === 'https://www.vmotiv.in'
+        origin === 'https://www.vmotiv.in' ||
+        origin === 'https://admin.vmotiv.in'
       ) {
         return callback(null, true);
       }
@@ -99,17 +104,6 @@ export function createApp(deps: {
     try { await deps.store.ready(); res.json({ database: 'ready' }); }
     catch { res.status(503).json({ code: 'DATABASE_UNAVAILABLE' }); }
   });
-  app.all('/api/v1/health/drain-emails', async (_req, res) => {
-    try {
-      const dispatched = deps.drainEmails
-        ? await deps.drainEmails()
-        : (deps.onEmailQueued ? await deps.onEmailQueued() : 0);
-      res.json({ status: 'ok', dispatched: dispatched ?? 0 });
-    } catch (err: any) {
-      res.status(500).json({ status: 'error', error: err?.message || 'DRAIN_FAILED' });
-    }
-  });
-
   const triggerEmailDrain = async () => {
     if (deps.drainEmails) {
       try {
@@ -127,6 +121,15 @@ export function createApp(deps: {
   };
 
   app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }));
+  if (deps.admin && deps.adminWebOrigin && deps.revokeTokens) {
+    app.use('/api/v2', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createAdminRouter({
+      verify: deps.verify,
+      store: deps.admin,
+      adminWebOrigin: deps.adminWebOrigin,
+      revokeTokens: deps.revokeTokens,
+      drainEmails: deps.drainEmails,
+    }));
+  }
   // Published inventory is deliberately public. Every account-linked mutation remains below authentication.
   if (deps.customer) {
     app.get('/api/v1/inventory', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.inventory((res.locals.identity as Identity | undefined)?.uid, parsed(inventoryQuery, req.query))));
@@ -151,7 +154,9 @@ export function createApp(deps: {
     const identity = res.locals.identity as Identity;
     const user = await deps.store.find(identity.uid);
     if (!user || user.status !== 'ACTIVE' || !user.employee?.active) throw new HttpError(403, 'EMPLOYEE_ACCESS_REQUIRED');
-    if (!identity.secondFactor) throw new HttpError(403, 'EMPLOYEE_MFA_REQUIRED');
+    const privilegedRoles = new Set(['ADMIN', 'FINANCE', 'PRICING_APPROVER', 'SUPER_ADMIN', 'SECURITY_ADMIN', 'AUDIT_VIEWER']);
+    const mfaRequired = process.env.ENFORCE_ADMIN_MFA !== 'false' && (process.env.ENFORCE_ADMIN_MFA === 'true' || process.env.NODE_ENV === 'test');
+    if (privilegedRoles.has(user.employee.role) && !identity.secondFactor && mfaRequired) throw new HttpError(403, 'EMPLOYEE_MFA_REQUIRED');
     res.json(user);
   });
   if (deps.customer) {
