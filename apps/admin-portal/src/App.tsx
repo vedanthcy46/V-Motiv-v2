@@ -617,7 +617,56 @@ function SupportCaseDialog({ user, actor, supportCase, onClose, onDone }: { user
   const ref = useRef<HTMLDialogElement>(null); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); const [caseStatus, setCaseStatus] = useState(supportCase.status); useEffect(() => { ref.current?.showModal(); }, []);
   async function changeStatus(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); try { const form = new FormData(event.currentTarget); await adminApi.updateSupportCase(user, supportCase.id, caseStatus, String(form.get('note')) || undefined); onDone(); } catch (error) { setError(errorMessage(error)); setBusy(false); } }
   async function reply(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setBusy(true); setError(''); try { const form = new FormData(event.currentTarget); await adminApi.replySupportCase(user, supportCase.id, String(form.get('body'))); onDone(); } catch (error) { setError(errorMessage(error)); setBusy(false); } }
-  return <dialog ref={ref} onCancel={onClose} className="dialog"><header><div><p className="eyebrow">{supportCase.referenceCode}</p><h2>{supportCase.subject}</h2></div><button type="button" className="icon-button" aria-label="Close support case" onClick={onClose}><Icon name="close"/></button></header>{error && <div className="alert error" role="alert">{error}</div>}<p>{supportCase.description}</p><div className="review-list">{supportCase.replies.map(reply => <div key={reply.id}><strong>{humanize(reply.authorType)}</strong><span>{reply.body}</span><small>{new Date(reply.createdAt).toLocaleString()}</small></div>)}</div>{actor.permissions.includes('support.respond') && <form onSubmit={reply}><label>Reply to customer<textarea name="body" minLength={1} maxLength={2000} required placeholder="Write a clear customer-facing response."/></label><button className="button primary" disabled={busy}>{busy ? 'Sending…' : 'Send reply'}</button></form>}{actor.permissions.includes('support.escalate') && <form onSubmit={changeStatus}><label>Case status<select value={caseStatus} onChange={event => setCaseStatus(event.target.value)}><option>OPEN</option><option>IN_PROGRESS</option><option>RESOLVED</option><option>CLOSED</option></select></label><label>Internal note<textarea name="note" maxLength={2000} placeholder="Optional; never shown to the customer."/></label><button className="button secondary" disabled={busy || caseStatus === supportCase.status}>Save status</button></form>}<footer><button type="button" className="button secondary" onClick={onClose}>Close</button></footer></dialog>;
+  return (
+    <dialog ref={ref} onCancel={onClose} className="dialog">
+      <header>
+        <div>
+          <p className="eyebrow">{supportCase.referenceCode}</p>
+          <h2>{supportCase.subject}</h2>
+        </div>
+        <button type="button" className="icon-button" aria-label="Close support case" onClick={onClose}>
+          <Icon name="close"/>
+        </button>
+      </header>
+      {error && <div className="alert error" role="alert">{error}</div>}
+      <div className="support-case-card">
+        <div className="support-case-header">
+          <div>
+            <strong>{supportCase.user.displayName || supportCase.user.email}</strong>
+            <small>{supportCase.user.email} {supportCase.user.preferredCity ? `· ${supportCase.user.preferredCity}` : ''}</small>
+          </div>
+          <span className="case-category-pill">{humanize(supportCase.category)}</span>
+        </div>
+        <p className="support-case-body">{supportCase.description}</p>
+        <time className="support-case-time">Submitted {new Date(supportCase.createdAt).toLocaleString()}</time>
+      </div>
+      <div className="review-list">
+        {supportCase.replies.map(reply => (
+          <div key={reply.id}>
+            <strong>{humanize(reply.authorType)}</strong>
+            <span>{reply.body}</span>
+            <small>{new Date(reply.createdAt).toLocaleString()}</small>
+          </div>
+        ))}
+      </div>
+      {actor.permissions.includes('support.respond') && (
+        <form onSubmit={reply}>
+          <label>Reply to customer<textarea name="body" minLength={1} maxLength={2000} required placeholder="Write a clear customer-facing response."/></label>
+          <button className="button primary" disabled={busy}>{busy ? 'Sending…' : 'Send reply'}</button>
+        </form>
+      )}
+      {actor.permissions.includes('support.escalate') && (
+        <form onSubmit={changeStatus}>
+          <label>Case status<select value={caseStatus} onChange={event => setCaseStatus(event.target.value)}><option>OPEN</option><option>IN_PROGRESS</option><option>RESOLVED</option><option>CLOSED</option></select></label>
+          <label>Internal note<textarea name="note" maxLength={2000} placeholder="Optional; never shown to the customer."/></label>
+          <button className="button secondary" disabled={busy || caseStatus === supportCase.status}>Save status</button>
+        </form>
+      )}
+      <footer>
+        <button type="button" className="button secondary" onClick={onClose}>Close</button>
+      </footer>
+    </dialog>
+  );
 }
 
 function ApprovalsPage({ user, actor }: { user: User; actor: AdminActor }) {

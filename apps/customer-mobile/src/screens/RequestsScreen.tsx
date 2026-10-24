@@ -408,23 +408,38 @@ export function RequestsScreen() {
                 <View style={styles.section}>
                   <Text style={styles.sectionTitle}>Customer Support</Text>
                   {cases.map((item) => (
-                    <View key={item.id} style={styles.card}>
+                    <TouchableOpacity
+                      key={item.id}
+                      style={styles.card}
+                      activeOpacity={0.8}
+                      onPress={() =>
+                        navigation.navigate('SupportCaseDetails', { caseId: item.id })
+                      }
+                    >
                       <View style={styles.cardHeader}>
                         <View style={{ flex: 1 }}>
                           <Text style={styles.cardTitle}>{item.subject}</Text>
                           <Text style={styles.cardSubtitle}>
-                            Case {item.referenceCode.slice(0, 8).toUpperCase()} · {item.category}
+                            Case #{item.referenceCode.slice(0, 8).toUpperCase()} · {item.category.replace(/_/g, ' ')}
                           </Text>
                         </View>
                         <StatusBadge status={item.status} />
                       </View>
-                      <Text style={styles.enquiryMsg} numberOfLines={3}>
-                        {item.description}
-                      </Text>
-                      <Text style={styles.metaText}>
-                        Updated {new Date(item.updatedAt).toLocaleDateString('en-IN')}
-                      </Text>
-                    </View>
+                      {item.description ? (
+                        <Text style={styles.enquiryMsg} numberOfLines={2}>
+                          {item.description}
+                        </Text>
+                      ) : null}
+                      <View style={[styles.metaRow, { alignItems: 'center', paddingTop: space.xs }]}>
+                        <Text style={styles.metaText}>
+                          Updated {new Date(item.updatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        </Text>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                          <Text style={{ color: color.yellow, fontSize: 12, fontWeight: '700' }}>View thread</Text>
+                          <ChevronRight size={14} color={color.yellow} />
+                        </View>
+                      </View>
+                    </TouchableOpacity>
                   ))}
                 </View>
               )}
@@ -561,10 +576,11 @@ const styles = StyleSheet.create({
   card: {
     backgroundColor: color.card,
     borderRadius: radius.md,
-    padding: space.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.lg,
     borderWidth: 1,
     borderColor: color.border,
-    marginBottom: space.sm,
+    marginBottom: space.md,
   },
   cardHeader: {
     flexDirection: 'row',

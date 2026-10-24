@@ -219,7 +219,7 @@ export function SupportScreen() {
                   </TouchableOpacity>
                 </View>
               ) : (
-                <View style={{ gap: space.sm }}>
+                <View style={{ gap: space.md }}>
                   {cases.map((c) => {
                     const isOpen = c.status === 'OPEN' || c.status === 'IN_PROGRESS';
                     return (
@@ -258,6 +258,12 @@ export function SupportScreen() {
                         <Text style={styles.caseCategory}>
                           Category: {c.category.replace(/_/g, ' ')}
                         </Text>
+
+                        {c.description ? (
+                          <Text style={styles.caseDesc} numberOfLines={2}>
+                            {c.description}
+                          </Text>
+                        ) : null}
 
                         <View style={styles.caseFooter}>
                           <Text style={styles.caseDate}>
@@ -515,7 +521,8 @@ const styles = StyleSheet.create({
   caseCard: {
     backgroundColor: color.card,
     borderRadius: radius.md,
-    padding: space.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.lg,
     borderWidth: 1,
     borderColor: color.border,
   },
@@ -523,12 +530,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 6,
+    marginBottom: space.sm,
   },
   statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
   },
   statusOpen: {
     backgroundColor: 'rgba(34, 197, 94, 0.15)',
@@ -554,22 +561,30 @@ const styles = StyleSheet.create({
   },
   caseSubject: {
     color: color.white,
-    fontSize: 15,
+    fontSize: 16,
     fontWeight: '700',
+    lineHeight: 22,
+    marginBottom: 4,
   },
   caseCategory: {
-    color: color.muted,
+    color: color.textSecondary,
     fontSize: 12,
-    marginTop: 4,
+    marginBottom: space.xs,
+  },
+  caseDesc: {
+    color: color.muted,
+    fontSize: 13,
+    lineHeight: 19,
+    marginVertical: 4,
   },
   caseFooter: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
     marginTop: space.md,
-    paddingTop: space.sm,
+    paddingTop: space.md,
     borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.06)',
+    borderTopColor: 'rgba(255,255,255,0.08)',
   },
   caseDate: {
     color: color.muted,

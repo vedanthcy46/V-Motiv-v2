@@ -349,7 +349,8 @@ const styles = StyleSheet.create({
   originalCard: {
     backgroundColor: color.card,
     borderRadius: radius.md,
-    padding: space.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.lg,
     borderWidth: 1,
     borderColor: 'rgba(247, 181, 3, 0.25)',
   },
@@ -357,7 +358,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: space.xs,
-    marginBottom: space.xs,
+    marginBottom: space.sm,
   },
   originalCardAuthor: {
     color: color.yellow,
@@ -371,8 +372,9 @@ const styles = StyleSheet.create({
   },
   originalDescription: {
     color: color.white,
-    fontSize: 13,
-    lineHeight: 20,
+    fontSize: 14,
+    lineHeight: 22,
+    marginTop: 2,
   },
   divider: {
     flexDirection: 'row',
@@ -411,7 +413,8 @@ const styles = StyleSheet.create({
   bubbleContainer: {
     maxWidth: '85%',
     borderRadius: radius.md,
-    padding: space.md,
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
     marginBottom: space.md,
   },
   bubbleMe: {
