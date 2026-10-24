@@ -89,6 +89,8 @@ describe('authentication boundary', () => {
     expect(lan.headers['access-control-allow-origin']).toBeUndefined();
     const trusted = await request(app).get('/api/v1/health/live').set('Origin', 'https://admin.vmotiv.in');
     expect(trusted.headers['access-control-allow-origin']).toBe('https://admin.vmotiv.in');
+    const vercelAdmin = await request(app).get('/api/v1/health/live').set('Origin', 'https://vmotiv-admin.vercel.app');
+    expect(vercelAdmin.headers['access-control-allow-origin']).toBe('https://vmotiv-admin.vercel.app');
   });
 });
 describe('environment and retry guardrails', () => {

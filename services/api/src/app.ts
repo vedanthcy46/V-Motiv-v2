@@ -95,13 +95,16 @@ export function createApp(deps: {
   ].filter((origin): origin is string => Boolean(origin)));
   app.use(cors({
     origin: (origin, callback) => {
+      const normalizedOrigin = origin?.replace(/\/$/, '');
       if (
         !origin ||
         allowedOrigins.has(origin) ||
+        (normalizedOrigin && allowedOrigins.has(normalizedOrigin)) ||
         (localDevelopmentOrigin && origin.startsWith('http://192.168.')) ||
-        origin === 'https://vmotiv.in' ||
-        origin === 'https://www.vmotiv.in' ||
-        origin === 'https://admin.vmotiv.in'
+        normalizedOrigin === 'https://vmotiv.in' ||
+        normalizedOrigin === 'https://www.vmotiv.in' ||
+        normalizedOrigin === 'https://admin.vmotiv.in' ||
+        normalizedOrigin === 'https://vmotiv-admin.vercel.app'
       ) {
         return callback(null, true);
       }
