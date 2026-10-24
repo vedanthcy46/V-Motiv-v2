@@ -115,6 +115,71 @@ enum PurchaseEnquiryStatus {
   CONTACTED
   CLOSED
 }
+enum SalesTaskType {
+  CALL
+  EMAIL
+  MEETING
+  INSPECTION_COORDINATION
+  TEST_DRIVE_FOLLOW_UP
+  QUOTATION_FOLLOW_UP
+  DOCUMENT_FOLLOW_UP
+}
+enum SalesTaskStatus {
+  OPEN
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+enum SalesTaskPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+enum LeadInteractionChannel {
+  CALL
+  EMAIL
+  MEETING
+  INTERNAL_NOTE
+}
+enum LeadInteractionOutcome {
+  ATTEMPTED
+  CONNECTED
+  NO_ANSWER
+  WRONG_NUMBER
+  RESCHEDULE_REQUESTED
+  INFORMATION_PROVIDED
+}
+enum InspectionRequestStatus {
+  REQUESTED
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+enum QuotationStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  SENT
+  ACCEPTED
+  DECLINED
+  EXPIRED
+  SUPERSEDED
+}
+enum DiscountRequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+enum VehicleReservationStatus {
+  REQUESTED
+  CONFIRMED
+  EXPIRED
+  CANCELLED
+  RELEASED
+  CONVERTED_TO_SALE
+}
 model User {
   id String @id @default(uuid()) @db.Uuid
   firebaseUid String @unique
@@ -140,6 +205,8 @@ model User {
   privacyRequests PrivacyRequest[]
   auditEvents AuditEvent[]
   policyVersions PolicyVersion[] @relation("PolicyVersionCreator")
+  buyerQuotations BuyerQuotation[] @relation("BuyerQuotationCustomer")
+  vehicleReservations VehicleReservation[] @relation("ReservationCustomer")
 }
 model CustomerAddress {
   id String @id @default(uuid()) @db.Uuid
@@ -207,6 +274,8 @@ model VehicleListing {
   wishlist WishlistItem[]
   testDriveRequests TestDriveRequest[]
   purchaseEnquiries PurchaseEnquiry[]
+  quotations BuyerQuotation[]
+  reservations VehicleReservation[]
   @@index([status, publishedAt])
 }
 model VehicleMedia {
@@ -282,8 +351,84 @@ model AcquisitionLead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   offers AcquisitionOffer[]
+  assignments SellerLeadAssignment[]
+  interactions LeadInteraction[]
+  tasks SalesTask[]
+  inspectionRequests InspectionRequest[]
   @@index([userId, createdAt])
   @@unique([userId, idempotencyKey])
+}
+model SellerLeadAssignment {
+  id String @id @default(uuid()) @db.Uuid
+  leadId String @db.Uuid
+  employeeId String? @db.Uuid
+  branchId String? @db.Uuid
+  assignedById String? @db.Uuid
+  reason String?
+  assignedAt DateTime @default(now())
+  releasedAt DateTime?
+  lead AcquisitionLead @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  employee Employee? @relation("SellerLeadAssignedEmployee", fields: [employeeId], references: [userId], onDelete: Restrict)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  @@index([leadId, releasedAt])
+  @@index([employeeId, releasedAt])
+  @@index([branchId, releasedAt])
+}
+model LeadInteraction {
+  id String @id @default(uuid()) @db.Uuid
+  leadId String @db.Uuid
+  employeeId String @db.Uuid
+  channel LeadInteractionChannel
+  outcome LeadInteractionOutcome
+  notes String?
+  occurredAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  lead AcquisitionLead @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  employee Employee @relation("LeadInteractionEmployee", fields: [employeeId], references: [userId], onDelete: Restrict)
+  @@index([leadId, occurredAt])
+  @@index([employeeId, occurredAt])
+}
+model SalesTask {
+  id String @id @default(uuid()) @db.Uuid
+  leadId String @db.Uuid
+  assignedEmployeeId String @db.Uuid
+  createdByEmployeeId String @db.Uuid
+  type SalesTaskType
+  status SalesTaskStatus @default(OPEN)
+  priority SalesTaskPriority @default(NORMAL)
+  dueAt DateTime
+  details String
+  expectedOutcome String?
+  completedAt DateTime?
+  actualOutcome String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lead AcquisitionLead @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  assignedEmployee Employee @relation("SalesTaskAssignee", fields: [assignedEmployeeId], references: [userId], onDelete: Restrict)
+  createdByEmployee Employee @relation("SalesTaskCreator", fields: [createdByEmployeeId], references: [userId], onDelete: Restrict)
+  @@index([assignedEmployeeId, status, dueAt])
+  @@index([leadId, dueAt])
+}
+model InspectionRequest {
+  id String @id @default(uuid()) @db.Uuid
+  leadId String @db.Uuid
+  requestedByEmployeeId String @db.Uuid
+  branchId String? @db.Uuid
+  requestedDate DateTime? @db.Date
+  timeSlot String?
+  locationType String
+  address String?
+  notes String?
+  status InspectionRequestStatus @default(REQUESTED)
+  scheduledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lead AcquisitionLead @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  requestedByEmployee Employee @relation("InspectionRequestCreator", fields: [requestedByEmployeeId], references: [userId], onDelete: Restrict)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  @@index([status, createdAt])
+  @@index([leadId, createdAt])
+  @@index([branchId, status])
 }
 model AcquisitionOffer {
   id String @id @default(uuid()) @db.Uuid
@@ -327,6 +472,8 @@ model PurchaseEnquiry {
   idempotencyKey String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  quotations BuyerQuotation[]
+  reservations VehicleReservation[]
   @@unique([userId, idempotencyKey])
   @@index([userId, createdAt])
 }
@@ -374,7 +521,89 @@ model Employee {
   approvalsRequested ApprovalRequest[] @relation("ApprovalRequester")
   approvalDecisions ApprovalDecision[] @relation("ApprovalDecisionActor")
   exportJobs ExportJob[] @relation("ExportRequester")
+  sellerLeadAssignments SellerLeadAssignment[] @relation("SellerLeadAssignedEmployee")
+  leadInteractions LeadInteraction[] @relation("LeadInteractionEmployee")
+  assignedSalesTasks SalesTask[] @relation("SalesTaskAssignee")
+  createdSalesTasks SalesTask[] @relation("SalesTaskCreator")
+  inspectionRequestsCreated InspectionRequest[] @relation("InspectionRequestCreator")
+  authoredQuotations BuyerQuotation[] @relation("BuyerQuotationAuthor")
+  requestedDiscounts DiscountRequest[] @relation("DiscountRequester")
+  decidedDiscounts DiscountRequest[] @relation("DiscountDecider")
+  vehicleReservations VehicleReservation[] @relation("ReservationCreator")
 }
+
+model BuyerQuotation {
+  id String @id @default(uuid()) @db.Uuid
+  enquiryId String? @db.Uuid
+  listingId String @db.Uuid
+  customerId String @db.Uuid
+  employeeId String @db.Uuid
+  basePricePaise BigInt
+  chargesPaise BigInt @default(0)
+  chargeBreakdown Json?
+  discountPaise BigInt @default(0)
+  finalAmountPaise BigInt
+  status QuotationStatus @default(DRAFT)
+  version Int @default(1)
+  validUntil DateTime
+  terms String?
+  customerResponseNotes String?
+  acceptedAt DateTime?
+  declinedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  enquiry PurchaseEnquiry? @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
+  listing VehicleListing @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  customer User @relation("BuyerQuotationCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  author Employee @relation("BuyerQuotationAuthor", fields: [employeeId], references: [userId], onDelete: Restrict)
+  discountRequests DiscountRequest[]
+  reservations VehicleReservation[]
+  @@index([enquiryId, createdAt])
+  @@index([listingId, status])
+  @@index([customerId, createdAt])
+}
+
+model DiscountRequest {
+  id String @id @default(uuid()) @db.Uuid
+  quotationId String @db.Uuid
+  requestedDiscountPaise BigInt
+  proposedPricePaise BigInt
+  reason String
+  requestedById String @db.Uuid
+  decidedById String? @db.Uuid
+  status DiscountRequestStatus @default(PENDING)
+  decisionNotes String?
+  decidedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  quotation BuyerQuotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  requestedBy Employee @relation("DiscountRequester", fields: [requestedById], references: [userId], onDelete: Restrict)
+  decidedBy Employee? @relation("DiscountDecider", fields: [decidedById], references: [userId], onDelete: Restrict)
+  @@index([quotationId, status])
+}
+
+model VehicleReservation {
+  id String @id @default(uuid()) @db.Uuid
+  listingId String @db.Uuid
+  quotationId String? @db.Uuid
+  enquiryId String? @db.Uuid
+  customerId String @db.Uuid
+  reservedById String @db.Uuid
+  status VehicleReservationStatus @default(REQUESTED)
+  expiresAt DateTime
+  notes String?
+  releasedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  listing VehicleListing @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  quotation BuyerQuotation? @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  enquiry PurchaseEnquiry? @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
+  customer User @relation("ReservationCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  reservedBy Employee @relation("ReservationCreator", fields: [reservedById], references: [userId], onDelete: Restrict)
+  @@index([listingId, status])
+  @@index([customerId, status])
+}
+
 model Role {
   id String @id @default(uuid()) @db.Uuid
   key EmployeeRole @unique
@@ -423,6 +652,8 @@ model Branch {
   updatedAt DateTime @updatedAt
   employees EmployeeBranchAssignment[]
   invitations EmployeeInvitationBranch[]
+  sellerLeadAssignments SellerLeadAssignment[]
+  inspectionRequests InspectionRequest[]
 }
 model EmployeeBranchAssignment {
   employeeId String @db.Uuid

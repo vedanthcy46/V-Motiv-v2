@@ -242,5 +242,33 @@ The complete V MOTIV V2 Admin Portal (`admin.vmotiv.in`, local port 3200) has be
    - 100% typecheck passing across all workspaces.
    - 100% production build passing across all workspaces.
 
+---
+
+## V2 Sales Executive Portal Handoff — 24 October 2026
+
+The complete V MOTIV V2 Sales Executive Portal (`sales.vmotiv.in`, local port 3300) is fully implemented end-to-end on top of the shared authoritative backend and database:
+
+1. **Database Schema & Migrations**:
+   - Migration `20261024180000_sales_crm_foundation`: Introduced `SellerLeadAssignment`, `LeadInteraction`, `SalesTask`, and `InspectionRequest` with full audit support.
+   - Migration `20261024210000_sales_quotations_and_reservations`: Introduced `BuyerQuotation`, `DiscountRequest`, and `VehicleReservation` with enums `QuotationStatus`, `DiscountRequestStatus`, and `VehicleReservationStatus`.
+   - Both migrations applied successfully to Neon AWS serverless PostgreSQL.
+2. **Authoritative Sales Engine (`services/api/src/sales-store.ts`)**:
+   - Implemented branch-scoped seller lead management, atomic claiming, qualification transitions, multi-channel interactions, and task follow-ups.
+   - Implemented inspection requests, inspection summaries, and versioned acquisition offers with accepted/declined customer responses.
+   - Implemented buyer purchase enquiry progression, test drive appointments, itemized retail quotations, discount exception workflows, and concurrency-safe vehicle reservations.
+   - Implemented Customer 360 profiles, transactional email dispatch via `EmailOutbox`, and database-backed reporting funnels.
+3. **API Router & Boundaries (`services/api/src/sales-router.ts`)**:
+   - Mounted at `/api/v2/sales/*` with rate limiting, server-side employee resolution, and strict Zod validation.
+4. **Sales Executive Frontend (`apps/sales-portal`)**:
+   - Fully interactive React + TypeScript + Vite portal matching the Design System (Density 8/10, Fira Sans + Fira Code, `#2563EB` primary, `#059669` accent).
+   - Core modules: Overview dashboard, Seller Leads, Buyer Leads, Inventory Stock, Test Drives, Pipeline & Quotations, Tasks, Customer 360, Communications, and Funnel Reports.
+   - Complete modals: Manual Lead Entry, Seller Lead 360 Drawer, Buyer Lead Drawer, Customer 360 Profile Drawer, Create Quotation Modal, Request Discount Modal, Book Test Drive Modal, Reserve Stock Modal, and Mark Task Complete Modal.
+   - `vercel.json` with `Cross-Origin-Opener-Policy: unsafe-none` preventing popup auth blocking.
+5. **Testing & Verification**:
+   - Automated tests: `npm test -w @vmotiv/api` passes with 47 tests (including 10 sales API integration tests).
+   - Zero TypeScript compiler errors in `@vmotiv/api`, `@vmotiv/admin-portal`, and `@vmotiv/sales-portal`.
+   - All production builds passing with zero errors.
+
+
 
 

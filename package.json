@@ -18,6 +18,7 @@
     "dev:api": "npm run dev -w @vmotiv/api",
     "dev:web": "npm run dev -w @vmotiv/customer-web",
     "dev:admin": "npm run dev -w @vmotiv/admin-portal",
+    "dev:sales": "npm run dev -w @vmotiv/sales-portal",
     "dev:mobile": "npm run start -w @vmotiv/customer-mobile --",
     "mobile:android": "npm run android -w @vmotiv/customer-mobile",
     "mobile:usb": "powershell -NoProfile -ExecutionPolicy Bypass -File tooling/connect-android-usb.ps1",

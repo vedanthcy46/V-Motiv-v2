@@ -24,6 +24,8 @@ import { z, ZodError } from 'zod';
 import type { CustomerStore } from './customer-store.js';
 import type { AdminStore } from './admin-store.js';
 import { createAdminRouter } from './admin-router.js';
+import { createSalesRouter } from './sales-router.js';
+import type { SalesStore } from './sales-store.js';
 
 const uuid = z.string().uuid();
 const profileInput = z.object({ displayName: z.string().trim().min(1).max(80).optional(), phone: z.string().regex(/^\+91[6-9]\d{9}$/).optional(), marketingConsent: z.boolean().optional(), preferredCity: z.string().trim().min(2).max(100).optional(), termsVersion: z.string().trim().min(1).max(40).optional() }).strict().refine(value => Object.keys(value).length > 0);
@@ -75,6 +77,7 @@ export function createApp(deps: {
   customer?: CustomerStore;
   adminWebOrigin?: string;
   admin?: AdminStore;
+  sales?: SalesStore;
   revokeTokens?: (firebaseUid: string) => Promise<void>;
   onEmailQueued?: () => Promise<unknown> | unknown;
   drainEmails?: () => Promise<number>;
@@ -91,7 +94,7 @@ export function createApp(deps: {
   const allowedOrigins = new Set([
     deps.webOrigin,
     deps.adminWebOrigin,
-    ...(localDevelopmentOrigin ? ['http://localhost:3100', 'http://127.0.0.1:3100', 'http://localhost:3200', 'http://127.0.0.1:3200', 'http://localhost:5173', 'http://127.0.0.1:5173'] : []),
+    ...(localDevelopmentOrigin ? ['http://localhost:3100', 'http://127.0.0.1:3100', 'http://localhost:3200', 'http://127.0.0.1:3200', 'http://localhost:3300', 'http://127.0.0.1:3300', 'http://localhost:5173', 'http://127.0.0.1:5173'] : []),
   ].filter((origin): origin is string => Boolean(origin)));
   app.use(cors({
     origin: (origin, callback) => {
@@ -104,6 +107,7 @@ export function createApp(deps: {
         normalizedOrigin === 'https://vmotiv.in' ||
         normalizedOrigin === 'https://www.vmotiv.in' ||
         normalizedOrigin === 'https://admin.vmotiv.in' ||
+        normalizedOrigin === 'https://sales.vmotiv.in' ||
         normalizedOrigin === 'https://vmotiv-admin.vercel.app'
       ) {
         return callback(null, true);
@@ -145,6 +149,7 @@ export function createApp(deps: {
       drainEmails: deps.drainEmails,
     }));
   }
+  if (deps.sales) app.use('/api/v2/sales', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createSalesRouter({ verify: deps.verify, store: deps.sales }));
   // Published inventory is deliberately public. Every account-linked mutation remains below authentication.
   if (deps.customer) {
     app.get('/api/v1/inventory', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.inventory((res.locals.identity as Identity | undefined)?.uid, parsed(inventoryQuery, req.query))));

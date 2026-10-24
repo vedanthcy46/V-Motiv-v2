@@ -1,0 +1,2327 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { createRoot } from 'react-dom/client';
+import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import { auth, firebaseConfigured } from './firebase.js';
+import {
+  ApiError,
+  salesApi,
+  type Actor,
+  type BuyerLead,
+  type Customer,
+  type DashboardData,
+  type InventoryItem,
+  type NotificationData,
+  type Quotation,
+  type ReportsData,
+  type Reservation,
+  type SellerLead,
+  type Task,
+  type TestDrive,
+} from './api.js';
+import { Icons } from './icons.js';
+import './styles.css';
+
+type PageKey =
+  | 'overview'
+  | 'seller'
+  | 'buyer'
+  | 'inventory'
+  | 'testdrives'
+  | 'pipeline'
+  | 'tasks'
+  | 'customers'
+  | 'communications'
+  | 'reports';
+
+const formatCurrency = (paise: string | number | null | undefined): string => {
+  if (paise === null || paise === undefined || paise === '') return '₹0';
+  const val = typeof paise === 'string' ? Number(paise) : paise;
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 0,
+  }).format(val / 100);
+};
+
+const formatDate = (iso: string | null | undefined): string => {
+  if (!iso) return '—';
+  try {
+    return new Date(iso).toLocaleDateString('en-IN', {
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  } catch {
+    return iso;
+  }
+};
+
+const statusBadgeClass = (status: string): string => {
+  const s = status.toUpperCase();
+  if (['SUBMITTED', 'RECEIVED', 'DRAFT', 'OPEN'].includes(s)) return 'badge-blue';
+  if (['QUALIFYING', 'IN_REVIEW', 'IN_PROGRESS', 'REQUESTED'].includes(s)) return 'badge-amber';
+  if (['INSPECTION_SCHEDULED', 'CONFIRMED'].includes(s)) return 'badge-purple';
+  if (['ACCEPTED', 'COMPLETED', 'PUBLISHED', 'APPROVED', 'CONVERTED_TO_SALE'].includes(s)) return 'badge-green';
+  if (['REJECTED', 'DECLINED', 'CANCELLED', 'EXPIRED', 'NO_SHOW'].includes(s)) return 'badge-red';
+  return 'badge-gray';
+};
+
+// ==========================================
+// AUTH SCREEN
+// ==========================================
+function SignIn() {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  const login = async () => {
+    if (!auth) return;
+    setBusy(true);
+    setError('');
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch {
+      setError('Google sign-in could not be completed. Please try again.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="auth-screen">
+      <div className="auth-card">
+        <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
+        <p className="eyebrow">SALES EXECUTIVE PORTAL</p>
+        <h1>Authorized Sales Workspace</h1>
+        <p>Sign in with your authorized V MOTIV corporate Google account to manage buyer & seller opportunities.</p>
+        {firebaseConfigured ? (
+          <button className="btn-primary" onClick={login} disabled={busy} style={{ width: '100%', justifyContent: 'center' }}>
+            {busy ? 'Authenticating with Google…' : 'Sign In with Google'}
+          </button>
+        ) : (
+          <p className="error-banner">Firebase configuration is missing for this environment.</p>
+        )}
+        {error && <p className="error-banner" style={{ marginTop: '12px' }}>{error}</p>}
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// MAIN SALES APPLICATION
+// ==========================================
+function App() {
+  const [user, setUser] = useState<User | null>(null);
+  const [actor, setActor] = useState<Actor | null>(null);
+  const [page, setPage] = useState<PageKey>('overview');
+  const [loading, setLoading] = useState(true);
+  const [denied, setDenied] = useState(false);
+  const [error, setError] = useState('');
+
+  // Notifications dropdown state
+  const [notifications, setNotifications] = useState<NotificationData | null>(null);
+  const [showNotifs, setShowNotifs] = useState(false);
+
+  // Data states
+  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
+  const [reports, setReports] = useState<ReportsData | null>(null);
+  const [sellerLeads, setSellerLeads] = useState<SellerLead[]>([]);
+  const [buyerLeads, setBuyerLeads] = useState<BuyerLead[]>([]);
+  const [inventory, setInventory] = useState<InventoryItem[]>([]);
+  const [testDrives, setTestDrives] = useState<TestDrive[]>([]);
+  const [quotations, setQuotations] = useState<Quotation[]>([]);
+  const [reservations, setReservations] = useState<Reservation[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
+
+  // Search & Filter state
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
+  const [unassignedFilter, setUnassignedFilter] = useState(false);
+
+  // Modals & Drawers state
+  const [selectedSellerLead, setSelectedSellerLead] = useState<SellerLead | null>(null);
+  const [selectedBuyerLead, setSelectedBuyerLead] = useState<BuyerLead | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [showManualLeadModal, setShowManualLeadModal] = useState(false);
+  const [showQuotationModal, setShowQuotationModal] = useState(false);
+  const [showReservationModal, setShowReservationModal] = useState(false);
+  const [showTestDriveModal, setShowTestDriveModal] = useState(false);
+  const [showCompleteTaskModal, setShowCompleteTaskModal] = useState<string | null>(null);
+  const [showDiscountModal, setShowDiscountModal] = useState<string | null>(null); // quotationId
+
+  // Auth subscriber
+  useEffect(() => {
+    if (!auth) {
+      setDenied(true);
+      setLoading(false);
+      return;
+    }
+    return onAuthStateChanged(auth, setUser);
+  }, []);
+
+  // Main data loader
+  const loadData = async (currentUser = user) => {
+    if (!currentUser) return;
+    setError('');
+    try {
+      const [actorData, dashData, notifData] = await Promise.all([
+        salesApi.me(currentUser),
+        salesApi.dashboard(currentUser),
+        salesApi.notifications(currentUser),
+      ]);
+      setActor(actorData);
+      setDashboard(dashData);
+      setNotifications(notifData);
+      setDenied(false);
+
+      // Load data based on current page
+      if (page === 'overview') {
+        const [sellersRes, tasksRes, testDrivesRes] = await Promise.all([
+          salesApi.sellerLeads(currentUser, { limit: 10 }),
+          salesApi.tasks(currentUser, { overdue: true }),
+          salesApi.testDrives(currentUser, { status: 'REQUESTED' }),
+        ]);
+        setSellerLeads(sellersRes.items);
+        setTasks(tasksRes);
+        setTestDrives(testDrivesRes.items);
+      } else if (page === 'seller') {
+        const res = await salesApi.sellerLeads(currentUser, {
+          search,
+          status: statusFilter || undefined,
+          unassigned: unassignedFilter ? true : undefined,
+        });
+        setSellerLeads(res.items);
+      } else if (page === 'buyer') {
+        const res = await salesApi.buyerLeads(currentUser, {
+          search,
+          status: statusFilter || undefined,
+        });
+        setBuyerLeads(res.items);
+      } else if (page === 'inventory') {
+        const res = await salesApi.inventory(currentUser, { search });
+        setInventory(res.items);
+      } else if (page === 'testdrives') {
+        const res = await salesApi.testDrives(currentUser, {
+          search,
+          status: statusFilter || undefined,
+        });
+        setTestDrives(res.items);
+      } else if (page === 'pipeline') {
+        const [quotesRes, reserveRes] = await Promise.all([
+          salesApi.quotations(currentUser, { search, status: statusFilter || undefined }),
+          salesApi.reservations(currentUser, {}),
+        ]);
+        setQuotations(quotesRes.items);
+        setReservations(reserveRes.items);
+      } else if (page === 'tasks') {
+        const res = await salesApi.tasks(currentUser, { status: statusFilter || undefined });
+        setTasks(res);
+      } else if (page === 'customers') {
+        const res = await salesApi.customers(currentUser, { search });
+        setCustomers(res.items);
+      } else if (page === 'reports') {
+        const rep = await salesApi.reports(currentUser);
+        setReports(rep);
+      }
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 403) {
+        setDenied(true);
+      } else {
+        setError(err instanceof ApiError ? `Error: ${err.code}` : 'Unable to connect to the V MOTIV Sales service.');
+      }
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user) void loadData(user);
+  }, [user, page, statusFilter, unassignedFilter]);
+
+  if (!user) return <SignIn />;
+  if (loading) return <div className="auth-screen"><p className="eyebrow">INITIALIZING WORKSPACE…</p></div>;
+
+  if (denied) {
+    return (
+      <div className="auth-screen">
+        <div className="auth-card">
+          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
+          <h1>Sales Access Required</h1>
+          <p>Your signed-in Google account ({user.email}) does not have an active Sales Executive role and branch assignment. Please contact an administrator.</p>
+          <button className="btn-secondary" onClick={() => auth && signOut(auth)}>
+            Sign In with Another Account
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="app-shell">
+      {/* SIDEBAR NAVIGATION */}
+      <aside className="sidebar">
+        <div className="sidebar-header">
+          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" className="brand-logo" />
+          <span className="workspace-badge">SALES CRM · V2</span>
+        </div>
+
+        <nav className="sidebar-nav">
+          <div className="nav-section-title">Core Operations</div>
+          <button className={`nav-item ${page === 'overview' ? 'active' : ''}`} onClick={() => setPage('overview')}>
+            <Icons.Overview size={17} /> Overview
+          </button>
+          <button className={`nav-item ${page === 'seller' ? 'active' : ''}`} onClick={() => setPage('seller')}>
+            <Icons.SellerLeads size={17} /> Seller Leads
+          </button>
+          <button className={`nav-item ${page === 'buyer' ? 'active' : ''}`} onClick={() => setPage('buyer')}>
+            <Icons.BuyerLeads size={17} /> Buyer Leads
+          </button>
+
+          <div className="nav-section-title">Deal Execution</div>
+          <button className={`nav-item ${page === 'inventory' ? 'active' : ''}`} onClick={() => setPage('inventory')}>
+            <Icons.Inventory size={17} /> Inventory Stock
+          </button>
+          <button className={`nav-item ${page === 'testdrives' ? 'active' : ''}`} onClick={() => setPage('testdrives')}>
+            <Icons.TestDrives size={17} /> Test Drives
+          </button>
+          <button className={`nav-item ${page === 'pipeline' ? 'active' : ''}`} onClick={() => setPage('pipeline')}>
+            <Icons.Pipeline size={17} /> Pipeline & Quotes
+          </button>
+
+          <div className="nav-section-title">Client & Follow-ups</div>
+          <button className={`nav-item ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}>
+            <Icons.Tasks size={17} /> Tasks & Follow-ups
+          </button>
+          <button className={`nav-item ${page === 'customers' ? 'active' : ''}`} onClick={() => setPage('customers')}>
+            <Icons.Customers size={17} /> Customers CRM
+          </button>
+          <button className={`nav-item ${page === 'communications' ? 'active' : ''}`} onClick={() => setPage('communications')}>
+            <Icons.Communications size={17} /> Communications
+          </button>
+          <button className={`nav-item ${page === 'reports' ? 'active' : ''}`} onClick={() => setPage('reports')}>
+            <Icons.Reports size={17} /> Funnel & Reports
+          </button>
+        </nav>
+
+        <div className="sidebar-footer">
+          <div className="user-snippet">
+            <span className="user-name">{actor?.displayName || actor?.email}</span>
+            <span className="user-role-pill">{actor?.roles[0]?.replace('_', ' ') || 'SALES'}</span>
+          </div>
+          <button className="btn-signout" onClick={() => auth && signOut(auth)}>
+            <Icons.Logout size={15} /> Sign Out
+          </button>
+        </div>
+      </aside>
+
+      {/* MAIN CONTAINER */}
+      <div className="main-wrapper">
+        {/* TOPBAR */}
+        <header className="topbar">
+          <div className="topbar-left">
+            <div className="branch-select-badge">
+              <Icons.MapPin size={13} />
+              <span>{actor?.globalScope ? 'All Branches (HQ)' : actor?.branches.map(b => b.city).join(', ') || 'Branch'}</span>
+            </div>
+          </div>
+
+          <div className="topbar-right">
+            {/* Notification Pill */}
+            <div className="notif-wrapper">
+              <button className="notif-button" onClick={() => setShowNotifs(!showNotifs)} aria-label="Notifications">
+                <Icons.Bell size={18} />
+                {(notifications?.totalUnread ?? 0) > 0 && (
+                  <span className="notif-badge">{notifications?.totalUnread}</span>
+                )}
+              </button>
+
+              {showNotifs && notifications && (
+                <div className="notif-dropdown">
+                  <div className="notif-dropdown-head">
+                    <h4>Action Items</h4>
+                    <span className="font-mono text-xs">{notifications.totalUnread} pending</span>
+                  </div>
+                  <div className="notif-list">
+                    {notifications.unassignedLeads.map(l => (
+                      <div key={l.id} className="notif-item">
+                        <div className="notif-item-title">Unassigned: {l.make} {l.model}</div>
+                        <div className="notif-item-sub">{l.city} · Ref: {l.referenceCode}</div>
+                      </div>
+                    ))}
+                    {notifications.overdueTasks.map(t => (
+                      <div key={t.id} className="notif-item">
+                        <div className="notif-item-title" style={{ color: 'var(--color-destructive)' }}>Overdue: {t.type}</div>
+                        <div className="notif-item-sub">{t.details}</div>
+                      </div>
+                    ))}
+                    {notifications.totalUnread === 0 && (
+                      <p className="empty-state" style={{ padding: '12px' }}>All caught up!</p>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button className="btn-secondary btn-sm" onClick={() => void loadData()}>
+              <Icons.Refresh size={14} /> Refresh
+            </button>
+          </div>
+        </header>
+
+        {/* CONTENT AREA */}
+        <main className="content-area">
+          {error && <div className="error-banner">{error}</div>}
+
+          {/* ==================================================== */}
+          {/* VIEW: OVERVIEW */}
+          {/* ==================================================== */}
+          {page === 'overview' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">SALES DASHBOARD</p>
+                  <h1>Today's Activity & Queue</h1>
+                </div>
+                <div className="page-header-actions">
+                  <button className="btn-primary" onClick={() => setShowManualLeadModal(true)}>
+                    <Icons.Plus size={15} /> Record Walk-in Seller
+                  </button>
+                </div>
+              </div>
+
+              {/* KPI Metrics */}
+              <div className="metrics-grid">
+                <div className="metric-card">
+                  <div className="metric-label">Seller Leads To Qualify</div>
+                  <div className="metric-value">{dashboard?.unassignedCount ?? 0}</div>
+                  <div className="metric-sub">Inbound awaiting first call</div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-label">Follow-ups Due Today</div>
+                  <div className="metric-value">{dashboard?.tasksDueToday ?? 0}</div>
+                  <div className="metric-sub">Scheduled customer tasks</div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-label">Upcoming Test Drives</div>
+                  <div className="metric-value">{dashboard?.upcomingTestDrives ?? 0}</div>
+                  <div className="metric-sub">Awaiting confirmation</div>
+                </div>
+                <div className="metric-card">
+                  <div className="metric-label">Active Purchase Offers</div>
+                  <div className="metric-value">{dashboard?.openOffersCount ?? 0}</div>
+                  <div className="metric-sub">Communicated to sellers</div>
+                </div>
+              </div>
+
+              {/* Work Queue & Recent Activity */}
+              <div className="panel">
+                <div className="panel-header">
+                  <h3>Seller Enquiries Needing Action</h3>
+                  <button className="btn-outline btn-sm" onClick={() => setPage('seller')}>View All Seller Leads</button>
+                </div>
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Vehicle & Seller</th>
+                        <th>City</th>
+                        <th>Expected Price</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sellerLeads.slice(0, 5).map(lead => (
+                        <tr key={lead.id}>
+                          <td>
+                            <div className="table-title">{lead.manufacturingYear} {lead.make} {lead.model}</div>
+                            <div className="table-sub">{lead.sellerName} · {lead.sellerPhone}</div>
+                          </td>
+                          <td>{lead.city}</td>
+                          <td className="font-mono">{formatCurrency(lead.expectedPricePaise)}</td>
+                          <td><span className={`badge ${statusBadgeClass(lead.status)}`}>{lead.status}</span></td>
+                          <td>
+                            <button className="btn-secondary btn-sm" onClick={() => setSelectedSellerLead(lead)}>
+                              Manage Lead
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {sellerLeads.length === 0 && (
+                        <tr><td colSpan={5} className="empty-state">No active seller enquiries in queue.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: SELLER LEADS (WORKFLOW A) */}
+          {/* ==================================================== */}
+          {page === 'seller' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">WORKFLOW A · VEHICLE ACQUISITION</p>
+                  <h1>Seller Leads Management</h1>
+                </div>
+                <div className="page-header-actions">
+                  <button className="btn-primary" onClick={() => setShowManualLeadModal(true)}>
+                    <Icons.Plus size={15} /> New Walk-in / Phone Lead
+                  </button>
+                </div>
+              </div>
+
+              <div className="panel">
+                <div className="filters-bar">
+                  <div className="search-input-box">
+                    <Icons.Search size={15} />
+                    <input
+                      placeholder="Search seller name, phone, make, model..."
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && void loadData()}
+                    />
+                  </div>
+
+                  <select className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                    <option value="">All Statuses</option>
+                    <option value="SUBMITTED">Submitted (New)</option>
+                    <option value="QUALIFYING">Qualifying</option>
+                    <option value="INSPECTION_SCHEDULED">Inspection Scheduled</option>
+                    <option value="OFFER_PENDING">Offer Pending</option>
+                    <option value="OFFERED">Offer Communicated</option>
+                    <option value="ACCEPTED">Offer Accepted</option>
+                    <option value="REJECTED">Rejected / Cancelled</option>
+                  </select>
+
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={unassignedFilter}
+                      onChange={e => setUnassignedFilter(e.target.checked)}
+                    />
+                    <span>Unassigned Only</span>
+                  </label>
+
+                  <button className="btn-secondary btn-sm" onClick={() => void loadData()}>Filter</button>
+                </div>
+
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Ref Code</th>
+                        <th>Seller & Vehicle</th>
+                        <th>Location</th>
+                        <th>Odometer</th>
+                        <th>Expected</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sellerLeads.map(lead => (
+                        <tr key={lead.id}>
+                          <td className="font-mono text-xs">{lead.referenceCode}</td>
+                          <td>
+                            <div className="table-title">{lead.manufacturingYear} {lead.make} {lead.model} {lead.variant || ''}</div>
+                            <div className="table-sub">{lead.sellerName} · {lead.sellerPhone}</div>
+                          </td>
+                          <td>{lead.city} ({lead.pincode})</td>
+                          <td className="font-mono">{lead.odometerKm.toLocaleString('en-IN')} km</td>
+                          <td className="font-mono">{formatCurrency(lead.expectedPricePaise)}</td>
+                          <td><span className={`badge ${statusBadgeClass(lead.status)}`}>{lead.status}</span></td>
+                          <td>
+                            <button className="btn-secondary btn-sm" onClick={() => setSelectedSellerLead(lead)}>
+                              View Details
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {sellerLeads.length === 0 && (
+                        <tr><td colSpan={7} className="empty-state">No seller leads found matching the filters.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: BUYER LEADS (WORKFLOW B) */}
+          {/* ==================================================== */}
+          {page === 'buyer' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">WORKFLOW B · RETAIL SALES</p>
+                  <h1>Inbound Buyer Enquiries</h1>
+                </div>
+              </div>
+
+              <div className="panel">
+                <div className="filters-bar">
+                  <div className="search-input-box">
+                    <Icons.Search size={15} />
+                    <input
+                      placeholder="Search buyer name, email, vehicle title..."
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && void loadData()}
+                    />
+                  </div>
+                  <select className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                    <option value="">All Statuses</option>
+                    <option value="RECEIVED">Received</option>
+                    <option value="IN_REVIEW">In Review</option>
+                    <option value="CONTACTED">Contacted</option>
+                    <option value="CLOSED">Closed</option>
+                  </select>
+                  <button className="btn-secondary btn-sm" onClick={() => void loadData()}>Filter</button>
+                </div>
+
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Customer</th>
+                        <th>Interested In (Vehicle)</th>
+                        <th>Listing Price</th>
+                        <th>Availability</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {buyerLeads.map(lead => (
+                        <tr key={lead.id}>
+                          <td>
+                            <div className="table-title">{lead.user.displayName || lead.user.email}</div>
+                            <div className="table-sub">{lead.user.phone || 'No phone'} · {lead.user.preferredCity || 'Any'}</div>
+                          </td>
+                          <td>
+                            <div className="table-title">{lead.listing.title}</div>
+                            <div className="table-sub">{lead.listing.vehicle.make} {lead.listing.vehicle.model} ({lead.listing.vehicle.city})</div>
+                          </td>
+                          <td className="font-mono">{formatCurrency(lead.listing.pricePaise)}</td>
+                          <td><span className={`badge ${statusBadgeClass(lead.listing.status)}`}>{lead.listing.status}</span></td>
+                          <td><span className={`badge ${statusBadgeClass(lead.status)}`}>{lead.status}</span></td>
+                          <td>
+                            <button className="btn-secondary btn-sm" onClick={() => setSelectedBuyerLead(lead)}>
+                              Manage
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {buyerLeads.length === 0 && (
+                        <tr><td colSpan={6} className="empty-state">No buyer enquiries found.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: INVENTORY CATALOGUE */}
+          {/* ==================================================== */}
+          {page === 'inventory' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">READ-ONLY CATALOGUE</p>
+                  <h1>Authorized Vehicle Stock</h1>
+                </div>
+              </div>
+
+              <div className="panel">
+                <div className="filters-bar">
+                  <div className="search-input-box">
+                    <Icons.Search size={15} />
+                    <input
+                      placeholder="Search make, model, registration..."
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && void loadData()}
+                    />
+                  </div>
+                  <button className="btn-secondary btn-sm" onClick={() => void loadData()}>Search Stock</button>
+                </div>
+
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Vehicle & Specs</th>
+                        <th>City</th>
+                        <th>Odometer</th>
+                        <th>Fuel & Trans</th>
+                        <th>Authorized Price</th>
+                        <th>Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inventory.map(item => (
+                        <tr key={item.id}>
+                          <td>
+                            <div className="table-title">{item.title}</div>
+                            <div className="table-sub">{item.vehicle.make} {item.vehicle.model} {item.vehicle.variant || ''}</div>
+                          </td>
+                          <td>{item.vehicle.city || '—'}</td>
+                          <td className="font-mono">{item.vehicle.odometerKm.toLocaleString('en-IN')} km</td>
+                          <td>{item.vehicle.fuelType} · {item.vehicle.transmission}</td>
+                          <td className="font-mono" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
+                            {formatCurrency(item.pricePaise)}
+                          </td>
+                          <td><span className={`badge ${statusBadgeClass(item.status)}`}>{item.status}</span></td>
+                        </tr>
+                      ))}
+                      {inventory.length === 0 && (
+                        <tr><td colSpan={6} className="empty-state">No available vehicles in branch scope.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: TEST DRIVES */}
+          {/* ==================================================== */}
+          {page === 'testdrives' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">CUSTOMER EXPERIENCE</p>
+                  <h1>Test Drive Appointments</h1>
+                </div>
+                <div className="page-header-actions">
+                  <button className="btn-primary" onClick={() => setShowTestDriveModal(true)}>
+                    <Icons.Plus size={15} /> Book Test Drive
+                  </button>
+                </div>
+              </div>
+
+              <div className="panel">
+                <div className="filters-bar">
+                  <select className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                    <option value="">All Appointments</option>
+                    <option value="REQUESTED">Requested</option>
+                    <option value="CONFIRMED">Confirmed</option>
+                    <option value="COMPLETED">Completed</option>
+                    <option value="CANCELLED">Cancelled</option>
+                    <option value="NO_SHOW">No Show</option>
+                  </select>
+                </div>
+
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Date & Time Slot</th>
+                        <th>Customer</th>
+                        <th>Vehicle</th>
+                        <th>Location</th>
+                        <th>Status</th>
+                        <th>Update Status</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {testDrives.map(td => (
+                        <tr key={td.id}>
+                          <td>
+                            <div className="table-title">{formatDate(td.requestedDate)}</div>
+                            <div className="table-sub font-mono">{td.timeSlot}</div>
+                          </td>
+                          <td>
+                            <div className="table-title">{td.user.displayName || td.user.email}</div>
+                            <div className="table-sub">{td.user.phone || 'No phone'}</div>
+                          </td>
+                          <td>{td.listing.title}</td>
+                          <td>{td.serviceCity || td.branch?.city || 'Hub'}</td>
+                          <td><span className={`badge ${statusBadgeClass(td.status)}`}>{td.status}</span></td>
+                          <td>
+                            {td.status === 'REQUESTED' && (
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={async () => {
+                                  if (!user) return;
+                                  await salesApi.updateTestDriveStatus(user, td.id, { status: 'CONFIRMED' });
+                                  void loadData();
+                                }}
+                              >
+                                Confirm
+                              </button>
+                            )}
+                            {td.status === 'CONFIRMED' && (
+                              <button
+                                className="btn-primary btn-sm"
+                                onClick={async () => {
+                                  if (!user) return;
+                                  await salesApi.updateTestDriveStatus(user, td.id, { status: 'COMPLETED' });
+                                  void loadData();
+                                }}
+                              >
+                                Complete
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {testDrives.length === 0 && (
+                        <tr><td colSpan={6} className="empty-state">No test drives scheduled.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: SALES PIPELINE (QUOTES & RESERVATIONS) */}
+          {/* ==================================================== */}
+          {page === 'pipeline' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">COMMERCIAL COORDINATION</p>
+                  <h1>Quotations & Vehicle Reservations</h1>
+                </div>
+                <div className="page-header-actions">
+                  <button className="btn-secondary" onClick={() => setShowReservationModal(true)}>
+                    <Icons.Tag size={15} /> Reserve Stock
+                  </button>
+                  <button className="btn-primary" onClick={() => setShowQuotationModal(true)}>
+                    <Icons.Plus size={15} /> Create Quotation
+                  </button>
+                </div>
+              </div>
+
+              {/* Quotations Panel */}
+              <div className="panel">
+                <div className="panel-header">
+                  <h3>Authorized Retail Quotations</h3>
+                </div>
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Quote #</th>
+                        <th>Customer</th>
+                        <th>Vehicle</th>
+                        <th>Final Price</th>
+                        <th>Valid Until</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {quotations.map(q => (
+                        <tr key={q.id}>
+                          <td className="font-mono text-xs">{q.quotationNumber}</td>
+                          <td>
+                            <div className="table-title">{q.customer.displayName || q.customer.email}</div>
+                            <div className="table-sub">{q.customer.phone || 'No phone'}</div>
+                          </td>
+                          <td>{q.listing.title}</td>
+                          <td className="font-mono" style={{ fontWeight: 700 }}>{formatCurrency(q.totalPricePaise)}</td>
+                          <td>{formatDate(q.validUntil)}</td>
+                          <td><span className={`badge ${statusBadgeClass(q.status)}`}>{q.status}</span></td>
+                          <td>
+                            <div style={{ display: 'flex', gap: '6px' }}>
+                              {q.status === 'DRAFT' && (
+                                <button
+                                  className="btn-primary btn-sm"
+                                  onClick={async () => {
+                                    if (!user) return;
+                                    await salesApi.submitQuotation(user, q.id);
+                                    void loadData();
+                                  }}
+                                >
+                                  Submit
+                                </button>
+                              )}
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={() => setShowDiscountModal(q.id)}
+                              >
+                                Discount
+                              </button>
+                            </div>
+                          </td>
+                        </tr>
+                      ))}
+                      {quotations.length === 0 && (
+                        <tr><td colSpan={7} className="empty-state">No retail quotations prepared yet.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+
+              {/* Reservations Panel */}
+              <div className="panel">
+                <div className="panel-header">
+                  <h3>Vehicle Reservations</h3>
+                </div>
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Reservation #</th>
+                        <th>Customer</th>
+                        <th>Listing</th>
+                        <th>Expires At</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reservations.map(r => (
+                        <tr key={r.id}>
+                          <td className="font-mono text-xs">{r.reservationNumber}</td>
+                          <td>{r.customer.displayName || r.customer.email}</td>
+                          <td>{r.listing.title}</td>
+                          <td>{formatDate(r.expiresAt)}</td>
+                          <td><span className={`badge ${statusBadgeClass(r.status)}`}>{r.status}</span></td>
+                          <td>
+                            {r.status === 'REQUESTED' && (
+                              <button
+                                className="btn-danger btn-sm"
+                                onClick={async () => {
+                                  if (!user) return;
+                                  await salesApi.releaseReservation(user, r.id, 'Released by sales executive');
+                                  void loadData();
+                                }}
+                              >
+                                Release
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {reservations.length === 0 && (
+                        <tr><td colSpan={6} className="empty-state">No active reservations.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: TASKS & FOLLOW-UPS */}
+          {/* ==================================================== */}
+          {page === 'tasks' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">CRM WORK QUEUE</p>
+                  <h1>Scheduled Tasks & Follow-ups</h1>
+                </div>
+              </div>
+
+              <div className="panel">
+                <div className="filters-bar">
+                  <select className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                    <option value="">All Tasks</option>
+                    <option value="OPEN">Open</option>
+                    <option value="IN_PROGRESS">In Progress</option>
+                    <option value="COMPLETED">Completed</option>
+                  </select>
+                </div>
+
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Task Type</th>
+                        <th>Details</th>
+                        <th>Due Date</th>
+                        <th>Lead Ref</th>
+                        <th>Priority</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {tasks.map(t => (
+                        <tr key={t.id}>
+                          <td className="font-mono text-xs">{t.type}</td>
+                          <td>{t.details}</td>
+                          <td>{formatDate(t.dueAt)}</td>
+                          <td>{t.lead ? t.lead.referenceCode : '—'}</td>
+                          <td><span className={`badge ${t.priority === 'URGENT' ? 'badge-red' : 'badge-gray'}`}>{t.priority}</span></td>
+                          <td><span className={`badge ${statusBadgeClass(t.status)}`}>{t.status}</span></td>
+                          <td>
+                            {t.status !== 'COMPLETED' && (
+                              <button className="btn-primary btn-sm" onClick={() => setShowCompleteTaskModal(t.id)}>
+                                Mark Done
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                      {tasks.length === 0 && (
+                        <tr><td colSpan={7} className="empty-state">No scheduled follow-up tasks.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: CUSTOMERS CRM */}
+          {/* ==================================================== */}
+          {page === 'customers' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">CLIENT DIRECTORY</p>
+                  <h1>Customer 360 Profiles</h1>
+                </div>
+              </div>
+
+              <div className="panel">
+                <div className="filters-bar">
+                  <div className="search-input-box">
+                    <Icons.Search size={15} />
+                    <input
+                      placeholder="Search customer by name, email, phone..."
+                      value={search}
+                      onChange={e => setSearch(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && void loadData()}
+                    />
+                  </div>
+                  <button className="btn-secondary btn-sm" onClick={() => void loadData()}>Search</button>
+                </div>
+
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Customer Name</th>
+                        <th>Contact Email</th>
+                        <th>Phone</th>
+                        <th>Preferred City</th>
+                        <th>Registered</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customers.map(c => (
+                        <tr key={c.id}>
+                          <td className="table-title">{c.displayName || 'Customer'}</td>
+                          <td>{c.email}</td>
+                          <td>{c.phone || '—'}</td>
+                          <td>{c.preferredCity || '—'}</td>
+                          <td>{formatDate(c.createdAt)}</td>
+                          <td>
+                            <button
+                              className="btn-secondary btn-sm"
+                              onClick={async () => {
+                                if (!user) return;
+                                const details = await salesApi.customer(user, c.id);
+                                setSelectedCustomer(details);
+                              }}
+                            >
+                              View 360 Profile
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {customers.length === 0 && (
+                        <tr><td colSpan={6} className="empty-state">No customers found.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: COMMUNICATIONS (APPROVED TRANSACTIONAL EMAIL) */}
+          {/* ==================================================== */}
+          {page === 'communications' && (
+            <CommunicationsView user={user} customers={customers} />
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: REPORTS & FUNNELS */}
+          {/* ==================================================== */}
+          {page === 'reports' && reports && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">ANALYTICS & METRICS</p>
+                  <h1>Conversion Funnels & Performance</h1>
+                </div>
+              </div>
+
+              <div className="funnel-container">
+                <div className="funnel-card">
+                  <h3>Seller Acquisition Funnel</h3>
+                  <div className="funnel-steps">
+                    {Object.entries(reports.sellerFunnel).map(([k, v]) => (
+                      <div key={k} className="funnel-step">
+                        <span className="funnel-step-name">{k.replace('_', ' ').toLowerCase()}</span>
+                        <span className="funnel-step-count">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="funnel-card">
+                  <h3>Buyer Enquiry Funnel</h3>
+                  <div className="funnel-steps">
+                    {Object.entries(reports.buyerFunnel).map(([k, v]) => (
+                      <div key={k} className="funnel-step">
+                        <span className="funnel-step-name">{k.replace('_', ' ').toLowerCase()}</span>
+                        <span className="funnel-step-count">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="funnel-card">
+                  <h3>Test Drive Conversions</h3>
+                  <div className="funnel-steps">
+                    {Object.entries(reports.testDriveFunnel).map(([k, v]) => (
+                      <div key={k} className="funnel-step">
+                        <span className="funnel-step-name">{k.replace('_', ' ').toLowerCase()}</span>
+                        <span className="funnel-step-count">{v}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </main>
+      </div>
+
+      {/* ========================================== */}
+      {/* MODAL: MANUAL SELLER LEAD ENTRY */}
+      {/* ========================================== */}
+      {showManualLeadModal && (
+        <ManualLeadModal
+          user={user}
+          onClose={() => setShowManualLeadModal(false)}
+          onSuccess={() => {
+            setShowManualLeadModal(false);
+            void loadData();
+          }}
+        />
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL: SELLER LEAD 360 DRAWER */}
+      {/* ========================================== */}
+      {selectedSellerLead && (
+        <SellerLeadDrawer
+          user={user}
+          lead={selectedSellerLead}
+          actor={actor}
+          onClose={() => setSelectedSellerLead(null)}
+          onRefresh={() => void loadData()}
+        />
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL: BUYER LEAD DRAWER */}
+      {/* ========================================== */}
+      {selectedBuyerLead && (
+        <BuyerLeadDrawer
+          user={user}
+          lead={selectedBuyerLead}
+          onClose={() => setSelectedBuyerLead(null)}
+          onRefresh={() => void loadData()}
+        />
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL: CUSTOMER 360 PROFILE */}
+      {/* ========================================== */}
+      {selectedCustomer && (
+        <CustomerProfileDrawer
+          customer={selectedCustomer}
+          onClose={() => setSelectedCustomer(null)}
+        />
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL: CREATE QUOTATION */}
+      {/* ========================================== */}
+      {showQuotationModal && (
+        <CreateQuotationModal
+          user={user}
+          onClose={() => setShowQuotationModal(false)}
+          onSuccess={() => {
+            setShowQuotationModal(false);
+            void loadData();
+          }}
+        />
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL: REQUEST DISCOUNT */}
+      {/* ========================================== */}
+      {showDiscountModal && (
+        <RequestDiscountModal
+          user={user}
+          quotationId={showDiscountModal}
+          onClose={() => setShowDiscountModal(null)}
+          onSuccess={() => {
+            setShowDiscountModal(null);
+            void loadData();
+          }}
+        />
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL: COMPLETE TASK */}
+      {/* ========================================== */}
+      {showCompleteTaskModal && (
+        <CompleteTaskModal
+          user={user}
+          taskId={showCompleteTaskModal}
+          onClose={() => setShowCompleteTaskModal(null)}
+          onSuccess={() => {
+            setShowCompleteTaskModal(null);
+            void loadData();
+          }}
+        />
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL: SCHEDULE TEST DRIVE */}
+      {/* ========================================== */}
+      {showTestDriveModal && (
+        <ScheduleTestDriveModal
+          user={user}
+          onClose={() => setShowTestDriveModal(false)}
+          onSuccess={() => {
+            setShowTestDriveModal(false);
+            void loadData();
+          }}
+        />
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL: RESERVE STOCK */}
+      {/* ========================================== */}
+      {showReservationModal && (
+        <RequestReservationModal
+          user={user}
+          onClose={() => setShowReservationModal(false)}
+          onSuccess={() => {
+            setShowReservationModal(false);
+            void loadData();
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: MANUAL SELLER LEAD MODAL
+// ==========================================
+function ManualLeadModal({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    sellerName: '',
+    sellerPhone: '+91',
+    city: 'Bengaluru',
+    pincode: '560001',
+    make: 'Hyundai',
+    model: 'i20',
+    variant: 'Sportz 1.2',
+    manufacturingYear: 2021,
+    fuelType: 'PETROL',
+    transmission: 'MANUAL',
+    odometerKm: 25000,
+    expectedPriceRupees: '650000',
+    sellerNotes: 'Walk-in customer at showroom.',
+  });
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      await salesApi.createSellerLead(user, {
+        sellerName: form.sellerName,
+        sellerPhone: form.sellerPhone,
+        city: form.city,
+        pincode: form.pincode,
+        make: form.make,
+        model: form.model,
+        variant: form.variant || undefined,
+        manufacturingYear: Number(form.manufacturingYear),
+        fuelType: form.fuelType,
+        transmission: form.transmission,
+        odometerKm: Number(form.odometerKm),
+        expectedPricePaise: form.expectedPriceRupees ? String(BigInt(form.expectedPriceRupees) * 100n) : undefined,
+        sellerNotes: form.sellerNotes || undefined,
+      });
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to create manual lead.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog lg">
+        <div className="modal-header">
+          <h3>Record Inbound / Walk-in Seller Lead</h3>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body">
+            {error && <div className="error-banner">{error}</div>}
+            <div className="form-grid">
+              <div className="form-group">
+                <label className="form-label">Seller Full Name *</label>
+                <input required className="form-input" value={form.sellerName} onChange={e => setForm({ ...form, sellerName: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Seller Phone (+91...) *</label>
+                <input required className="form-input" value={form.sellerPhone} onChange={e => setForm({ ...form, sellerPhone: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">City *</label>
+                <input required className="form-input" value={form.city} onChange={e => setForm({ ...form, city: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Pincode (6 digits) *</label>
+                <input required className="form-input" value={form.pincode} onChange={e => setForm({ ...form, pincode: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Vehicle Make *</label>
+                <input required className="form-input" value={form.make} onChange={e => setForm({ ...form, make: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Vehicle Model *</label>
+                <input required className="form-input" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Variant</label>
+                <input className="form-input" value={form.variant} onChange={e => setForm({ ...form, variant: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Manufacturing Year *</label>
+                <input required type="number" className="form-input" value={form.manufacturingYear} onChange={e => setForm({ ...form, manufacturingYear: Number(e.target.value) })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Fuel Type *</label>
+                <select className="form-select" value={form.fuelType} onChange={e => setForm({ ...form, fuelType: e.target.value })}>
+                  <option value="PETROL">Petrol</option>
+                  <option value="DIESEL">Diesel</option>
+                  <option value="CNG">CNG</option>
+                  <option value="ELECTRIC">Electric</option>
+                  <option value="HYBRID">Hybrid</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Transmission *</label>
+                <select className="form-select" value={form.transmission} onChange={e => setForm({ ...form, transmission: e.target.value })}>
+                  <option value="MANUAL">Manual</option>
+                  <option value="AUTOMATIC">Automatic</option>
+                  <option value="CVT">CVT</option>
+                  <option value="DCT">DCT</option>
+                </select>
+              </div>
+              <div className="form-group">
+                <label className="form-label">Odometer (km) *</label>
+                <input required type="number" className="form-input" value={form.odometerKm} onChange={e => setForm({ ...form, odometerKm: Number(e.target.value) })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Expected Price (₹)</label>
+                <input className="form-input" value={form.expectedPriceRupees} onChange={e => setForm({ ...form, expectedPriceRupees: e.target.value })} />
+              </div>
+              <div className="form-group full">
+                <label className="form-label">Initial Notes</label>
+                <textarea className="form-textarea" value={form.sellerNotes} onChange={e => setForm({ ...form, sellerNotes: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={busy}>
+              {busy ? 'Creating Lead…' : 'Save Seller Lead'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: SELLER LEAD 360 DRAWER
+// ==========================================
+function SellerLeadDrawer({
+  user,
+  lead,
+  actor,
+  onClose,
+  onRefresh,
+}: {
+  user: User | null;
+  lead: SellerLead;
+  actor: Actor | null;
+  onClose: () => void;
+  onRefresh: () => void;
+}) {
+  const [tab, setTab] = useState<'details' | 'interactions' | 'inspection' | 'offer'>('details');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [interactions, setInteractions] = useState<NonNullable<SellerLead['interactions']>>([]);
+  const [offers, setOffers] = useState<Array<{ id: string; offerAmountPaise: string; status: string; validUntil: string }>>([]);
+
+  // Form states
+  const [interactionNotes, setInteractionNotes] = useState('');
+  const [channel, setChannel] = useState('CALL');
+  const [outcome, setOutcome] = useState('CONNECTED');
+
+  const [offerRupees, setOfferRupees] = useState('550000');
+  const [inspectionDate, setInspectionDate] = useState(new Date().toISOString().slice(0, 10));
+  const [inspectionSlot, setInspectionSlot] = useState('11:00 AM - 01:00 PM');
+
+  const loadInteractions = async () => {
+    if (!user) return;
+    try {
+      const res = await salesApi.interactions(user, lead.id);
+      setInteractions(res);
+      const offRes = await salesApi.getAcquisitionOffers(user, lead.id);
+      setOffers(offRes);
+    } catch {
+      // ignore
+    }
+  };
+
+  useEffect(() => {
+    void loadInteractions();
+  }, [lead.id]);
+
+  const handleClaim = async () => {
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      await salesApi.claimSellerLead(user, lead.id);
+      onRefresh();
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to claim lead.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleStatusChange = async (newStatus: string) => {
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      await salesApi.updateSellerLeadStatus(user, lead.id, newStatus, 'Status progressed by sales executive');
+      onRefresh();
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Status transition not permitted.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleLogInteraction = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !interactionNotes) return;
+    setBusy(true);
+    try {
+      await salesApi.createInteraction(user, lead.id, {
+        channel,
+        outcome,
+        notes: interactionNotes,
+      });
+      setInteractionNotes('');
+      await loadInteractions();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.code : 'Failed to log interaction');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRequestInspection = async () => {
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      await salesApi.requestInspection(user, lead.id, {
+        locationType: 'HUB',
+        requestedDate: inspectionDate,
+        timeSlot: inspectionSlot,
+        address: `${lead.city} Hub`,
+      });
+      alert('Inspection scheduled successfully!');
+      onRefresh();
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.code : 'Failed to schedule inspection');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleProposeOffer = async () => {
+    if (!user || !offerRupees) return;
+    setBusy(true);
+    setError('');
+    try {
+      const validDate = new Date(Date.now() + 7 * 86400000).toISOString();
+      await salesApi.proposeAcquisitionOffer(user, lead.id, {
+        offerAmountPaise: String(BigInt(offerRupees) * 100n),
+        validUntil: validDate,
+        terms: 'Authorized purchase valuation valid for 7 days.',
+      });
+      alert('Purchase offer proposed and queued!');
+      await loadInteractions();
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.code : 'Offer proposal rejected');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog lg">
+        <div className="modal-header">
+          <div>
+            <span className="eyebrow">SELLER OPPORTUNITY · {lead.referenceCode}</span>
+            <h3>{lead.manufacturingYear} {lead.make} {lead.model} {lead.variant || ''}</h3>
+          </div>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+
+        <div className="modal-body">
+          {error && <div className="error-banner">{error}</div>}
+
+          {/* Quick Action Ribbon */}
+          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+            <span className={`badge ${statusBadgeClass(lead.status)}`}>{lead.status}</span>
+            <button className="btn-secondary btn-sm" onClick={handleClaim} disabled={busy}>
+              Claim Lead
+            </button>
+            {lead.status === 'SUBMITTED' && (
+              <button className="btn-primary btn-sm" onClick={() => handleStatusChange('QUALIFYING')}>
+                Start Qualification
+              </button>
+            )}
+            {lead.status === 'QUALIFYING' && (
+              <button className="btn-primary btn-sm" onClick={() => setTab('inspection')}>
+                Schedule Inspection
+              </button>
+            )}
+            {lead.status === 'INSPECTION_SCHEDULED' && (
+              <button className="btn-primary btn-sm" onClick={() => setTab('offer')}>
+                Propose Purchase Offer
+              </button>
+            )}
+          </div>
+
+          {/* Tab Navigation */}
+          <div className="tabs-nav">
+            <button className={`tab-btn ${tab === 'details' ? 'active' : ''}`} onClick={() => setTab('details')}>Lead Specs</button>
+            <button className={`tab-btn ${tab === 'interactions' ? 'active' : ''}`} onClick={() => setTab('interactions')}>Interactions & Tasks</button>
+            <button className={`tab-btn ${tab === 'inspection' ? 'active' : ''}`} onClick={() => setTab('inspection')}>Inspection</button>
+            <button className={`tab-btn ${tab === 'offer' ? 'active' : ''}`} onClick={() => setTab('offer')}>Acquisition Offer</button>
+          </div>
+
+          {/* TAB 1: DETAILS */}
+          {tab === 'details' && (
+            <div className="form-grid">
+              <div className="metric-card">
+                <div className="metric-label">Seller Details</div>
+                <div style={{ fontWeight: 600 }}>{lead.sellerName}</div>
+                <div className="metric-sub">{lead.sellerPhone} · {lead.city} ({lead.pincode})</div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Expected Valuation</div>
+                <div className="metric-value" style={{ fontSize: '20px' }}>{formatCurrency(lead.expectedPricePaise)}</div>
+                <div className="metric-sub">Customer stated ask</div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Odometer & Fuel</div>
+                <div style={{ fontWeight: 600 }}>{lead.odometerKm.toLocaleString('en-IN')} km</div>
+                <div className="metric-sub">{lead.fuelType} · {lead.transmission}</div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Owner Count</div>
+                <div style={{ fontWeight: 600 }}>{lead.ownershipNumber} Previous Owner(s)</div>
+                <div className="metric-sub">Year: {lead.manufacturingYear}</div>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 2: INTERACTIONS */}
+          {tab === 'interactions' && (
+            <div>
+              <form onSubmit={handleLogInteraction} style={{ marginBottom: '16px' }}>
+                <div className="form-grid">
+                  <div className="form-group">
+                    <label className="form-label">Channel</label>
+                    <select className="form-select" value={channel} onChange={e => setChannel(e.target.value)}>
+                      <option value="CALL">Phone Call</option>
+                      <option value="EMAIL">Email</option>
+                      <option value="MEETING">In-person Meeting</option>
+                      <option value="INTERNAL_NOTE">Internal Note</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Outcome</label>
+                    <select className="form-select" value={outcome} onChange={e => setOutcome(e.target.value)}>
+                      <option value="CONNECTED">Connected</option>
+                      <option value="ATTEMPTED">Attempted</option>
+                      <option value="NO_ANSWER">No Answer</option>
+                      <option value="RESCHEDULE_REQUESTED">Reschedule Requested</option>
+                      <option value="INFORMATION_PROVIDED">Info Provided</option>
+                    </select>
+                  </div>
+                  <div className="form-group full">
+                    <label className="form-label">Interaction Notes</label>
+                    <input
+                      required
+                      className="form-input"
+                      placeholder="Summary of conversation with seller..."
+                      value={interactionNotes}
+                      onChange={e => setInteractionNotes(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <button type="submit" className="btn-primary btn-sm" style={{ marginTop: '8px' }} disabled={busy}>
+                  Log Interaction
+                </button>
+              </form>
+
+              <div className="timeline">
+                {interactions.map(item => (
+                  <div key={item.id} className="timeline-item">
+                    <div className="timeline-header">
+                      <span className="timeline-channel">{item.channel}</span>
+                      <span>{item.outcome}</span>
+                      <span>· {formatDate(item.createdAt)}</span>
+                    </div>
+                    <div className="timeline-notes">{item.notes}</div>
+                  </div>
+                ))}
+                {interactions.length === 0 && <p className="empty-state">No recorded interactions yet.</p>}
+              </div>
+            </div>
+          )}
+
+          {/* TAB 3: INSPECTION */}
+          {tab === 'inspection' && (
+            <div className="form-grid">
+              <div className="form-group">
+                <label className="form-label">Requested Date</label>
+                <input type="date" className="form-input" value={inspectionDate} onChange={e => setInspectionDate(e.target.value)} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Time Slot</label>
+                <select className="form-select" value={inspectionSlot} onChange={e => setInspectionSlot(e.target.value)}>
+                  <option value="10:00 AM - 12:00 PM">10:00 AM - 12:00 PM</option>
+                  <option value="11:00 AM - 01:00 PM">11:00 AM - 01:00 PM</option>
+                  <option value="02:00 PM - 04:00 PM">02:00 PM - 04:00 PM</option>
+                  <option value="04:00 PM - 06:00 PM">04:00 PM - 06:00 PM</option>
+                </select>
+              </div>
+              <div className="form-group full">
+                <button className="btn-primary" onClick={handleRequestInspection} disabled={busy}>
+                  Confirm Hub Inspection Request
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* TAB 4: ACQUISITION OFFER */}
+          {tab === 'offer' && (
+            <div>
+              <div className="form-grid" style={{ marginBottom: '16px' }}>
+                <div className="form-group">
+                  <label className="form-label">Offer Amount (₹)</label>
+                  <input
+                    className="form-input font-mono"
+                    value={offerRupees}
+                    onChange={e => setOfferRupees(e.target.value)}
+                  />
+                </div>
+                <div className="form-group" style={{ justifyContent: 'flex-end' }}>
+                  <button className="btn-primary" onClick={handleProposeOffer} disabled={busy}>
+                    Propose Versioned Purchase Offer
+                  </button>
+                </div>
+              </div>
+
+              <div className="table-responsive">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Amount</th>
+                      <th>Status</th>
+                      <th>Valid Until</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {offers.map(o => (
+                      <tr key={o.id}>
+                        <td className="font-mono">{formatCurrency(o.offerAmountPaise)}</td>
+                        <td><span className={`badge ${statusBadgeClass(o.status)}`}>{o.status}</span></td>
+                        <td>{formatDate(o.validUntil)}</td>
+                        <td>
+                          {o.status === 'OFFERED' && (
+                            <div style={{ display: 'flex', gap: '4px' }}>
+                              <button
+                                className="btn-primary btn-sm"
+                                onClick={async () => {
+                                  if (!user) return;
+                                  await salesApi.recordOfferResponse(user, lead.id, o.id, { decision: 'ACCEPTED' });
+                                  await loadInteractions();
+                                  onRefresh();
+                                }}
+                              >
+                                Accepted
+                              </button>
+                              <button
+                                className="btn-danger btn-sm"
+                                onClick={async () => {
+                                  if (!user) return;
+                                  await salesApi.recordOfferResponse(user, lead.id, o.id, { decision: 'DECLINED', declineReason: 'Seller declined' });
+                                  await loadInteractions();
+                                  onRefresh();
+                                }}
+                              >
+                                Declined
+                              </button>
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                    {offers.length === 0 && <tr><td colSpan={4} className="empty-state">No offers made yet.</td></tr>}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </div>
+
+        <div className="modal-footer">
+          <button className="btn-outline" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: BUYER LEAD DRAWER
+// ==========================================
+function BuyerLeadDrawer({
+  user,
+  lead,
+  onClose,
+  onRefresh,
+}: {
+  user: User | null;
+  lead: BuyerLead;
+  onClose: () => void;
+  onRefresh: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+
+  const updateStatus = async (status: string) => {
+    if (!user) return;
+    setBusy(true);
+    try {
+      await salesApi.updateBuyerStatus(user, lead.id, status);
+      onRefresh();
+      onClose();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog">
+        <div className="modal-header">
+          <div>
+            <span className="eyebrow">BUYER ENQUIRY</span>
+            <h3>{lead.user.displayName || lead.user.email}</h3>
+          </div>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <div className="modal-body">
+          <div className="form-grid">
+            <div className="metric-card">
+              <div className="metric-label">Customer Contact</div>
+              <div>{lead.user.email}</div>
+              <div className="metric-sub">{lead.user.phone || 'Phone not provided'}</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-label">Vehicle Enquired</div>
+              <div style={{ fontWeight: 600 }}>{lead.listing.title}</div>
+              <div className="metric-sub font-mono">{formatCurrency(lead.listing.pricePaise)}</div>
+            </div>
+            <div className="metric-card full">
+              <div className="metric-label">Message / Note</div>
+              <div>{lead.message || 'No additional note provided by customer.'}</div>
+            </div>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn-outline" onClick={onClose}>Close</button>
+          {lead.status === 'RECEIVED' && (
+            <button className="btn-secondary" onClick={() => updateStatus('IN_REVIEW')} disabled={busy}>
+              Mark In Review
+            </button>
+          )}
+          {lead.status === 'IN_REVIEW' && (
+            <button className="btn-primary" onClick={() => updateStatus('CONTACTED')} disabled={busy}>
+              Mark Contacted
+            </button>
+          )}
+          {lead.status === 'CONTACTED' && (
+            <button className="btn-danger" onClick={() => updateStatus('CLOSED')} disabled={busy}>
+              Close Opportunity
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: CUSTOMER 360 PROFILE
+// ==========================================
+function CustomerProfileDrawer({ customer, onClose }: { customer: Customer; onClose: () => void }) {
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog lg">
+        <div className="modal-header">
+          <div>
+            <span className="eyebrow">CUSTOMER 360 PROFILE</span>
+            <h3>{customer.displayName || customer.email}</h3>
+          </div>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <div className="modal-body">
+          <div className="form-grid" style={{ marginBottom: '16px' }}>
+            <div className="metric-card">
+              <div className="metric-label">Contact Details</div>
+              <div>{customer.email}</div>
+              <div className="metric-sub">{customer.phone || 'No phone'} · {customer.preferredCity || 'No city'}</div>
+            </div>
+            <div className="metric-card">
+              <div className="metric-label">Customer Since</div>
+              <div>{formatDate(customer.createdAt)}</div>
+            </div>
+          </div>
+
+          <h4 style={{ margin: '14px 0 8px', fontSize: '14px' }}>Associated Seller Enquiries</h4>
+          <div className="table-responsive">
+            <table>
+              <thead>
+                <tr><th>Ref Code</th><th>Vehicle</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {(customer.acquisitionLeads || []).map(l => (
+                  <tr key={l.id}>
+                    <td className="font-mono">{l.referenceCode}</td>
+                    <td>{l.make} {l.model}</td>
+                    <td><span className={`badge ${statusBadgeClass(l.status)}`}>{l.status}</span></td>
+                  </tr>
+                ))}
+                {(!customer.acquisitionLeads || customer.acquisitionLeads.length === 0) && (
+                  <tr><td colSpan={3} className="empty-state">No selling enquiries.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+
+          <h4 style={{ margin: '14px 0 8px', fontSize: '14px' }}>Associated Buyer Enquiries</h4>
+          <div className="table-responsive">
+            <table>
+              <thead>
+                <tr><th>Vehicle Listing</th><th>Status</th></tr>
+              </thead>
+              <tbody>
+                {(customer.purchaseEnquiries || []).map(p => (
+                  <tr key={p.id}>
+                    <td>{p.listing.title}</td>
+                    <td><span className={`badge ${statusBadgeClass(p.status)}`}>{p.status}</span></td>
+                  </tr>
+                ))}
+                {(!customer.purchaseEnquiries || customer.purchaseEnquiries.length === 0) && (
+                  <tr><td colSpan={2} className="empty-state">No buying enquiries.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div className="modal-footer">
+          <button className="btn-outline" onClick={onClose}>Close</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: CREATE QUOTATION MODAL
+// ==========================================
+function CreateQuotationModal({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    listingId: '',
+    customerId: '',
+    chargesRupees: '15000',
+    discountRupees: '0',
+    validDays: 7,
+    terms: 'Valid with authorized V MOTIV quality inspection warranty.',
+  });
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      const validUntil = new Date(Date.now() + form.validDays * 86400000).toISOString();
+      await salesApi.createQuotation(user, {
+        listingId: form.listingId,
+        customerId: form.customerId,
+        chargesPaise: String(BigInt(form.chargesRupees) * 100n),
+        discountPaise: String(BigInt(form.discountRupees) * 100n),
+        validUntil,
+        terms: form.terms,
+      });
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to prepare quotation.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog">
+        <div className="modal-header">
+          <h3>Prepare Retail Quotation</h3>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body">
+            {error && <div className="error-banner">{error}</div>}
+            <div className="form-grid">
+              <div className="form-group full">
+                <label className="form-label">Vehicle Listing ID (UUID) *</label>
+                <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
+              </div>
+              <div className="form-group full">
+                <label className="form-label">Customer ID (UUID) *</label>
+                <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Add-on Charges (RTO / Ins) ₹</label>
+                <input className="form-input" value={form.chargesRupees} onChange={e => setForm({ ...form, chargesRupees: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Approved Discount ₹</label>
+                <input className="form-input" value={form.discountRupees} onChange={e => setForm({ ...form, discountRupees: e.target.value })} />
+              </div>
+              <div className="form-group full">
+                <label className="form-label">Terms and Notes</label>
+                <textarea className="form-textarea" value={form.terms} onChange={e => setForm({ ...form, terms: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={busy}>Create Quotation</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: REQUEST DISCOUNT MODAL
+// ==========================================
+function RequestDiscountModal({ user, quotationId, onClose, onSuccess }: { user: User | null; quotationId: string; onClose: () => void; onSuccess: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [discountRupees, setDiscountRupees] = useState('10000');
+  const [reason, setReason] = useState('Customer ready for immediate booking upon ₹10,000 price exception.');
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      await salesApi.requestDiscount(user, quotationId, {
+        requestedDiscountPaise: String(BigInt(discountRupees) * 100n),
+        reason,
+      });
+      alert('Discount request submitted for managerial review.');
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to request discount.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog">
+        <div className="modal-header">
+          <h3>Request Managerial Discount</h3>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body">
+            {error && <div className="error-banner">{error}</div>}
+            <div className="form-group" style={{ marginBottom: '14px' }}>
+              <label className="form-label">Discount Amount (₹) *</label>
+              <input required className="form-input font-mono" value={discountRupees} onChange={e => setDiscountRupees(e.target.value)} />
+            </div>
+            <div className="form-group">
+              <label className="form-label">Commercial Justification *</label>
+              <textarea required className="form-textarea" value={reason} onChange={e => setReason(e.target.value)} />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={busy}>Submit Request</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: COMPLETE TASK MODAL
+// ==========================================
+function CompleteTaskModal({ user, taskId, onClose, onSuccess }: { user: User | null; taskId: string; onClose: () => void; onSuccess: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [outcome, setOutcome] = useState('Successfully completed customer follow-up call.');
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setBusy(true);
+    try {
+      await salesApi.completeTask(user, taskId, outcome);
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.code : 'Failed to complete task');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog">
+        <div className="modal-header">
+          <h3>Complete Task</h3>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body">
+            {error && <div className="error-banner">{error}</div>}
+            <div className="form-group">
+              <label className="form-label">Actual Outcome Details *</label>
+              <textarea required className="form-textarea" value={outcome} onChange={e => setOutcome(e.target.value)} />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={busy}>Confirm Complete</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: SCHEDULE TEST DRIVE MODAL
+// ==========================================
+function ScheduleTestDriveModal({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    listingId: '',
+    customerId: '',
+    requestedDate: new Date().toISOString().slice(0, 10),
+    timeSlot: '02:00 PM - 04:00 PM',
+    customerNotes: 'Customer prefers showroom test drive.',
+  });
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      await salesApi.requestTestDrive(user, {
+        listingId: form.listingId,
+        customerId: form.customerId,
+        requestedDate: form.requestedDate,
+        timeSlot: form.timeSlot,
+        customerNotes: form.customerNotes,
+      });
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to schedule test drive.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog">
+        <div className="modal-header">
+          <h3>Book Test Drive Appointment</h3>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body">
+            {error && <div className="error-banner">{error}</div>}
+            <div className="form-grid">
+              <div className="form-group full">
+                <label className="form-label">Vehicle Listing ID (UUID) *</label>
+                <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
+              </div>
+              <div className="form-group full">
+                <label className="form-label">Customer ID (UUID) *</label>
+                <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Appointment Date *</label>
+                <input required type="date" className="form-input" value={form.requestedDate} onChange={e => setForm({ ...form, requestedDate: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Time Slot *</label>
+                <select className="form-select" value={form.timeSlot} onChange={e => setForm({ ...form, timeSlot: e.target.value })}>
+                  <option value="10:00 AM - 12:00 PM">10:00 AM - 12:00 PM</option>
+                  <option value="02:00 PM - 04:00 PM">02:00 PM - 04:00 PM</option>
+                  <option value="04:00 PM - 06:00 PM">04:00 PM - 06:00 PM</option>
+                </select>
+              </div>
+              <div className="form-group full">
+                <label className="form-label">Appointment Notes</label>
+                <textarea className="form-textarea" value={form.customerNotes} onChange={e => setForm({ ...form, customerNotes: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={busy}>Book Appointment</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: REQUEST RESERVATION MODAL
+// ==========================================
+function RequestReservationModal({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [form, setForm] = useState({
+    listingId: '',
+    customerId: '',
+    hours: 48,
+    notes: 'Token reservation initiated.',
+  });
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      const expiresAt = new Date(Date.now() + form.hours * 3600000).toISOString();
+      await salesApi.requestReservation(user, {
+        listingId: form.listingId,
+        customerId: form.customerId,
+        expiresAt,
+        notes: form.notes,
+      });
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to place reservation.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog">
+        <div className="modal-header">
+          <h3>Reserve Vehicle Stock</h3>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body">
+            {error && <div className="error-banner">{error}</div>}
+            <div className="form-grid">
+              <div className="form-group full">
+                <label className="form-label">Vehicle Listing ID (UUID) *</label>
+                <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
+              </div>
+              <div className="form-group full">
+                <label className="form-label">Customer ID (UUID) *</label>
+                <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Hold Window (Hours)</label>
+                <input type="number" className="form-input" value={form.hours} onChange={e => setForm({ ...form, hours: Number(e.target.value) })} />
+              </div>
+              <div className="form-group full">
+                <label className="form-label">Reservation Notes</label>
+                <textarea className="form-textarea" value={form.notes} onChange={e => setForm({ ...form, notes: e.target.value })} />
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={busy}>Confirm Reservation</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: COMMUNICATIONS VIEW
+// ==========================================
+function CommunicationsView({ user, customers }: { user: User | null; customers: Customer[] }) {
+  const [busy, setBusy] = useState(false);
+  const [status, setStatus] = useState('');
+  const [error, setError] = useState('');
+  const [customerId, setCustomerId] = useState(customers[0]?.id || '');
+  const [template, setTemplate] = useState('ENQUIRY_ACK');
+
+  const templates = [
+    { key: 'ENQUIRY_ACK', label: 'Enquiry Acknowledgment' },
+    { key: 'ADDITIONAL_DETAILS_REQUESTED', label: 'More Details Requested' },
+    { key: 'INSPECTION_CONFIRMED', label: 'Inspection Appointment Confirmed' },
+    { key: 'OFFER_COMMUNICATED', label: 'Official Purchase Offer' },
+    { key: 'QUOTATION_SENT', label: 'Retail Quotation' },
+    { key: 'TEST_DRIVE_CONFIRMED', label: 'Test Drive Confirmed' },
+  ];
+
+  const send = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !customerId) return;
+    setBusy(true);
+    setError('');
+    setStatus('');
+    try {
+      const res = await salesApi.sendEmail(user, {
+        customerId,
+        template,
+      });
+      setStatus(`Email queued in outbox (ID: ${res.id})`);
+    } catch (err) {
+      setError(err instanceof ApiError ? err.code : 'Failed to send transactional email');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div>
+      <div className="page-header">
+        <div>
+          <p className="eyebrow">TRANSACTIONAL COMMUNICATIONS</p>
+          <h1>Approved Customer Notifications</h1>
+        </div>
+      </div>
+
+      <div className="panel" style={{ maxWidth: '640px' }}>
+        <div className="panel-header">
+          <h3>Send Verified Transactional Email</h3>
+        </div>
+        <form onSubmit={send} style={{ padding: '20px' }}>
+          {status && <div className="badge badge-green" style={{ display: 'block', padding: '10px', marginBottom: '14px' }}>{status}</div>}
+          {error && <div className="error-banner">{error}</div>}
+
+          <div className="form-group" style={{ marginBottom: '14px' }}>
+            <label className="form-label">Customer ID (UUID) *</label>
+            <input
+              required
+              className="form-input font-mono"
+              placeholder="e.g. 123e4567-e89b-12d3-a456-426614174000"
+              value={customerId}
+              onChange={e => setCustomerId(e.target.value)}
+            />
+          </div>
+
+          <div className="form-group" style={{ marginBottom: '18px' }}>
+            <label className="form-label">Approved Template *</label>
+            <select className="form-select" value={template} onChange={e => setTemplate(e.target.value)}>
+              {templates.map(t => (
+                <option key={t.key} value={t.key}>{t.label} ({t.key})</option>
+              ))}
+            </select>
+          </div>
+
+          <button type="submit" className="btn-primary" disabled={busy || !customerId}>
+            {busy ? 'Dispatching…' : 'Dispatch Customer Email'}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// Mount React Root
+createRoot(document.getElementById('root')!).render(<App />);
