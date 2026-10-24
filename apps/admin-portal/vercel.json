@@ -15,7 +15,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://vmotiv.in/api/:path*"
+      "destination": "https://www.vmotiv.in/api/:path*"
     },
     {
       "source": "/((?!assets/|brand/|favicon|robots|sitemap).*)",

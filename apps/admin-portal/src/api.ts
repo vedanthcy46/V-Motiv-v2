@@ -25,7 +25,9 @@ import type {
   SystemHealth,
 } from './types.js';
 
-const base = (import.meta.env.VITE_API_BASE || '/api/v2').replace(/\/$/, '');
+const base = (import.meta.env.VITE_API_BASE || '/api/v2')
+  .replace('https://vmotiv.in', 'https://www.vmotiv.in')
+  .replace(/\/$/, '');
 export class ApiError extends Error {
   constructor(public status: number, public code: string) { super(code); }
 }

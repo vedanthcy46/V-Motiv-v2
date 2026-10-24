@@ -65,7 +65,7 @@ Deploy as a second Vercel project connected to the same GitHub repository (`vmot
    - `VITE_FIREBASE_AUTH_DOMAIN`: `v-motiv.firebaseapp.com`
    - `VITE_FIREBASE_PROJECT_ID`: `v-motiv`
    - `VITE_FIREBASE_APP_ID`: `1:717469798962:web:37989b8349c619a51aa22b`
-   - `VITE_API_BASE`: `https://vmotiv.in/api/v2` (or `https://www.vmotiv.in/api/v2`)
+   - `VITE_API_BASE`: `https://www.vmotiv.in/api/v2` (must use `www` to prevent 308 redirect header-stripping)
 8. Click **Deploy**.
 
 ### Custom Domain (`admin.vmotiv.in`) & DNS
