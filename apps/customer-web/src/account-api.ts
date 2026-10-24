@@ -5,6 +5,11 @@ export class AccountError extends Error {
   constructor(readonly code: string, readonly status?: number) { super(code); }
 }
 
+const API_BASE = (import.meta.env.VITE_API_BASE || '/api/v1')
+  .replace('https://vmotiv.in', 'https://api.vmotiv.in')
+  .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
+  .replace(/\/$/, '');
+
 export async function syncProfile(user: Pick<User, 'getIdToken'>, signal: AbortSignal, timeoutMs = 15_000): Promise<Profile> {
   // Cover token restoration, the API request, and response parsing with one deadline.
   const controller = new AbortController();
@@ -24,7 +29,7 @@ export async function syncProfile(user: Pick<User, 'getIdToken'>, signal: AbortS
         if (controller.signal.aborted) throw new AccountError('API_TIMEOUT');
         let response: Response;
         try {
-          response = await fetch('/api/v1/auth/sync', {
+          response = await fetch(`${API_BASE}/auth/sync`, {
             method: 'POST', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' }, signal: controller.signal,
           });
         } catch (error) {

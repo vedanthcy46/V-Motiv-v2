@@ -14,7 +14,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://www.vmotiv.in/api/:path*"
+      "destination": "https://api.vmotiv.in/api/:path*"
     },
     {
       "source": "/:path*",

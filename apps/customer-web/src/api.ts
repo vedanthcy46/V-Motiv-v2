@@ -11,7 +11,10 @@ import type {
 } from './types';
 import { friendlyError } from './account-api';
 
-const API_BASE = '/api/v1';
+const API_BASE = (import.meta.env.VITE_API_BASE || '/api/v1')
+  .replace('https://vmotiv.in', 'https://api.vmotiv.in')
+  .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
+  .replace(/\/$/, '');
 
 export function formatInrPaise(paise: string | number): string {
   const amount = typeof paise === 'string' ? parseInt(paise, 10) : paise;
