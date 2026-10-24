@@ -83,7 +83,9 @@ export function createApp(deps: {
   app.disable('x-powered-by');
   // Required for Vercel/proxy environments: enables correct IP detection for rate limiting
   app.set('trust proxy', 1);
-  app.use(helmet());
+  app.use(helmet({
+    crossOriginOpenerPolicy: { policy: 'same-origin-allow-popups' },
+  }));
   const configuredWebHost = new URL(deps.webOrigin).hostname;
   const localDevelopmentOrigin = ['localhost', '127.0.0.1', '[::1]'].includes(configuredWebHost);
   const allowedOrigins = new Set([
