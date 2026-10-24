@@ -1,6 +1,5 @@
 {
   "$schema": "https://openapi.vercel.sh/vercel.json",
-  "cleanUrls": true,
   "headers": [
     {
       "source": "/(.*)",
@@ -18,7 +17,7 @@
       "destination": "https://www.vmotiv.in/api/:path*"
     },
     {
-      "source": "/((?!assets/|brand/|favicon|robots|sitemap).*)",
+      "source": "/:path*",
       "destination": "/index.html"
     }
   ]

@@ -561,15 +561,56 @@ function MfaEnrollDialog({
 }
 
 function InvitationAcceptance({ user, onSignIn }: { user: User | null; onSignIn: () => void }) {
-  const [state, setState] = useState<'idle' | 'working' | 'done'>('idle'); const [error, setError] = useState('');
+  const [state, setState] = useState<'idle' | 'working' | 'done'>('idle');
+  const [error, setError] = useState('');
   const token = new URLSearchParams(window.location.search).get('token') || '';
+
   async function accept() {
     if (!user || !token) return;
-    setState('working'); setError('');
-    try { await adminApi.acceptInvitation(user, token); setState('done'); window.history.replaceState({}, '', '/'); }
-    catch (error) { setState('idle'); setError(errorMessage(error)); }
+    setState('working');
+    setError('');
+    try {
+      await adminApi.acceptInvitation(user, token);
+      setState('done');
+    } catch (error) {
+      setState('idle');
+      setError(errorMessage(error));
+    }
   }
-  return <main className="center-state"><img className="state-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV"/><p className="eyebrow">Employee onboarding</p><h1>{state === 'done' ? 'Invitation accepted' : 'Accept your V MOTIV invitation'}</h1>{!token ? <div className="alert error" role="alert">This invitation link is incomplete.</div> : state === 'done' ? <><p>Your approved role and branch scope are now active. Portal access remains subject to its permissions and MFA policy.</p><button className="button primary" onClick={() => navigate('/')}>Continue</button></> : <><p>{user ? `Signed in as ${user.email}. The invitation will only work when this exactly matches the approved work email.` : 'Sign in with the exact Google work email that received this invitation.'}</p><button className="button primary" disabled={state === 'working'} onClick={user ? accept : onSignIn}>{state === 'working' ? 'Activating…' : user ? 'Accept invitation' : 'Continue with Google'}</button>{error && <div className="alert error" role="alert">{error}</div>}</>}</main>;
+
+  return (
+    <main className="center-state">
+      <img className="state-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV"/>
+      <p className="eyebrow">Employee onboarding</p>
+      <h1>{state === 'done' ? 'Invitation Accepted' : 'Accept Your V MOTIV Invitation'}</h1>
+      {!token ? (
+        <div className="alert error" role="alert">This invitation link is incomplete.</div>
+      ) : state === 'done' ? (
+        <>
+          <p>Your approved role and branch scope are now active. You may now enter the Admin Control Centre.</p>
+          <button className="button primary" onClick={() => { window.location.href = '/'; }}>
+            Enter Admin Portal
+          </button>
+        </>
+      ) : (
+        <>
+          <p>
+            {user
+              ? `Signed in as ${user.email}. The invitation will activate when this Google account matches the invited work email.`
+              : 'Sign in with the exact Google work email that received this invitation.'}
+          </p>
+          <button
+            className="button primary"
+            disabled={state === 'working'}
+            onClick={user ? accept : onSignIn}
+          >
+            {state === 'working' ? 'Activating…' : user ? 'Accept Invitation' : 'Continue with Google'}
+          </button>
+          {error && <div className="alert error" role="alert">{error}</div>}
+        </>
+      )}
+    </main>
+  );
 }
 
 const navItems = [
