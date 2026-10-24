@@ -2,9 +2,11 @@ import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } 
 import {
   GoogleAuthProvider,
   getMultiFactorResolver,
+  getRedirectResult,
   multiFactor,
   onAuthStateChanged,
   signInWithPopup,
+  signInWithRedirect,
   signOut,
   PhoneAuthProvider,
   PhoneMultiFactorGenerator,
@@ -107,6 +109,8 @@ export function App() {
   useEffect(() => { const handler = () => setRoute(currentRoute()); window.addEventListener('popstate', handler); return () => window.removeEventListener('popstate', handler); }, []);
   useEffect(() => {
     if (!auth) { setLoading(false); return; }
+    // Handle the result of a redirect-based sign-in (fallback for COOP-blocked popups)
+    getRedirectResult(auth).catch(() => {/* ignore errors – user may not have redirected */});
     return onAuthStateChanged(auth, next => { setUser(next); if (!next) { setActor(null); setLoading(false); } });
   }, []);
   useEffect(() => {
@@ -139,7 +143,24 @@ export function App() {
         setLoading(false);
         return;
       }
-      setError(error instanceof Error ? error.message : 'Google Sign-In failed.');
+      // COOP blocks popup – fall back to redirect sign-in which persists across page load
+      if (
+        error?.code === 'auth/popup-blocked' ||
+        error?.code === 'auth/popup-closed-by-user' ||
+        error?.code === 'auth/cancelled-popup-request' ||
+        error?.message?.includes('Cross-Origin-Opener-Policy')
+      ) {
+        try {
+          const provider = new GoogleAuthProvider();
+          provider.setCustomParameters({ prompt: 'select_account' });
+          await signInWithRedirect(auth, provider);
+          return; // page will redirect; finally block runs but is harmless
+        } catch (redirectError: any) {
+          setError(redirectError instanceof Error ? redirectError.message : 'Sign-In failed. Please try again.');
+        }
+      } else {
+        setError(error instanceof Error ? error.message : 'Google Sign-In failed.');
+      }
       setLoading(false);
     } finally {
       setLoading(false);
