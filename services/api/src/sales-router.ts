@@ -73,6 +73,10 @@ const taskQuery = z.object({
   leadId: uuid.optional(),
 }).strip();
 
+const inspectionRequestQuery = pagination.extend({
+  status: z.enum(['REQUESTED', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED']).optional(),
+}).strip();
+
 const inspectionInput = z.object({
   requestedDate: z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`)).optional(),
   timeSlot: z.string().trim().min(2).max(80).optional(),
@@ -80,6 +84,10 @@ const inspectionInput = z.object({
   address: z.string().trim().min(5).max(500).optional(),
   notes: z.string().trim().max(2_000).optional(),
 }).strict();
+
+const acquisitionOfferQuery = pagination.extend({
+  status: z.enum(['OFFERED', 'ACCEPTED', 'DECLINED', 'EXPIRED']).optional(),
+}).strip();
 
 const offerInput = z.object({
   offerAmountPaise: z.coerce.bigint().positive(),
@@ -209,10 +217,12 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   router.patch('/tasks/:id/complete', async (req, res) => res.json(await deps.store.completeTask(res.locals.salesActor, uuid.parse(req.params.id), completeTaskInput.parse(req.body))));
 
   // Inspection requests & outcomes
+  router.get('/inspection-requests', async (req, res) => res.json(await deps.store.inspectionRequests(res.locals.salesActor, inspectionRequestQuery.parse(req.query))));
   router.post('/seller-leads/:id/inspection-requests', async (req, res) => res.status(201).json(await deps.store.requestInspection(res.locals.salesActor, uuid.parse(req.params.id), inspectionInput.parse(req.body))));
   router.get('/seller-leads/:id/inspection-summary', async (req, res) => res.json(await deps.store.inspectionSummary(res.locals.salesActor, uuid.parse(req.params.id))));
 
   // Acquisition offers
+  router.get('/acquisition-offers', async (req, res) => res.json(await deps.store.acquisitionOffers(res.locals.salesActor, acquisitionOfferQuery.parse(req.query))));
   router.get('/seller-leads/:id/offers', async (req, res) => res.json(await deps.store.getAcquisitionOffers(res.locals.salesActor, uuid.parse(req.params.id))));
   router.post('/seller-leads/:id/offers', async (req, res) => res.status(201).json(await deps.store.proposeAcquisitionOffer(res.locals.salesActor, uuid.parse(req.params.id), offerInput.parse(req.body))));
   router.post('/seller-leads/:id/offers/:offerId/decision', async (req, res) => res.json(await deps.store.recordSellerOfferResponse(res.locals.salesActor, uuid.parse(req.params.id), uuid.parse(req.params.offerId), offerResponseInput.parse(req.body))));

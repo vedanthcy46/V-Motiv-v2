@@ -86,6 +86,7 @@ export interface SalesStore {
   completeTask(actor: SalesActor, id: string, input: { actualOutcome: string }): Promise<unknown>;
 
   // Inspections
+  inspectionRequests(actor: SalesActor, query: { page: number; limit: number; status?: InspectionRequestStatus }): Promise<unknown>;
   requestInspection(actor: SalesActor, id: string, input: {
     requestedDate?: Date;
     timeSlot?: string;
@@ -96,6 +97,7 @@ export interface SalesStore {
   inspectionSummary(actor: SalesActor, leadId: string): Promise<unknown>;
 
   // Acquisition Offers
+  acquisitionOffers(actor: SalesActor, query: { page: number; limit: number; status?: AcquisitionOfferStatus }): Promise<unknown>;
   getAcquisitionOffers(actor: SalesActor, leadId: string): Promise<unknown>;
   proposeAcquisitionOffer(actor: SalesActor, leadId: string, input: {
     offerAmountPaise: bigint;
@@ -720,6 +722,35 @@ export class PrismaSalesStore implements SalesStore {
     });
   }
 
+  async inspectionRequests(actor: SalesActor, query: { page: number; limit: number; status?: InspectionRequestStatus }) {
+    const where: Prisma.InspectionRequestWhereInput = {
+      lead: scope(actor),
+      ...(query.status ? { status: query.status } : {}),
+    };
+    const [total, items] = await Promise.all([
+      this.db.inspectionRequest.count({ where }),
+      this.db.inspectionRequest.findMany({
+        where,
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          lead: {
+            select: { id: true, referenceCode: true, make: true, model: true, city: true, sellerName: true, sellerPhone: true },
+          },
+          branch: { select: { id: true, name: true, city: true } },
+        },
+      }),
+    ]);
+    return {
+      items,
+      total,
+      page: query.page,
+      limit: query.limit,
+      totalPages: Math.ceil(total / query.limit) || 1,
+    };
+  }
+
   async requestInspection(actor: SalesActor, id: string, input: {
     requestedDate?: Date;
     timeSlot?: string;
@@ -777,6 +808,37 @@ export class PrismaSalesStore implements SalesStore {
     return {
       requests,
       latestStatus: requests[0]?.status || 'NOT_REQUESTED',
+    };
+  }
+
+  async acquisitionOffers(actor: SalesActor, query: { page: number; limit: number; status?: AcquisitionOfferStatus }) {
+    const where: Prisma.AcquisitionOfferWhereInput = {
+      lead: scope(actor),
+      ...(query.status ? { status: query.status } : {}),
+    };
+    const [total, items] = await Promise.all([
+      this.db.acquisitionOffer.count({ where }),
+      this.db.acquisitionOffer.findMany({
+        where,
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          lead: {
+            select: { id: true, referenceCode: true, make: true, model: true, city: true, sellerName: true, sellerPhone: true },
+          },
+        },
+      }),
+    ]);
+    return {
+      items: items.map(o => ({
+        ...o,
+        offerAmountPaise: o.offerAmountPaise.toString(),
+      })),
+      total,
+      page: query.page,
+      limit: query.limit,
+      totalPages: Math.ceil(total / query.limit) || 1,
     };
   }
 

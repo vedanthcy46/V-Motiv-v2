@@ -140,6 +140,7 @@ function setup(options: { actorError?: Error } = {}) {
       status: 'COMPLETED',
       actualOutcome: 'Done',
     }),
+    inspectionRequests: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, totalPages: 1 }),
     requestInspection: vi.fn().mockResolvedValue({
       id: 'insp-1',
       status: 'PENDING_ASSIGNMENT',
@@ -150,6 +151,7 @@ function setup(options: { actorError?: Error } = {}) {
       approvedInspection: null,
       requests: [],
     }),
+    acquisitionOffers: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, totalPages: 1 }),
     getAcquisitionOffers: vi.fn().mockResolvedValue([]),
     proposeAcquisitionOffer: vi.fn().mockResolvedValue({
       id: 'offer-1',
@@ -464,5 +466,17 @@ describe('Sales Executive Portal API Boundaries', () => {
         notes: 'Deposit paid at hub',
       });
     expect(reserveRes.status).toBe(201);
+  });
+
+  it('queries all branch inspection requests and acquisition offers', async () => {
+    const { app, sales } = setup();
+    const [inspRes, offerRes] = await Promise.all([
+      request(app).get('/api/v2/sales/inspection-requests?status=REQUESTED').set('Authorization', 'Bearer valid-firebase-token'),
+      request(app).get('/api/v2/sales/acquisition-offers?status=OFFERED').set('Authorization', 'Bearer valid-firebase-token'),
+    ]);
+    expect(inspRes.status).toBe(200);
+    expect(sales.inspectionRequests).toHaveBeenCalled();
+    expect(offerRes.status).toBe(200);
+    expect(sales.acquisitionOffers).toHaveBeenCalled();
   });
 });

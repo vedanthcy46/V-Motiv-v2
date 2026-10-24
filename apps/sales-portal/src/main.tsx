@@ -5,10 +5,12 @@ import { auth, firebaseConfigured } from './firebase.js';
 import {
   ApiError,
   salesApi,
+  type AcquisitionOfferItem,
   type Actor,
   type BuyerLead,
   type Customer,
   type DashboardData,
+  type InspectionRequestItem,
   type InventoryItem,
   type NotificationData,
   type Quotation,
@@ -25,11 +27,13 @@ type PageKey =
   | 'overview'
   | 'seller'
   | 'buyer'
+  | 'customers'
+  | 'inspections'
+  | 'offers'
   | 'inventory'
   | 'testdrives'
   | 'pipeline'
   | 'tasks'
-  | 'customers'
   | 'communications'
   | 'reports';
 
@@ -132,6 +136,8 @@ function App() {
   const [reservations, setReservations] = useState<Reservation[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
+  const [inspectionRequests, setInspectionRequests] = useState<InspectionRequestItem[]>([]);
+  const [acquisitionOffers, setAcquisitionOffers] = useState<AcquisitionOfferItem[]>([]);
 
   // Search & Filter state
   const [search, setSearch] = useState('');
@@ -197,6 +203,12 @@ function App() {
           status: statusFilter || undefined,
         });
         setBuyerLeads(res.items);
+      } else if (page === 'inspections') {
+        const res = await salesApi.allInspectionRequests(currentUser, { status: statusFilter || undefined });
+        setInspectionRequests(res.items);
+      } else if (page === 'offers') {
+        const res = await salesApi.allAcquisitionOffers(currentUser, { status: statusFilter || undefined });
+        setAcquisitionOffers(res.items);
       } else if (page === 'inventory') {
         const res = await salesApi.inventory(currentUser, { search });
         setInventory(res.items);
@@ -277,7 +289,15 @@ function App() {
             <Icons.BuyerLeads size={17} /> Buyer Leads
           </button>
 
-          <div className="nav-section-title">Deal Execution</div>
+          <div className="nav-section-title">Acquisition (Buy Car)</div>
+          <button className={`nav-item ${page === 'inspections' ? 'active' : ''}`} onClick={() => setPage('inspections')}>
+            <Icons.Inspections size={17} /> Inspection Requests
+          </button>
+          <button className={`nav-item ${page === 'offers' ? 'active' : ''}`} onClick={() => setPage('offers')}>
+            <Icons.Offers size={17} /> Acquisition Offers
+          </button>
+
+          <div className="nav-section-title">Deal Execution (Sell Car)</div>
           <button className={`nav-item ${page === 'inventory' ? 'active' : ''}`} onClick={() => setPage('inventory')}>
             <Icons.Inventory size={17} /> Inventory Stock
           </button>
@@ -619,6 +639,158 @@ function App() {
                       ))}
                       {buyerLeads.length === 0 && (
                         <tr><td colSpan={6} className="empty-state">No buyer enquiries found.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: INSPECTION REQUESTS */}
+          {/* ==================================================== */}
+          {page === 'inspections' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">VEHICLE EVALUATION WORKFLOW</p>
+                  <h1>Inspection Requests & Progress</h1>
+                </div>
+              </div>
+
+              <div className="panel">
+                <div className="filters-bar">
+                  <select className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                    <option value="">All Statuses</option>
+                    <option value="REQUESTED">Requested</option>
+                    <option value="SCHEDULED">Scheduled</option>
+                    <option value="IN_PROGRESS">In Progress</option>
+                    <option value="COMPLETED">Completed</option>
+                    <option value="CANCELLED">Cancelled</option>
+                  </select>
+                  <button className="btn-secondary btn-sm" onClick={() => void loadData()}>Filter</button>
+                </div>
+
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Lead Ref</th>
+                        <th>Seller & Vehicle</th>
+                        <th>Location Type</th>
+                        <th>Requested Date / Slot</th>
+                        <th>Address</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {inspectionRequests.map(req => (
+                        <tr key={req.id}>
+                          <td className="font-mono text-xs">{req.lead.referenceCode}</td>
+                          <td>
+                            <div className="table-title">{req.lead.make} {req.lead.model}</div>
+                            <div className="table-sub">{req.lead.sellerName} · {req.lead.sellerPhone}</div>
+                          </td>
+                          <td><span className="badge badge-gray">{req.locationType}</span></td>
+                          <td>
+                            <div>{formatDate(req.requestedDate)}</div>
+                            <div className="table-sub font-mono">{req.timeSlot || '—'}</div>
+                          </td>
+                          <td>{req.address || req.lead.city}</td>
+                          <td><span className={`badge ${statusBadgeClass(req.status)}`}>{req.status}</span></td>
+                          <td>
+                            <button
+                              className="btn-secondary btn-sm"
+                              onClick={async () => {
+                                if (!user) return;
+                                const leadDetails = await salesApi.sellerLead(user, req.leadId);
+                                setSelectedSellerLead(leadDetails);
+                              }}
+                            >
+                              Manage Lead
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {inspectionRequests.length === 0 && (
+                        <tr><td colSpan={7} className="empty-state">No inspection requests found matching current filter.</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: ACQUISITION OFFERS */}
+          {/* ==================================================== */}
+          {page === 'offers' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">COMMERCIAL VALUATIONS</p>
+                  <h1>Authorized Acquisition Offers</h1>
+                </div>
+              </div>
+
+              <div className="panel">
+                <div className="filters-bar">
+                  <select className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
+                    <option value="">All Offers</option>
+                    <option value="OFFERED">Offered</option>
+                    <option value="ACCEPTED">Accepted</option>
+                    <option value="DECLINED">Declined</option>
+                    <option value="EXPIRED">Expired</option>
+                  </select>
+                  <button className="btn-secondary btn-sm" onClick={() => void loadData()}>Filter</button>
+                </div>
+
+                <div className="table-responsive">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Lead Ref</th>
+                        <th>Seller & Vehicle</th>
+                        <th>Offer Amount</th>
+                        <th>Version</th>
+                        <th>Valid Until</th>
+                        <th>Status</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {acquisitionOffers.map(off => (
+                        <tr key={off.id}>
+                          <td className="font-mono text-xs">{off.lead.referenceCode}</td>
+                          <td>
+                            <div className="table-title">{off.lead.make} {off.lead.model}</div>
+                            <div className="table-sub">{off.lead.sellerName} · {off.lead.sellerPhone}</div>
+                          </td>
+                          <td className="font-mono" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
+                            {formatCurrency(off.offerAmountPaise)}
+                          </td>
+                          <td className="font-mono text-xs">v{off.version}</td>
+                          <td>{formatDate(off.validUntil)}</td>
+                          <td><span className={`badge ${statusBadgeClass(off.status)}`}>{off.status}</span></td>
+                          <td>
+                            <button
+                              className="btn-secondary btn-sm"
+                              onClick={async () => {
+                                if (!user) return;
+                                const leadDetails = await salesApi.sellerLead(user, off.leadId);
+                                setSelectedSellerLead(leadDetails);
+                              }}
+                            >
+                              Manage Offer
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                      {acquisitionOffers.length === 0 && (
+                        <tr><td colSpan={7} className="empty-state">No acquisition offers recorded yet.</td></tr>
                       )}
                     </tbody>
                   </table>

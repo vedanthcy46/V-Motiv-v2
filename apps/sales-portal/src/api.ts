@@ -356,6 +356,55 @@ export type Task = {
   };
 };
 
+export type InspectionRequestItem = {
+  id: string;
+  leadId: string;
+  status: string;
+  requestedDate: string | null;
+  timeSlot: string | null;
+  locationType: string;
+  address: string | null;
+  notes: string | null;
+  createdAt: string;
+  lead: {
+    id: string;
+    referenceCode: string;
+    make: string;
+    model: string;
+    city: string;
+    sellerName: string;
+    sellerPhone: string;
+  };
+  branch?: {
+    id: string;
+    name: string;
+    city: string;
+  } | null;
+};
+
+export type AcquisitionOfferItem = {
+  id: string;
+  leadId: string;
+  offerAmountPaise: string;
+  status: string;
+  version: number;
+  validUntil: string;
+  terms: string | null;
+  declineReason: string | null;
+  acceptedAt: string | null;
+  declinedAt: string | null;
+  createdAt: string;
+  lead: {
+    id: string;
+    referenceCode: string;
+    make: string;
+    model: string;
+    city: string;
+    sellerName: string;
+    sellerPhone: string;
+  };
+};
+
 export const salesApi = {
   me: (user: User) => call<Actor>(user, '/me'),
   dashboard: (user: User) => call<DashboardData>(user, '/dashboard'),
@@ -402,6 +451,8 @@ export const salesApi = {
     call<Task>(user, `/tasks/${id}/complete`, { method: 'PATCH', body: JSON.stringify({ actualOutcome }) }),
 
   // Inspections
+  allInspectionRequests: (user: User, params: { page?: number; limit?: number; status?: string } = {}) =>
+    call<{ items: InspectionRequestItem[]; total: number; page: number; totalPages: number }>(user, `/inspection-requests?${query(params)}`),
   requestInspection: (user: User, leadId: string, input: { locationType: 'HUB' | 'HOME'; requestedDate?: string; timeSlot?: string; address?: string; notes?: string }) =>
     call<{ id: string; status: string }>(user, `/seller-leads/${leadId}/inspection-requests`, { method: 'POST', body: JSON.stringify(input) }),
   inspectionSummary: (user: User, leadId: string) =>
@@ -413,6 +464,8 @@ export const salesApi = {
     }>(user, `/seller-leads/${leadId}/inspection-summary`),
 
   // Offers
+  allAcquisitionOffers: (user: User, params: { page?: number; limit?: number; status?: string } = {}) =>
+    call<{ items: AcquisitionOfferItem[]; total: number; page: number; totalPages: number }>(user, `/acquisition-offers?${query(params)}`),
   getAcquisitionOffers: (user: User, leadId: string) =>
     call<Array<{ id: string; offerAmountPaise: string; status: string; validUntil: string; terms: string | null; createdAt: string }>>(user, `/seller-leads/${leadId}/offers`),
   proposeAcquisitionOffer: (user: User, leadId: string, input: { offerAmountPaise: string; validUntil: string; terms?: string }) =>
