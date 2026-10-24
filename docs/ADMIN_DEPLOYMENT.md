@@ -50,19 +50,49 @@ npm run bootstrap:admin -w @vmotiv/api
 
 ### Admin Frontend (`apps/admin-portal`)
 
-Deploy as a dedicated Vercel project mapped to `admin.vmotiv.in`:
-- Framework: Vite
-- Root directory: `apps/admin-portal`
-- Build command: `npm run build`
-- Output directory: `dist`
-- Node: 22 LTS or 24 LTS
+Deploy as a second Vercel project connected to the same GitHub repository (`vmotiv-v2`):
+1. In Vercel Dashboard, click **Add New...** -> **Project**.
+2. Select your `vmotiv-v2` repository.
+3. Name the project `vmotiv-admin` (or `admin-vmotiv`).
+4. **Root Directory**: Click "Edit" and select `apps/admin-portal`.
+5. Framework Preset: **Vite** (auto-detected).
+6. Build and Output Settings:
+   - Build Command: `npm run build`
+   - Output Directory: `dist`
+   - Install Command: `npm install` (or default)
+7. Configure Environment Variables in Vercel:
+   - `VITE_FIREBASE_API_KEY`: `AIzaSyCA2EI0NpFKUvnlBSpZ-TscP_1tcTKgt70`
+   - `VITE_FIREBASE_AUTH_DOMAIN`: `v-motiv.firebaseapp.com`
+   - `VITE_FIREBASE_PROJECT_ID`: `v-motiv`
+   - `VITE_FIREBASE_APP_ID`: `1:717469798962:web:37989b8349c619a51aa22b`
+   - `VITE_API_BASE`: `https://vmotiv.in/api/v2` (or `https://www.vmotiv.in/api/v2`)
+8. Click **Deploy**.
 
-Environment variables:
-- `VITE_FIREBASE_API_KEY`: Firebase web API key
-- `VITE_FIREBASE_AUTH_DOMAIN`: Firebase auth domain
-- `VITE_FIREBASE_PROJECT_ID`: Firebase project ID
-- `VITE_FIREBASE_APP_ID`: Firebase web app ID
-- `VITE_API_BASE`: `https://www.vmotiv.in/api/v2`
+### Custom Domain (`admin.vmotiv.in`) & DNS
+
+1. In your new Vercel project (`vmotiv-admin`), navigate to **Settings** -> **Domains**.
+2. Enter `admin.vmotiv.in` and click **Add**.
+3. In your DNS provider (e.g., Cloudflare, GoDaddy, Namecheap):
+   - Type: `CNAME`
+   - Name / Host: `admin`
+   - Target / Value: `cname.vercel-dns.com`
+   - TTL: Auto / 1 hour
+4. Vercel will automatically provision a free SSL certificate.
+
+### Firebase Authorized Domains
+
+1. Open **Firebase Console** -> **Authentication** -> **Settings** tab.
+2. Under **Authorized domains**, click **Add domain**.
+3. Add `admin.vmotiv.in`.
+4. (Optional) Also add any Vercel preview domain (e.g. `vmotiv-admin.vercel.app`) if testing branch deployments.
+
+### Existing API Project Environment Check
+
+In your existing Vercel project serving the API and main website (`vmotiv.in`):
+1. Verify Environment Variables:
+   - `ADMIN_WEB_ORIGIN`: `https://admin.vmotiv.in`
+   - `NODE_ENV`: `production`
+2. If `ADMIN_WEB_ORIGIN` was not set, add it and redeploy the API so that CORS and invitation links target `https://admin.vmotiv.in`.
 
 ## 4. Multi-Factor Authentication Verification
 
