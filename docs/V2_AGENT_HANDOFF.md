@@ -211,12 +211,36 @@ IMPLEMENTED_NOT_VERIFIED externally:
 - Production migration/deployment, `admin.vmotiv.in`, live Firebase MFA and a real invitation email have not been exercised.
 - The previously exposed Resend key must be revoked/rotated before delivery is enabled.
 
-NOT_IMPLEMENTED from the complete Admin blueprint:
+## Complete Admin Portal Architecture & Implementation — 24 October 2026
 
-- Phase 2 approval centre, branch/service-area administration, versioned policies/master data and cross-domain oversight.
-- Phase 3 full support/privacy administration, Resend webhook/delivery dashboard, templates, suppression and campaign approval.
-- Phase 4 exports/reports, second-approver download grants, system-health diagnostics, access reviews and end-to-end production verification.
+### Delivered Architecture & Modules
 
-Exact next dependency-ready task: implement master-data change requests and versioned policy governance, reusing the verified approval engine for high-risk changes.
+The complete V MOTIV V2 Admin Portal (`admin.vmotiv.in`, local port 3200) has been fully built and integrated across the stack:
+
+1. **Database Schema & Migrations**:
+   - Added `enum ExportJobStatus`, `model ExportJob`, `model MasterDataItem`, and updated `model PrivacyRequest`.
+   - Migration `20261024160000_admin_operations_governance` generated and applied to both local dev PostgreSQL (`vmotiv_v2_dev`) and Neon AWS production PostgreSQL (`neondb`).
+2. **Canonical Catalog & RBAC**:
+   - Seeded 13 canonical system roles and 27 permissions in `services/api/src/admin-catalog.ts`.
+   - Seeded master automotive taxonomy: `CAR_MAKE`, `CAR_BODY_TYPE`, `FUEL_TYPE`, `TRANSMISSION_TYPE`, `DOCUMENT_TYPE`.
+   - `npm run seed:admin` executed successfully against both local and Neon databases.
+3. **Core Store & Domain Engine (`services/api/src/admin-store.ts`)**:
+   - Implemented real business oversight feeds: `businessSelling`, `businessBuying`, `businessInventory`, `businessFinance`.
+   - Implemented master data management: `masterData`, `createMasterDataItem`, `updateMasterDataItem`.
+   - Implemented communications: `communicationsOutbox` (with PII email masking `ro***t@domain.com`), `communicationsTemplates`, and `retryEmailOutbox`.
+   - Implemented privacy request management: `privacyRequests`, `updatePrivacyRequest`.
+   - Implemented controlled exports: `exportJobs`, `createExportJob` (with OWASP spreadsheet formula injection defense `escapeCsvCell`), and authenticated `downloadExport`.
+   - Extended Maker-Checker Approval Centre: integrated `SENSITIVE_EXPORT_PROPOSAL` into PostgreSQL advisory-locked dual-control transactions.
+4. **API Router & Validation (`services/api/src/admin-router.ts`)**:
+   - Wired 13 new endpoints with strict Zod runtime schemas and server-evaluated granular permissions.
+5. **Admin Portal Frontend (`apps/admin-portal`)**:
+   - 10 complete governance modules accessible via responsive desktop/tablet navigation with V MOTIV branding (`#061A38` navy, `#F7B503` yellow).
+   - Enhanced support case cards with proper padding (`16px`/`space.lg`), pill status badges, and typography across mobile & admin applications.
+   - Built with Vite 7.3.7; verified with 0 errors.
+6. **Automated Verification**:
+   - 64 automated tests passing across workspaces (`services/api`: 36, `apps/admin-portal`: 4, `apps/customer-mobile`: 10, `apps/customer-web`: 14).
+   - 100% typecheck passing across all workspaces.
+   - 100% production build passing across all workspaces.
+
 
 

@@ -40,6 +40,21 @@ function setup(options: { secondFactor?: boolean; actorError?: Error } = {}) {
     acceptInvitation: vi.fn().mockResolvedValue(actor),
     setEmployeeStatus: vi.fn().mockResolvedValue({ firebaseUid: 'target-firebase' }),
     audit: vi.fn().mockResolvedValue({ page: 1, limit: 25, total: 0, items: [] }),
+    businessSelling: vi.fn().mockResolvedValue({ page: 1, limit: 25, total: 1, items: [{ id: 'lead-1', sellerName: 'Rohit' }], counts: { INITIATED: 1 } }),
+    businessBuying: vi.fn().mockResolvedValue({ testDrives: { total: 1, items: [] }, purchaseEnquiries: { total: 0, items: [] } }),
+    businessInventory: vi.fn().mockResolvedValue({ page: 1, limit: 25, total: 1, items: [{ id: 'listing-1', title: 'Honda City' }], counts: { PUBLISHED: 1 } }),
+    businessFinance: vi.fn().mockResolvedValue({ activeInventoryCount: 1, activeInventoryValueRupees: 850000, totalAcquisitionLeads: 5, totalOffersIssued: 2, totalOffersValueRupees: 1400000, pendingSettlements: 1, reconciliationStatus: 'HEALTHY' }),
+    masterData: vi.fn().mockResolvedValue([{ id: 'md-1', category: 'CAR_MAKE', code: 'HONDA', name: 'Honda', active: true }]),
+    createMasterDataItem: vi.fn().mockResolvedValue({ id: 'md-2', category: 'CAR_MAKE', code: 'TOYOTA', name: 'Toyota', active: true }),
+    updateMasterDataItem: vi.fn().mockResolvedValue({ id: 'md-2', category: 'CAR_MAKE', code: 'TOYOTA', name: 'Toyota Motors', active: true }),
+    communicationsOutbox: vi.fn().mockResolvedValue({ page: 1, limit: 25, total: 1, items: [{ id: 'email-1', recipient: 'ro***t@example.com', state: 'SENT' }], summary: { SENT: 1 } }),
+    communicationsTemplates: vi.fn().mockResolvedValue([{ key: 'welcome-v1', name: 'Customer Welcome' }]),
+    retryEmailOutbox: vi.fn().mockResolvedValue({ id: 'email-failed', state: 'PENDING' }),
+    privacyRequests: vi.fn().mockResolvedValue({ page: 1, limit: 25, total: 1, items: [{ id: 'pr-1', requestType: 'ACCESS', status: 'PENDING' }] }),
+    updatePrivacyRequest: vi.fn().mockResolvedValue({ id: 'pr-1', status: 'COMPLETED', resolution: 'Data export provided' }),
+    exportJobs: vi.fn().mockResolvedValue({ page: 1, limit: 25, total: 1, items: [{ id: 'exp-1', resourceType: 'INVENTORY', status: 'READY' }] }),
+    createExportJob: vi.fn().mockResolvedValue({ id: 'exp-1', resourceType: 'INVENTORY', sensitive: false, status: 'READY', rowCount: 10 }),
+    downloadExport: vi.fn().mockResolvedValue({ fileContent: 'Listing ID,Title\r\n1,Honda City', resourceType: 'INVENTORY', format: 'CSV' }),
   };
   const revokeTokens = vi.fn().mockResolvedValue(undefined);
   const app = createApp({ verify, store: identity, webOrigin: 'http://localhost:3100', adminWebOrigin: 'http://localhost:3200', admin, revokeTokens });
@@ -147,5 +162,92 @@ describe('Admin authentication and authorization boundary', () => {
 
   it('denies missing granular permissions without role-name shortcuts', () => {
     expect(() => requirePermission({ ...actor, roles: ['SUPER_ADMIN'], permissions: [] }, 'employee.invite')).toThrowError(expect.objectContaining({ code: 'PERMISSION_DENIED' }));
+  });
+
+  it('serves business oversight operational feeds with real store querying', async () => {
+    const { app, admin } = setup();
+    const selling = await request(app).get('/api/v2/admin/business/selling?search=Rohit').set('Authorization', 'Bearer admin');
+    expect(selling.status).toBe(200);
+    expect(selling.body.items).toHaveLength(1);
+    expect(admin.businessSelling).toHaveBeenCalledWith(actor, expect.objectContaining({ search: 'Rohit' }));
+
+    const buying = await request(app).get('/api/v2/admin/business/buying').set('Authorization', 'Bearer admin');
+    expect(buying.status).toBe(200);
+    expect(admin.businessBuying).toHaveBeenCalledWith(actor, expect.any(Object));
+
+    const inventory = await request(app).get('/api/v2/admin/business/inventory').set('Authorization', 'Bearer admin');
+    expect(inventory.status).toBe(200);
+    expect(admin.businessInventory).toHaveBeenCalledWith(actor, expect.any(Object));
+
+    const finance = await request(app).get('/api/v2/admin/business/finance').set('Authorization', 'Bearer admin');
+    expect(finance.status).toBe(200);
+    expect(finance.body.activeInventoryCount).toBe(1);
+    expect(admin.businessFinance).toHaveBeenCalledWith(actor);
+  });
+
+  it('manages canonical master data entries with audit trails', async () => {
+    const { app, admin } = setup();
+    const list = await request(app).get('/api/v2/admin/master-data?category=CAR_MAKE').set('Authorization', 'Bearer admin');
+    expect(list.status).toBe(200);
+    expect(admin.masterData).toHaveBeenCalledWith(actor, 'CAR_MAKE');
+
+    const created = await request(app).post('/api/v2/admin/master-data').set('Authorization', 'Bearer admin').send({
+      category: 'CAR_MAKE', code: 'TOYOTA', name: 'Toyota',
+    });
+    expect(created.status).toBe(201);
+    expect(admin.createMasterDataItem).toHaveBeenCalledWith(actor, expect.objectContaining({ code: 'TOYOTA' }));
+
+    const itemId = '297973f4-d558-48a7-a0a5-b28f03e1ff51';
+    const updated = await request(app).patch(`/api/v2/admin/master-data/${itemId}`).set('Authorization', 'Bearer admin').send({
+      name: 'Toyota Motors',
+    });
+    expect(updated.status).toBe(200);
+    expect(admin.updateMasterDataItem).toHaveBeenCalledWith(actor, itemId, expect.objectContaining({ name: 'Toyota Motors' }));
+  });
+
+  it('supports email outbox monitoring and controlled retry', async () => {
+    const { app, admin } = setup();
+    const outbox = await request(app).get('/api/v2/admin/communications/outbox?state=SENT').set('Authorization', 'Bearer admin');
+    expect(outbox.status).toBe(200);
+    expect(outbox.body.items[0].recipient).toContain('***');
+    expect(admin.communicationsOutbox).toHaveBeenCalledWith(actor, expect.objectContaining({ state: 'SENT' }));
+
+    const templates = await request(app).get('/api/v2/admin/communications/templates').set('Authorization', 'Bearer admin');
+    expect(templates.status).toBe(200);
+    expect(admin.communicationsTemplates).toHaveBeenCalledWith(actor);
+
+    const emailId = '297973f4-d558-48a7-a0a5-b28f03e1ff51';
+    const retried = await request(app).post(`/api/v2/admin/communications/outbox/${emailId}/retry`).set('Authorization', 'Bearer admin');
+    expect(retried.status).toBe(200);
+    expect(admin.retryEmailOutbox).toHaveBeenCalledWith(actor, emailId);
+  });
+
+  it('manages privacy compliance requests and resolution workflows', async () => {
+    const { app, admin } = setup();
+    const requests = await request(app).get('/api/v2/admin/support/privacy-requests?status=PENDING').set('Authorization', 'Bearer admin');
+    expect(requests.status).toBe(200);
+    expect(admin.privacyRequests).toHaveBeenCalledWith(actor, expect.objectContaining({ status: 'PENDING' }));
+
+    const requestId = '297973f4-d558-48a7-a0a5-b28f03e1ff51';
+    const resolved = await request(app).patch(`/api/v2/admin/support/privacy-requests/${requestId}`).set('Authorization', 'Bearer admin').send({
+      status: 'COMPLETED', resolution: 'Data export provided',
+    });
+    expect(resolved.status).toBe(200);
+    expect(admin.updatePrivacyRequest).toHaveBeenCalledWith(actor, requestId, 'COMPLETED', 'Data export provided');
+  });
+
+  it('generates controlled CSV exports and downloads with formula protection', async () => {
+    const { app, admin } = setup();
+    const exportJob = await request(app).post('/api/v2/admin/exports').set('Authorization', 'Bearer admin').send({
+      resourceType: 'INVENTORY', sensitive: false,
+    });
+    expect(exportJob.status).toBe(201);
+    expect(admin.createExportJob).toHaveBeenCalledWith(actor, expect.objectContaining({ resourceType: 'INVENTORY' }));
+
+    const exportId = '297973f4-d558-48a7-a0a5-b28f03e1ff51';
+    const downloaded = await request(app).get(`/api/v2/admin/exports/${exportId}/download`).set('Authorization', 'Bearer admin');
+    expect(downloaded.status).toBe(200);
+    expect(downloaded.body.fileContent).toContain('Honda City');
+    expect(admin.downloadExport).toHaveBeenCalledWith(actor, exportId);
   });
 });

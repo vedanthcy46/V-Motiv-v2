@@ -29,6 +29,10 @@ export const permissionCatalog = {
   'policy.propose': 'Propose a new business policy version.',
   'policy.approve': 'Independently approve business policy changes.',
   'system.health.read': 'View safe system and integration diagnostics.',
+  'business.oversight.read': 'View cross-portal selling, buying, inventory, and finance summaries.',
+  'masterdata.read': 'View reference vehicle and document master data.',
+  'masterdata.manage': 'Manage canonical vehicle and document reference data.',
+  'privacy.request.manage': 'Manage customer privacy and account data requests.',
 } as const;
 
 export type PermissionKey = keyof typeof permissionCatalog;
@@ -51,7 +55,7 @@ export const roleCatalog: Record<EmployeeRole, RoleDefinition> = {
   },
   ADMIN: {
     name: 'Administrator', description: 'Routine employee onboarding, configuration, support and business oversight.', privileged: true,
-    permissions: ['admin.portal.access', 'employee.read', 'employee.invite', 'employee.update', 'employee.suspend', 'role.read', 'role.assign', 'branch.read', 'branch.manage', 'approval.read', 'support.read', 'support.assign', 'support.respond', 'support.escalate', 'audit.read', 'export.create', 'email.delivery.read', 'policy.read', 'policy.propose', 'system.health.read'],
+    permissions: ['admin.portal.access', 'employee.read', 'employee.invite', 'employee.update', 'employee.suspend', 'role.read', 'role.assign', 'branch.read', 'branch.manage', 'approval.read', 'support.read', 'support.assign', 'support.respond', 'support.escalate', 'audit.read', 'export.create', 'email.delivery.read', 'policy.read', 'policy.propose', 'system.health.read', 'business.oversight.read', 'masterdata.read', 'masterdata.manage', 'privacy.request.manage'],
   },
   SECURITY_ADMIN: {
     name: 'Security Administrator', description: 'Identity security, access review and security incident oversight.', privileged: true,
@@ -59,11 +63,11 @@ export const roleCatalog: Record<EmployeeRole, RoleDefinition> = {
   },
   SUPPORT_ADMIN: {
     name: 'Support Administrator', description: 'Customer support governance and escalations.', privileged: false,
-    permissions: ['admin.portal.access', 'employee.read', 'branch.read', 'support.read', 'support.assign', 'support.respond', 'support.escalate', 'audit.read'],
+    permissions: ['admin.portal.access', 'employee.read', 'branch.read', 'support.read', 'support.assign', 'support.respond', 'support.escalate', 'privacy.request.manage', 'audit.read'],
   },
   AUDIT_VIEWER: {
     name: 'Audit Viewer', description: 'Read-only compliance and audit access.', privileged: true,
-    permissions: ['admin.portal.access', 'employee.read', 'role.read', 'branch.read', 'approval.read', 'audit.read', 'system.health.read'],
+    permissions: ['admin.portal.access', 'employee.read', 'role.read', 'branch.read', 'approval.read', 'audit.read', 'system.health.read', 'business.oversight.read'],
   },
   SALES_EXECUTIVE: { name: 'Sales Executive', description: 'Customer sales and acquisition workflows.', privileged: false, permissions: [] },
   INSPECTOR: { name: 'Inspector', description: 'Assigned vehicle inspection execution.', privileged: false, permissions: [] },
@@ -100,5 +104,53 @@ export async function ensureAdminCatalog(db: CatalogClient) {
         skipDuplicates: true,
       });
     }
+  }
+}
+
+export const canonicalMasterData = [
+  // Vehicle Makes
+  { category: 'MAKE', code: 'MARUTI_SUZUKI', name: 'Maruti Suzuki', parentCode: null },
+  { category: 'MAKE', code: 'HYUNDAI', name: 'Hyundai', parentCode: null },
+  { category: 'MAKE', code: 'TATA', name: 'Tata', parentCode: null },
+  { category: 'MAKE', code: 'MAHINDRA', name: 'Mahindra', parentCode: null },
+  { category: 'MAKE', code: 'HONDA', name: 'Honda', parentCode: null },
+  { category: 'MAKE', code: 'TOYOTA', name: 'Toyota', parentCode: null },
+  { category: 'MAKE', code: 'KIA', name: 'Kia', parentCode: null },
+  { category: 'MAKE', code: 'VOLKSWAGEN', name: 'Volkswagen', parentCode: null },
+  { category: 'MAKE', code: 'SKODA', name: 'Skoda', parentCode: null },
+  // Body Types
+  { category: 'BODY_TYPE', code: 'HATCHBACK', name: 'Hatchback', parentCode: null },
+  { category: 'BODY_TYPE', code: 'SEDAN', name: 'Sedan', parentCode: null },
+  { category: 'BODY_TYPE', code: 'SUV', name: 'SUV', parentCode: null },
+  { category: 'BODY_TYPE', code: 'MUV', name: 'MUV', parentCode: null },
+  // Fuel Types
+  { category: 'FUEL_TYPE', code: 'PETROL', name: 'Petrol', parentCode: null },
+  { category: 'FUEL_TYPE', code: 'DIESEL', name: 'Diesel', parentCode: null },
+  { category: 'FUEL_TYPE', code: 'CNG', name: 'CNG', parentCode: null },
+  { category: 'FUEL_TYPE', code: 'ELECTRIC', name: 'Electric', parentCode: null },
+  { category: 'FUEL_TYPE', code: 'HYBRID', name: 'Hybrid', parentCode: null },
+  // Transmission Types
+  { category: 'TRANSMISSION', code: 'MANUAL', name: 'Manual', parentCode: null },
+  { category: 'TRANSMISSION', code: 'AUTOMATIC', name: 'Automatic', parentCode: null },
+  { category: 'TRANSMISSION', code: 'AMT', name: 'AMT', parentCode: null },
+  { category: 'TRANSMISSION', code: 'CVT', name: 'CVT', parentCode: null },
+  { category: 'TRANSMISSION', code: 'DCT', name: 'DCT', parentCode: null },
+  // Document Categories
+  { category: 'DOCUMENT_TYPE', code: 'RC_COPY', name: 'Registration Certificate (RC)', parentCode: null },
+  { category: 'DOCUMENT_TYPE', code: 'INSURANCE_POLICY', name: 'Insurance Policy', parentCode: null },
+  { category: 'DOCUMENT_TYPE', code: 'POLLUTION_CERTIFICATE', name: 'Pollution Under Control (PUC)', parentCode: null },
+  { category: 'DOCUMENT_TYPE', code: 'INVOICE', name: 'Original Purchase Invoice', parentCode: null },
+  { category: 'DOCUMENT_TYPE', code: 'SERVICE_BOOK', name: 'Service Record Book', parentCode: null },
+  { category: 'DOCUMENT_TYPE', code: 'FORM_29_30', name: 'RTO Transfer Forms (29 & 30)', parentCode: null },
+  { category: 'DOCUMENT_TYPE', code: 'ID_PROOF', name: 'Government ID Proof', parentCode: null },
+];
+
+export async function ensureMasterDataCatalog(db: PrismaClient | Prisma.TransactionClient) {
+  for (const item of canonicalMasterData) {
+    await (db as any).masterDataItem.upsert({
+      where: { category_code: { category: item.category, code: item.code } },
+      update: { name: item.name, parentCode: item.parentCode },
+      create: { category: item.category, code: item.code, name: item.name, parentCode: item.parentCode, metadata: {} },
+    });
   }
 }

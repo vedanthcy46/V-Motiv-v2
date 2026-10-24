@@ -26,4 +26,19 @@ describe('Admin API client', () => {
     vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ code: 'PERMISSION_DENIED', private: 'must not surface' }), { status: 403 }));
     await expect(adminApi.audit(user)).rejects.toEqual(new ApiError(403, 'PERMISSION_DENIED'));
   });
+
+  it('queries business oversight, master data, communications, and controlled exports', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ activeInventoryCount: 5 }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    
+    await adminApi.businessFinance(user);
+    expect(fetch).toHaveBeenCalledWith('/api/v2/admin/business/finance', expect.anything());
+
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+    await adminApi.masterData(user, 'CAR_MAKE');
+    expect(fetch).toHaveBeenCalledWith('/api/v2/admin/master-data?category=CAR_MAKE', expect.anything());
+
+    fetch.mockResolvedValueOnce(new Response(JSON.stringify({ id: 'export-1', status: 'READY' }), { status: 201, headers: { 'Content-Type': 'application/json' } }));
+    await adminApi.createExportJob(user, { resourceType: 'INVENTORY' });
+    expect(fetch).toHaveBeenCalledWith('/api/v2/admin/exports', expect.objectContaining({ method: 'POST' }));
+  });
 });

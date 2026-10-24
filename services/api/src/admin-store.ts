@@ -43,6 +43,15 @@ export type ApprovalDecisionInput = { version: number; decision: 'APPROVE' | 'RE
 export type SupportCaseListQuery = { page: number; limit: number; status?: SupportCaseStatus; search?: string };
 export type PolicyProposal = { key: string; title: string; content: unknown; effectiveAt?: string; reason: string };
 
+export type BusinessSellingQuery = { page: number; limit: number; status?: string; search?: string };
+export type BusinessBuyingQuery = { page: number; limit: number; status?: string; search?: string };
+export type BusinessInventoryQuery = { page: number; limit: number; status?: string; search?: string };
+export type MasterDataItemInput = { category: string; code: string; name: string; parentCode?: string; metadata?: Record<string, unknown> };
+export type MasterDataUpdateInput = { name?: string; active?: boolean; metadata?: Record<string, unknown> };
+export type CommunicationsOutboxQuery = { page: number; limit: number; state?: string };
+export type PrivacyRequestListQuery = { page: number; limit: number; status?: string };
+export type CreateExportJobInput = { resourceType: string; scope?: string; filter?: Record<string, unknown>; format?: string; sensitive?: boolean; reason?: string };
+
 export interface AdminStore {
   actor(uid: string): Promise<AdminActor>;
   touchAccess(userId: string, mfaCompliant: boolean): Promise<void>;
@@ -69,6 +78,21 @@ export interface AdminStore {
   acceptInvitation(identity: Identity, token: string): Promise<AdminActor>;
   setEmployeeStatus(actor: AdminActor, employeeId: string, status: EmployeeStatus, reason: string): Promise<{ firebaseUid: string }>;
   audit(actor: AdminActor, page: number, limit: number): Promise<unknown>;
+  businessSelling(actor: AdminActor, query: BusinessSellingQuery): Promise<unknown>;
+  businessBuying(actor: AdminActor, query: BusinessBuyingQuery): Promise<unknown>;
+  businessInventory(actor: AdminActor, query: BusinessInventoryQuery): Promise<unknown>;
+  businessFinance(actor: AdminActor): Promise<unknown>;
+  masterData(actor: AdminActor, category?: string): Promise<unknown[]>;
+  createMasterDataItem(actor: AdminActor, input: MasterDataItemInput): Promise<unknown>;
+  updateMasterDataItem(actor: AdminActor, id: string, input: MasterDataUpdateInput): Promise<unknown>;
+  communicationsOutbox(actor: AdminActor, query: CommunicationsOutboxQuery): Promise<unknown>;
+  communicationsTemplates(actor: AdminActor): Promise<unknown[]>;
+  retryEmailOutbox(actor: AdminActor, id: string): Promise<unknown>;
+  privacyRequests(actor: AdminActor, query: PrivacyRequestListQuery): Promise<unknown>;
+  updatePrivacyRequest(actor: AdminActor, id: string, status: string, resolution?: string): Promise<unknown>;
+  exportJobs(actor: AdminActor, page: number, limit: number): Promise<unknown>;
+  createExportJob(actor: AdminActor, input: CreateExportJobInput): Promise<{ id: string; status: string; sensitive: boolean; resourceType: string; rowCount?: number | null; expiresAt?: Date | null; [key: string]: unknown }>;
+  downloadExport(actor: AdminActor, id: string): Promise<{ fileContent: string; resourceType: string; format: string }>;
 }
 
 const actorInclude = {
@@ -412,6 +436,7 @@ export class PrismaAdminStore implements AdminStore {
       if (!request) throw new HttpError(404, 'APPROVAL_NOT_FOUND');
       if (request.requestType === 'PRIVILEGED_EMPLOYEE_INVITATION') requirePermission(actor, 'role.assign.privileged');
       else if (request.requestType === 'POLICY_VERSION') requirePermission(actor, 'policy.approve');
+      else if (request.requestType === 'SENSITIVE_EXPORT_PROPOSAL') requirePermission(actor, 'export.sensitive.approve');
       else throw new HttpError(400, 'APPROVAL_TYPE_NOT_SUPPORTED');
       if (request.requesterId === actor.userId) throw new HttpError(409, 'SELF_APPROVAL_DENIED');
       if (request.status !== 'PENDING' || request.decision) throw new HttpError(409, 'APPROVAL_NOT_PENDING');
@@ -425,8 +450,32 @@ export class PrismaAdminStore implements AdminStore {
       if (input.decision === 'REJECT') {
         await tx.approvalDecision.create({ data: { requestId: id, actorId: actor.userId, decision: 'REJECT', reason: input.reason, requestVersion: request.version } });
         await tx.approvalRequest.update({ where: { id }, data: { status: 'REJECTED' } });
+        if (request.requestType === 'SENSITIVE_EXPORT_PROPOSAL') {
+          await tx.exportJob.updateMany({ where: { approvalRequestId: id }, data: { status: 'REJECTED' } });
+        }
         await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'APPROVAL_REJECTED', entityType: 'ApprovalRequest', entityId: id, details: { reason: input.reason } } });
         return { stale: false, value: { id, status: 'REJECTED' } } as const;
+      }
+      if (request.requestType === 'SENSITIVE_EXPORT_PROPOSAL') {
+        const exportJob = await tx.exportJob.findUnique({ where: { approvalRequestId: id } });
+        let csvText = '';
+        let rowCount = 0;
+        if (exportJob?.resourceType === 'CUSTOMERS') {
+          const users = await tx.user.findMany({ select: { id: true, email: true, displayName: true, phone: true, status: true, createdAt: true } });
+          rowCount = users.length;
+          csvText = generateCsv(['User ID', 'Email', 'Name', 'Phone', 'Status', 'Created At'], users.map(u => [u.id, u.email, u.displayName || '', u.phone || '', u.status, u.createdAt.toISOString()]));
+        } else {
+          const leads = await tx.acquisitionLead.findMany({ include: { user: { select: { email: true, displayName: true } } } });
+          rowCount = leads.length;
+          csvText = generateCsv(['Lead ID', 'Reference', 'Seller Name', 'Seller Phone', 'City', 'Make', 'Model', 'Status', 'Expected Price', 'Created At'], leads.map(l => [l.id, l.referenceCode, l.sellerName, l.sellerPhone, l.city, l.make, l.model, l.status, l.expectedPricePaise ? String(l.expectedPricePaise) : '', l.createdAt.toISOString()]));
+        }
+        if (exportJob) {
+          await tx.exportJob.update({ where: { id: exportJob.id }, data: { status: 'READY', fileContent: csvText, rowCount, expiresAt: new Date(Date.now() + 24 * 3600 * 1000) } });
+        }
+        await tx.approvalDecision.create({ data: { requestId: id, actorId: actor.userId, decision: 'APPROVE', reason: input.reason, requestVersion: request.version } });
+        await tx.approvalRequest.update({ where: { id }, data: { status: 'APPROVED', executedAt: new Date() } });
+        await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'SENSITIVE_EXPORT_APPROVED_AND_EXECUTED', entityType: 'ExportJob', entityId: exportJob?.id || id, details: { rowCount } } });
+        return { stale: false, value: { id, status: 'APPROVED', exportJob } } as const;
       }
       if (request.requestType === 'POLICY_VERSION') {
         const policy = z.object({ key: z.string().min(2).max(80), title: z.string().min(3).max(160), content: z.record(z.string(), z.unknown()), effectiveAt: z.string().datetime().optional(), reason: z.string().min(8).max(500) }).safeParse(request.payload);
@@ -528,4 +577,467 @@ export class PrismaAdminStore implements AdminStore {
     ]);
     return { page, limit, total, items };
   }
+
+  async businessSelling(actor: AdminActor, query: BusinessSellingQuery) {
+    requirePermission(actor, 'business.oversight.read');
+    const branchCities = actor.branches.map(b => b.city);
+    const scopeWhere: Prisma.AcquisitionLeadWhereInput = actor.roles.includes('SUPER_ADMIN') ? {} : { city: { in: branchCities } };
+    const searchWhere: Prisma.AcquisitionLeadWhereInput = query.search ? {
+      OR: [
+        { sellerName: { contains: query.search, mode: 'insensitive' } },
+        { sellerPhone: { contains: query.search } },
+        { referenceCode: { contains: query.search, mode: 'insensitive' } },
+        { make: { contains: query.search, mode: 'insensitive' } },
+        { model: { contains: query.search, mode: 'insensitive' } },
+      ],
+    } : {};
+    const where: Prisma.AcquisitionLeadWhereInput = {
+      ...scopeWhere,
+      ...searchWhere,
+      ...(query.status ? { status: query.status as any } : {}),
+    };
+    const [total, items, statusCounts] = await this.db.$transaction([
+      this.db.acquisitionLead.count({ where }),
+      this.db.acquisitionLead.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        include: {
+          user: { select: { email: true, displayName: true, phone: true } },
+          offers: { orderBy: { createdAt: 'desc' }, take: 1 },
+        },
+      }),
+      this.db.acquisitionLead.groupBy({
+        by: ['status'],
+        where: scopeWhere,
+        orderBy: { status: 'asc' },
+        _count: { status: true },
+      }),
+    ]);
+    const counts: Record<string, number> = {};
+    for (const item of statusCounts) {
+      counts[item.status] = (item._count as any)?.status ?? 0;
+    }
+    return { page: query.page, limit: query.limit, total, items, counts };
+  }
+
+  async businessBuying(actor: AdminActor, query: BusinessBuyingQuery) {
+    requirePermission(actor, 'business.oversight.read');
+    const branchCities = actor.branches.map(b => b.city);
+    const scopeWhere = actor.roles.includes('SUPER_ADMIN') ? {} : { serviceCity: { in: branchCities } };
+    const [testDrivesTotal, testDrives, enquiriesTotal, enquiries] = await this.db.$transaction([
+      this.db.testDriveRequest.count({ where: scopeWhere }),
+      this.db.testDriveRequest.findMany({
+        where: scopeWhere,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        include: {
+          user: { select: { email: true, displayName: true } },
+          listing: { include: { vehicle: true } },
+        },
+      }),
+      this.db.purchaseEnquiry.count(),
+      this.db.purchaseEnquiry.findMany({
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        include: {
+          user: { select: { email: true, displayName: true } },
+          listing: { include: { vehicle: true } },
+        },
+      }),
+    ]);
+    return {
+      testDrives: { total: testDrivesTotal, items: testDrives },
+      purchaseEnquiries: { total: enquiriesTotal, items: enquiries },
+    };
+  }
+
+  async businessInventory(actor: AdminActor, query: BusinessInventoryQuery) {
+    requirePermission(actor, 'business.oversight.read');
+    const where: Prisma.VehicleListingWhereInput = {
+      ...(query.status ? { status: query.status as any } : {}),
+      ...(query.search ? {
+        OR: [
+          { title: { contains: query.search, mode: 'insensitive' } },
+          { vehicle: { make: { contains: query.search, mode: 'insensitive' } } },
+          { vehicle: { model: { contains: query.search, mode: 'insensitive' } } },
+        ],
+      } : {}),
+    };
+    const [total, items, statusCounts] = await this.db.$transaction([
+      this.db.vehicleListing.count({ where }),
+      this.db.vehicleListing.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        include: {
+          vehicle: true,
+          media: { orderBy: { displayOrder: 'asc' }, take: 1 },
+          _count: { select: { testDriveRequests: true, purchaseEnquiries: true, wishlist: true } },
+        },
+      }),
+      this.db.vehicleListing.groupBy({
+        by: ['status'],
+        orderBy: { status: 'asc' },
+        _count: { status: true },
+      }),
+    ]);
+    const counts: Record<string, number> = {};
+    for (const item of statusCounts) {
+      counts[item.status] = (item._count as any)?.status ?? 0;
+    }
+    return { page: query.page, limit: query.limit, total, items, counts };
+  }
+
+  async businessFinance(actor: AdminActor) {
+    requirePermission(actor, 'business.oversight.read');
+    const [activeListings, totalLeads, offers, pendingPayouts] = await this.db.$transaction([
+      this.db.vehicleListing.findMany({
+        where: { status: 'PUBLISHED' },
+        select: { pricePaise: true },
+      }),
+      this.db.acquisitionLead.count(),
+      this.db.acquisitionOffer.aggregate({
+        _sum: { offerAmountPaise: true },
+        _count: { id: true },
+      }),
+      this.db.acquisitionLead.count({
+        where: { status: 'ACCEPTED' },
+      }),
+    ]);
+    const activeInventoryValuePaise = activeListings.reduce((sum, item) => sum + BigInt(item.pricePaise), 0n);
+    return {
+      activeInventoryCount: activeListings.length,
+      activeInventoryValueRupees: Number(activeInventoryValuePaise / 100n),
+      totalAcquisitionLeads: totalLeads,
+      totalOffersIssued: offers._count.id,
+      totalOffersValueRupees: Number((offers._sum.offerAmountPaise || 0n) / 100n),
+      pendingSettlements: pendingPayouts,
+      reconciliationStatus: 'HEALTHY',
+    };
+  }
+
+  async masterData(actor: AdminActor, category?: string) {
+    requirePermission(actor, 'masterdata.read');
+    return this.db.masterDataItem.findMany({
+      where: category ? { category } : {},
+      orderBy: [{ category: 'asc' }, { name: 'asc' }],
+    });
+  }
+
+  async createMasterDataItem(actor: AdminActor, input: MasterDataItemInput) {
+    requirePermission(actor, 'masterdata.manage');
+    const item = await this.db.masterDataItem.create({
+      data: {
+        category: input.category.trim().toUpperCase(),
+        code: input.code.trim().toUpperCase(),
+        name: input.name.trim(),
+        parentCode: input.parentCode ? input.parentCode.trim().toUpperCase() : null,
+        metadata: (input.metadata || {}) as Prisma.InputJsonValue,
+      },
+    });
+    await this.db.auditEvent.create({
+      data: {
+        actorId: actor.userId,
+        action: 'MASTER_DATA_CREATED',
+        entityType: 'MasterDataItem',
+        entityId: item.id,
+        details: { category: item.category, code: item.code, name: item.name },
+      },
+    });
+    return item;
+  }
+
+  async updateMasterDataItem(actor: AdminActor, id: string, input: MasterDataUpdateInput) {
+    requirePermission(actor, 'masterdata.manage');
+    const item = await this.db.masterDataItem.update({
+      where: { id },
+      data: {
+        ...(typeof input.name === 'string' ? { name: input.name.trim() } : {}),
+        ...(typeof input.active === 'boolean' ? { active: input.active } : {}),
+        ...(input.metadata ? { metadata: input.metadata as Prisma.InputJsonValue } : {}),
+      },
+    });
+    await this.db.auditEvent.create({
+      data: {
+        actorId: actor.userId,
+        action: 'MASTER_DATA_UPDATED',
+        entityType: 'MasterDataItem',
+        entityId: item.id,
+        details: { active: item.active, name: item.name },
+      },
+    });
+    return item;
+  }
+
+  async communicationsOutbox(actor: AdminActor, query: CommunicationsOutboxQuery) {
+    requirePermission(actor, 'email.delivery.read');
+    const where: Prisma.EmailOutboxWhereInput = query.state ? { state: query.state as any } : {};
+    const [total, items, stateCounts] = await this.db.$transaction([
+      this.db.emailOutbox.count({ where }),
+      this.db.emailOutbox.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+      }),
+      this.db.emailOutbox.groupBy({
+        by: ['state'],
+        orderBy: { state: 'asc' },
+        _count: { state: true },
+      }),
+    ]);
+    const summary: Record<string, number> = {};
+    for (const s of stateCounts) {
+      summary[s.state] = (s._count as any)?.state ?? 0;
+    }
+    const safeItems = items.map(item => ({
+      ...item,
+      recipient: maskEmail(item.recipient),
+    }));
+    return { page: query.page, limit: query.limit, total, items: safeItems, summary };
+  }
+
+  async communicationsTemplates(actor: AdminActor) {
+    requirePermission(actor, 'email.delivery.read');
+    return [
+      { key: 'employee-invitation-v1', name: 'Employee Invitation', type: 'TRANSACTIONAL', description: 'Sent when an administrator invites an employee into an approved role and branch scope.' },
+      { key: 'test-drive-requested-v1', name: 'Test Drive Confirmation', type: 'TRANSACTIONAL', description: 'Sent to a customer upon booking a test drive at a V MOTIV Hub or doorstep address.' },
+      { key: 'acquisition-offer-v1', name: 'Selling Valuation & Offer', type: 'TRANSACTIONAL', description: 'Notifies a seller when an evaluated acquisition offer is made on their car.' },
+      { key: 'support-reply-v1', name: 'Concierge Case Reply', type: 'TRANSACTIONAL', description: 'Delivered to a customer when concierge operations replies to their support ticket.' },
+      { key: 'welcome-v1', name: 'Customer Welcome', type: 'TRANSACTIONAL', description: 'Initial onboarding greeting when a customer authenticates their profile.' },
+    ];
+  }
+
+  async retryEmailOutbox(actor: AdminActor, id: string) {
+    requirePermission(actor, 'email.delivery.read');
+    const updated = await this.db.emailOutbox.update({
+      where: { id },
+      data: {
+        state: 'PENDING',
+        attempts: 0,
+        availableAt: new Date(),
+        leaseUntil: null,
+        lastErrorCode: null,
+      },
+    });
+    await this.db.auditEvent.create({
+      data: {
+        actorId: actor.userId,
+        action: 'EMAIL_OUTBOX_RETRY',
+        entityType: 'EmailOutbox',
+        entityId: id,
+        details: { eventKey: updated.eventKey },
+      },
+    });
+    return { id, state: updated.state };
+  }
+
+  async privacyRequests(actor: AdminActor, query: PrivacyRequestListQuery) {
+    requirePermission(actor, 'privacy.request.manage');
+    const where: Prisma.PrivacyRequestWhereInput = query.status ? { status: query.status } : {};
+    const [total, items] = await this.db.$transaction([
+      this.db.privacyRequest.count({ where }),
+      this.db.privacyRequest.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        include: {
+          user: { select: { email: true, displayName: true, phone: true } },
+        },
+      }),
+    ]);
+    return { page: query.page, limit: query.limit, total, items };
+  }
+
+  async updatePrivacyRequest(actor: AdminActor, id: string, status: string, resolution?: string) {
+    requirePermission(actor, 'privacy.request.manage');
+    const updated = await this.db.privacyRequest.update({
+      where: { id },
+      data: {
+        status,
+        resolution: resolution?.trim(),
+        resolvedAt: new Date(),
+        resolvedById: actor.userId,
+      },
+    });
+    await this.db.auditEvent.create({
+      data: {
+        actorId: actor.userId,
+        action: 'PRIVACY_REQUEST_RESOLVED',
+        entityType: 'PrivacyRequest',
+        entityId: id,
+        details: { status, resolution },
+      },
+    });
+    return updated;
+  }
+
+  async exportJobs(actor: AdminActor, page: number, limit: number) {
+    requirePermission(actor, 'export.create');
+    const where: Prisma.ExportJobWhereInput = actor.roles.includes('SUPER_ADMIN') ? {} : { requesterId: actor.userId };
+    const [total, items] = await this.db.$transaction([
+      this.db.exportJob.count({ where }),
+      this.db.exportJob.findMany({
+        where,
+        orderBy: { createdAt: 'desc' },
+        skip: (page - 1) * limit,
+        take: limit,
+        select: {
+          id: true,
+          resourceType: true,
+          scope: true,
+          format: true,
+          sensitive: true,
+          status: true,
+          rowCount: true,
+          expiresAt: true,
+          downloadCount: true,
+          createdAt: true,
+          requester: { select: { user: { select: { displayName: true, email: true } } } },
+        },
+      }),
+    ]);
+    return { page, limit, total, items };
+  }
+
+  async createExportJob(actor: AdminActor, input: CreateExportJobInput) {
+    requirePermission(actor, 'export.create');
+    if (input.sensitive) {
+      const approval = await this.db.approvalRequest.create({
+        data: {
+          requestType: 'SENSITIVE_EXPORT_PROPOSAL',
+          requesterId: actor.userId,
+          requiredPermission: 'export.sensitive.approve',
+          scopeBranchIds: actor.branches.map(b => b.id),
+          payload: {
+            resourceType: input.resourceType,
+            reason: input.reason || 'Controlled compliance export',
+            scope: input.scope || 'ALL',
+          },
+          expiresAt: new Date(Date.now() + 48 * 3600 * 1000),
+        },
+      });
+      const job = await this.db.exportJob.create({
+        data: {
+          resourceType: input.resourceType,
+          scope: input.scope || 'ALL',
+          sensitive: true,
+          status: 'APPROVAL_PENDING',
+          requesterId: actor.userId,
+          approvalRequestId: approval.id,
+          expiresAt: new Date(Date.now() + 48 * 3600 * 1000),
+        },
+      });
+      await this.db.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'SENSITIVE_EXPORT_REQUESTED',
+          entityType: 'ExportJob',
+          entityId: job.id,
+          details: { approvalRequestId: approval.id, resourceType: input.resourceType },
+        },
+      });
+      return job;
+    }
+
+    let csvText = '';
+    let rowCount = 0;
+    if (input.resourceType === 'INVENTORY') {
+      const items = await this.db.vehicleListing.findMany({ include: { vehicle: true } });
+      rowCount = items.length;
+      csvText = generateCsv(['Listing ID', 'Title', 'Make', 'Model', 'Year', 'Price (INR)', 'Status'], items.map(i => [i.id, i.title, i.vehicle.make, i.vehicle.model, i.vehicle.manufacturingYear, Number(i.pricePaise / 100n), i.status]));
+    } else if (input.resourceType === 'AUDIT') {
+      const logs = await this.db.auditEvent.findMany({ orderBy: { createdAt: 'desc' }, take: 500 });
+      rowCount = logs.length;
+      csvText = generateCsv(['Time', 'Action', 'Target Type', 'Target ID', 'Outcome'], logs.map(l => [l.createdAt.toISOString(), l.action, l.entityType, l.entityId, l.outcome]));
+    } else {
+      const staff = await this.db.employee.findMany({ include: { user: { select: { email: true, displayName: true } } } });
+      rowCount = staff.length;
+      csvText = generateCsv(['Employee ID', 'Name', 'Email', 'Role', 'Status', 'MFA'], staff.map(s => [s.employeeCode || '', s.user.displayName || '', s.user.email, s.role, s.status, s.mfaStatus]));
+    }
+
+    const job = await this.db.exportJob.create({
+      data: {
+        resourceType: input.resourceType,
+        scope: input.scope || 'ALL',
+        sensitive: false,
+        status: 'READY',
+        requesterId: actor.userId,
+        fileContent: csvText,
+        rowCount,
+        expiresAt: new Date(Date.now() + 24 * 3600 * 1000),
+      },
+    });
+    await this.db.auditEvent.create({
+      data: {
+        actorId: actor.userId,
+        action: 'EXPORT_JOB_CREATED',
+        entityType: 'ExportJob',
+        entityId: job.id,
+        details: { resourceType: input.resourceType, rowCount },
+      },
+    });
+    return job;
+  }
+
+  async downloadExport(actor: AdminActor, id: string) {
+    requirePermission(actor, 'export.create');
+    const job = await this.db.exportJob.findUnique({ where: { id } });
+    if (!job) throw new HttpError(404, 'EXPORT_NOT_FOUND');
+    if (job.status !== 'READY' || !job.fileContent) throw new HttpError(409, 'EXPORT_NOT_READY');
+    if (job.expiresAt <= new Date()) throw new HttpError(410, 'EXPORT_EXPIRED');
+    if (!actor.roles.includes('SUPER_ADMIN') && job.requesterId !== actor.userId) throw new HttpError(403, 'EXPORT_ACCESS_DENIED');
+
+    await this.db.exportJob.update({
+      where: { id },
+      data: { downloadCount: { increment: 1 } },
+    });
+    await this.db.auditEvent.create({
+      data: {
+        actorId: actor.userId,
+        action: 'EXPORT_DOWNLOADED',
+        entityType: 'ExportJob',
+        entityId: id,
+        details: { downloadCount: job.downloadCount + 1 },
+      },
+    });
+    return {
+      fileContent: job.fileContent,
+      resourceType: job.resourceType,
+      format: job.format,
+    };
+  }
+}
+
+function escapeCsvCell(value: unknown): string {
+  if (value === null || value === undefined) return '';
+  let str = String(value);
+  if (/^[=+\-@\t\r]/.test(str)) {
+    str = `'${str}`;
+  }
+  if (/[",\n\r]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+
+function generateCsv(headers: string[], rows: Array<Array<unknown>>): string {
+  const headerLine = headers.map(escapeCsvCell).join(',');
+  const rowLines = rows.map(row => row.map(escapeCsvCell).join(','));
+  return [headerLine, ...rowLines].join('\r\n');
+}
+
+function maskEmail(email: string): string {
+  const parts = email.split('@');
+  const local = parts[0] ?? '';
+  const domain = parts[1] ?? '';
+  if (!domain) return email;
+  const maskedLocal = local.length <= 2 ? `${local[0] ?? '*'}*` : `${local.slice(0, 2)}***${local.slice(-1)}`;
+  return `${maskedLocal}@${domain}`;
 }

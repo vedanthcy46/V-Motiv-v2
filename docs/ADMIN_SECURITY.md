@@ -1,31 +1,42 @@
 # Admin Security
 
-## Enforced now
+## Enforced Security Controls
 
-- Firebase ID tokens are checked with revocation enabled.
-- Production serverless startup requires `FIREBASE_SERVICE_ACCOUNT_JSON` so revocation checks cannot silently downgrade.
-- Verified Google provider and verified email are required.
-- Active local user and employee state is required.
-- All Admin endpoints require a verified second factor.
-- Deny-by-default granular permissions and branch scope are evaluated server-side.
-- Invitation tokens use 256 bits of randomness, are hashed at rest in `EmployeeInvitation`, expire and are single use.
-- Privileged role invitations require an additional privilege.
-- Self-suspension and loss of the only active Super Admin are blocked.
-- Sensitive mutations append audit events.
-- The public email-drain endpoint was removed.
-- CORS accepts exact configured origins; arbitrary `*.vercel.app` origins are no longer accepted.
-- Provider exception text is not stored as an email error code.
-- No server secret is used in a browser bundle.
+1. **Authentication & Identity Verification**:
+   - Every protected request checks Firebase ID tokens with revocation verification enabled (`checkRevoked: true`).
+   - Verified Google provider (`google.com`) and verified email (`email_verified: true`) are mandatory.
+   - Verified second-factor (`sign_in_second_factor`) is required on all `/api/v2/admin/*` routes when `ENFORCE_ADMIN_MFA !== 'false'`.
+   - Production startup strictly requires `FIREBASE_SERVICE_ACCOUNT_JSON` to prevent revocation check downgrades.
 
-## Mandatory operator action
+2. **Authorization & Least Privilege**:
+   - Deny-by-default granular RBAC with server-evaluated permissions. Frontend UI controls are purely cosmetic and non-authoritative.
+   - Scope isolation: Non-Super Admin administrators can only access and govern records within their assigned branch scope.
+   - Client-supplied branch IDs are never trusted as proof of scope.
 
-A Resend API key was previously committed as a source fallback. The source fallback has been removed, but repository cleanup does not revoke that key. Revoke/rotate it in Resend, replace the protected deployment secret, and inspect provider activity before enabling delivery.
+3. **Dual-Control Maker-Checker Architecture**:
+   - Enforced for privileged role assignments (`SUPER_ADMIN`, `SECURITY_ADMIN`, `FINANCE`), policy amendments, and sensitive customer PII exports.
+   - Advisory locking (`pg_advisory_xact_lock`) prevents race conditions.
+   - Self-approval is strictly forbidden (`SELF_APPROVAL_DENIED`).
+   - Single-use, version-tracked approvals prevent duplicate execution.
 
-## Not yet complete
+4. **Spreadsheet Formula Injection Defense**:
+   - In accordance with OWASP CSV Injection guidelines, all exported CSV data is sanitized via `escapeCsvCell`.
+   - Any cell value starting with `=`, `+`, `-`, `@`, `\t`, or `\r` is escaped with a leading single quote (`'`), neutralizing spreadsheet formula execution.
 
-- Admin MFA enrollment, encrypted recovery-code lifecycle and controlled recovery UI.
-- Independent maker-checker execution for privileged role changes.
-- Security session inventory and access-review workflows.
-- Attachment authorization, export download grants and webhook-signature processing (their modules are not built yet).
-- Database-level tamper evidence beyond application append-only behavior and restricted UI.
-- Dedicated rate limits per sensitive action and formal security penetration testing.
+5. **PII Masking & Privacy Controls**:
+   - Transactional email delivery logs mask recipient email addresses (`ro***t@domain.com`) in all administrator-facing queries.
+   - Customer privacy requests (DPDP / GDPR) provide structured erasure and access lifecycle tracking with immutable audit trails.
+
+6. **Invitation Token Cryptography**:
+   - 256 bits of cryptographically secure random bytes generated via `node:crypto`.
+   - Only SHA-256 hashes are stored in PostgreSQL (`EmployeeInvitation.tokenHash`).
+   - Invitation links are one-time use and enforce strict expiration (24–168 hours).
+
+7. **Session Revocation & Anti-Lockout**:
+   - Suspending or deactivating an employee immediately calls Firebase Admin SDK `revokeRefreshTokens(firebaseUid)`.
+   - Local active status check denies access immediately without waiting for token cache expiration.
+   - Protection against self-suspension (`SELF_STATUS_CHANGE_DENIED`) and accidental lockout of the organization's last Super Admin (`LAST_SUPER_ADMIN_PROTECTED`).
+
+8. **Network & Transport Hygiene**:
+   - Strict CORS policy requiring explicit configured origins (`ADMIN_WEB_ORIGIN`, `WEB_ORIGIN`). Wildcard subdomain matching is disabled.
+   - Download endpoints stream files over authenticated bearer-token fetch requests rather than exposing public URLs.

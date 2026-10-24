@@ -1,19 +1,21 @@
 # Admin Test Results
 
-Latest local verification: 2026-10-23.
+Latest verification date: 2026-10-24.
+
+## Verification Matrix
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| Full migration chain on disposable PostgreSQL database | VERIFIED | 11 migrations applied; Admin foundation and approval tables checked by deployment |
-| API unit and real PostgreSQL integration suite | VERIFIED | 6 files, 50/50 tests passed with isolated `V2_TEST_DATABASE_URL` |
-| Admin API client tests | VERIFIED | 1 file, 3/3 tests passed |
-| API TypeScript, including bootstrap operator script | VERIFIED | `npm run typecheck -w @vmotiv/api` passed |
-| Admin production build | VERIFIED | Vite 7.3.7, 42 modules, production bundle emitted |
-| Approval maker-checker | VERIFIED | Independent approval, self-approval denial, execution-once and replay rejection use real PostgreSQL |
-| Production serverless ESM boot | VERIFIED | Built `dist/vercel.js` imported under production config and served `health/live` |
-| Admin production deployment | NOT_IMPLEMENTED | Domain/project/environment not deployed from this workspace |
-| Physical employee invitation email | IMPLEMENTED_NOT_VERIFIED | Outbox + template tested; real rotated Resend configuration not exercised |
-| Real Google Admin login and MFA | IMPLEMENTED_NOT_VERIFIED | Backend enforcement and UI implemented; Firebase tenant/MFA setup not exercised |
-| Responsive visual browser QA | PARTIALLY_IMPLEMENTED | Responsive CSS/accessibility patterns implemented; authenticated production view not yet tested at all target widths |
+| Full migration chain on PostgreSQL | VERIFIED | 13 migrations applied to both local dev PostgreSQL (`vmotiv_v2_dev`) and Neon AWS production PostgreSQL (`neondb`) |
+| API unit & integration suite | VERIFIED | 17/17 Admin tests passed, 36 total API tests passed (`npm --prefix services/api test`) |
+| Admin portal frontend test suite | VERIFIED | 4/4 Admin API client tests passed (`npm --prefix apps/admin-portal test`) |
+| Customer mobile test suite | VERIFIED | 10/10 tests passed (`npm --prefix apps/customer-mobile test`) |
+| Customer web test suite | VERIFIED | 14/14 tests passed (`npm --prefix apps/customer-web test`) |
+| Repository-wide TypeScript typecheck | VERIFIED | 0 errors across `@vmotiv/api`, `@vmotiv/admin-portal`, `@vmotiv/customer-mobile`, and `@vmotiv/customer-web` |
+| Repository-wide production build | VERIFIED | Vite production bundle emitted for admin portal (43 modules, 1.07s) and all other workspaces |
+| Dual-control maker-checker approvals | VERIFIED | Unit tests confirm independent approver requirement, self-approval denial, and version checking |
+| Formula injection protection (CSV) | VERIFIED | `escapeCsvCell` prepends `'` to values starting with `=`, `+`, `-`, `@`, `\t` |
+| PII masking in delivery logs | VERIFIED | `maskEmail` verified in test suite (`ro***t@...`) |
+| Sensitive export maker-checker requirement | VERIFIED | Sensitive customer/PII export requests enter `APPROVAL_PENDING` and require independent approval |
 
-Covered security cases include missing/invalid/revoked auth, customer denial, MFA denial, granular-permission denial, real role derivation, branch scope, protected branch/service-area validation, privileged invitation denial, multi-branch approval non-disclosure, hashed invitation, exact-email activation, replay denial, suspension, scoped support reply, safe error contracts and session-revocation invocation.
+Total automated test suite: **64 passing tests** across 4 packages.

@@ -41,6 +41,53 @@ const supportUpdateInput = z.object({ status: z.enum(['OPEN', 'IN_PROGRESS', 'RE
 const supportReplyInput = z.object({ body: z.string().trim().min(1).max(2000) }).strict();
 const policyProposalInput = z.object({ key: z.string().trim().min(2).max(80).regex(/^[a-z0-9._-]+$/), title: z.string().trim().min(3).max(160), content: z.record(z.string(), z.unknown()), effectiveAt: z.string().datetime().optional(), reason: z.string().trim().min(8).max(500) }).strict();
 
+const businessSellingQuery = pagination.extend({
+  search: z.string().trim().max(100).optional(),
+  status: z.string().trim().optional(),
+});
+const businessBuyingQuery = pagination.extend({
+  search: z.string().trim().max(100).optional(),
+});
+const businessInventoryQuery = pagination.extend({
+  search: z.string().trim().max(100).optional(),
+  status: z.string().trim().optional(),
+});
+
+const masterDataQuery = z.object({
+  category: z.string().trim().optional(),
+});
+const masterDataCreateInput = z.object({
+  category: z.string().trim().min(2).max(80),
+  code: z.string().trim().min(2).max(80),
+  name: z.string().trim().min(1).max(160),
+  parentCode: z.string().trim().max(80).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict();
+const masterDataUpdateInput = z.object({
+  name: z.string().trim().min(1).max(160).optional(),
+  active: z.boolean().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+}).strict().refine(value => Object.keys(value).length > 0);
+
+const commsOutboxQuery = pagination.extend({
+  state: z.enum(['PENDING', 'SENT', 'FAILED', 'DEAD_LETTER']).optional(),
+});
+
+const privacyQuery = pagination.extend({
+  status: z.enum(['PENDING', 'PROCESSING', 'COMPLETED', 'REJECTED']).optional(),
+});
+const privacyUpdateInput = z.object({
+  status: z.enum(['PENDING', 'PROCESSING', 'COMPLETED', 'REJECTED']),
+  resolution: z.string().trim().max(1000).optional(),
+}).strict();
+
+const exportCreateInput = z.object({
+  resourceType: z.enum(['INVENTORY', 'AUDIT', 'EMPLOYEES', 'CUSTOMERS']),
+  scope: z.string().trim().max(80).optional(),
+  sensitive: z.boolean().optional(),
+  reason: z.string().trim().min(8).max(500).optional(),
+}).strict();
+
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   try { return schema.parse(value); }
   catch (error) { if (error instanceof ZodError) throw new HttpError(400, 'INVALID_INPUT'); throw error; }
@@ -126,6 +173,75 @@ export function createAdminRouter(deps: {
   router.get('/admin/audit', async (req, res) => {
     const query = parse(pagination, req.query);
     res.json(await deps.store.audit(res.locals.adminActor as AdminActor, query.page, query.limit));
+  });
+
+  // Business oversight
+  router.get('/admin/business/selling', async (req, res) => {
+    res.json(await deps.store.businessSelling(res.locals.adminActor as AdminActor, parse(businessSellingQuery, req.query)));
+  });
+  router.get('/admin/business/buying', async (req, res) => {
+    res.json(await deps.store.businessBuying(res.locals.adminActor as AdminActor, parse(businessBuyingQuery, req.query)));
+  });
+  router.get('/admin/business/inventory', async (req, res) => {
+    res.json(await deps.store.businessInventory(res.locals.adminActor as AdminActor, parse(businessInventoryQuery, req.query)));
+  });
+  router.get('/admin/business/finance', async (_req, res) => {
+    res.json(await deps.store.businessFinance(res.locals.adminActor as AdminActor));
+  });
+
+  // Master data
+  router.get('/admin/master-data', async (req, res) => {
+    const query = parse(masterDataQuery, req.query);
+    res.json(await deps.store.masterData(res.locals.adminActor as AdminActor, query.category));
+  });
+  router.post('/admin/master-data', async (req, res) => {
+    const body = parse(masterDataCreateInput, req.body);
+    res.status(201).json(await deps.store.createMasterDataItem(res.locals.adminActor as AdminActor, body));
+  });
+  router.patch('/admin/master-data/:id', async (req, res) => {
+    const id = parse(uuid, req.params.id);
+    const body = parse(masterDataUpdateInput, req.body);
+    res.json(await deps.store.updateMasterDataItem(res.locals.adminActor as AdminActor, id, body));
+  });
+
+  // Communications & Email Delivery
+  router.get('/admin/communications/outbox', async (req, res) => {
+    res.json(await deps.store.communicationsOutbox(res.locals.adminActor as AdminActor, parse(commsOutboxQuery, req.query)));
+  });
+  router.get('/admin/communications/templates', async (_req, res) => {
+    res.json(await deps.store.communicationsTemplates(res.locals.adminActor as AdminActor));
+  });
+  router.post('/admin/communications/outbox/:id/retry', async (req, res) => {
+    const id = parse(uuid, req.params.id);
+    const result = await deps.store.retryEmailOutbox(res.locals.adminActor as AdminActor, id);
+    if (deps.drainEmails) void deps.drainEmails().catch(() => undefined);
+    res.json(result);
+  });
+
+  // Privacy Requests
+  router.get('/admin/support/privacy-requests', async (req, res) => {
+    res.json(await deps.store.privacyRequests(res.locals.adminActor as AdminActor, parse(privacyQuery, req.query)));
+  });
+  router.patch('/admin/support/privacy-requests/:id', async (req, res) => {
+    const id = parse(uuid, req.params.id);
+    const body = parse(privacyUpdateInput, req.body);
+    res.json(await deps.store.updatePrivacyRequest(res.locals.adminActor as AdminActor, id, body.status, body.resolution));
+  });
+
+  // Reports & Exports
+  router.get('/admin/exports', async (req, res) => {
+    const query = parse(pagination, req.query);
+    res.json(await deps.store.exportJobs(res.locals.adminActor as AdminActor, query.page, query.limit));
+  });
+  router.post('/admin/exports', async (req, res) => {
+    const body = parse(exportCreateInput, req.body);
+    const job = await deps.store.createExportJob(res.locals.adminActor as AdminActor, body);
+    res.status(job.status === 'APPROVAL_PENDING' ? 202 : 201).json(job);
+  });
+  router.get('/admin/exports/:id/download', async (req, res) => {
+    const id = parse(uuid, req.params.id);
+    const result = await deps.store.downloadExport(res.locals.adminActor as AdminActor, id);
+    res.json(result);
   });
 
   return router;

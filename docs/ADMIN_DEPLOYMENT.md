@@ -1,38 +1,73 @@
 # Admin Deployment
 
-## Shared API
+## 1. Database Migrations
 
-Apply migrations as a controlled release step before deploying code:
+Apply Prisma database migrations as a controlled release step before deploying code. The migration runner (`deploy-database.mjs`) automatically targets the configured `DATABASE_URL` (both local PostgreSQL and Neon AWS production PostgreSQL):
 
 ```powershell
 npm run db:deploy
 ```
 
-Required API variables include `NODE_ENV=production`, the dedicated V2 `DATABASE_URL`, `WEB_ORIGIN=https://www.vmotiv.in`, `ADMIN_WEB_ORIGIN=https://admin.vmotiv.in`, `FIREBASE_PROJECT_ID` and the complete protected `FIREBASE_SERVICE_ACCOUNT_JSON`. Enable email only after rotating the exposed historic key and configuring verified `RESEND_API_KEY`, `EMAIL_FROM` and `EMAIL_DELIVERY_ENABLED=true`.
+Active migrations in V2:
+- `20261023164000_initial_customer_schema`
+- `20261023190000_email_outbox_queue`
+- `20261023223000_admin_control_centre_foundation`
+- `20261024090000_admin_governance_expansion`
+- `20261024160000_admin_operations_governance` (adds `ExportJob`, `MasterDataItem`, updates `PrivacyRequest`)
 
-Never place `FIREBASE_SERVICE_ACCOUNT_JSON`, database credentials or Resend keys in a `VITE_*` variable.
+## 2. Admin Seeding & Bootstrapping
 
-## Admin frontend project
+To seed or refresh the canonical role-permissions, branches, and master data taxonomy idempotently:
 
-Deploy `apps/admin-portal` as a separate Vercel project for `admin.vmotiv.in`:
+```powershell
+npm run seed:admin -w @vmotiv/api
+```
 
-- Framework: Vite
-- Root directory: `apps/admin-portal`
-- Install command: `npm ci --include=dev`
-- Build command: `npm run build`
-- Output directory: `dist`
-- Node: 24 LTS
+This verifies the Super Administrator (`vmotiv.v@gmail.com`), seeds the 13 canonical system roles, assigns all 27 granular permissions, and ensures master automotive taxonomy is present.
 
-Set the four public Firebase web values from `.env.example`. Set `VITE_API_BASE=https://www.vmotiv.in/api/v2` when the Admin frontend is deployed on its separate domain. Add `admin.vmotiv.in` to Firebase Authentication authorized domains.
-
-The public customer-web Vercel project remains rooted at the repository and continues to use the root `vercel.json`; the Admin deployment must not replace its output directory.
-
-## One-time bootstrap
-
-Run from a controlled operator environment with protected database/Firebase credentials. Supply `BOOTSTRAP_CONFIRM=CREATE_FIRST_SUPER_ADMIN`, the exact verified UID/email/name and the first branch code/name/city, then run:
+For one-time initial Super Admin creation in a brand new environment:
 
 ```powershell
 npm run bootstrap:admin -w @vmotiv/api
 ```
 
-Unset every `BOOTSTRAP_*` value afterward. Re-running is refused after the first Super Admin exists.
+## 3. Environment Configuration
+
+### Shared API (`services/api`)
+
+| Variable | Description |
+| --- | --- |
+| `NODE_ENV` | `production` |
+| `DATABASE_URL` | Neon PostgreSQL pooled/direct connection string |
+| `WEB_ORIGIN` | `https://www.vmotiv.in` |
+| `ADMIN_WEB_ORIGIN` | `https://admin.vmotiv.in` |
+| `FIREBASE_PROJECT_ID` | `v-motiv-v2` |
+| `FIREBASE_SERVICE_ACCOUNT_JSON` | Full Firebase Admin JSON service credentials |
+| `ENFORCE_ADMIN_MFA` | `true` in production; can be set to `false` for local offline dev |
+| `RESEND_API_KEY` | Transactional email provider key |
+| `EMAIL_FROM` | `V MOTIV <concierge@vmotiv.in>` |
+| `EMAIL_DELIVERY_ENABLED` | `true` |
+
+### Admin Frontend (`apps/admin-portal`)
+
+Deploy as a dedicated Vercel project mapped to `admin.vmotiv.in`:
+- Framework: Vite
+- Root directory: `apps/admin-portal`
+- Build command: `npm run build`
+- Output directory: `dist`
+- Node: 22 LTS or 24 LTS
+
+Environment variables:
+- `VITE_FIREBASE_API_KEY`: Firebase web API key
+- `VITE_FIREBASE_AUTH_DOMAIN`: Firebase auth domain
+- `VITE_FIREBASE_PROJECT_ID`: Firebase project ID
+- `VITE_FIREBASE_APP_ID`: Firebase web app ID
+- `VITE_API_BASE`: `https://www.vmotiv.in/api/v2`
+
+## 4. Multi-Factor Authentication Verification
+
+To register an SMS 2FA phone number on an employee account for local testing:
+
+```powershell
+npm run mfa:enroll -w @vmotiv/api -- +919876543210
+```

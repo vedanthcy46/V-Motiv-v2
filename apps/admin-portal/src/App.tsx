@@ -16,16 +16,47 @@ import {
 } from 'firebase/auth';
 import { adminApi, ApiError } from './api.js';
 import { auth, firebaseConfigured } from './firebase.js';
-import type { AdminActor, Approval, ApprovalPage, AuditPage, Branch, Dashboard, EmployeePage, ManagedBranch, Role, ServiceArea, SupportCase, SupportCasePage, SystemHealth, PolicyVersion } from './types.js';
+import type {
+  AdminActor,
+  Approval,
+  ApprovalPage,
+  AuditPage,
+  Branch,
+  BusinessBuyingPage,
+  BusinessFinance,
+  BusinessInventoryPage,
+  BusinessSellingPage,
+  CommunicationsOutboxPage,
+  CommunicationsTemplate,
+  Dashboard,
+  EmployeePage,
+  ExportJob,
+  ExportJobPage,
+  ManagedBranch,
+  MasterDataItem,
+  PolicyVersion,
+  PrivacyRequest,
+  PrivacyRequestPage,
+  Role,
+  ServiceArea,
+  SupportCase,
+  SupportCasePage,
+  SystemHealth,
+} from './types.js';
 
-type Route = '/' | '/employees' | '/access' | '/branches' | '/approvals' | '/support' | '/audit' | '/accept-invitation' | '/not-found';
+type Route = '/' | '/employees' | '/access' | '/branches' | '/approvals' | '/business' | '/support' | '/master-data' | '/communications' | '/reports' | '/audit' | '/accept-invitation' | '/not-found';
 const iconPaths: Record<string, ReactNode> = {
   overview: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
   employees: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
   access: <><rect x="3" y="11" width="18" height="10" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></>,
   branches: <><path d="M3 21h18M5 21V9l7-5 7 5v12M9 21v-6h6v6"/><path d="M9 10h.01M15 10h.01"/></>,
   approvals: <><path d="M12 3 4 7v5c0 5 3.4 8.74 8 10 4.6-1.26 8-5 8-10V7l-8-4Z"/><path d="m9 12 2 2 4-4"/></>,
+  business: <><path d="M3 3v18h18"/><path d="m19 9-5 5-4-4-3 3"/></>,
   support: <><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7A8.38 8.38 0 0 1 4 11.5a8.5 8.5 0 0 1 4.7-7.6A8.38 8.38 0 0 1 12.5 3h.5a8.48 8.48 0 0 1 8 8v.5Z"/></>,
+  masterdata: <><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></>,
+  communications: <><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></>,
+  reports: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></>,
+  download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
   audit: <><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></>,
   menu: <><path d="M4 6h16M4 12h16M4 18h16"/></>,
   close: <><path d="M18 6 6 18M6 6l12 12"/></>,
@@ -36,7 +67,7 @@ function Icon({ name }: { name: keyof typeof iconPaths }) { return <svg aria-hid
 
 function currentRoute(): Route {
   const path = window.location.pathname.replace(/\/$/, '') || '/';
-  return ['/', '/employees', '/access', '/branches', '/approvals', '/support', '/audit', '/accept-invitation'].includes(path) ? path as Route : '/not-found';
+  return ['/', '/employees', '/access', '/branches', '/approvals', '/business', '/support', '/master-data', '/communications', '/reports', '/audit', '/accept-invitation'].includes(path) ? path as Route : '/not-found';
 }
 function navigate(path: Route) { window.history.pushState({}, '', path); window.dispatchEvent(new PopStateEvent('popstate')); }
 function errorMessage(error: unknown) {
@@ -537,17 +568,78 @@ const navItems = [
   { path: '/' as Route, label: 'Overview', icon: 'overview' as const, permission: 'admin.portal.access' },
   { path: '/employees' as Route, label: 'Employees', icon: 'employees' as const, permission: 'employee.read' },
   { path: '/access' as Route, label: 'Access Control', icon: 'access' as const, permission: 'role.read' },
-  { path: '/branches' as Route, label: 'Branches', icon: 'branches' as const, permission: 'branch.read' },
   { path: '/approvals' as Route, label: 'Approval Centre', icon: 'approvals' as const, permission: 'approval.read' },
-  { path: '/support' as Route, label: 'Support', icon: 'support' as const, permission: 'support.read' },
-  { path: '/audit' as Route, label: 'Audit', icon: 'audit' as const, permission: 'audit.read' },
+  { path: '/business' as Route, label: 'Business Oversight', icon: 'business' as const, permission: 'business.oversight.read' },
+  { path: '/support' as Route, label: 'Support & Privacy', icon: 'support' as const, permission: 'support.read' },
+  { path: '/master-data' as Route, label: 'Master Data', icon: 'masterdata' as const, permission: 'masterdata.read' },
+  { path: '/communications' as Route, label: 'Communications', icon: 'communications' as const, permission: 'email.delivery.read' },
+  { path: '/reports' as Route, label: 'Audit & Reports', icon: 'reports' as const, permission: 'audit.read' },
+  { path: '/branches' as Route, label: 'Settings & Branches', icon: 'branches' as const, permission: 'branch.read' },
 ];
 function Shell({ actor, user, route, onLogout }: { actor: AdminActor; user: User; route: Route; onLogout: () => void }) {
   const [open, setOpen] = useState(false);
   const nav = navItems.filter(item => actor.permissions.includes(item.permission));
   const title = nav.find(item => item.path === route)?.label || 'Not found';
   function go(path: Route) { navigate(path); setOpen(false); }
-  return <div className="app-shell"><a className="skip-link" href="#main">Skip to main content</a><aside className={`sidebar ${open ? 'open' : ''}`}><div className="brand"><img src="/brand/vmotiv-logo.svg" alt="V MOTIV"/><span>Admin</span></div><nav aria-label="Primary navigation">{nav.map(item => <button key={item.path} className={route === item.path ? 'active' : ''} aria-current={route === item.path ? 'page' : undefined} onClick={() => go(item.path)}><Icon name={item.icon}/><span>{item.label}</span></button>)}</nav><div className="sidebar-account"><span>{actor.displayName || actor.email}</span><small>{actor.employeeCode || 'Employee'}</small><button onClick={onLogout}><Icon name="logout"/>Sign out</button></div></aside>{open && <button className="scrim" aria-label="Close navigation" onClick={() => setOpen(false)}/>}<div className="app-main"><header className="topbar"><button className="icon-button mobile-menu" aria-label={open ? 'Close navigation' : 'Open navigation'} aria-expanded={open} onClick={() => setOpen(!open)}><Icon name={open ? 'close' : 'menu'}/></button><div><span className="breadcrumb">V MOTIV Admin /</span><strong>{title}</strong></div><div className="identity"><span>{user.email}</span><span className="mfa-badge">MFA verified</span></div></header><main id="main" tabIndex={-1}>{route === '/' && <><OverviewPage user={user}/>{actor.permissions.includes('system.health.read') && <SystemHealthPanel user={user}/>}</>} {route === '/employees' && <EmployeesPage user={user} actor={actor}/>} {route === '/access' && <AccessPage user={user}/>} {route === '/branches' && <BranchesPage user={user} actor={actor}/>} {route === '/approvals' && <ApprovalsPage user={user} actor={actor}/>} {route === '/support' && <SupportPage user={user} actor={actor}/>} {route === '/audit' && <AuditPageView user={user}/>} {route === '/not-found' && <NotFound/>}</main></div></div>;
+  return (
+    <div className="app-shell">
+      <a className="skip-link" href="#main">Skip to main content</a>
+      <aside className={`sidebar ${open ? 'open' : ''}`}>
+        <div className="brand">
+          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV"/>
+          <span>Admin</span>
+        </div>
+        <nav aria-label="Primary navigation">
+          {nav.map(item => (
+            <button
+              key={item.path}
+              className={route === item.path ? 'active' : ''}
+              aria-current={route === item.path ? 'page' : undefined}
+              onClick={() => go(item.path)}
+            >
+              <Icon name={item.icon}/>
+              <span>{item.label}</span>
+            </button>
+          ))}
+        </nav>
+        <div className="sidebar-account">
+          <span>{actor.displayName || actor.email}</span>
+          <small>{actor.employeeCode || 'Employee'}</small>
+          <button onClick={onLogout}><Icon name="logout"/>Sign out</button>
+        </div>
+      </aside>
+      {open && <button className="scrim" aria-label="Close navigation" onClick={() => setOpen(false)}/>}
+      <div className="app-main">
+        <header className="topbar">
+          <button className="icon-button mobile-menu" aria-label={open ? 'Close navigation' : 'Open navigation'} aria-expanded={open} onClick={() => setOpen(!open)}>
+            <Icon name={open ? 'close' : 'menu'}/>
+          </button>
+          <div>
+            <span className="breadcrumb">V MOTIV Admin /</span>
+            <strong>{title}</strong>
+          </div>
+          <div className="identity">
+            <span>{user.email}</span>
+            <span className="mfa-badge">MFA verified</span>
+          </div>
+        </header>
+        <main id="main" tabIndex={-1}>
+          {route === '/' && <><OverviewPage user={user}/>{actor.permissions.includes('system.health.read') && <SystemHealthPanel user={user}/>}</>}
+          {route === '/employees' && <EmployeesPage user={user} actor={actor}/>}
+          {route === '/access' && <AccessPage user={user}/>}
+          {route === '/approvals' && <ApprovalsPage user={user} actor={actor}/>}
+          {route === '/business' && <BusinessPage user={user} actor={actor}/>}
+          {route === '/support' && <SupportPage user={user} actor={actor}/>}
+          {route === '/master-data' && <MasterDataPage user={user} actor={actor}/>}
+          {route === '/communications' && <CommunicationsPage user={user} actor={actor}/>}
+          {route === '/reports' && <ReportsPage user={user} actor={actor}/>}
+          {route === '/branches' && <><BranchesPage user={user} actor={actor}/><PoliciesPanel user={user}/></>}
+          {route === '/audit' && <AuditPageView user={user}/>}
+          {route === '/not-found' && <NotFound/>}
+        </main>
+      </div>
+    </div>
+  );
 }
 
 function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) { return <div className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{action}</div>; }
@@ -607,10 +699,1371 @@ function CreateServiceAreaDialog({ user, onClose, onDone }: { user: User; onClos
   return <dialog ref={ref} onCancel={onClose} className="dialog compact"><form onSubmit={submit}><header><div><p className="eyebrow">Customer coverage</p><h2>Add service area</h2></div><button type="button" className="icon-button" aria-label="Close service-area form" onClick={onClose}><Icon name="close"/></button></header>{error && <div className="alert error" role="alert">{error}</div>}<label>City or service area <span aria-hidden="true">*</span><input name="name" required minLength={2} maxLength={120} placeholder="Bengaluru"/></label><footer><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Creating…' : 'Create service area'}</button></footer></form></dialog>;
 }
 
+function downloadCsvFile(content: string, filename: string) {
+  const blob = new Blob([content], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.setAttribute('href', url);
+  link.setAttribute('download', filename);
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+
+function BusinessPage({ user, actor }: { user: User; actor: AdminActor }) {
+  const [tab, setTab] = useState<'selling' | 'buying' | 'inventory' | 'finance'>('selling');
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Business Oversight"
+        title="Business Operations"
+        description="Operational oversight across vehicle acquisitions, customer purchases, showroom inventory, and financial health."
+      />
+      <div className="tab-row" role="tablist">
+        <button className={`tab-button ${tab === 'selling' ? 'active' : ''}`} onClick={() => setTab('selling')} role="tab" aria-selected={tab === 'selling'}>
+          Acquisitions & Selling
+        </button>
+        <button className={`tab-button ${tab === 'buying' ? 'active' : ''}`} onClick={() => setTab('buying')} role="tab" aria-selected={tab === 'buying'}>
+          Customer Buying & Enquiries
+        </button>
+        <button className={`tab-button ${tab === 'inventory' ? 'active' : ''}`} onClick={() => setTab('inventory')} role="tab" aria-selected={tab === 'inventory'}>
+          Inventory & Showroom
+        </button>
+        <button className={`tab-button ${tab === 'finance' ? 'active' : ''}`} onClick={() => setTab('finance')} role="tab" aria-selected={tab === 'finance'}>
+          Financial Oversight
+        </button>
+      </div>
+
+      {tab === 'selling' && <BusinessSellingTab user={user} />}
+      {tab === 'buying' && <BusinessBuyingTab user={user} />}
+      {tab === 'inventory' && <BusinessInventoryTab user={user} />}
+      {tab === 'finance' && <BusinessFinanceTab user={user} />}
+    </>
+  );
+}
+
+function BusinessSellingTab({ user }: { user: User }) {
+  const [data, setData] = useState<BusinessSellingPage | null>(null);
+  const [status, setStatus] = useState('');
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setError('');
+      adminApi.businessSelling(user, page, search || undefined, status || undefined)
+        .then(setData)
+        .catch(err => setError(errorMessage(err)));
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [user, page, search, status, reload]);
+
+  return (
+    <>
+      <section className="panel filters">
+        <label>
+          Search Leads
+          <input
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
+            placeholder="Seller name, phone, car make or model"
+          />
+        </label>
+        <label>
+          Status
+          <select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
+            <option value="">All statuses</option>
+            <option value="INITIATED">Initiated</option>
+            <option value="INSPECTION_SCHEDULED">Inspection Scheduled</option>
+            <option value="INSPECTED">Inspected</option>
+            <option value="OFFER_ACCEPTED">Offer Accepted</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+        </label>
+      </section>
+
+      {error ? (
+        <ErrorState message={error} retry={() => setReload(v => v + 1)} />
+      ) : !data ? (
+        <TableSkeleton />
+      ) : (
+        <section className="panel table-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Acquisition Leads</h2>
+              <p>{data.total.toLocaleString()} lead{data.total === 1 ? '' : 's'} recorded</p>
+            </div>
+            {data.counts && (
+              <div className="pill-row">
+                {Object.entries(data.counts).map(([st, cnt]) => (
+                  <span key={st} className="pill">
+                    {humanize(st)}: <strong>{cnt}</strong>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          {data.items.length ? (
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Ref Code</th>
+                    <th>Seller</th>
+                    <th>Vehicle</th>
+                    <th>Location</th>
+                    <th>Latest Offer</th>
+                    <th>Status</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map(lead => {
+                    const latestOffer = lead.offers?.[0];
+                    return (
+                      <tr key={lead.id}>
+                        <td>
+                          <strong>{lead.referenceCode || lead.id.slice(0, 8)}</strong>
+                        </td>
+                        <td>
+                          <strong>{lead.sellerName}</strong>
+                          <small>{lead.sellerPhone}</small>
+                        </td>
+                        <td>
+                          <strong>{lead.make} {lead.model}</strong>
+                          <small>{lead.year}</small>
+                        </td>
+                        <td>{lead.city}</td>
+                        <td>
+                          {latestOffer ? (
+                            <strong>₹{(Number(latestOffer.offerAmountPaise) / 100).toLocaleString('en-IN')}</strong>
+                          ) : (
+                            <small>No offer yet</small>
+                          )}
+                        </td>
+                        <td>
+                          <StatusBadge value={lead.status} />
+                        </td>
+                        <td>
+                          <time>{new Date(lead.createdAt).toLocaleDateString()}</time>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState title="No acquisition leads" text="No vehicle seller leads match this criteria." />
+          )}
+          <Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage} />
+        </section>
+      )}
+    </>
+  );
+}
+
+function BusinessBuyingTab({ user }: { user: User }) {
+  const [data, setData] = useState<BusinessBuyingPage | null>(null);
+  const [search, setSearch] = useState('');
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setError('');
+      adminApi.businessBuying(user, page, search || undefined)
+        .then(setData)
+        .catch(err => setError(errorMessage(err)));
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [user, page, search, reload]);
+
+  return (
+    <>
+      <section className="panel filters">
+        <label>
+          Search Enquiries
+          <input
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
+            placeholder="Search customer, vehicle title, make or model"
+          />
+        </label>
+      </section>
+
+      {error ? (
+        <ErrorState message={error} retry={() => setReload(v => v + 1)} />
+      ) : !data ? (
+        <TableSkeleton />
+      ) : (
+        <>
+          <section className="panel table-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Test Drive Bookings</h2>
+                <p>{data.testDrives.total} test drive request{data.testDrives.total === 1 ? '' : 's'}</p>
+              </div>
+            </div>
+            {data.testDrives.items.length ? (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Vehicle</th>
+                      <th>Type</th>
+                      <th>Scheduled Slot</th>
+                      <th>Status</th>
+                      <th>Booked On</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.testDrives.items.map(td => (
+                      <tr key={td.id}>
+                        <td>
+                          <strong>{td.user.displayName || td.user.email}</strong>
+                          <small>{td.user.email}</small>
+                        </td>
+                        <td>
+                          <strong>{td.listing.title}</strong>
+                          <small>{td.listing.vehicle.make} {td.listing.vehicle.model} ({td.listing.vehicle.manufacturingYear})</small>
+                        </td>
+                        <td><span className="pill">{humanize(td.type)}</span></td>
+                        <td>
+                          <strong>{new Date(td.scheduledAt).toLocaleDateString()}</strong>
+                          <small>{td.slot} {td.address ? `· ${td.address}` : ''}</small>
+                        </td>
+                        <td><StatusBadge value={td.status} /></td>
+                        <td><time>{new Date(td.createdAt).toLocaleDateString()}</time></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState title="No test drive requests" text="No active test drive bookings found." />
+            )}
+          </section>
+
+          <section className="panel table-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Purchase Enquiries</h2>
+                <p>{data.purchaseEnquiries.total} enquiry recorded</p>
+              </div>
+            </div>
+            {data.purchaseEnquiries.items.length ? (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Customer</th>
+                      <th>Vehicle</th>
+                      <th>Enquiry Type</th>
+                      <th>Message</th>
+                      <th>Status</th>
+                      <th>Date</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {data.purchaseEnquiries.items.map(enq => (
+                      <tr key={enq.id}>
+                        <td>
+                          <strong>{enq.user.displayName || enq.user.email}</strong>
+                          <small>{enq.user.email}</small>
+                        </td>
+                        <td>
+                          <strong>{enq.listing.title}</strong>
+                          <small>{enq.listing.vehicle.make} {enq.listing.vehicle.model}</small>
+                        </td>
+                        <td><span className="pill">{humanize(enq.enquiryType)}</span></td>
+                        <td>{enq.message || <small>No message provided</small>}</td>
+                        <td><StatusBadge value={enq.status} /></td>
+                        <td><time>{new Date(enq.createdAt).toLocaleDateString()}</time></td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState title="No purchase enquiries" text="No purchase enquiries recorded yet." />
+            )}
+          </section>
+        </>
+      )}
+    </>
+  );
+}
+
+function BusinessInventoryTab({ user }: { user: User }) {
+  const [data, setData] = useState<BusinessInventoryPage | null>(null);
+  const [search, setSearch] = useState('');
+  const [status, setStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setError('');
+      adminApi.businessInventory(user, page, search || undefined, status || undefined)
+        .then(setData)
+        .catch(err => setError(errorMessage(err)));
+    }, 200);
+    return () => clearTimeout(timer);
+  }, [user, page, search, status, reload]);
+
+  return (
+    <>
+      <section className="panel filters">
+        <label>
+          Search Inventory
+          <input
+            value={search}
+            onChange={e => { setSearch(e.target.value); setPage(1); }}
+            placeholder="Search make, model, or listing title"
+          />
+        </label>
+        <label>
+          Status
+          <select value={status} onChange={e => { setStatus(e.target.value); setPage(1); }}>
+            <option value="">All statuses</option>
+            <option value="DRAFT">Draft</option>
+            <option value="PUBLISHED">Published</option>
+            <option value="RESERVED">Reserved</option>
+            <option value="SOLD">Sold</option>
+            <option value="DELISTED">Delisted</option>
+          </select>
+        </label>
+      </section>
+
+      {error ? (
+        <ErrorState message={error} retry={() => setReload(v => v + 1)} />
+      ) : !data ? (
+        <TableSkeleton />
+      ) : (
+        <section className="panel table-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Showroom Inventory</h2>
+              <p>{data.total.toLocaleString()} vehicle{data.total === 1 ? '' : 's'} listed</p>
+            </div>
+            {data.counts && (
+              <div className="pill-row">
+                {Object.entries(data.counts).map(([st, cnt]) => (
+                  <span key={st} className="pill">
+                    {humanize(st)}: <strong>{cnt}</strong>
+                  </span>
+                ))}
+              </div>
+            )}
+          </div>
+          {data.items.length ? (
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Vehicle</th>
+                    <th>Specs</th>
+                    <th>Listed Price</th>
+                    <th>Engagement</th>
+                    <th>Status</th>
+                    <th>Listed On</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {data.items.map(item => (
+                    <tr key={item.id}>
+                      <td>
+                        <strong>{item.title}</strong>
+                        <small>{item.vehicle.make} {item.vehicle.model} ({item.vehicle.manufacturingYear})</small>
+                      </td>
+                      <td>
+                        <span>{item.vehicle.fuelType} · {item.vehicle.transmission}</span>
+                        <small>{item.vehicle.mileageKm.toLocaleString()} km · {item.vehicle.registrationState}</small>
+                      </td>
+                      <td>
+                        <strong>₹{(Number(item.pricePaise) / 100).toLocaleString('en-IN')}</strong>
+                      </td>
+                      <td>
+                        <small>
+                          {item._count.testDriveRequests} Test Drives · {item._count.purchaseEnquiries} Enquiries · {item._count.wishlist} Wishlist
+                        </small>
+                      </td>
+                      <td><StatusBadge value={item.status} /></td>
+                      <td>
+                        <time>{new Date(item.createdAt).toLocaleDateString()}</time>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState title="No vehicles found" text="No inventory items match the selected filter." />
+          )}
+          <Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage} />
+        </section>
+      )}
+    </>
+  );
+}
+
+function BusinessFinanceTab({ user }: { user: User }) {
+  const [data, setData] = useState<BusinessFinance | null>(null);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    setError('');
+    adminApi.businessFinance(user)
+      .then(setData)
+      .catch(err => setError(errorMessage(err)));
+  }, [user, reload]);
+
+  return (
+    <>
+      {error ? (
+        <ErrorState message={error} retry={() => setReload(v => v + 1)} />
+      ) : !data ? (
+        <SkeletonCards />
+      ) : (
+        <>
+          <section className="metric-grid">
+            <article className="metric-card">
+              <span>Active Inventory Value</span>
+              <strong>₹{data.activeInventoryValueRupees.toLocaleString('en-IN')}</strong>
+              <small>{data.activeInventoryCount} published vehicles</small>
+            </article>
+            <article className="metric-card">
+              <span>Total Offers Issued</span>
+              <strong>₹{data.totalOffersValueRupees.toLocaleString('en-IN')}</strong>
+              <small>{data.totalOffersIssued} acquisition valuation offers</small>
+            </article>
+            <article className="metric-card">
+              <span>Acquisition Leads</span>
+              <strong>{data.totalAcquisitionLeads}</strong>
+              <small>{data.pendingSettlements} accepted awaiting settlement</small>
+            </article>
+            <article className="metric-card">
+              <span>Reconciliation Status</span>
+              <strong><StatusBadge value={data.reconciliationStatus} /></strong>
+              <small>Real-time ledger audit compliant</small>
+            </article>
+          </section>
+
+          <section className="panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Finance Policy & Governance</h2>
+                <p>Rules enforced by the backend ledger architecture.</p>
+              </div>
+            </div>
+            <ul className="event-list">
+              <li>
+                <div>
+                  <strong>Maker-Checker Payment Authorization</strong>
+                  <span>Payouts over ₹1,00,000 require independent approval before disbursement.</span>
+                </div>
+                <span className="pill">Server Enforced</span>
+              </li>
+              <li>
+                <div>
+                  <strong>No Self-Approval Rule</strong>
+                  <span>Employees proposing a pricing override or payout cannot approve their own transaction.</span>
+                </div>
+                <span className="pill">Server Enforced</span>
+              </li>
+              <li>
+                <div>
+                  <strong>Immutable Audit Trail</strong>
+                  <span>Every offer, valuation, test drive request, and inventory transition is journaled to audit logs.</span>
+                </div>
+                <span className="pill">Active</span>
+              </li>
+            </ul>
+          </section>
+        </>
+      )}
+    </>
+  );
+}
+
+function MasterDataPage({ user, actor }: { user: User; actor: AdminActor }) {
+  const [items, setItems] = useState<MasterDataItem[] | null>(null);
+  const [category, setCategory] = useState('');
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+  const [createOpen, setCreateOpen] = useState(false);
+  const canManage = actor.permissions.includes('masterdata.manage');
+
+  useEffect(() => {
+    setError('');
+    adminApi.masterData(user, category || undefined)
+      .then(setItems)
+      .catch(err => setError(errorMessage(err)));
+  }, [user, category, reload]);
+
+  async function toggleActive(item: MasterDataItem) {
+    try {
+      await adminApi.updateMasterDataItem(user, item.id, { active: !item.active });
+      setReload(v => v + 1);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Master Data Governance"
+        title="Master Data Catalog"
+        description="Canonical automotive taxonomy including makes, body types, fuel types, transmissions, and document categories."
+        action={
+          canManage && (
+            <button className="button primary" onClick={() => setCreateOpen(true)}>
+              Add Master Data Item
+            </button>
+          )
+        }
+      />
+
+      <section className="panel filters">
+        <label>
+          Category
+          <select value={category} onChange={e => setCategory(e.target.value)}>
+            <option value="">All Categories</option>
+            <option value="CAR_MAKE">Car Make</option>
+            <option value="CAR_BODY_TYPE">Car Body Type</option>
+            <option value="FUEL_TYPE">Fuel Type</option>
+            <option value="TRANSMISSION_TYPE">Transmission Type</option>
+            <option value="DOCUMENT_TYPE">Document Type</option>
+          </select>
+        </label>
+      </section>
+
+      {error ? (
+        <ErrorState message={error} retry={() => setReload(v => v + 1)} />
+      ) : !items ? (
+        <TableSkeleton />
+      ) : (
+        <section className="panel table-panel">
+          <div className="panel-heading">
+            <div>
+              <h2>Taxonomy Items</h2>
+              <p>{items.length} canonical record{items.length === 1 ? '' : 's'}</p>
+            </div>
+          </div>
+          {items.length ? (
+            <div className="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Category</th>
+                    <th>Code</th>
+                    <th>Name</th>
+                    <th>Parent</th>
+                    <th>Status</th>
+                    {canManage && <th><span className="sr-only">Actions</span></th>}
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.map(item => (
+                    <tr key={item.id}>
+                      <td><span className="pill">{item.category}</span></td>
+                      <td><code>{item.code}</code></td>
+                      <td><strong>{item.name}</strong></td>
+                      <td>{item.parentCode ? <code>{item.parentCode}</code> : <small>None</small>}</td>
+                      <td><StatusBadge value={item.active ? 'ACTIVE' : 'DEACTIVATED'} /></td>
+                      {canManage && (
+                        <td>
+                          <button className="text-button" onClick={() => toggleActive(item)}>
+                            {item.active ? 'Deactivate' : 'Reactivate'}
+                          </button>
+                        </td>
+                      )}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : (
+            <EmptyState title="No items found" text="No master data items recorded in this category." />
+          )}
+        </section>
+      )}
+
+      {createOpen && (
+        <CreateMasterDataDialog
+          user={user}
+          onClose={() => setCreateOpen(false)}
+          onDone={() => {
+            setCreateOpen(false);
+            setReload(v => v + 1);
+          }}
+        />
+      )}
+    </>
+  );
+}
+
+function CreateMasterDataDialog({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { ref.current?.showModal(); }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusy(true);
+    setError('');
+    try {
+      await adminApi.createMasterDataItem(user, {
+        category: String(form.get('category')).trim().toUpperCase(),
+        code: String(form.get('code')).trim().toUpperCase(),
+        name: String(form.get('name')).trim(),
+        parentCode: String(form.get('parentCode')).trim().toUpperCase() || undefined,
+      });
+      onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <dialog ref={ref} onCancel={onClose} className="dialog compact">
+      <form onSubmit={submit}>
+        <header>
+          <div>
+            <p className="eyebrow">Taxonomy Configuration</p>
+            <h2>Add Master Data Item</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
+            <Icon name="close" />
+          </button>
+        </header>
+        {error && <div className="alert error" role="alert">{error}</div>}
+        <label>
+          Category <span aria-hidden="true">*</span>
+          <select name="category" required defaultValue="CAR_MAKE">
+            <option value="CAR_MAKE">Car Make (CAR_MAKE)</option>
+            <option value="CAR_BODY_TYPE">Car Body Type (CAR_BODY_TYPE)</option>
+            <option value="FUEL_TYPE">Fuel Type (FUEL_TYPE)</option>
+            <option value="TRANSMISSION_TYPE">Transmission Type (TRANSMISSION_TYPE)</option>
+            <option value="DOCUMENT_TYPE">Document Type (DOCUMENT_TYPE)</option>
+          </select>
+        </label>
+        <label>
+          Unique Code <span aria-hidden="true">*</span>
+          <input name="code" required minLength={2} maxLength={80} placeholder="e.g. HYUNDAI, SUV, DIESEL" />
+        </label>
+        <label>
+          Display Name <span aria-hidden="true">*</span>
+          <input name="name" required minLength={1} maxLength={160} placeholder="e.g. Hyundai, SUV, Diesel" />
+        </label>
+        <label>
+          Parent Code (Optional)
+          <input name="parentCode" maxLength={80} placeholder="e.g. MAKE code if defining a model" />
+        </label>
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+          <button className="button primary" disabled={busy}>
+            {busy ? 'Creating…' : 'Create Item'}
+          </button>
+        </footer>
+      </form>
+    </dialog>
+  );
+}
+
+function CommunicationsPage({ user }: { user: User; actor: AdminActor }) {
+  const [tab, setTab] = useState<'outbox' | 'templates'>('outbox');
+  const [data, setData] = useState<CommunicationsOutboxPage | null>(null);
+  const [templates, setTemplates] = useState<CommunicationsTemplate[] | null>(null);
+  const [state, setState] = useState('');
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    if (tab === 'outbox') {
+      setError('');
+      adminApi.communicationsOutbox(user, page, state || undefined)
+        .then(setData)
+        .catch(err => setError(errorMessage(err)));
+    } else {
+      setError('');
+      adminApi.communicationsTemplates(user)
+        .then(setTemplates)
+        .catch(err => setError(errorMessage(err)));
+    }
+  }, [user, tab, page, state, reload]);
+
+  async function retryDelivery(id: string) {
+    try {
+      await adminApi.retryEmailOutbox(user, id);
+      setReload(v => v + 1);
+    } catch (err) {
+      setError(errorMessage(err));
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Delivery & Outreach"
+        title="Email & Communications"
+        description="Transactional delivery monitoring powered by Resend with recipient PII masking and automated exponential backoff."
+      />
+      <div className="tab-row" role="tablist">
+        <button className={`tab-button ${tab === 'outbox' ? 'active' : ''}`} onClick={() => setTab('outbox')} role="tab" aria-selected={tab === 'outbox'}>
+          Email Outbox
+        </button>
+        <button className={`tab-button ${tab === 'templates' ? 'active' : ''}`} onClick={() => setTab('templates')} role="tab" aria-selected={tab === 'templates'}>
+          Transactional Templates
+        </button>
+      </div>
+
+      {tab === 'outbox' && (
+        <>
+          <section className="panel filters">
+            <label>
+              Delivery State
+              <select value={state} onChange={e => { setState(e.target.value); setPage(1); }}>
+                <option value="">All States</option>
+                <option value="PENDING">Pending</option>
+                <option value="SENT">Sent</option>
+                <option value="FAILED">Failed</option>
+                <option value="DEAD_LETTER">Dead Letter</option>
+              </select>
+            </label>
+          </section>
+
+          {error ? (
+            <ErrorState message={error} retry={() => setReload(v => v + 1)} />
+          ) : !data ? (
+            <TableSkeleton />
+          ) : (
+            <section className="panel table-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Outbox Messages</h2>
+                  <p>{data.total.toLocaleString()} message{data.total === 1 ? '' : 's'}</p>
+                </div>
+                {data.summary && (
+                  <div className="pill-row">
+                    {Object.entries(data.summary).map(([st, cnt]) => (
+                      <span key={st} className="pill">
+                        {humanize(st)}: <strong>{cnt}</strong>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              {data.items.length ? (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Event Key</th>
+                        <th>Recipient (Masked)</th>
+                        <th>Subject</th>
+                        <th>Attempts</th>
+                        <th>Status</th>
+                        <th>Sent / Created</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.items.map(item => (
+                        <tr key={item.id}>
+                          <td><code>{item.eventKey}</code></td>
+                          <td><strong>{item.recipient}</strong></td>
+                          <td>{item.subject}</td>
+                          <td>{item.attempts} / {item.maxAttempts} {item.lastErrorCode ? <small>Err: {item.lastErrorCode}</small> : ''}</td>
+                          <td><StatusBadge value={item.state} /></td>
+                          <td>
+                            <time>{new Date(item.sentAt || item.createdAt).toLocaleString()}</time>
+                          </td>
+                          <td>
+                            {(item.state === 'FAILED' || item.state === 'DEAD_LETTER') && (
+                              <button className="text-button" onClick={() => retryDelivery(item.id)}>
+                                Retry
+                              </button>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptyState title="No outbox records" text="No transactional email records found for this filter." />
+              )}
+              <Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage} />
+            </section>
+          )}
+        </>
+      )}
+
+      {tab === 'templates' && (
+        <>
+          {error ? (
+            <ErrorState message={error} retry={() => setReload(v => v + 1)} />
+          ) : !templates ? (
+            <TableSkeleton />
+          ) : (
+            <section className="panel table-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Transactional Templates</h2>
+                  <p>{templates.length} canonical template{templates.length === 1 ? '' : 's'}</p>
+                </div>
+              </div>
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Template Key</th>
+                      <th>Name</th>
+                      <th>Type</th>
+                      <th>Purpose</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {templates.map(tpl => (
+                      <tr key={tpl.key}>
+                        <td><code>{tpl.key}</code></td>
+                        <td><strong>{tpl.name}</strong></td>
+                        <td><span className="pill">{tpl.type}</span></td>
+                        <td>{tpl.description}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </section>
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function ReportsPage({ user }: { user: User; actor: AdminActor }) {
+  const [tab, setTab] = useState<'exports' | 'audit'>('exports');
+  const [data, setData] = useState<ExportJobPage | null>(null);
+  const [page, setPage] = useState(1);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [downloading, setDownloading] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (tab === 'exports') {
+      setError('');
+      adminApi.exportJobs(user, page)
+        .then(setData)
+        .catch(err => setError(errorMessage(err)));
+    }
+  }, [user, tab, page, reload]);
+
+  async function handleDownload(job: ExportJob) {
+    setDownloading(job.id);
+    try {
+      const result = await adminApi.downloadExport(user, job.id);
+      const filename = `vmotiv-export-${job.resourceType.toLowerCase()}-${job.id.slice(0, 8)}.csv`;
+      downloadCsvFile(result.fileContent, filename);
+      setReload(v => v + 1);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setDownloading(null);
+    }
+  }
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Compliance & Reporting"
+        title="Audit & Controlled Reports"
+        description="Immutable audit trail and controlled CSV exports with spreadsheet formula injection protection and maker-checker approval for sensitive data."
+        action={
+          tab === 'exports' && (
+            <button className="button primary" onClick={() => setExportOpen(true)}>
+              Request Export
+            </button>
+          )
+        }
+      />
+      <div className="tab-row" role="tablist">
+        <button className={`tab-button ${tab === 'exports' ? 'active' : ''}`} onClick={() => setTab('exports')} role="tab" aria-selected={tab === 'exports'}>
+          Controlled Exports
+        </button>
+        <button className={`tab-button ${tab === 'audit' ? 'active' : ''}`} onClick={() => setTab('audit')} role="tab" aria-selected={tab === 'audit'}>
+          Audit History
+        </button>
+      </div>
+
+      {tab === 'exports' && (
+        <>
+          {error && <div className="alert error" role="alert">{error}</div>}
+          {!data ? (
+            <TableSkeleton />
+          ) : (
+            <section className="panel table-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Export Queue</h2>
+                  <p>{data.total.toLocaleString()} export job{data.total === 1 ? '' : 's'}</p>
+                </div>
+              </div>
+              {data.items.length ? (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Resource</th>
+                        <th>Scope</th>
+                        <th>Classification</th>
+                        <th>Rows</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.items.map(job => (
+                        <tr key={job.id}>
+                          <td><strong>{humanize(job.resourceType)}</strong><small>{job.format}</small></td>
+                          <td><code>{job.scope}</code></td>
+                          <td>
+                            {job.sensitive ? (
+                              <span className="privileged-badge">Sensitive (PII)</span>
+                            ) : (
+                              <span className="pill">Operational</span>
+                            )}
+                          </td>
+                          <td>{typeof job.rowCount === 'number' ? job.rowCount.toLocaleString() : '—'}</td>
+                          <td><StatusBadge value={job.status} /></td>
+                          <td>
+                            <time>{new Date(job.createdAt).toLocaleDateString()}</time>
+                            {job.requester?.user && <small>{job.requester.user.displayName || job.requester.user.email}</small>}
+                          </td>
+                          <td>
+                            {job.status === 'READY' ? (
+                              <button
+                                className="button secondary"
+                                style={{ padding: '0.4rem 0.75rem', fontSize: '0.8rem' }}
+                                disabled={downloading === job.id}
+                                onClick={() => handleDownload(job)}
+                              >
+                                <Icon name="download" />
+                                {downloading === job.id ? 'Downloading…' : 'Download CSV'}
+                              </button>
+                            ) : job.status === 'APPROVAL_PENDING' ? (
+                              <small>Pending Approval in Inbox</small>
+                            ) : (
+                              <small>{humanize(job.status)}</small>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptyState title="No exports requested" text="Request an export above. Sensitive exports require maker-checker signoff." />
+              )}
+              <Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage} />
+            </section>
+          )}
+
+          {exportOpen && (
+            <RequestExportDialog
+              user={user}
+              onClose={() => setExportOpen(false)}
+              onDone={() => {
+                setExportOpen(false);
+                setReload(v => v + 1);
+              }}
+            />
+          )}
+        </>
+      )}
+
+      {tab === 'audit' && <AuditPageView user={user} />}
+    </>
+  );
+}
+
+function RequestExportDialog({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [resourceType, setResourceType] = useState('INVENTORY');
+  const [sensitive, setSensitive] = useState(false);
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { ref.current?.showModal(); }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await adminApi.createExportJob(user, {
+        resourceType,
+        sensitive: sensitive || resourceType === 'CUSTOMERS',
+        reason: reason.trim() || undefined,
+      });
+      onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+      setBusy(false);
+    }
+  }
+
+  const isSensitive = sensitive || resourceType === 'CUSTOMERS';
+
+  return (
+    <dialog ref={ref} onCancel={onClose} className="dialog compact">
+      <form onSubmit={submit}>
+        <header>
+          <div>
+            <p className="eyebrow">Export Governance</p>
+            <h2>Request Data Export</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
+            <Icon name="close" />
+          </button>
+        </header>
+        {error && <div className="alert error" role="alert">{error}</div>}
+        <label>
+          Resource to Export <span aria-hidden="true">*</span>
+          <select value={resourceType} onChange={e => setResourceType(e.target.value)}>
+            <option value="INVENTORY">Inventory & Listings (CSV)</option>
+            <option value="AUDIT">Audit Event Logs (CSV)</option>
+            <option value="EMPLOYEES">Employee Directory (CSV)</option>
+            <option value="CUSTOMERS">Customer Records (PII - Sensitive)</option>
+          </select>
+        </label>
+        <div style={{ margin: '1rem 0' }}>
+          <label style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', cursor: 'pointer' }}>
+            <input
+              type="checkbox"
+              checked={isSensitive}
+              disabled={resourceType === 'CUSTOMERS'}
+              onChange={e => setSensitive(e.target.checked)}
+              style={{ width: '1.1rem', minHeight: '1.1rem', margin: 0 }}
+            />
+            <span>Classify as Sensitive Export (contains customer/PII data)</span>
+          </label>
+        </div>
+        {isSensitive && (
+          <div className="alert" style={{ background: 'rgba(255,209,102,0.08)', borderColor: 'rgba(255,209,102,0.4)' }}>
+            <strong>Maker-Checker Approval Required</strong>
+            <small>Sensitive exports generate an approval request. An independent authorized administrator must approve this before the export file becomes downloadable.</small>
+          </div>
+        )}
+        <label>
+          Business & Compliance Reason {isSensitive && <span aria-hidden="true">*</span>}
+          <textarea
+            name="reason"
+            value={reason}
+            onChange={e => setReason(e.target.value)}
+            required={isSensitive}
+            minLength={isSensitive ? 8 : undefined}
+            maxLength={500}
+            placeholder="Record the purpose and compliance justification for this export."
+          />
+        </label>
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+          <button className="button primary" disabled={busy || (isSensitive && reason.trim().length < 8)}>
+            {busy ? 'Requesting…' : isSensitive ? 'Submit for Approval' : 'Generate Export'}
+          </button>
+        </footer>
+      </form>
+    </dialog>
+  );
+}
+
 function SupportPage({ user, actor }: { user: User; actor: AdminActor }) {
-  const [data, setData] = useState<SupportCasePage | null>(null); const [status, setStatus] = useState(''); const [page, setPage] = useState(1); const [selected, setSelected] = useState<SupportCase | null>(null); const [error, setError] = useState(''); const [reload, setReload] = useState(0);
-  useEffect(() => { setError(''); adminApi.supportCases(user, page, status || undefined).then(setData).catch(error => setError(errorMessage(error))); }, [user, page, status, reload]);
-  return <><PageHeader eyebrow="Customer care" title="Support cases" description="Customer issues within your authorized branch-city scope. Replies are delivered through the transactional outbox; internal notes remain internal."/><section className="panel filters"><label>Status<select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}><option value="">All statuses</option><option>OPEN</option><option>IN_PROGRESS</option><option>RESOLVED</option><option>CLOSED</option></select></label></section>{error ? <ErrorState message={error} retry={() => setReload(value => value + 1)}/> : !data ? <TableSkeleton/> : <section className="panel table-panel"><div className="panel-heading"><div><h2>Case queue</h2><p>{data.total.toLocaleString()} authorized case{data.total === 1 ? '' : 's'}</p></div></div>{data.items.length ? <div className="table-scroll"><table><thead><tr><th>Case</th><th>Customer</th><th>City</th><th>Updated</th><th>Status</th><th><span className="sr-only">Open</span></th></tr></thead><tbody>{data.items.map(item => <tr key={item.id}><td><strong>{item.subject}</strong><small>{item.referenceCode} · {humanize(item.category)}</small></td><td>{item.user.displayName || item.user.email}<small>{item.user.email}</small></td><td>{item.user.preferredCity || 'Not recorded'}</td><td><time>{new Date(item.updatedAt).toLocaleString()}</time></td><td><StatusBadge value={item.status}/></td><td><button className="text-button" onClick={() => setSelected(item)}>Open</button></td></tr>)}</tbody></table></div> : <EmptyState title="No support cases" text="There are no cases in this filter and your authorized branch scope."/>}<Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/></section>}{selected && <SupportCaseDialog user={user} actor={actor} supportCase={selected} onClose={() => setSelected(null)} onDone={() => { setSelected(null); setReload(value => value + 1); }}/>}</>;
+  const [tab, setTab] = useState<'cases' | 'privacy'>('cases');
+  const [data, setData] = useState<SupportCasePage | null>(null);
+  const [privacyData, setPrivacyData] = useState<PrivacyRequestPage | null>(null);
+  const [status, setStatus] = useState('');
+  const [page, setPage] = useState(1);
+  const [selectedCase, setSelectedCase] = useState<SupportCase | null>(null);
+  const [selectedPrivacy, setSelectedPrivacy] = useState<PrivacyRequest | null>(null);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    setError('');
+    if (tab === 'cases') {
+      adminApi.supportCases(user, page, status || undefined)
+        .then(setData)
+        .catch(err => setError(errorMessage(err)));
+    } else {
+      adminApi.privacyRequests(user, page, status || undefined)
+        .then(setPrivacyData)
+        .catch(err => setError(errorMessage(err)));
+    }
+  }, [user, tab, page, status, reload]);
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Customer Care & Privacy"
+        title="Support & Compliance"
+        description="Customer issues and data privacy compliance within your authorized branch-city scope."
+      />
+      <div className="tab-row" role="tablist">
+        <button className={`tab-button ${tab === 'cases' ? 'active' : ''}`} onClick={() => { setTab('cases'); setPage(1); setStatus(''); }} role="tab" aria-selected={tab === 'cases'}>
+          Support Cases
+        </button>
+        <button className={`tab-button ${tab === 'privacy' ? 'active' : ''}`} onClick={() => { setTab('privacy'); setPage(1); setStatus(''); }} role="tab" aria-selected={tab === 'privacy'}>
+          Privacy & Compliance Requests
+        </button>
+      </div>
+
+      {tab === 'cases' && (
+        <>
+          <section className="panel filters">
+            <label>
+              Status
+              <select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}>
+                <option value="">All statuses</option>
+                <option>OPEN</option>
+                <option>IN_PROGRESS</option>
+                <option>RESOLVED</option>
+                <option>CLOSED</option>
+              </select>
+            </label>
+          </section>
+          {error ? (
+            <ErrorState message={error} retry={() => setReload(v => v + 1)} />
+          ) : !data ? (
+            <TableSkeleton />
+          ) : (
+            <section className="panel table-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Case queue</h2>
+                  <p>{data.total.toLocaleString()} authorized case{data.total === 1 ? '' : 's'}</p>
+                </div>
+              </div>
+              {data.items.length ? (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Case</th>
+                        <th>Customer</th>
+                        <th>City</th>
+                        <th>Updated</th>
+                        <th>Status</th>
+                        <th><span className="sr-only">Open</span></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.items.map(item => (
+                        <tr key={item.id}>
+                          <td><strong>{item.subject}</strong><small>{item.referenceCode} · {humanize(item.category)}</small></td>
+                          <td>{item.user.displayName || item.user.email}<small>{item.user.email}</small></td>
+                          <td>{item.user.preferredCity || 'Not recorded'}</td>
+                          <td><time>{new Date(item.updatedAt).toLocaleString()}</time></td>
+                          <td><StatusBadge value={item.status} /></td>
+                          <td><button className="text-button" onClick={() => setSelectedCase(item)}>Open</button></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptyState title="No support cases" text="There are no cases in this filter and your authorized branch scope." />
+              )}
+              <Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage} />
+            </section>
+          )}
+          {selectedCase && (
+            <SupportCaseDialog
+              user={user}
+              actor={actor}
+              supportCase={selectedCase}
+              onClose={() => setSelectedCase(null)}
+              onDone={() => { setSelectedCase(null); setReload(v => v + 1); }}
+            />
+          )}
+        </>
+      )}
+
+      {tab === 'privacy' && (
+        <>
+          <section className="panel filters">
+            <label>
+              Request Status
+              <select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}>
+                <option value="">All statuses</option>
+                <option value="PENDING">Pending</option>
+                <option value="PROCESSING">Processing</option>
+                <option value="COMPLETED">Completed</option>
+                <option value="REJECTED">Rejected</option>
+              </select>
+            </label>
+          </section>
+          {error ? (
+            <ErrorState message={error} retry={() => setReload(v => v + 1)} />
+          ) : !privacyData ? (
+            <TableSkeleton />
+          ) : (
+            <section className="panel table-panel">
+              <div className="panel-heading">
+                <div>
+                  <h2>Privacy Requests</h2>
+                  <p>{privacyData.total.toLocaleString()} customer request{privacyData.total === 1 ? '' : 's'}</p>
+                </div>
+              </div>
+              {privacyData.items.length ? (
+                <div className="table-scroll">
+                  <table>
+                    <thead>
+                      <tr>
+                        <th>Request Type</th>
+                        <th>Customer</th>
+                        <th>Details</th>
+                        <th>Resolution</th>
+                        <th>Status</th>
+                        <th>Created</th>
+                        <th>Action</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {privacyData.items.map(pr => (
+                        <tr key={pr.id}>
+                          <td><strong>{humanize(pr.requestType)}</strong></td>
+                          <td>
+                            <strong>{pr.user.displayName || pr.user.email}</strong>
+                            <small>{pr.user.email} {pr.user.phone ? `· ${pr.user.phone}` : ''}</small>
+                          </td>
+                          <td>{pr.details || <small>Standard privacy request</small>}</td>
+                          <td>{pr.resolution || <small>Awaiting resolution</small>}</td>
+                          <td><StatusBadge value={pr.status} /></td>
+                          <td><time>{new Date(pr.createdAt).toLocaleDateString()}</time></td>
+                          <td>
+                            <button className="text-button" onClick={() => setSelectedPrivacy(pr)}>
+                              Update
+                            </button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              ) : (
+                <EmptyState title="No privacy requests" text="No customer privacy or compliance requests match this status." />
+              )}
+              <Pagination page={privacyData.page} limit={privacyData.limit} total={privacyData.total} onPage={setPage} />
+            </section>
+          )}
+          {selectedPrivacy && (
+            <PrivacyRequestDialog
+              user={user}
+              request={selectedPrivacy}
+              onClose={() => setSelectedPrivacy(null)}
+              onDone={() => { setSelectedPrivacy(null); setReload(v => v + 1); }}
+            />
+          )}
+        </>
+      )}
+    </>
+  );
+}
+
+function PrivacyRequestDialog({ user, request, onClose, onDone }: { user: User; request: PrivacyRequest; onClose: () => void; onDone: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [status, setStatus] = useState(request.status);
+  const [resolution, setResolution] = useState(request.resolution || '');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => { ref.current?.showModal(); }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await adminApi.updatePrivacyRequest(user, request.id, status, resolution || undefined);
+      onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <dialog ref={ref} onCancel={onClose} className="dialog compact">
+      <form onSubmit={submit}>
+        <header>
+          <div>
+            <p className="eyebrow">Customer Privacy Rights</p>
+            <h2>{humanize(request.requestType)}</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
+            <Icon name="close" />
+          </button>
+        </header>
+        {error && <div className="alert error" role="alert">{error}</div>}
+        <dl className="review-list">
+          <div>
+            <dt>Customer</dt>
+            <dd>{request.user.displayName || request.user.email}<small>{request.user.email}</small></dd>
+          </div>
+          <div>
+            <dt>Submitted Date</dt>
+            <dd>{new Date(request.createdAt).toLocaleString()}</dd>
+          </div>
+        </dl>
+        <label>
+          Status
+          <select value={status} onChange={e => setStatus(e.target.value)}>
+            <option value="PENDING">Pending</option>
+            <option value="PROCESSING">Processing</option>
+            <option value="COMPLETED">Completed</option>
+            <option value="REJECTED">Rejected</option>
+          </select>
+        </label>
+        <label>
+          Resolution Note
+          <textarea
+            name="resolution"
+            value={resolution}
+            onChange={e => setResolution(e.target.value)}
+            maxLength={1000}
+            placeholder="Record the actions taken to satisfy or reject this privacy request."
+          />
+        </label>
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+          <button className="button primary" disabled={busy}>
+            {busy ? 'Saving…' : 'Save Resolution'}
+          </button>
+        </footer>
+      </form>
+    </dialog>
+  );
 }
 
 function SupportCaseDialog({ user, actor, supportCase, onClose, onDone }: { user: User; actor: AdminActor; supportCase: SupportCase; onClose: () => void; onDone: () => void }) {

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import dotenv from 'dotenv';
-import { ensureAdminCatalog } from '../src/admin-catalog.js';
+import { ensureAdminCatalog, ensureMasterDataCatalog } from '../src/admin-catalog.js';
 
 // Load environment variables
 const envPath = path.resolve(process.cwd(), 'services/api/.env');
@@ -80,6 +80,7 @@ for (const dbConfig of databases) {
 
     // Ensure permissions and roles catalog
     await ensureAdminCatalog(db);
+    await ensureMasterDataCatalog(db);
 
     const superAdminRole = await db.role.findUniqueOrThrow({
       where: { key: 'SUPER_ADMIN' },

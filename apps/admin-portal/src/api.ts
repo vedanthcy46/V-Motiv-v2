@@ -1,5 +1,29 @@
 import type { User } from 'firebase/auth';
-import type { AdminActor, ApprovalPage, AuditPage, Branch, Dashboard, EmployeePage, ManagedBranch, Role, ServiceArea, SupportCasePage, SystemHealth, PolicyVersion } from './types.js';
+import type {
+  AdminActor,
+  ApprovalPage,
+  AuditPage,
+  Branch,
+  BusinessBuyingPage,
+  BusinessFinance,
+  BusinessInventoryPage,
+  BusinessSellingPage,
+  CommunicationsOutboxPage,
+  CommunicationsTemplate,
+  Dashboard,
+  EmployeePage,
+  ExportJob,
+  ExportJobPage,
+  ManagedBranch,
+  MasterDataItem,
+  PolicyVersion,
+  PrivacyRequest,
+  PrivacyRequestPage,
+  Role,
+  ServiceArea,
+  SupportCasePage,
+  SystemHealth,
+} from './types.js';
 
 const base = (import.meta.env.VITE_API_BASE || '/api/v2').replace(/\/$/, '');
 export class ApiError extends Error {
@@ -49,4 +73,43 @@ export const adminApi = {
   status: (user: User, id: string, status: string, reason: string) => call<void>(user, `/admin/employees/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, reason }) }),
   audit: (user: User, page = 1) => call<AuditPage>(user, `/admin/audit?page=${page}&limit=25`),
   acceptInvitation: (user: User, token: string) => call<AdminActor>(user, '/staff/invitations/accept', { method: 'POST', body: JSON.stringify({ token }) }),
+
+  // Business oversight
+  businessSelling: (user: User, page = 1, search?: string, status?: string) =>
+    call<BusinessSellingPage>(user, `/admin/business/selling?${new URLSearchParams({ page: String(page), limit: '25', ...(search ? { search } : {}), ...(status ? { status } : {}) })}`),
+  businessBuying: (user: User, page = 1, search?: string) =>
+    call<BusinessBuyingPage>(user, `/admin/business/buying?${new URLSearchParams({ page: String(page), limit: '25', ...(search ? { search } : {}) })}`),
+  businessInventory: (user: User, page = 1, search?: string, status?: string) =>
+    call<BusinessInventoryPage>(user, `/admin/business/inventory?${new URLSearchParams({ page: String(page), limit: '25', ...(search ? { search } : {}), ...(status ? { status } : {}) })}`),
+  businessFinance: (user: User) => call<BusinessFinance>(user, '/admin/business/finance'),
+
+  // Master data
+  masterData: (user: User, category?: string) =>
+    call<MasterDataItem[]>(user, `/admin/master-data${category ? `?category=${encodeURIComponent(category)}` : ''}`),
+  createMasterDataItem: (user: User, input: { category: string; code: string; name: string; parentCode?: string; metadata?: Record<string, unknown> }) =>
+    call<MasterDataItem>(user, '/admin/master-data', { method: 'POST', body: JSON.stringify(input) }),
+  updateMasterDataItem: (user: User, id: string, input: { name?: string; active?: boolean; metadata?: Record<string, unknown> }) =>
+    call<MasterDataItem>(user, `/admin/master-data/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
+
+  // Communications & Email Delivery
+  communicationsOutbox: (user: User, page = 1, state?: string) =>
+    call<CommunicationsOutboxPage>(user, `/admin/communications/outbox?${new URLSearchParams({ page: String(page), limit: '25', ...(state ? { state } : {}) })}`),
+  communicationsTemplates: (user: User) =>
+    call<CommunicationsTemplate[]>(user, '/admin/communications/templates'),
+  retryEmailOutbox: (user: User, id: string) =>
+    call<{ id: string; state: string }>(user, `/admin/communications/outbox/${id}/retry`, { method: 'POST' }),
+
+  // Privacy Requests
+  privacyRequests: (user: User, page = 1, status?: string) =>
+    call<PrivacyRequestPage>(user, `/admin/support/privacy-requests?${new URLSearchParams({ page: String(page), limit: '25', ...(status ? { status } : {}) })}`),
+  updatePrivacyRequest: (user: User, id: string, status: string, resolution?: string) =>
+    call<PrivacyRequest>(user, `/admin/support/privacy-requests/${id}`, { method: 'PATCH', body: JSON.stringify({ status, ...(resolution ? { resolution } : {}) }) }),
+
+  // Reports & Exports
+  exportJobs: (user: User, page = 1) =>
+    call<ExportJobPage>(user, `/admin/exports?page=${page}&limit=25`),
+  createExportJob: (user: User, input: { resourceType: string; scope?: string; sensitive?: boolean; reason?: string }) =>
+    call<ExportJob>(user, '/admin/exports', { method: 'POST', body: JSON.stringify(input) }),
+  downloadExport: (user: User, id: string) =>
+    call<{ fileContent: string; resourceType: string; format: string }>(user, `/admin/exports/${id}/download`),
 };
