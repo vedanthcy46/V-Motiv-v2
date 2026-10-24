@@ -1084,18 +1084,23 @@ function BusinessInventoryTab({ user }: { user: User }) {
                     <tr key={item.id}>
                       <td>
                         <strong>{item.title}</strong>
-                        <small>{item.vehicle.make} {item.vehicle.model} ({item.vehicle.manufacturingYear})</small>
+                        <small>{item.vehicle?.make} {item.vehicle?.model} ({item.vehicle?.manufacturingYear})</small>
                       </td>
                       <td>
-                        <span>{item.vehicle.fuelType} · {item.vehicle.transmission}</span>
-                        <small>{item.vehicle.mileageKm.toLocaleString()} km · {item.vehicle.registrationState}</small>
+                        <span>{item.vehicle?.fuelType} · {item.vehicle?.transmission}</span>
+                        <small>
+                          {typeof item.vehicle?.odometerKm === 'number'
+                            ? `${item.vehicle.odometerKm.toLocaleString()} km`
+                            : 'Odometer not recorded'}
+                          {item.vehicle?.city ? ` · ${item.vehicle.city}` : ''}
+                        </small>
                       </td>
                       <td>
-                        <strong>₹{(Number(item.pricePaise) / 100).toLocaleString('en-IN')}</strong>
+                        <strong>₹{(Number(item.pricePaise || 0) / 100).toLocaleString('en-IN')}</strong>
                       </td>
                       <td>
                         <small>
-                          {item._count.testDriveRequests} Test Drives · {item._count.purchaseEnquiries} Enquiries · {item._count.wishlist} Wishlist
+                          {item._count?.testDriveRequests ?? 0} Test Drives · {item._count?.purchaseEnquiries ?? 0} Enquiries · {item._count?.wishlist ?? 0} Wishlist
                         </small>
                       </td>
                       <td><StatusBadge value={item.status} /></td>
@@ -1140,18 +1145,18 @@ function BusinessFinanceTab({ user }: { user: User }) {
           <section className="metric-grid">
             <article className="metric-card">
               <span>Active Inventory Value</span>
-              <strong>₹{data.activeInventoryValueRupees.toLocaleString('en-IN')}</strong>
-              <small>{data.activeInventoryCount} published vehicles</small>
+              <strong>₹{(data.activeInventoryValueRupees || 0).toLocaleString('en-IN')}</strong>
+              <small>{data.activeInventoryCount ?? 0} published vehicles</small>
             </article>
             <article className="metric-card">
               <span>Total Offers Issued</span>
-              <strong>₹{data.totalOffersValueRupees.toLocaleString('en-IN')}</strong>
-              <small>{data.totalOffersIssued} acquisition valuation offers</small>
+              <strong>₹{(data.totalOffersValueRupees || 0).toLocaleString('en-IN')}</strong>
+              <small>{data.totalOffersIssued ?? 0} acquisition valuation offers</small>
             </article>
             <article className="metric-card">
               <span>Acquisition Leads</span>
-              <strong>{data.totalAcquisitionLeads}</strong>
-              <small>{data.pendingSettlements} accepted awaiting settlement</small>
+              <strong>{data.totalAcquisitionLeads ?? 0}</strong>
+              <small>{data.pendingSettlements ?? 0} accepted awaiting settlement</small>
             </article>
             <article className="metric-card">
               <span>Reconciliation Status</span>

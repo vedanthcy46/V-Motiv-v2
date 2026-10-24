@@ -89,11 +89,15 @@ export type BusinessInventoryItem = {
   vehicle: {
     make: string;
     model: string;
+    variant?: string | null;
     manufacturingYear: number;
     fuelType: string;
     transmission: string;
-    mileageKm: number;
-    registrationState: string;
+    odometerKm?: number | null;
+    city?: string | null;
+    registrationYear?: number | null;
+    bodyType?: string | null;
+    color?: string | null;
   };
   media: Array<{ url: string; displayOrder: number }>;
   _count: { testDriveRequests: number; purchaseEnquiries: number; wishlist: number };
