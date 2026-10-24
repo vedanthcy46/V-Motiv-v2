@@ -1,5 +1,19 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
-import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import {
+  GoogleAuthProvider,
+  getMultiFactorResolver,
+  multiFactor,
+  onAuthStateChanged,
+  signInWithPopup,
+  signOut,
+  PhoneAuthProvider,
+  PhoneMultiFactorGenerator,
+  RecaptchaVerifier,
+  type Auth,
+  type MultiFactorResolver,
+  type PhoneMultiFactorInfo,
+  type User,
+} from 'firebase/auth';
 import { adminApi, ApiError } from './api.js';
 import { auth, firebaseConfigured } from './firebase.js';
 import type { AdminActor, Approval, ApprovalPage, AuditPage, Branch, Dashboard, EmployeePage, ManagedBranch, Role, ServiceArea, SupportCase, SupportCasePage, SystemHealth, PolicyVersion } from './types.js';
@@ -49,6 +63,9 @@ export function App() {
   const [route, setRoute] = useState<Route>(currentRoute());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null);
+  const [enrollMfaOpen, setEnrollMfaOpen] = useState(false);
+  const [sessionReload, setSessionReload] = useState(0);
 
   useEffect(() => { const handler = () => setRoute(currentRoute()); window.addEventListener('popstate', handler); return () => window.removeEventListener('popstate', handler); }, []);
   useEffect(() => {
@@ -59,28 +76,449 @@ export function App() {
     if (!user) return;
     if (route === '/accept-invitation') { setLoading(false); return; }
     setLoading(true); setError('');
-    adminApi.me(user).then(setActor).catch(error => { setActor(null); setError(errorMessage(error)); }).finally(() => setLoading(false));
-  }, [user, route]);
+    adminApi.me(user)
+      .then(setActor)
+      .catch(error => {
+        setActor(null);
+        setError(errorMessage(error));
+        if (auth && multiFactor(user).enrolledFactors.length === 0) {
+          setEnrollMfaOpen(true);
+        }
+      })
+      .finally(() => setLoading(false));
+  }, [user, route, sessionReload]);
 
   async function googleSignIn() {
     if (!auth) return;
     setError(''); setLoading(true);
-    try { await signInWithPopup(auth, new GoogleAuthProvider()); }
-    catch (error) { setError(error instanceof Error ? error.message : 'Google Sign-In failed.'); setLoading(false); }
+    try {
+      await signInWithPopup(auth, new GoogleAuthProvider());
+    } catch (error: any) {
+      if (error?.code === 'auth/multi-factor-auth-required') {
+        const resolver = getMultiFactorResolver(auth, error);
+        setMfaResolver(resolver);
+        setLoading(false);
+        return;
+      }
+      setError(error instanceof Error ? error.message : 'Google Sign-In failed.');
+      setLoading(false);
+    }
   }
-  async function logout() { if (auth) await signOut(auth); navigate('/'); }
+  async function logout() {
+    if (auth) await signOut(auth);
+    setMfaResolver(null);
+    setEnrollMfaOpen(false);
+    navigate('/');
+  }
 
   if (!firebaseConfigured) return <SetupState />;
   if (loading) return <FullLoader />;
   if (route === '/accept-invitation') return <InvitationAcceptance user={user} onSignIn={googleSignIn} />;
-  if (!user || !actor) return <SignInState user={user} error={error} onSignIn={googleSignIn} onSignOut={logout} />;
+  if (!user || !actor) {
+    return (
+      <>
+        <SignInState
+          user={user}
+          error={error}
+          onSignIn={googleSignIn}
+          onSignOut={logout}
+          onStartEnroll={() => setEnrollMfaOpen(true)}
+        />
+        {mfaResolver && auth && (
+          <MfaChallengeDialog
+            auth={auth}
+            resolver={mfaResolver}
+            onClose={() => setMfaResolver(null)}
+            onSuccess={() => {
+              setMfaResolver(null);
+              setSessionReload(v => v + 1);
+            }}
+          />
+        )}
+        {enrollMfaOpen && user && auth && (
+          <MfaEnrollDialog
+            auth={auth}
+            user={user}
+            onClose={() => setEnrollMfaOpen(false)}
+            onSuccess={() => {
+              setEnrollMfaOpen(false);
+              setSessionReload(v => v + 1);
+            }}
+          />
+        )}
+        <div id="recaptcha-container" />
+      </>
+    );
+  }
   return <Shell actor={actor} route={route} user={user} onLogout={logout} />;
 }
 
 function FullLoader() { return <main className="center-state" aria-busy="true"><img className="state-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV"/><div className="spinner"/><p>Verifying identity and access…</p></main>; }
 function SetupState() { return <main className="center-state"><img className="state-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV"/><p className="eyebrow">Admin Control Centre</p><h1>Firebase configuration required</h1><p>Add the four <code>VITE_FIREBASE_*</code> values from <code>.env.example</code>. No administrator access is granted until the backend also verifies the employee record, permission and MFA state.</p></main>; }
-function SignInState({ user, error, onSignIn, onSignOut }: { user: User | null; error: string; onSignIn: () => void; onSignOut: () => void }) {
-  return <main className="auth-shell"><section className="auth-panel"><img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV"/><p className="eyebrow">Admin Control Centre</p><h1>Govern the business with accountable access.</h1><p>Employee identity, branch scope, permissions and multi-factor status are verified by the V MOTIV backend on every protected request.</p><div className="auth-actions"><button className="button primary" onClick={onSignIn}>Continue with Google</button>{user && <button className="button secondary" onClick={onSignOut}>Use another account</button>}</div>{error && <div className="alert error" role="alert"><strong>Access not granted</strong><span>{error}</span></div>}<p className="security-note">Google Sign-In alone never creates Admin access.</p></section><aside className="auth-aside" aria-label="Security controls"><div><span className="kicker">Identity</span><strong>Verified Google employee account</strong></div><div><span className="kicker">Authorization</span><strong>Server-controlled roles and branch scope</strong></div><div><span className="kicker">Assurance</span><strong>MFA required for this portal</strong></div><div><span className="kicker">Accountability</span><strong>Privileged actions are audited</strong></div></aside></main>;
+
+function SignInState({
+  user,
+  error,
+  onSignIn,
+  onSignOut,
+  onStartEnroll,
+}: {
+  user: User | null;
+  error: string;
+  onSignIn: () => void;
+  onSignOut: () => void;
+  onStartEnroll: () => void;
+}) {
+  const isMfaIssue = error.includes('multi-factor') || error.includes('Firebase MFA') || error.includes('ADMIN_MFA_REQUIRED');
+  return (
+    <main className="auth-shell">
+      <section className="auth-panel">
+        <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV"/>
+        <p className="eyebrow">Admin Control Centre</p>
+        <h1>Govern the business with accountable access.</h1>
+        <p>Employee identity, branch scope, permissions and multi-factor status are verified by the V MOTIV backend on every protected request.</p>
+        <div className="auth-actions">
+          {!user ? (
+            <button className="button primary" onClick={onSignIn}>Continue with Google</button>
+          ) : isMfaIssue ? (
+            <button className="button primary" onClick={onStartEnroll}>Set up Phone 2FA</button>
+          ) : (
+            <button className="button primary" onClick={onSignIn}>Continue with Google</button>
+          )}
+          {user && <button className="button secondary" onClick={onSignOut}>Use another account</button>}
+        </div>
+        {error && (
+          <div className="alert error" role="alert">
+            <strong>Access not granted</strong>
+            <span>{error}</span>
+          </div>
+        )}
+        <p className="security-note">Google Sign-In alone never creates Admin access.</p>
+      </section>
+      <aside className="auth-aside" aria-label="Security controls">
+        <div><span className="kicker">Identity</span><strong>Verified Google employee account</strong></div>
+        <div><span className="kicker">Authorization</span><strong>Server-controlled roles and branch scope</strong></div>
+        <div><span className="kicker">Assurance</span><strong>MFA required for this portal</strong></div>
+        <div><span className="kicker">Accountability</span><strong>Privileged actions are audited</strong></div>
+      </aside>
+    </main>
+  );
+}
+
+function MfaChallengeDialog({
+  auth,
+  resolver,
+  onClose,
+  onSuccess,
+}: {
+  auth: Auth;
+  resolver: MultiFactorResolver;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+  const [verificationId, setVerificationId] = useState('');
+  const [code, setCode] = useState('');
+  const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState('');
+
+  const phoneHint = resolver.hints.find(
+    hint => hint.factorId === PhoneMultiFactorGenerator.FACTOR_ID
+  ) as PhoneMultiFactorInfo | undefined;
+
+  useEffect(() => {
+    ref.current?.showModal();
+    return () => {
+      try {
+        recaptchaVerifierRef.current?.clear();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  async function sendOtp() {
+    if (!phoneHint) {
+      setError('No registered phone number found on this account.');
+      return;
+    }
+    setSending(true);
+    setError('');
+    try {
+      if (!recaptchaVerifierRef.current) {
+        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
+          size: 'invisible',
+        });
+      }
+      const phoneProvider = new PhoneAuthProvider(auth);
+      const vId = await phoneProvider.verifyPhoneNumber(
+        { multiFactorHint: phoneHint, session: resolver.session },
+        recaptchaVerifierRef.current
+      );
+      setVerificationId(vId);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to send SMS code. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  }
+
+  useEffect(() => {
+    void sendOtp();
+  }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!verificationId || code.trim().length !== 6) return;
+    setVerifying(true);
+    setError('');
+    try {
+      const cred = PhoneAuthProvider.credential(verificationId, code.trim());
+      const assertion = PhoneMultiFactorGenerator.assertion(cred);
+      await resolver.resolveSignIn(assertion);
+      onSuccess();
+    } catch (err: any) {
+      setError(err?.message || 'Invalid or expired verification code.');
+      setVerifying(false);
+    }
+  }
+
+  const phoneDisplay = phoneHint?.phoneNumber || 'your registered mobile number';
+
+  return (
+    <dialog ref={ref} onCancel={onClose} className="dialog compact">
+      <form onSubmit={submit}>
+        <header>
+          <div>
+            <p className="eyebrow">2-Step Verification</p>
+            <h2>Phone Verification</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
+            <Icon name="close" />
+          </button>
+        </header>
+        {error && <div className="alert error" role="alert">{error}</div>}
+        <p className="helper" style={{ margin: '1rem 0' }}>
+          {sending
+            ? `Sending 6-digit verification code to ${phoneDisplay}…`
+            : `We sent a 6-digit code via SMS to ${phoneDisplay}. Enter the code below to complete sign-in.`}
+        </p>
+        <label>
+          6-digit verification code <span aria-hidden="true">*</span>
+          <input
+            name="code"
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            pattern="[0-9]{6}"
+            maxLength={6}
+            placeholder="123456"
+            value={code}
+            onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
+            required
+            autoFocus
+          />
+        </label>
+        <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'flex-end' }}>
+          <button
+            type="button"
+            className="text-button"
+            disabled={sending}
+            onClick={sendOtp}
+          >
+            {sending ? 'Resending…' : 'Resend code via SMS'}
+          </button>
+        </div>
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>
+            Cancel
+          </button>
+          <button
+            className="button primary"
+            disabled={verifying || sending || code.length !== 6}
+          >
+            {verifying ? 'Verifying…' : 'Verify & Sign In'}
+          </button>
+        </footer>
+      </form>
+    </dialog>
+  );
+}
+
+function MfaEnrollDialog({
+  auth,
+  user,
+  onClose,
+  onSuccess,
+}: {
+  auth: Auth;
+  user: User;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+  const [step, setStep] = useState<'phone' | 'otp'>('phone');
+  const [phone, setPhone] = useState('+91');
+  const [code, setCode] = useState('');
+  const [verificationId, setVerificationId] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    ref.current?.showModal();
+    return () => {
+      try {
+        recaptchaVerifierRef.current?.clear();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  async function handleSendCode(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const cleanPhone = phone.trim();
+    if (!/^\+[1-9]\d{6,14}$/.test(cleanPhone)) {
+      setError('Enter a valid phone number with country code (e.g. +91 9876543210).');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      if (!recaptchaVerifierRef.current) {
+        recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
+          size: 'invisible',
+        });
+      }
+      const multiFactorUser = multiFactor(user);
+      const session = await multiFactorUser.getSession();
+      const phoneProvider = new PhoneAuthProvider(auth);
+      const vId = await phoneProvider.verifyPhoneNumber(
+        { phoneNumber: cleanPhone, session },
+        recaptchaVerifierRef.current
+      );
+      setVerificationId(vId);
+      setStep('otp');
+    } catch (err: any) {
+      setError(err?.message || 'Failed to send SMS code. Check the phone number and try again.');
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function handleVerifyOtp(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!verificationId || code.length !== 6) return;
+    setBusy(true);
+    setError('');
+    try {
+      const cred = PhoneAuthProvider.credential(verificationId, code.trim());
+      const assertion = PhoneMultiFactorGenerator.assertion(cred);
+      await multiFactor(user).enroll(assertion, 'Primary Mobile');
+      await user.getIdToken(true);
+      onSuccess();
+    } catch (err: any) {
+      setError(err?.message || 'Invalid or expired verification code.');
+      setBusy(false);
+    }
+  }
+
+  return (
+    <dialog ref={ref} onCancel={onClose} className="dialog compact">
+      {step === 'phone' ? (
+        <form onSubmit={handleSendCode}>
+          <header>
+            <div>
+              <p className="eyebrow">Multi-Factor Authentication</p>
+              <h2>Set Up Phone 2FA</h2>
+            </div>
+            <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
+              <Icon name="close" />
+            </button>
+          </header>
+          {error && <div className="alert error" role="alert">{error}</div>}
+          <p className="helper" style={{ margin: '1rem 0' }}>
+            As a V MOTIV Super Administrator, your account requires 2-Step Verification. Enter your mobile phone number to receive a one-time verification code via SMS.
+          </p>
+          <label>
+            Mobile phone number (with country code) <span aria-hidden="true">*</span>
+            <input
+              name="phone"
+              type="tel"
+              placeholder="+919876543210"
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              required
+              autoFocus
+            />
+          </label>
+          <footer>
+            <button type="button" className="button secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="button primary" disabled={busy || phone.length < 10}>
+              {busy ? 'Sending SMS…' : 'Send verification code'}
+            </button>
+          </footer>
+        </form>
+      ) : (
+        <form onSubmit={handleVerifyOtp}>
+          <header>
+            <div>
+              <p className="eyebrow">Multi-Factor Authentication</p>
+              <h2>Enter SMS Code</h2>
+            </div>
+            <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
+              <Icon name="close" />
+            </button>
+          </header>
+          {error && <div className="alert error" role="alert">{error}</div>}
+          <p className="helper" style={{ margin: '1rem 0' }}>
+            We sent a 6-digit verification code to <strong>{phone}</strong>. Enter it below to complete 2FA registration.
+          </p>
+          <label>
+            6-digit verification code <span aria-hidden="true">*</span>
+            <input
+              name="code"
+              type="text"
+              inputMode="numeric"
+              pattern="[0-9]{6}"
+              maxLength={6}
+              placeholder="123456"
+              value={code}
+              onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
+              required
+              autoFocus
+            />
+          </label>
+          <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'space-between' }}>
+            <button
+              type="button"
+              className="text-button"
+              onClick={() => {
+                setStep('phone');
+                setCode('');
+                setError('');
+              }}
+            >
+              Change phone number
+            </button>
+          </div>
+          <footer>
+            <button type="button" className="button secondary" onClick={onClose}>
+              Cancel
+            </button>
+            <button className="button primary" disabled={busy || code.length !== 6}>
+              {busy ? 'Enrolling…' : 'Verify & Complete Enrollment'}
+            </button>
+          </footer>
+        </form>
+      )}
+    </dialog>
+  );
 }
 
 function InvitationAcceptance({ user, onSignIn }: { user: User | null; onSignIn: () => void }) {

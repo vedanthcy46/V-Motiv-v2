@@ -32,6 +32,7 @@
     "db:unseed": "npm run db:unseed -w @vmotiv/api",
     "seed:admin": "npm run seed:admin -w @vmotiv/api",
     "bootstrap:admin": "npm run bootstrap:admin -w @vmotiv/api",
+    "mfa:enroll": "npm run mfa:enroll -w @vmotiv/api --",
     "email:worker": "npm run worker -w @vmotiv/api"
   },
   "devDependencies": {
