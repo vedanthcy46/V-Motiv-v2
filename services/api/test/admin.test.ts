@@ -250,4 +250,15 @@ describe('Admin authentication and authorization boundary', () => {
     expect(downloaded.body.fileContent).toContain('Honda City');
     expect(admin.downloadExport).toHaveBeenCalledWith(actor, exportId);
   });
+
+  it('serializes BigInt values in responses without throwing TypeError', async () => {
+    const { app, admin } = setup();
+    admin.businessInventory = vi.fn().mockResolvedValue({
+      page: 1, limit: 25, total: 1,
+      items: [{ id: 'listing-bigint', pricePaise: 85000000n, vehicle: { make: 'Honda' } }],
+    });
+    const response = await request(app).get('/api/v2/admin/business/inventory').set('Authorization', 'Bearer admin');
+    expect(response.status).toBe(200);
+    expect(response.body.items[0].pricePaise).toBe('85000000');
+  });
 });

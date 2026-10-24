@@ -5,6 +5,16 @@ import type { Identity } from './auth.js';
 import { HttpError } from './errors.js';
 import type { PermissionKey } from './admin-catalog.js';
 
+if (!('toJSON' in BigInt.prototype)) {
+  Object.defineProperty(BigInt.prototype, 'toJSON', {
+    value: function () {
+      return this.toString();
+    },
+    writable: true,
+    configurable: true,
+  });
+}
+
 export type AdminActor = {
   userId: string;
   firebaseUid: string;
@@ -619,7 +629,15 @@ export class PrismaAdminStore implements AdminStore {
     for (const item of statusCounts) {
       counts[item.status] = (item._count as any)?.status ?? 0;
     }
-    return { page: query.page, limit: query.limit, total, items, counts };
+    const safeItems = items.map(item => ({
+      ...item,
+      expectedPricePaise: item.expectedPricePaise !== null && item.expectedPricePaise !== undefined ? item.expectedPricePaise.toString() : null,
+      offers: item.offers.map(offer => ({
+        ...offer,
+        offerAmountPaise: offer.offerAmountPaise.toString(),
+      })),
+    }));
+    return { page: query.page, limit: query.limit, total, items: safeItems, counts };
   }
 
   async businessBuying(actor: AdminActor, query: BusinessBuyingQuery) {
@@ -649,9 +667,23 @@ export class PrismaAdminStore implements AdminStore {
         },
       }),
     ]);
+    const safeTestDrives = testDrives.map(td => ({
+      ...td,
+      listing: {
+        ...td.listing,
+        pricePaise: td.listing.pricePaise.toString(),
+      },
+    }));
+    const safeEnquiries = enquiries.map(enq => ({
+      ...enq,
+      listing: {
+        ...enq.listing,
+        pricePaise: enq.listing.pricePaise.toString(),
+      },
+    }));
     return {
-      testDrives: { total: testDrivesTotal, items: testDrives },
-      purchaseEnquiries: { total: enquiriesTotal, items: enquiries },
+      testDrives: { total: testDrivesTotal, items: safeTestDrives },
+      purchaseEnquiries: { total: enquiriesTotal, items: safeEnquiries },
     };
   }
 
@@ -690,7 +722,11 @@ export class PrismaAdminStore implements AdminStore {
     for (const item of statusCounts) {
       counts[item.status] = (item._count as any)?.status ?? 0;
     }
-    return { page: query.page, limit: query.limit, total, items, counts };
+    const safeItems = items.map(item => ({
+      ...item,
+      pricePaise: item.pricePaise.toString(),
+    }));
+    return { page: query.page, limit: query.limit, total, items: safeItems, counts };
   }
 
   async businessFinance(actor: AdminActor) {

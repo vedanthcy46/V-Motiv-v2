@@ -4,6 +4,16 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import helmet from 'helmet';
 
+if (!('toJSON' in BigInt.prototype)) {
+  Object.defineProperty(BigInt.prototype, 'toJSON', {
+    value: function () {
+      return this.toString();
+    },
+    writable: true,
+    configurable: true,
+  });
+}
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 import { rateLimit } from 'express-rate-limit';
