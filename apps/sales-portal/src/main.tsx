@@ -1,6 +1,21 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { GoogleAuthProvider, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import {
+  GoogleAuthProvider,
+  getMultiFactorResolver,
+  getRedirectResult,
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  PhoneAuthProvider,
+  PhoneMultiFactorGenerator,
+  RecaptchaVerifier,
+  type Auth,
+  type MultiFactorResolver,
+  type PhoneMultiFactorInfo,
+  type User,
+} from 'firebase/auth';
 import { auth, firebaseConfigured } from './firebase.js';
 import {
   ApiError,
@@ -71,61 +86,257 @@ const statusBadgeClass = (status: string): string => {
 };
 
 // ==========================================
+// 2-STEP VERIFICATION (MFA CHALLENGE DIALOG)
+// ==========================================
+function MfaChallengeDialog({
+  auth,
+  resolver,
+  onClose,
+  onSuccess,
+}: {
+  auth: Auth;
+  resolver: MultiFactorResolver;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+  const [verificationId, setVerificationId] = useState('');
+  const [code, setCode] = useState('');
+  const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState('');
+
+  const phoneHint = resolver.hints.find(
+    hint => hint.factorId === PhoneMultiFactorGenerator.FACTOR_ID
+  ) as PhoneMultiFactorInfo | undefined;
+
+  const sendOtp = async () => {
+    if (!phoneHint) {
+      setError('No registered phone number found for 2-step verification.');
+      return;
+    }
+    setSending(true);
+    setError('');
+    try {
+      if (recaptchaVerifierRef.current) {
+        try { recaptchaVerifierRef.current.clear(); } catch { /* ignore */ }
+        recaptchaVerifierRef.current = null;
+      }
+      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible',
+      });
+      const phoneProvider = new PhoneAuthProvider(auth);
+      const vId = await phoneProvider.verifyPhoneNumber(
+        { multiFactorHint: phoneHint, session: resolver.session },
+        recaptchaVerifierRef.current
+      );
+      setVerificationId(vId);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to send SMS code. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  useEffect(() => {
+    void sendOtp();
+    return () => {
+      try {
+        recaptchaVerifierRef.current?.clear();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verificationId || code.trim().length !== 6) return;
+    setVerifying(true);
+    setError('');
+    try {
+      const cred = PhoneAuthProvider.credential(verificationId, code.trim());
+      const assertion = PhoneMultiFactorGenerator.assertion(cred);
+      await resolver.resolveSignIn(assertion);
+      onSuccess();
+    } catch (err: any) {
+      setError(err?.message || 'Invalid or expired 6-digit verification code.');
+      setVerifying(false);
+    }
+  };
+
+  const phoneDisplay = phoneHint?.phoneNumber || 'your registered mobile number';
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog">
+        <div className="modal-header">
+          <div>
+            <span className="eyebrow">2-STEP VERIFICATION</span>
+            <h3>Phone Verification</h3>
+          </div>
+          <button type="button" onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body">
+            {error && <div className="error-banner">{error}</div>}
+            <p style={{ color: 'var(--muted)', fontSize: '13px', marginBottom: '14px' }}>
+              {sending
+                ? `Sending 6-digit verification code to ${phoneDisplay}…`
+                : `A 6-digit verification code was sent via SMS to ${phoneDisplay}. Enter the code below to complete sign-in.`}
+            </p>
+            <div className="form-group">
+              <label className="form-label">6-digit Verification Code *</label>
+              <input
+                autoFocus
+                required
+                className="form-input font-mono"
+                style={{ fontSize: '1.25rem', letterSpacing: '0.25em', textAlign: 'center' }}
+                placeholder="123456"
+                maxLength={6}
+                value={code}
+                onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
+              />
+            </div>
+            <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
+              <button
+                type="button"
+                className="btn-secondary btn-sm"
+                disabled={sending}
+                onClick={sendOtp}
+              >
+                {sending ? 'Resending…' : 'Resend Code via SMS'}
+              </button>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
+            <button
+              type="submit"
+              className="btn-primary"
+              disabled={verifying || sending || code.length !== 6}
+            >
+              {verifying ? 'Verifying…' : 'Verify & Continue'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
 // AUTH SCREEN (IDENTICAL ADMIN THEME)
 // ==========================================
 function SignIn() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null);
+
+  useEffect(() => {
+    if (!auth) return;
+    getRedirectResult(auth)
+      .then(result => {
+        if (result?.user) {
+          // Redirect login succeeded
+        }
+      })
+      .catch((err: any) => {
+        if (auth && err?.code === 'auth/multi-factor-auth-required') {
+          const resolver = getMultiFactorResolver(auth, err);
+          setMfaResolver(resolver);
+        } else {
+          setError(err?.message || 'Google sign-in could not be completed.');
+        }
+      });
+  }, []);
 
   const login = async () => {
     if (!auth) return;
+    const currentAuth = auth;
     setBusy(true);
     setError('');
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
-    } catch {
-      setError('Google sign-in could not be completed. Please try again.');
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(currentAuth, provider);
+    } catch (err: any) {
+      if (err?.code === 'auth/multi-factor-auth-required') {
+        const resolver = getMultiFactorResolver(currentAuth, err);
+        setMfaResolver(resolver);
+        setBusy(false);
+        return;
+      }
+      if (
+        err?.code === 'auth/popup-blocked' ||
+        err?.code === 'auth/popup-closed-by-user' ||
+        err?.code === 'auth/cancelled-popup-request' ||
+        err?.message?.includes('Cross-Origin-Opener-Policy')
+      ) {
+        try {
+          const provider = new GoogleAuthProvider();
+          provider.setCustomParameters({ prompt: 'select_account' });
+          await signInWithRedirect(currentAuth, provider);
+          return;
+        } catch (redirectError: any) {
+          setError(redirectError?.message || 'Redirect sign-in failed. Please try again.');
+        }
+      } else {
+        setError(err?.message || `Sign-in error: ${err?.code || 'UNKNOWN'}`);
+      }
     } finally {
       setBusy(false);
     }
   };
 
   return (
-    <main className="auth-shell">
-      <section className="auth-panel">
-        <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-        <p className="eyebrow">SALES EXECUTIVE PORTAL</p>
-        <h1>Authorized Sales Workspace</h1>
-        <p>Sign in with your authorized V MOTIV corporate Google account to manage buyer & seller opportunities.</p>
-        <div className="auth-actions">
-          {firebaseConfigured ? (
-            <button className="button btn-primary" onClick={login} disabled={busy}>
-              {busy ? 'Connecting to Google…' : 'Continue with Google'}
-            </button>
-          ) : (
-            <div className="error-banner">Firebase configuration is missing for this environment.</div>
-          )}
-        </div>
-        {error && <div className="error-banner">{error}</div>}
-      </section>
-      <aside className="auth-aside">
-        <div>
-          <span className="kicker">Workflow A · Buy</span>
-          <strong>Vehicle Acquisition & Valuation</strong>
-          <span>Seller lead qualification, physical inspections, and approved offers.</span>
-        </div>
-        <div>
-          <span className="kicker">Workflow B · Sell</span>
-          <strong>Inventory & Retail Fulfillment</strong>
-          <span>Inbound buyer enquiries, showroom test drives, and quotations.</span>
-        </div>
-        <div>
-          <span className="kicker">Security & Governance</span>
-          <strong>Role & Branch Scoped</strong>
-          <span>Strict server-side enforcement backed by PostgreSQL transactional audit checks.</span>
-        </div>
-      </aside>
-    </main>
+    <>
+      <main className="auth-shell">
+        <section className="auth-panel">
+          <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
+          <p className="eyebrow">SALES EXECUTIVE PORTAL</p>
+          <h1>Authorized Sales Workspace</h1>
+          <p>Sign in with your authorized V MOTIV corporate Google account to manage buyer & seller opportunities.</p>
+          <div className="auth-actions">
+            {firebaseConfigured ? (
+              <button className="button btn-primary" onClick={login} disabled={busy}>
+                {busy ? 'Connecting to Google…' : 'Continue with Google'}
+              </button>
+            ) : (
+              <div className="error-banner">Firebase configuration is missing for this environment.</div>
+            )}
+          </div>
+          {error && <div className="error-banner">{error}</div>}
+        </section>
+        <aside className="auth-aside">
+          <div>
+            <span className="kicker">Workflow A · Buy</span>
+            <strong>Vehicle Acquisition & Valuation</strong>
+            <span>Seller lead qualification, physical inspections, and approved offers.</span>
+          </div>
+          <div>
+            <span className="kicker">Workflow B · Sell</span>
+            <strong>Inventory & Retail Fulfillment</strong>
+            <span>Inbound buyer enquiries, showroom test drives, and quotations.</span>
+          </div>
+          <div>
+            <span className="kicker">Security & Governance</span>
+            <strong>Role & Branch Scoped</strong>
+            <span>Strict server-side enforcement backed by PostgreSQL transactional audit checks.</span>
+          </div>
+        </aside>
+      </main>
+
+      {mfaResolver && auth && (
+        <MfaChallengeDialog
+          auth={auth}
+          resolver={mfaResolver}
+          onClose={() => setMfaResolver(null)}
+          onSuccess={() => setMfaResolver(null)}
+        />
+      )}
+      <div id="recaptcha-container" />
+    </>
   );
 }
 
