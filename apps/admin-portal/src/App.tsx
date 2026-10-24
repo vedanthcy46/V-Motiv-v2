@@ -921,7 +921,7 @@ function BusinessBuyingTab({ user }: { user: User }) {
                     <tr>
                       <th>Customer</th>
                       <th>Vehicle</th>
-                      <th>Type</th>
+                      <th>Location / Type</th>
                       <th>Scheduled Slot</th>
                       <th>Status</th>
                       <th>Booked On</th>
@@ -938,10 +938,10 @@ function BusinessBuyingTab({ user }: { user: User }) {
                           <strong>{td.listing.title}</strong>
                           <small>{td.listing.vehicle.make} {td.listing.vehicle.model} ({td.listing.vehicle.manufacturingYear})</small>
                         </td>
-                        <td><span className="pill">{humanize(td.type)}</span></td>
+                        <td><span className="pill">{humanize(td.locationPreference || 'HUB')}</span></td>
                         <td>
-                          <strong>{new Date(td.scheduledAt).toLocaleDateString()}</strong>
-                          <small>{td.slot} {td.address ? `· ${td.address}` : ''}</small>
+                          <strong>{td.requestedDate ? new Date(td.requestedDate).toLocaleDateString() : '—'}</strong>
+                          <small>{td.timeSlot || ''} {td.address ? `· ${td.address}` : ''}</small>
                         </td>
                         <td><StatusBadge value={td.status} /></td>
                         <td><time>{new Date(td.createdAt).toLocaleDateString()}</time></td>
@@ -969,7 +969,6 @@ function BusinessBuyingTab({ user }: { user: User }) {
                     <tr>
                       <th>Customer</th>
                       <th>Vehicle</th>
-                      <th>Enquiry Type</th>
                       <th>Message</th>
                       <th>Status</th>
                       <th>Date</th>
@@ -986,7 +985,6 @@ function BusinessBuyingTab({ user }: { user: User }) {
                           <strong>{enq.listing.title}</strong>
                           <small>{enq.listing.vehicle.make} {enq.listing.vehicle.model}</small>
                         </td>
-                        <td><span className="pill">{humanize(enq.enquiryType)}</span></td>
                         <td>{enq.message || <small>No message provided</small>}</td>
                         <td><StatusBadge value={enq.status} /></td>
                         <td><time>{new Date(enq.createdAt).toLocaleDateString()}</time></td>
@@ -2149,4 +2147,7 @@ function ErrorState({ message, retry }: { message: string; retry?: () => void })
 function SkeletonCards() { return <div className="metric-grid" aria-label="Loading" aria-busy="true">{[1, 2, 3, 4].map(item => <div className="skeleton card" key={item}/>)}</div>; }
 function TableSkeleton() { return <div className="panel" aria-label="Loading" aria-busy="true"><div className="skeleton line"/><div className="skeleton row"/><div className="skeleton row"/><div className="skeleton row"/></div>; }
 function NotFound() { return <div className="empty-state page-empty"><strong>Page not found</strong><p>The requested Admin route does not exist or is not enabled.</p><button className="button primary" onClick={() => navigate('/')}>Return to overview</button></div>; }
-function humanize(value: string) { return value.toLowerCase().replace(/[._-]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase()); }
+function humanize(value?: string | null): string {
+  if (!value) return '';
+  return String(value).toLowerCase().replace(/[._-]+/g, ' ').replace(/\b\w/g, letter => letter.toUpperCase());
+}

@@ -56,9 +56,10 @@ export type BusinessBuyingPage = {
     items: Array<{
       id: string;
       status: string;
-      scheduledAt: string;
-      slot: string;
-      type: string;
+      requestedDate: string;
+      timeSlot: string;
+      locationPreference: string;
+      serviceCity: string;
       address?: string | null;
       createdAt: string;
       user: { email: string; displayName: string | null };
@@ -70,7 +71,6 @@ export type BusinessBuyingPage = {
     items: Array<{
       id: string;
       status: string;
-      enquiryType: string;
       message?: string | null;
       createdAt: string;
       user: { email: string; displayName: string | null };
