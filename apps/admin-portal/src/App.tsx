@@ -148,7 +148,7 @@ export function App() {
 
   if (!firebaseConfigured) return <SetupState />;
   if (loading) return <FullLoader />;
-  if (route === '/accept-invitation') return <InvitationAcceptance user={user} onSignIn={googleSignIn} />;
+  if (route === '/accept-invitation') return <InvitationAcceptance user={user} onSignIn={googleSignIn} onSignOut={logout} />;
   if (!user || !actor) {
     return (
       <>
@@ -560,7 +560,7 @@ function MfaEnrollDialog({
   );
 }
 
-function InvitationAcceptance({ user, onSignIn }: { user: User | null; onSignIn: () => void }) {
+function InvitationAcceptance({ user, onSignIn, onSignOut }: { user: User | null; onSignIn: () => void; onSignOut: () => void }) {
   const [state, setState] = useState<'idle' | 'working' | 'done'>('idle');
   const [error, setError] = useState('');
   const token = new URLSearchParams(window.location.search).get('token') || '';
@@ -584,7 +584,7 @@ function InvitationAcceptance({ user, onSignIn }: { user: User | null; onSignIn:
       <p className="eyebrow">Employee onboarding</p>
       <h1>{state === 'done' ? 'Invitation Accepted' : 'Accept Your V MOTIV Invitation'}</h1>
       {!token ? (
-        <div className="alert error" role="alert">This invitation link is incomplete.</div>
+        <div className="alert error" role="alert">This invitation link is missing the token parameter.</div>
       ) : state === 'done' ? (
         <>
           <p>Your approved role and branch scope are now active. You may now enter the Admin Control Centre.</p>
@@ -596,16 +596,28 @@ function InvitationAcceptance({ user, onSignIn }: { user: User | null; onSignIn:
         <>
           <p>
             {user
-              ? `Signed in as ${user.email}. The invitation will activate when this Google account matches the invited work email.`
+              ? `Currently signed in as ${user.email}. This must match the Google work email that received the invitation.`
               : 'Sign in with the exact Google work email that received this invitation.'}
           </p>
-          <button
-            className="button primary"
-            disabled={state === 'working'}
-            onClick={user ? accept : onSignIn}
-          >
-            {state === 'working' ? 'Activating…' : user ? 'Accept Invitation' : 'Continue with Google'}
-          </button>
+          <div className="auth-actions">
+            <button
+              className="button primary"
+              disabled={state === 'working'}
+              onClick={user ? accept : onSignIn}
+            >
+              {state === 'working' ? 'Activating…' : user ? 'Accept Invitation' : 'Continue with Google'}
+            </button>
+            {user && (
+              <button
+                type="button"
+                className="button secondary"
+                disabled={state === 'working'}
+                onClick={onSignOut}
+              >
+                Switch Google Account
+              </button>
+            )}
+          </div>
           {error && <div className="alert error" role="alert">{error}</div>}
         </>
       )}
