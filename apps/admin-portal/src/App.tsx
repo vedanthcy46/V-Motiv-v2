@@ -66,10 +66,12 @@ const iconPaths: Record<string, ReactNode> = {
 function Icon({ name }: { name: keyof typeof iconPaths }) { return <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{iconPaths[name]}</svg>; }
 
 function currentRoute(): Route {
+  const hasToken = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('token');
   const path = window.location.pathname.replace(/\/$/, '') || '/';
-  return ['/', '/employees', '/access', '/branches', '/approvals', '/business', '/support', '/master-data', '/communications', '/reports', '/audit', '/accept-invitation'].includes(path) ? path as Route : '/not-found';
+  if (path === '/accept-invitation' || hasToken) return '/accept-invitation';
+  return ['/', '/employees', '/access', '/branches', '/approvals', '/business', '/support', '/master-data', '/communications', '/reports', '/audit'].includes(path) ? path as Route : '/not-found';
 }
-function navigate(path: Route) { window.history.pushState({}, '', path); window.dispatchEvent(new PopStateEvent('popstate')); }
+function navigate(path: string) { window.history.pushState({}, '', path); window.dispatchEvent(new PopStateEvent('popstate')); }
 function errorMessage(error: unknown) {
   if (!(error instanceof ApiError)) return 'The request could not be completed. Check the connection and try again.';
   const messages: Record<string, string> = {
@@ -127,7 +129,9 @@ export function App() {
     if (!auth) return;
     setError(''); setLoading(true);
     try {
-      await signInWithPopup(auth, new GoogleAuthProvider());
+      const provider = new GoogleAuthProvider();
+      provider.setCustomParameters({ prompt: 'select_account' });
+      await signInWithPopup(auth, provider);
     } catch (error: any) {
       if (error?.code === 'auth/multi-factor-auth-required') {
         const resolver = getMultiFactorResolver(auth, error);
@@ -137,13 +141,19 @@ export function App() {
       }
       setError(error instanceof Error ? error.message : 'Google Sign-In failed.');
       setLoading(false);
+    } finally {
+      setLoading(false);
     }
   }
   async function logout() {
     if (auth) await signOut(auth);
     setMfaResolver(null);
     setEnrollMfaOpen(false);
-    navigate('/');
+    setActor(null);
+    const hasToken = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('token');
+    if (route !== '/accept-invitation' && !hasToken) {
+      navigate('/');
+    }
   }
 
   if (!firebaseConfigured) return <SetupState />;
@@ -205,6 +215,10 @@ function SignInState({
   onStartEnroll: () => void;
 }) {
   const isMfaIssue = error.includes('multi-factor') || error.includes('Firebase MFA') || error.includes('ADMIN_MFA_REQUIRED');
+  const storedToken = (() => {
+    try { return sessionStorage.getItem('vmotiv_admin_invitation_token') || ''; } catch { return ''; }
+  })();
+
   return (
     <main className="auth-shell">
       <section className="auth-panel">
@@ -226,6 +240,57 @@ function SignInState({
           <div className="alert error" role="alert">
             <strong>Access not granted</strong>
             <span>{error}</span>
+          </div>
+        )}
+        {user && storedToken && (
+          <div style={{ marginTop: '1rem', padding: '0.875rem', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px' }}>
+            <p style={{ margin: '0 0 0.5rem 0', fontWeight: 600, color: '#065f46', fontSize: '0.875rem' }}>
+              Pending employee invitation detected
+            </p>
+            <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.8125rem', color: '#047857' }}>
+              An invitation token was saved on this device. Click below to activate access for {user.email}:
+            </p>
+            <button
+              type="button"
+              className="button primary"
+              onClick={() => navigate(`/accept-invitation?token=${encodeURIComponent(storedToken)}`)}
+            >
+              Accept Invitation
+            </button>
+          </div>
+        )}
+        {user && (
+          <div style={{ marginTop: '1rem', padding: '0.875rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
+            <p style={{ margin: '0 0 0.375rem 0', fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+              Invited as a staff member?
+            </p>
+            <p style={{ margin: '0 0 0.625rem 0', fontSize: '0.8125rem', color: '#64748b' }}>
+              Paste your onboarding link or token to activate your account:
+            </p>
+            <form
+              onSubmit={e => {
+                e.preventDefault();
+                const form = e.currentTarget;
+                const val = (form.elements.namedItem('inviteInput') as HTMLInputElement)?.value.trim();
+                if (!val) return;
+                const extracted = val.includes('token=') ? new URL(val, window.location.origin).searchParams.get('token') : val;
+                if (extracted) {
+                  try { sessionStorage.setItem('vmotiv_admin_invitation_token', extracted); } catch {}
+                  navigate(`/accept-invitation?token=${encodeURIComponent(extracted)}`);
+                }
+              }}
+              style={{ display: 'flex', gap: '0.5rem' }}
+            >
+              <input
+                name="inviteInput"
+                type="text"
+                placeholder="Paste token or invitation URL"
+                style={{ flex: 1, padding: '0.45rem 0.625rem', fontSize: '0.8125rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+              />
+              <button type="submit" className="button secondary" style={{ whiteSpace: 'nowrap', fontSize: '0.8125rem' }}>
+                Redeem
+              </button>
+            </form>
           </div>
         )}
         <p className="security-note">Google Sign-In alone never creates Admin access.</p>
@@ -563,7 +628,19 @@ function MfaEnrollDialog({
 function InvitationAcceptance({ user, onSignIn, onSignOut }: { user: User | null; onSignIn: () => void; onSignOut: () => void }) {
   const [state, setState] = useState<'idle' | 'working' | 'done'>('idle');
   const [error, setError] = useState('');
-  const token = new URLSearchParams(window.location.search).get('token') || '';
+  const [manualToken, setManualToken] = useState('');
+
+  const queryToken = typeof window !== 'undefined' ? new URLSearchParams(window.location.search).get('token') || '' : '';
+  const storedToken = (() => {
+    try { return sessionStorage.getItem('vmotiv_admin_invitation_token') || ''; } catch { return ''; }
+  })();
+  const token = queryToken || storedToken || manualToken;
+
+  useEffect(() => {
+    if (queryToken) {
+      try { sessionStorage.setItem('vmotiv_admin_invitation_token', queryToken); } catch {}
+    }
+  }, [queryToken]);
 
   async function accept() {
     if (!user || !token) return;
@@ -571,10 +648,11 @@ function InvitationAcceptance({ user, onSignIn, onSignOut }: { user: User | null
     setError('');
     try {
       await adminApi.acceptInvitation(user, token);
+      try { sessionStorage.removeItem('vmotiv_admin_invitation_token'); } catch {}
       setState('done');
-    } catch (error) {
+    } catch (err) {
       setState('idle');
-      setError(errorMessage(error));
+      setError(errorMessage(err));
     }
   }
 
@@ -584,7 +662,35 @@ function InvitationAcceptance({ user, onSignIn, onSignOut }: { user: User | null
       <p className="eyebrow">Employee onboarding</p>
       <h1>{state === 'done' ? 'Invitation Accepted' : 'Accept Your V MOTIV Invitation'}</h1>
       {!token ? (
-        <div className="alert error" role="alert">This invitation link is missing the token parameter.</div>
+        <div style={{ maxWidth: '420px', width: '100%', textAlign: 'center' }}>
+          <div className="alert error" role="alert" style={{ marginBottom: '1rem' }}>
+            This invitation link is missing the token parameter.
+          </div>
+          <p style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '0.75rem' }}>
+            Paste the invitation link or token from your onboarding email:
+          </p>
+          <form
+            onSubmit={e => {
+              e.preventDefault();
+              const val = manualToken.trim();
+              const extracted = val.includes('token=') ? new URL(val, window.location.origin).searchParams.get('token') : val;
+              if (extracted) {
+                try { sessionStorage.setItem('vmotiv_admin_invitation_token', extracted); } catch {}
+                setManualToken(extracted);
+              }
+            }}
+            style={{ display: 'flex', gap: '0.5rem' }}
+          >
+            <input
+              type="text"
+              placeholder="Paste token or invitation link"
+              value={manualToken}
+              onChange={e => setManualToken(e.target.value)}
+              style={{ flex: 1, padding: '0.5rem 0.75rem', fontSize: '0.875rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+            />
+            <button type="submit" className="button secondary">Continue</button>
+          </form>
+        </div>
       ) : state === 'done' ? (
         <>
           <p>Your approved role and branch scope are now active. You may now enter the Admin Control Centre.</p>
