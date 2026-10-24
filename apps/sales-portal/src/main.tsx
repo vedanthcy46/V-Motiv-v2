@@ -254,11 +254,12 @@ function App() {
         const rep = await salesApi.reports(currentUser);
         setReports(rep);
       }
-    } catch (err) {
+    } catch (err: any) {
       if (err instanceof ApiError && err.status === 403) {
         setDenied(true);
       } else {
-        setError(err instanceof ApiError ? `Error: ${err.code}` : 'Unable to connect to the V MOTIV Sales service.');
+        const msg = err instanceof ApiError ? `Error: ${err.code} (${err.status})` : (err?.message || 'Unable to connect to the V MOTIV Sales service.');
+        setError(msg);
       }
     } finally {
       setLoading(false);
@@ -282,6 +283,25 @@ function App() {
         <button className="button btn-primary" onClick={() => auth && signOut(auth)}>
           Use another account
         </button>
+      </main>
+    );
+  }
+
+  if (!actor && error) {
+    return (
+      <main className="center-state">
+        <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" style={{ margin: '0 auto 1.5rem' }} />
+        <p className="eyebrow">SERVICE CONNECTION ISSUE</p>
+        <h1>Unable to Connect</h1>
+        <p style={{ maxWidth: '480px', margin: '0 auto 1.5rem' }}>{error}</p>
+        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
+          <button className="button btn-primary" onClick={() => void loadData(user)}>
+            Retry Connection
+          </button>
+          <button className="button btn-secondary" onClick={() => auth && signOut(auth)}>
+            Sign Out
+          </button>
+        </div>
       </main>
     );
   }

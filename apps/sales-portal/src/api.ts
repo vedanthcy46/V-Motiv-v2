@@ -1,6 +1,8 @@
 import type { User } from 'firebase/auth';
 
-const base = (import.meta.env.VITE_API_BASE || '/api/v2').replace(/\/$/, '');
+const base = (import.meta.env.VITE_API_BASE || '/api/v2')
+  .replace('https://vmotiv.in', 'https://www.vmotiv.in')
+  .replace(/\/$/, '');
 
 function query(params: Record<string, string | number | boolean | undefined | null>): string {
   const q = new URLSearchParams();
@@ -39,6 +41,13 @@ async function call<T>(user: User, path: string, init: RequestInit = {}, retry =
   if (!response.ok) {
     const body = (await response.json().catch(() => ({ code: 'REQUEST_FAILED' }))) as { code?: string };
     throw new ApiError(response.status, body.code || 'REQUEST_FAILED');
+  }
+
+  if (response.status === 204) return undefined as T;
+
+  const contentType = response.headers.get('content-type');
+  if (contentType && !contentType.includes('application/json')) {
+    throw new ApiError(response.status, 'INVALID_SERVER_RESPONSE');
   }
 
   return response.json() as Promise<T>;

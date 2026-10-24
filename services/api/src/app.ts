@@ -104,6 +104,12 @@ export function createApp(deps: {
         allowedOrigins.has(origin) ||
         (normalizedOrigin && allowedOrigins.has(normalizedOrigin)) ||
         (localDevelopmentOrigin && origin.startsWith('http://192.168.')) ||
+        normalizedOrigin === 'http://localhost:3100' ||
+        normalizedOrigin === 'http://127.0.0.1:3100' ||
+        normalizedOrigin === 'http://localhost:3200' ||
+        normalizedOrigin === 'http://127.0.0.1:3200' ||
+        normalizedOrigin === 'http://localhost:3300' ||
+        normalizedOrigin === 'http://127.0.0.1:3300' ||
         normalizedOrigin === 'https://vmotiv.in' ||
         normalizedOrigin === 'https://www.vmotiv.in' ||
         normalizedOrigin === 'https://admin.vmotiv.in' ||
