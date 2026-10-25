@@ -6,8 +6,22 @@ export function formatPrice(paise: string | number) {
 export const formatPaise = formatPrice;
 
 export function friendlyError(error: unknown) {
-  const code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
+  let code = error && typeof error === 'object' && 'code' in error && typeof error.code === 'string'
     ? error.code : error instanceof Error ? error.message : '';
+
+  // Extract common Android Google Sign-In error patterns
+  if (code.includes('12500') || code.includes('SIGN_IN_FAILED')) {
+    code = '12500';
+  } else if (code.includes('12501') || code.includes('SIGN_IN_CANCELLED') || code === 'auth_cancelled') {
+    code = 'SIGN_IN_CANCELLED';
+  } else if (code.includes('12502')) {
+    code = '12502';
+  } else if (code.includes('DEVELOPER_ERROR') || code === '10') {
+    code = 'DEVELOPER_ERROR';
+  } else if (code.includes('Network request failed') || code.includes('fetch failed')) {
+    code = 'NETWORK_UNREACHABLE';
+  }
+
   const known: Record<string, string> = {
     ACCOUNT_INACTIVE: 'This account is unavailable. Please contact support.',
     LISTING_NOT_AVAILABLE: 'This vehicle is no longer available.',
@@ -26,12 +40,22 @@ export function friendlyError(error: unknown) {
     'auth/operation-not-allowed': 'Google sign-in is not enabled for this V MOTIV build.',
     'auth/invalid-api-key': 'Firebase configuration is invalid in this V MOTIV build.',
     'auth/app-not-authorized': 'This Android build is not authorized for Google sign-in. Contact V MOTIV support.',
+    'auth/internal-error': 'Google authentication service error. Please try again.',
+    'auth/user-disabled': 'This Google account is disabled. Please contact V MOTIV support.',
+    'auth/user-not-found': 'No account found matching this Google identity.',
     SIGN_IN_CANCELLED: 'Google sign-in was cancelled.',
+    '12500': 'Google sign-in failed (Code 12500). Verify that the build SHA-1 fingerprint is added in Firebase Console and a project support email is set.',
     '12501': 'Google sign-in was cancelled.',
+    '12502': 'Google sign-in is already in progress. Complete or close that window first.',
+    '7': 'Network error during Google sign-in. Check your connection and try again.',
+    '8': 'Google Play Services internal error. Please restart the app and try again.',
+    '16': 'Google sign-in was cancelled.',
+    INTERNAL_ERROR: 'V MOTIV service encountered a temporary error. Please try again shortly.',
+    REQUEST_FAILED: 'Could not communicate with V MOTIV server. Please verify your connection.',
     IN_PROGRESS: 'Google sign-in is already open. Complete or close that window first.',
     PLAY_SERVICES_NOT_AVAILABLE: 'Google Play services must be updated before signing in.',
-    DEVELOPER_ERROR: 'Google sign-in is not configured for this Android build. Contact V MOTIV support.',
-    '10': 'Google sign-in is not configured for this Android build. Contact V MOTIV support.',
+    DEVELOPER_ERROR: 'Google sign-in is not configured for this Android build (Code 10). Check SHA-1 fingerprint in Firebase Console.',
+    '10': 'Google sign-in is not configured for this Android build (Code 10). Check SHA-1 fingerprint in Firebase Console.',
     REQUEST_CONFLICT: 'This request was already submitted.',
     auth_cancelled: 'Google sign-in was cancelled.',
     CITY_NOT_SUPPORTED: 'The selected city is not currently supported. Please choose a city from the list.',

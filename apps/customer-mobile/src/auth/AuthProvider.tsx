@@ -104,7 +104,8 @@ function useFirebaseSessionBase() {
           }
         }
       }
-    } catch (syncError) {
+    } catch (syncError: any) {
+      console.error('[AUTH_SYNC_ERROR]', syncError?.code || syncError?.message || syncError);
       if (current()) {
         setProfile(null);
         setIsInspector(false);
@@ -220,7 +221,8 @@ function ConfiguredProvider({ children }: React.PropsWithChildren) {
       }
       const credential = authModule.GoogleAuthProvider.credential(result.data.idToken);
       await withDeadline(authModule.signInWithCredential(authModule.getAuth(), credential), 15_000, 'SESSION_TIMEOUT');
-    } catch (signInError) {
+    } catch (signInError: any) {
+      console.error('[GOOGLE_SIGN_IN_ERROR]', signInError?.code || signInError?.message || signInError);
       session.setError(friendlyError(signInError));
     } finally { session.setBusy(false); }
   }, [session, authModule, googleSigninModule]);
