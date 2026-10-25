@@ -180,6 +180,40 @@ enum VehicleReservationStatus {
   RELEASED
   CONVERTED_TO_SALE
 }
+enum InspectionAppointmentStatus {
+  ASSIGNED
+  CONFIRMED
+  RESCHEDULED
+  CANCELLED
+  COMPLETED
+}
+enum InspectionReportStatus {
+  DRAFT
+  SYNC_PENDING
+  SUBMITTED
+  UNDER_REVIEW
+  REWORK_REQUIRED
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
+enum InspectionAnswerStatus {
+  PASS
+  ISSUE
+  NOT_TESTED
+  NOT_APPLICABLE
+}
+enum InspectionDefectSeverity {
+  MINOR
+  MODERATE
+  MAJOR
+  CRITICAL
+}
+enum InspectionReviewDecisionType {
+  APPROVE
+  REQUEST_CORRECTION
+  REJECT
+}
 model User {
   id String @id @default(uuid()) @db.Uuid
   firebaseUid String @unique
@@ -426,9 +460,110 @@ model InspectionRequest {
   lead AcquisitionLead @relation(fields: [leadId], references: [id], onDelete: Restrict)
   requestedByEmployee Employee @relation("InspectionRequestCreator", fields: [requestedByEmployeeId], references: [userId], onDelete: Restrict)
   branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  assignment InspectionAssignment?
+  reports InspectionReport[]
   @@index([status, createdAt])
   @@index([leadId, createdAt])
   @@index([branchId, status])
+}
+model InspectionAssignment {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @unique @db.Uuid
+  inspectorId String @db.Uuid
+  assignedById String @db.Uuid
+  status InspectionAppointmentStatus @default(ASSIGNED)
+  scheduledAt DateTime?
+  locationType String
+  address String?
+  instructions String?
+  confirmedAt DateTime?
+  startedAt DateTime?
+  completedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  request InspectionRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  inspector Employee @relation("InspectionAssignmentInspector", fields: [inspectorId], references: [userId], onDelete: Restrict)
+  assignedBy Employee @relation("InspectionAssignmentAssigner", fields: [assignedById], references: [userId], onDelete: Restrict)
+  reports InspectionReport[]
+  @@index([inspectorId, status, scheduledAt])
+}
+model InspectionReport {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  assignmentId String @db.Uuid
+  inspectorId String @db.Uuid
+  revision Int
+  status InspectionReportStatus @default(DRAFT)
+  templateKey String @default("vehicle-standard")
+  templateVersion Int @default(1)
+  identity Json @default("{}")
+  startedAt DateTime?
+  submittedAt DateTime?
+  reviewedAt DateTime?
+  recordVersion Int @default(1)
+  parentReportId String? @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  request InspectionRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  assignment InspectionAssignment @relation(fields: [assignmentId], references: [id], onDelete: Restrict)
+  inspector Employee @relation("InspectionReportInspector", fields: [inspectorId], references: [userId], onDelete: Restrict)
+  parentReport InspectionReport? @relation("InspectionReportRevisions", fields: [parentReportId], references: [id], onDelete: Restrict)
+  revisions InspectionReport[] @relation("InspectionReportRevisions")
+  answers InspectionAnswer[]
+  defects InspectionDefect[]
+  media InspectionMedia[]
+  reviewDecision InspectionReviewDecision?
+  @@unique([requestId, revision])
+  @@index([inspectorId, status, updatedAt])
+  @@index([status, submittedAt])
+}
+model InspectionAnswer {
+  id String @id @default(uuid()) @db.Uuid
+  reportId String @db.Uuid
+  itemKey String
+  status InspectionAnswerStatus
+  value Json?
+  notes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  report InspectionReport @relation(fields: [reportId], references: [id], onDelete: Restrict)
+  @@unique([reportId, itemKey])
+}
+model InspectionDefect {
+  id String @id @default(uuid()) @db.Uuid
+  reportId String @db.Uuid
+  category String
+  severity InspectionDefectSeverity
+  description String
+  location String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  report InspectionReport @relation(fields: [reportId], references: [id], onDelete: Restrict)
+  @@index([reportId, severity])
+}
+model InspectionMedia {
+  id String @id @default(uuid()) @db.Uuid
+  reportId String @db.Uuid
+  logicalMediaId String
+  storageKey String
+  mimeType String
+  byteSize Int
+  checksumSha256 String
+  capturedAt DateTime?
+  createdAt DateTime @default(now())
+  report InspectionReport @relation(fields: [reportId], references: [id], onDelete: Restrict)
+  @@unique([reportId, logicalMediaId])
+}
+model InspectionReviewDecision {
+  id String @id @default(uuid()) @db.Uuid
+  reportId String @unique @db.Uuid
+  reviewerId String @db.Uuid
+  decision InspectionReviewDecisionType
+  reason String?
+  createdAt DateTime @default(now())
+  report InspectionReport @relation(fields: [reportId], references: [id], onDelete: Restrict)
+  reviewer Employee @relation("InspectionReviewDecisionReviewer", fields: [reviewerId], references: [userId], onDelete: Restrict)
+  @@index([reviewerId, createdAt])
 }
 model AcquisitionOffer {
   id String @id @default(uuid()) @db.Uuid
@@ -526,6 +661,10 @@ model Employee {
   assignedSalesTasks SalesTask[] @relation("SalesTaskAssignee")
   createdSalesTasks SalesTask[] @relation("SalesTaskCreator")
   inspectionRequestsCreated InspectionRequest[] @relation("InspectionRequestCreator")
+  inspectionAssignments InspectionAssignment[] @relation("InspectionAssignmentInspector")
+  inspectionAssignmentsCreated InspectionAssignment[] @relation("InspectionAssignmentAssigner")
+  inspectionReports InspectionReport[] @relation("InspectionReportInspector")
+  inspectionReviewDecisions InspectionReviewDecision[] @relation("InspectionReviewDecisionReviewer")
   authoredQuotations BuyerQuotation[] @relation("BuyerQuotationAuthor")
   requestedDiscounts DiscountRequest[] @relation("DiscountRequester")
   decidedDiscounts DiscountRequest[] @relation("DiscountDecider")

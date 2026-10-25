@@ -8,6 +8,7 @@ import { PrismaCustomerStore } from './customer-store.js';
 import { createResendSender, drainOutbox } from './email.js';
 import { PrismaAdminStore } from './admin-store.js';
 import { PrismaSalesStore } from './sales-store.js';
+import { PrismaInspectionStore } from './inspection-store.js';
 
 const config = readConfig(process.env);
 
@@ -72,6 +73,7 @@ export default createApp({
   adminWebOrigin,
   admin: new PrismaAdminStore(db),
   sales: new PrismaSalesStore(db),
+  inspection: new PrismaInspectionStore(db),
   revokeTokens: firebaseUid => {
     const hasServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
     if (!hasServiceAccount) return Promise.resolve();

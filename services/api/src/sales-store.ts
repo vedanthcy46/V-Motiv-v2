@@ -803,11 +803,44 @@ export class PrismaSalesStore implements SalesStore {
         notes: true,
         scheduledAt: true,
         createdAt: true,
+        assignment: {
+          select: {
+            id: true,
+            status: true,
+            scheduledAt: true,
+            locationType: true,
+            address: true,
+          },
+        },
+        reports: {
+          where: { status: 'APPROVED' },
+          orderBy: { revision: 'desc' },
+          take: 1,
+          select: {
+            id: true,
+            revision: true,
+            status: true,
+            identity: true,
+            reviewedAt: true,
+            _count: { select: { defects: true, media: true } },
+            reviewDecision: { select: { decision: true, createdAt: true } },
+          },
+        },
       },
     });
+    const approvedReport = requests.find(r => r.reports.length > 0)?.reports[0];
     return {
       requests,
       latestStatus: requests[0]?.status || 'NOT_REQUESTED',
+      approvedReport: approvedReport ? {
+        id: approvedReport.id,
+        revision: approvedReport.revision,
+        status: approvedReport.status,
+        identity: approvedReport.identity,
+        reviewedAt: approvedReport.reviewedAt,
+        defectsCount: approvedReport._count.defects,
+        mediaCount: approvedReport._count.media,
+      } : null,
     };
   }
 

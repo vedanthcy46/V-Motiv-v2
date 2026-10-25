@@ -26,6 +26,8 @@ import type { AdminStore } from './admin-store.js';
 import { createAdminRouter } from './admin-router.js';
 import { createSalesRouter } from './sales-router.js';
 import type { SalesStore } from './sales-store.js';
+import { createInspectorRouter, createInspectionReviewRouter, createOperationsInspectionRouter } from './inspection-router.js';
+import type { PrismaInspectionStore } from './inspection-store.js';
 
 const uuid = z.string().uuid();
 const profileInput = z.object({ displayName: z.string().trim().min(1).max(80).optional(), phone: z.string().regex(/^\+91[6-9]\d{9}$/).optional(), marketingConsent: z.boolean().optional(), preferredCity: z.string().trim().min(2).max(100).optional(), termsVersion: z.string().trim().min(1).max(40).optional() }).strict().refine(value => Object.keys(value).length > 0);
@@ -78,6 +80,7 @@ export function createApp(deps: {
   adminWebOrigin?: string;
   admin?: AdminStore;
   sales?: SalesStore;
+  inspection?: PrismaInspectionStore;
   revokeTokens?: (firebaseUid: string) => Promise<void>;
   onEmailQueued?: () => Promise<unknown> | unknown;
   drainEmails?: () => Promise<number>;
@@ -94,7 +97,7 @@ export function createApp(deps: {
   const allowedOrigins = new Set([
     deps.webOrigin,
     deps.adminWebOrigin,
-    ...(localDevelopmentOrigin ? ['http://localhost:3100', 'http://127.0.0.1:3100', 'http://localhost:3200', 'http://127.0.0.1:3200', 'http://localhost:3300', 'http://127.0.0.1:3300', 'http://localhost:5173', 'http://127.0.0.1:5173'] : []),
+    ...(localDevelopmentOrigin ? ['http://localhost:3100', 'http://127.0.0.1:3100', 'http://localhost:3200', 'http://127.0.0.1:3200', 'http://localhost:3300', 'http://127.0.0.1:3300', 'http://localhost:3400', 'http://127.0.0.1:3400', 'http://localhost:5173', 'http://127.0.0.1:5173'] : []),
   ].filter((origin): origin is string => Boolean(origin)));
   app.use(cors({
     origin: (origin, callback) => {
@@ -110,13 +113,18 @@ export function createApp(deps: {
         normalizedOrigin === 'http://127.0.0.1:3200' ||
         normalizedOrigin === 'http://localhost:3300' ||
         normalizedOrigin === 'http://127.0.0.1:3300' ||
+        normalizedOrigin === 'http://localhost:3400' ||
+        normalizedOrigin === 'http://127.0.0.1:3400' ||
         normalizedOrigin === 'https://vmotiv.in' ||
         normalizedOrigin === 'https://www.vmotiv.in' ||
         normalizedOrigin === 'https://admin.vmotiv.in' ||
         normalizedOrigin === 'https://sales.vmotiv.in' ||
+        normalizedOrigin === 'https://ops.vmotiv.in' ||
         normalizedOrigin === 'https://api.vmotiv.in' ||
         normalizedOrigin === 'https://vmotiv-admin.vercel.app' ||
         normalizedOrigin === 'https://vmotiv-sales.vercel.app' ||
+        normalizedOrigin === 'https://vmotiv-review.vercel.app' ||
+        normalizedOrigin === 'https://vmotiv-ops.vercel.app' ||
         normalizedOrigin === 'https://vmotiv.vercel.app'
       ) {
         return callback(null, true);
@@ -163,6 +171,11 @@ export function createApp(deps: {
     }));
   }
   if (deps.sales) app.use('/api/v2/sales', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createSalesRouter({ verify: deps.verify, store: deps.sales }));
+  if (deps.inspection) {
+    app.use('/api/v2/inspector', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createInspectorRouter({ verify: deps.verify, store: deps.inspection }));
+    app.use('/api/v2/inspection-review', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createInspectionReviewRouter({ verify: deps.verify, store: deps.inspection }));
+    app.use('/api/v2/operations', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createOperationsInspectionRouter({ verify: deps.verify, store: deps.inspection }));
+  }
   // Published inventory is deliberately public. Every account-linked mutation remains below authentication.
   if (deps.customer) {
     app.get('/api/v1/inventory', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.inventory((res.locals.identity as Identity | undefined)?.uid, parsed(inventoryQuery, req.query))));

@@ -10,6 +10,7 @@ import { PrismaIdentityStore } from './identity-store.js';
 import { PrismaCustomerStore } from './customer-store.js';
 import { PrismaAdminStore } from './admin-store.js';
 import { PrismaSalesStore } from './sales-store.js';
+import { PrismaInspectionStore } from './inspection-store.js';
 import { processEmail, resendSender } from './email.js';
 
 const config = readConfig(process.env);
@@ -74,6 +75,7 @@ const app = createApp({
   adminWebOrigin,
   admin: new PrismaAdminStore(db),
   sales: new PrismaSalesStore(db),
+  inspection: new PrismaInspectionStore(db),
   revokeTokens: firebaseUid => getAuth(firebase).revokeRefreshTokens(firebaseUid),
   drainEmails: drainOutbox,
 });
