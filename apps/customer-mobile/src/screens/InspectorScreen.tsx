@@ -1,8 +1,9 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -11,11 +12,14 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  TouchableWithoutFeedback,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { useKeyboard } from '../components/ui';
 import {
   Calendar,
   Camera,
@@ -250,6 +254,19 @@ function getLocationTypeTheme(locationType: string | null | undefined) {
 
 export function InspectorScreen() {
   const insets = useSafeAreaInsets();
+  const { height: windowHeight } = useWindowDimensions();
+  const { isKeyboardVisible, keyboardHeight } = useKeyboard();
+  const defectScrollRef = useRef<ScrollView>(null);
+
+  const availableDefectModalHeight = useMemo(() => {
+    if (!isKeyboardVisible) {
+      return Math.round(windowHeight * 0.85);
+    }
+    const safeTop = Platform.OS === 'ios' ? insets.top + 16 : 32;
+    const computed = windowHeight - keyboardHeight - safeTop;
+    return Math.max(computed, 260);
+  }, [windowHeight, isKeyboardVisible, keyboardHeight, insets.top]);
+
   const { user, signOut, setActiveMode } = useAuth();
   const [jobs, setJobs] = useState<Assignment[]>([]);
   const [activeJob, setActiveJob] = useState<Assignment | null>(null);
@@ -1227,13 +1244,34 @@ export function InspectorScreen() {
           visible={defectModalVisible}
           transparent
           animationType="slide"
-          onRequestClose={() => setDefectModalVisible(false)}
+          statusBarTranslucent={true}
+          onRequestClose={() => {
+            Keyboard.dismiss();
+            setDefectModalVisible(false);
+          }}
         >
           <KeyboardAvoidingView
             behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={styles.modalBackdrop}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
+            style={[
+              styles.modalBackdrop,
+              Platform.OS === 'android' && isKeyboardVisible ? { paddingBottom: keyboardHeight } : null,
+            ]}
           >
-            <View style={styles.defectModalSheet}>
+            {/* Backdrop Dismiss Area */}
+            <TouchableWithoutFeedback
+              onPress={() => {
+                if (isKeyboardVisible) {
+                  Keyboard.dismiss();
+                } else {
+                  setDefectModalVisible(false);
+                }
+              }}
+            >
+              <View style={StyleSheet.absoluteFill} />
+            </TouchableWithoutFeedback>
+
+            <View style={[styles.defectModalSheet, { maxHeight: availableDefectModalHeight }]}>
               {/* Modal Header */}
               <View style={styles.defectModalHeader}>
                 <View style={{ flex: 1, minWidth: 0 }}>
@@ -1242,7 +1280,10 @@ export function InspectorScreen() {
                 </View>
                 <Pressable
                   style={styles.modalCloseBtn}
-                  onPress={() => setDefectModalVisible(false)}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setDefectModalVisible(false);
+                  }}
                   hitSlop={8}
                 >
                   <X color={color.textSecondary} size={20} />
@@ -1251,9 +1292,11 @@ export function InspectorScreen() {
 
               {/* Scrollable Form Content */}
               <ScrollView
+                ref={defectScrollRef}
                 style={styles.defectModalScroll}
                 contentContainerStyle={styles.defectModalScrollBody}
                 keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
                 showsVerticalScrollIndicator={false}
               >
                 <Text style={styles.label}>Defect Category</Text>
@@ -1308,6 +1351,12 @@ export function InspectorScreen() {
                   placeholderTextColor={color.muted}
                   value={newDefectLoc}
                   onChangeText={setNewDefectLoc}
+                  onFocus={() => {
+                    setTimeout(() => {
+                      defectScrollRef.current?.scrollTo({ y: 120, animated: true });
+                    }, 120);
+                  }}
+                  returnKeyType="next"
                 />
 
                 <Text style={[styles.label, { marginTop: 6 }]}>Description of Finding *</Text>
@@ -1319,14 +1368,22 @@ export function InspectorScreen() {
                   textAlignVertical="top"
                   value={newDefectDesc}
                   onChangeText={setNewDefectDesc}
+                  onFocus={() => {
+                    setTimeout(() => {
+                      defectScrollRef.current?.scrollToEnd({ animated: true });
+                    }, 120);
+                  }}
                 />
               </ScrollView>
 
               {/* Modal Footer CTA */}
-              <View style={[styles.defectModalFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+              <View style={[styles.defectModalFooter, { paddingBottom: isKeyboardVisible ? 10 : Math.max(insets.bottom, 14) }]}>
                 <Pressable
                   style={styles.defectCancelBtn}
-                  onPress={() => setDefectModalVisible(false)}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setDefectModalVisible(false);
+                  }}
                 >
                   <Text style={styles.defectCancelText}>Cancel</Text>
                 </Pressable>
@@ -1334,6 +1391,7 @@ export function InspectorScreen() {
                   style={[styles.defectSubmitBtn, !newDefectDesc.trim() && styles.btnDisabled]}
                   onPress={() => {
                     if (!newDefectDesc.trim()) return;
+                    Keyboard.dismiss();
                     setDefects(prev => [
                       ...prev,
                       {
@@ -2519,8 +2577,8 @@ const styles = StyleSheet.create({
     borderTopRightRadius: radius.lg,
     borderTopWidth: 1,
     borderColor: color.border,
-    maxHeight: Platform.OS === 'ios' ? '88%' : '85%',
     width: '100%',
+    overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: -4 },
     shadowOpacity: 0.35,
