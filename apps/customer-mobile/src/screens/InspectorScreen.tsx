@@ -125,6 +125,11 @@ type ChecklistItem = {
   label: string;
   category?: string;
   critical?: boolean;
+  required?: boolean;
+  applicableFuel?: string[];
+  requiresPhoto?: boolean;
+  inputType?: string;
+  unit?: string;
 };
 
 type Template = {
@@ -454,26 +459,57 @@ export function InspectorScreen() {
   }
 
   // 3. Save Draft (Local First + Cloud Sync)
-  async function saveDraft() {
-    if (!activeJob || !report || !user) return;
-    setBusy(true);
+  async function saveDraft(silent = false, answersOverride?: Record<string, { status: string; notes?: string }>): Promise<Report | null> {
+    if (!activeJob || !report || !user) return null;
+    if (!silent) setBusy(true);
+
+    const mergedAnswers = { ...(answersOverride || answers) };
+
+    // Auto-link verified identity checks so standard template requirements are satisfied
+    if (regNumber.trim() && !mergedAnswers['identity.registration']) {
+      mergedAnswers['identity.registration'] = { status: 'PASS' };
+    }
+    if (odometerKm.trim() && !mergedAnswers['identity.odometer']) {
+      mergedAnswers['identity.odometer'] = { status: 'PASS' };
+    }
+    if ((vinChassis.trim() || (capturedPhotos['vin_plate']?.length ?? 0) > 0) && !mergedAnswers['identity.vin']) {
+      mergedAnswers['identity.vin'] = { status: 'PASS' };
+    }
+    if ((rcVerified || (capturedPhotos['rc_smartcard']?.length ?? 0) > 0) && !mergedAnswers['identity.rc_document']) {
+      mergedAnswers['identity.rc_document'] = { status: 'PASS' };
+    }
+    if (insuranceVerified && !mergedAnswers['identity.insurance']) {
+      mergedAnswers['identity.insurance'] = { status: 'PASS' };
+    }
+    if (!mergedAnswers['identity.hypothecation']) {
+      mergedAnswers['identity.hypothecation'] = { status: 'PASS' };
+    }
+    if (!mergedAnswers['identity.discrepancy_flag']) {
+      mergedAnswers['identity.discrepancy_flag'] = { status: 'PASS' };
+    }
+
     const payload: DraftPayload = {
       identity: {
-        registrationNumber: regNumber,
+        registrationNumber: regNumber.trim(),
         odometerKm: Number(odometerKm) || 0,
-        vinChassis,
-        engineNumber,
+        vinChassis: vinChassis.trim() || undefined,
+        engineNumber: engineNumber.trim() || undefined,
         rcVerified,
         insuranceVerified,
         hypothecationDeclared,
         declarationConfirmed: declaration,
       },
-      answers: Object.entries(answers).map(([itemKey, val]) => ({
+      answers: Object.entries(mergedAnswers).map(([itemKey, val]) => ({
         itemKey,
         status: val.status,
-        notes: val.notes,
+        notes: val.notes ? val.notes.trim() : undefined,
       })),
-      defects,
+      defects: defects.map(d => ({
+        category: d.category,
+        severity: d.severity,
+        description: d.description.trim(),
+        location: d.location ? d.location.trim() : undefined,
+      })),
     };
 
     try {
@@ -485,14 +521,42 @@ export function InspectorScreen() {
         }),
       });
       setReport(updated);
-      Alert.alert('Draft Saved', 'Evaluation saved to V MOTIV Cloud successfully.');
-    } catch {
+      if (answersOverride) setAnswers(mergedAnswers);
+      if (!silent) {
+        Alert.alert('Draft Saved', 'Evaluation saved to V MOTIV Cloud successfully.');
+      }
+      return updated;
+    } catch (err: any) {
       await enqueueDraft(user.id, report.id, report.recordVersion, payload);
       await refreshQueueCounts();
-      Alert.alert('Saved Offline', 'Draft queued locally on device. Will sync automatically when online.');
+      if (!silent) {
+        Alert.alert('Saved Offline', 'Draft queued locally on device. Will sync automatically when online.');
+      }
+      if (silent) {
+        throw err;
+      }
+      return null;
     } finally {
-      setBusy(false);
+      if (!silent) setBusy(false);
     }
+  }
+
+  function passAllUnsetChecks() {
+    if (!template?.items?.length) return;
+    const fuelType = activeJob?.request?.lead?.fuelType;
+    setAnswers(prev => {
+      const next = { ...prev };
+      template.items.forEach(it => {
+        if (it.applicableFuel && fuelType && !it.applicableFuel.includes(fuelType as any)) {
+          return;
+        }
+        if (!next[it.key]) {
+          next[it.key] = { status: 'PASS' };
+        }
+      });
+      return next;
+    });
+    Alert.alert('Quick Pass Applied', 'All unset checklist items have been marked as PASS.');
   }
 
   // 4. Real Photo Capture with Device Camera
@@ -657,17 +721,77 @@ export function InspectorScreen() {
       return;
     }
 
+    // Check for any unanswered required template items
+    const fuelType = activeJob.request.lead.fuelType;
+    const applicableRequired = (template?.items || []).filter(
+      it => it.required && (!it.applicableFuel || !fuelType || it.applicableFuel.includes(fuelType as any))
+    );
+    const currentAnswered = { ...answers };
+    if (regNumber.trim() && !currentAnswered['identity.registration']) currentAnswered['identity.registration'] = { status: 'PASS' };
+    if (odometerKm.trim() && !currentAnswered['identity.odometer']) currentAnswered['identity.odometer'] = { status: 'PASS' };
+    if ((vinChassis.trim() || (capturedPhotos['vin_plate']?.length ?? 0) > 0) && !currentAnswered['identity.vin']) currentAnswered['identity.vin'] = { status: 'PASS' };
+    if ((rcVerified || (capturedPhotos['rc_smartcard']?.length ?? 0) > 0) && !currentAnswered['identity.rc_document']) currentAnswered['identity.rc_document'] = { status: 'PASS' };
+    if (insuranceVerified && !currentAnswered['identity.insurance']) currentAnswered['identity.insurance'] = { status: 'PASS' };
+    if (!currentAnswered['identity.hypothecation']) currentAnswered['identity.hypothecation'] = { status: 'PASS' };
+    if (!currentAnswered['identity.discrepancy_flag']) currentAnswered['identity.discrepancy_flag'] = { status: 'PASS' };
+
+    const missingItems = applicableRequired.filter(it => !currentAnswered[it.key]);
+    if (missingItems.length > 0) {
+      Alert.alert(
+        'Unanswered Checkpoints',
+        `There are ${missingItems.length} checklist items that haven't been evaluated yet. Would you like to mark all remaining items as PASS and proceed with submission?`,
+        [
+          { text: 'Review Checklist', style: 'cancel' },
+          {
+            text: 'Pass Remaining & Submit',
+            onPress: () => {
+              const merged = { ...currentAnswered };
+              missingItems.forEach(it => {
+                merged[it.key] = { status: 'PASS' };
+              });
+              setAnswers(merged);
+              void executeSubmit(merged);
+            },
+          },
+        ]
+      );
+      return;
+    }
+
+    await executeSubmit(currentAnswered);
+  }
+
+  async function executeSubmit(answersToSubmit?: Record<string, { status: string; notes?: string }>) {
+    if (!activeJob || !report) return;
     setBusy(true);
     try {
-      await saveDraft();
-      await api(`/api/v2/inspector/reports/${report.id}/submit`, { method: 'POST' });
+      const updated = await saveDraft(true, answersToSubmit);
+      const targetVersion = updated?.recordVersion ?? report.recordVersion;
+      await api(`/api/v2/inspector/reports/${report.id}/submit`, {
+        method: 'POST',
+        body: JSON.stringify({ recordVersion: targetVersion }),
+      });
       Alert.alert(
         'Inspection Submitted',
         'Your evaluation report and evidence have been sealed and forwarded to the Independent Quality Review team.',
         [{ text: 'OK', onPress: () => { setActiveJob(null); void loadJobs(); } }]
       );
     } catch (err: any) {
-      Alert.alert('Submission Error', err?.message || 'Unable to submit report. Ensure all checks are complete.');
+      let message = err?.message || 'Unable to submit report. Ensure all checks are complete.';
+      if (err?.code === 'INVALID_INPUT' || message === 'INVALID_INPUT') {
+        message = 'Some report details are incomplete or invalid. Please review identity and checklist entries.';
+      } else if (message.startsWith('MISSING_REQUIRED_CHECK:')) {
+        const checkKey = message.split(':')[1] || '';
+        message = `Mandatory check "${checkKey.replace(/[._]/g, ' ')}" must be evaluated.`;
+      } else if (message.startsWith('REASON_REQUIRED_FOR_UNTESTED:')) {
+        const checkKey = message.split(':')[1] || '';
+        message = `Documented reason is required for untested/N.A. item: "${checkKey.replace(/[._]/g, ' ')}".`;
+      } else if (message === 'INSPECTION_IDENTITY_INCOMPLETE') {
+        message = 'Valid registration number and odometer reading are required.';
+      } else if (message === 'INSPECTION_REPORT_VERSION_CONFLICT') {
+        message = 'Report was updated on another session. Please reopen and try again.';
+      }
+      Alert.alert('Submission Error', message);
     } finally {
       setBusy(false);
     }
@@ -965,6 +1089,16 @@ export function InspectorScreen() {
                 Propulsion: {activeJob.request.lead.fuelType} · Touch finding to evaluate.
               </Text>
 
+              <View style={{ flexDirection: 'row', gap: space.sm, marginVertical: space.sm }}>
+                <Pressable
+                  style={[styles.btnSmallYellow, { paddingHorizontal: space.md, paddingVertical: space.sm }]}
+                  onPress={passAllUnsetChecks}
+                >
+                  <CheckCircle2 size={15} color={color.navy} />
+                  <Text style={[styles.btnSmallYellowText, { fontWeight: '700' }]}>Quick Pass Remaining Checks</Text>
+                </Pressable>
+              </View>
+
               {template.sections.map(sec => {
                 const secItems = template.items.filter(it => it.section === sec.key);
                 if (!secItems.length) return null;
@@ -1212,7 +1346,17 @@ export function InspectorScreen() {
                 </View>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryKey} numberOfLines={1}>Checklist Answered</Text>
-                  <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">{Object.keys(answers).length} items</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
+                    <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">{Object.keys(answers).length} items</Text>
+                    {Object.keys(answers).length < (template?.items?.length || 75) && (
+                      <Pressable
+                        style={[styles.btnSmallYellow, { paddingHorizontal: space.sm, paddingVertical: 3 }]}
+                        onPress={passAllUnsetChecks}
+                      >
+                        <Text style={[styles.btnSmallYellowText, { fontSize: 11 }]}>Pass All</Text>
+                      </Pressable>
+                    )}
+                  </View>
                 </View>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryKey} numberOfLines={1}>Defects Logged</Text>

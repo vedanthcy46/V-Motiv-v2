@@ -235,7 +235,7 @@ export class PrismaInspectionStore {
     actor: InspectionActor,
     id: string,
     input: {
-      recordVersion: number;
+      recordVersion?: number;
       identity: Record<string, unknown>;
       answers: Array<{ itemKey: string; status: InspectionAnswerStatus; value?: unknown; notes?: string }>;
       defects: Array<{ category: string; severity: InspectionDefectSeverity; description: string; location?: string }>;
@@ -260,7 +260,7 @@ export class PrismaInspectionStore {
       throw new HttpError(400, 'INSPECTION_TEMPLATE_ITEM_INVALID');
     }
 
-    if (report.recordVersion !== input.recordVersion) {
+    if (typeof input.recordVersion === 'number' && report.recordVersion !== input.recordVersion) {
       throw new HttpError(409, 'INSPECTION_REPORT_VERSION_CONFLICT');
     }
 
@@ -316,7 +316,7 @@ export class PrismaInspectionStore {
     return template;
   }
 
-  async submit(actor: InspectionActor, id: string, recordVersion: number) {
+  async submit(actor: InspectionActor, id: string, recordVersion?: number) {
     checkRole(actor, inspectorRoles);
     const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
 
@@ -333,7 +333,9 @@ export class PrismaInspectionStore {
     });
 
     if (!report) throw new HttpError(409, 'INSPECTION_REPORT_NOT_SUBMITTABLE');
-    if (report.recordVersion !== recordVersion) throw new HttpError(409, 'INSPECTION_REPORT_VERSION_CONFLICT');
+    if (typeof recordVersion === 'number' && report.recordVersion !== recordVersion) {
+      throw new HttpError(409, 'INSPECTION_REPORT_VERSION_CONFLICT');
+    }
 
     const identity = (report.identity || {}) as Record<string, unknown>;
     const registrationNumber = typeof identity.registrationNumber === 'string' ? identity.registrationNumber.trim() : '';

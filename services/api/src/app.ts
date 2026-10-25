@@ -354,6 +354,7 @@ export function createApp(deps: {
     }
 
     if (error instanceof ZodError) {
+      console.error('INVALID_INPUT_ISSUES', JSON.stringify(error.issues.map(e => ({ path: e.path, message: e.message }))));
       res.status(400).json({ code: 'INVALID_INPUT', issues: error.issues });
       return;
     }

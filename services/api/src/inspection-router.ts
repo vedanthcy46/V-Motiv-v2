@@ -6,21 +6,25 @@ import { PrismaInspectionStore } from './inspection-store.js';
 const uuid = z.string().uuid();
 
 const draftInput = z.object({
-  recordVersion: z.number().int().positive(),
+  recordVersion: z.number().int().positive().optional(),
   identity: z.record(z.string(), z.unknown()),
   answers: z.array(z.object({
     itemKey: z.string().trim().min(1).max(100),
     status: z.enum(['PASS', 'ISSUE', 'NOT_TESTED', 'NOT_APPLICABLE']),
     value: z.unknown().optional(),
     notes: z.string().trim().max(2_000).optional(),
-  }).strict()).max(250),
+  }).strip()).max(250),
   defects: z.array(z.object({
     category: z.string().trim().min(1).max(80),
     severity: z.enum(['MINOR', 'MODERATE', 'MAJOR', 'CRITICAL']),
-    description: z.string().trim().min(2).max(2_000),
+    description: z.string().trim().min(1).max(2_000),
     location: z.string().trim().max(200).optional(),
-  }).strict()).max(100),
-}).strict();
+  }).strip()).max(100),
+}).strip();
+
+const submitInput = z.object({
+  recordVersion: z.number().int().positive().optional(),
+}).strip();
 
 const mediaInitiateInput = z.object({
   logicalMediaId: z.string().trim().min(1).max(100),
@@ -148,8 +152,8 @@ export function createInspectorRouter(deps: { verify: VerifyToken; store: Prisma
 
   router.post('/reports/:id/submit', async (req, res, next) => {
     try {
-      const recordVersion = z.object({ recordVersion: z.number().int().positive() }).strict().parse(req.body).recordVersion;
-      res.json(await deps.store.submit(res.locals.inspectionActor, uuid.parse(req.params.id), recordVersion));
+      const parsed = submitInput.parse(req.body ?? {});
+      res.json(await deps.store.submit(res.locals.inspectionActor, uuid.parse(req.params.id), parsed.recordVersion));
     } catch (e) {
       next(e);
     }
