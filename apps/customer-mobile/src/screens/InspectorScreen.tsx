@@ -147,6 +147,20 @@ const standardPhotoSlots = [
   { id: 'rc_smartcard', label: 'Registration Certificate (RC)', desc: 'Physical card or mParivahan record' },
 ];
 
+type DefectSeverityInfo = { label: string; color: string; bg: string; border: string };
+const defaultSeverityInfo: DefectSeverityInfo = { label: 'MINOR', color: '#38BDF8', bg: 'rgba(56, 189, 248, 0.14)', border: 'rgba(56, 189, 248, 0.35)' };
+
+const defectSeverityConfig: Record<string, DefectSeverityInfo> = {
+  CRITICAL: { label: 'CRITICAL', color: '#EF4444', bg: 'rgba(239, 68, 68, 0.14)', border: 'rgba(239, 68, 68, 0.35)' },
+  MAJOR: { label: 'MAJOR', color: '#F97316', bg: 'rgba(249, 115, 22, 0.14)', border: 'rgba(249, 115, 22, 0.35)' },
+  MODERATE: { label: 'MODERATE', color: '#EAB308', bg: 'rgba(234, 179, 8, 0.14)', border: 'rgba(234, 179, 8, 0.35)' },
+  MINOR: defaultSeverityInfo,
+};
+
+function getSeverityConfig(sev: string): DefectSeverityInfo {
+  return defectSeverityConfig[sev] ?? defaultSeverityInfo;
+}
+
 function formatRefCode(code: string | null | undefined): string {
   if (!code) return 'N/A';
   if (code.length > 12) {
@@ -981,34 +995,107 @@ export function InspectorScreen() {
           {/* TAB 4: DEFECTS */}
           {activeTab === 'defects' && (
             <View style={styles.formSection}>
-              <View style={styles.rowBetween}>
-                <View>
-                  <Text style={styles.sectionHeader}>Defect Register ({defects.length})</Text>
-                  <Text style={styles.sectionSub}>Log damages, scratches, mechanical symptoms, or missing parts.</Text>
+              <View style={styles.defectHeaderRow}>
+                <View style={styles.defectHeaderTitleCol}>
+                  <View style={styles.defectHeaderTitleRow}>
+                    <Text style={styles.sectionHeader} numberOfLines={1}>Defect Register</Text>
+                    <View style={styles.defectCountBadge}>
+                      <Text style={styles.defectCountText}>{defects.length}</Text>
+                    </View>
+                  </View>
+                  <Text style={styles.sectionSub} numberOfLines={2}>
+                    Log body scratches, structural damages, leaks, or wear.
+                  </Text>
                 </View>
-                <Pressable style={styles.btnSmallYellow} onPress={() => setDefectModalVisible(true)}>
-                  <Text style={styles.btnSmallYellowText}>+ Add Defect</Text>
+                <Pressable
+                  style={styles.btnSmallYellow}
+                  onPress={() => setDefectModalVisible(true)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Add Defect"
+                >
+                  <Plus size={14} color={color.navy} />
+                  <Text style={styles.btnSmallYellowText}>Add Defect</Text>
                 </Pressable>
               </View>
 
               {defects.length ? (
-                defects.map((d, idx) => (
-                  <View key={idx} style={styles.defectCard}>
-                    <View style={styles.rowBetween}>
-                      <Text style={styles.defectCardTitle} numberOfLines={1} ellipsizeMode="tail">{d.category} · {d.severity}</Text>
-                      <Pressable onPress={() => setDefects(prev => prev.filter((_, i) => i !== idx))}>
-                        <Trash2 color={color.danger} size={18} />
-                      </Pressable>
+                defects.map((d, idx) => {
+                  const cfg = getSeverityConfig(d.severity);
+                  return (
+                    <View key={idx} style={[styles.defectCard, { borderLeftColor: cfg.color }]}>
+                      {/* Top Row: Index, Severity, Category, and Delete Button */}
+                      <View style={styles.defectCardTopRow}>
+                        <View style={styles.defectBadgesRow}>
+                          <View style={styles.defectIndexPill}>
+                            <Text style={styles.defectIndexText}>#{idx + 1}</Text>
+                          </View>
+                          <View style={[styles.defectSevBadge, { backgroundColor: cfg.bg, borderColor: cfg.border }]}>
+                            <Text style={[styles.defectSevText, { color: cfg.color }]}>
+                              {cfg.label}
+                            </Text>
+                          </View>
+                          <View style={styles.defectCatBadge}>
+                            <Text style={styles.defectCatText} numberOfLines={1} ellipsizeMode="tail">
+                              {d.category}
+                            </Text>
+                          </View>
+                        </View>
+                        <Pressable
+                          style={styles.defectDeleteBtn}
+                          onPress={() => {
+                            Alert.alert(
+                              'Delete Defect?',
+                              `Remove defect #${idx + 1} (${d.category} - ${d.severity}) from report?`,
+                              [
+                                { text: 'Cancel', style: 'cancel' },
+                                {
+                                  text: 'Delete',
+                                  style: 'destructive',
+                                  onPress: () => setDefects(prev => prev.filter((_, i) => i !== idx)),
+                                },
+                              ]
+                            );
+                          }}
+                          hitSlop={6}
+                          accessibilityLabel={`Delete defect #${idx + 1}`}
+                        >
+                          <Trash2 color={color.danger} size={15} />
+                        </Pressable>
+                      </View>
+
+                      {/* Middle: Defect Description */}
+                      <Text style={styles.defectCardDesc}>
+                        {d.description}
+                      </Text>
+
+                      {/* Bottom: Defect Location (if present) */}
+                      {d.location ? (
+                        <View style={styles.defectLocationRow}>
+                          <MapPin size={12} color={color.yellow} />
+                          <Text style={styles.defectCardLoc} numberOfLines={2} ellipsizeMode="tail">
+                            Location: {d.location}
+                          </Text>
+                        </View>
+                      ) : null}
                     </View>
-                    <Text style={styles.defectCardDesc} numberOfLines={4} ellipsizeMode="tail">{d.description}</Text>
-                    {d.location ? <Text style={styles.defectCardLoc} numberOfLines={1} ellipsizeMode="tail">Location: {d.location}</Text> : null}
-                  </View>
-                ))
+                  );
+                })
               ) : (
-                <View style={styles.emptyDefects}>
-                  <CheckCircle2 color={color.success} size={36} />
-                  <Text style={styles.emptyDefectsText}>No defects recorded</Text>
-                  <Text style={styles.emptyDefectsSub}>Click "+ Add Defect" if damages, leaks, or wear are found.</Text>
+                <View style={styles.emptyDefectsCard}>
+                  <View style={styles.emptyDefectsIconWrap}>
+                    <CheckCircle2 color={color.success} size={30} />
+                  </View>
+                  <Text style={styles.emptyDefectsText}>No Defects Logged</Text>
+                  <Text style={styles.emptyDefectsSub}>
+                    No physical damages, body scratches, or mechanical issues recorded yet for this vehicle.
+                  </Text>
+                  <Pressable
+                    style={styles.emptyDefectAddBtn}
+                    onPress={() => setDefectModalVisible(true)}
+                  >
+                    <Plus size={14} color={color.navy} />
+                    <Text style={styles.emptyDefectAddText}>Log First Defect</Text>
+                  </Pressable>
                 </View>
               )}
             </View>
@@ -1136,85 +1223,136 @@ export function InspectorScreen() {
         </KeyboardAvoidingView>
 
         {/* Modal: Add Defect */}
-        <Modal visible={defectModalVisible} transparent animationType="slide">
+        <Modal
+          visible={defectModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setDefectModalVisible(false)}
+        >
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
             style={styles.modalBackdrop}
           >
-            <View style={styles.modalContent}>
-              <View style={styles.rowBetween}>
-                <Text style={styles.modalTitle}>Add Vehicle Defect</Text>
-                <Pressable onPress={() => setDefectModalVisible(false)}>
-                  <X color={color.text} size={22} />
+            <View style={styles.defectModalSheet}>
+              {/* Modal Header */}
+              <View style={styles.defectModalHeader}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.modalTitle} numberOfLines={1}>Add Vehicle Defect</Text>
+                  <Text style={styles.modalSub} numberOfLines={1}>Record exception, damage, or wear found</Text>
+                </View>
+                <Pressable
+                  style={styles.modalCloseBtn}
+                  onPress={() => setDefectModalVisible(false)}
+                  hitSlop={8}
+                >
+                  <X color={color.textSecondary} size={20} />
                 </Pressable>
               </View>
 
-              <Text style={styles.label}>Defect Category</Text>
-              <View style={styles.catPickerRow}>
-                {['Exterior Body', 'Structural / Frame', 'Engine / Gearbox', 'Suspension / Steering', 'Interior / Controls', 'Electrical / AC'].map(c => (
-                  <Pressable
-                    key={c}
-                    style={[styles.pickerChip, newDefectCat === c && styles.pickerChipActive]}
-                    onPress={() => setNewDefectCat(c)}
-                  >
-                    <Text style={[styles.pickerChipText, newDefectCat === c && styles.pickerChipTextActive]}>{c}</Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <Text style={styles.label}>Severity</Text>
-              <View style={styles.catPickerRow}>
-                {(['MINOR', 'MODERATE', 'MAJOR', 'CRITICAL'] as const).map(s => (
-                  <Pressable
-                    key={s}
-                    style={[styles.pickerChip, newDefectSev === s && styles.pickerChipActive]}
-                    onPress={() => setNewDefectSev(s)}
-                  >
-                    <Text style={[styles.pickerChipText, newDefectSev === s && styles.pickerChipTextActive]}>{s}</Text>
-                  </Pressable>
-                ))}
-              </View>
-
-              <Text style={styles.label}>Location / Part</Text>
-              <TextInput
-                style={styles.textInput}
-                placeholder="e.g. Right front fender, Radiator support"
-                placeholderTextColor={color.muted}
-                value={newDefectLoc}
-                onChangeText={setNewDefectLoc}
-              />
-
-              <Text style={styles.label}>Description of Finding *</Text>
-              <TextInput
-                style={[styles.textInput, { minHeight: 64 }]}
-                placeholder="Observed scratch, tear, leakage, or deformation"
-                placeholderTextColor={color.muted}
-                multiline
-                value={newDefectDesc}
-                onChangeText={setNewDefectDesc}
-              />
-
-              <Pressable
-                style={[styles.btnPrimary, !newDefectDesc.trim() && { opacity: 0.5 }]}
-                onPress={() => {
-                  if (!newDefectDesc.trim()) return;
-                  setDefects(prev => [
-                    ...prev,
-                    {
-                      category: newDefectCat,
-                      severity: newDefectSev,
-                      description: newDefectDesc.trim(),
-                      location: newDefectLoc.trim() || undefined,
-                    },
-                  ]);
-                  setNewDefectDesc('');
-                  setNewDefectLoc('');
-                  setDefectModalVisible(false);
-                }}
-                disabled={!newDefectDesc.trim()}
+              {/* Scrollable Form Content */}
+              <ScrollView
+                style={styles.defectModalScroll}
+                contentContainerStyle={styles.defectModalScrollBody}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
               >
-                <Text style={styles.btnPrimaryText}>Add to Report</Text>
-              </Pressable>
+                <Text style={styles.label}>Defect Category</Text>
+                <View style={styles.catPickerRow}>
+                  {[
+                    'Exterior Body',
+                    'Structural / Frame',
+                    'Engine / Gearbox',
+                    'Suspension / Steering',
+                    'Interior / Controls',
+                    'Electrical / AC',
+                  ].map(c => (
+                    <Pressable
+                      key={c}
+                      style={[styles.pickerChip, newDefectCat === c && styles.pickerChipActive]}
+                      onPress={() => setNewDefectCat(c)}
+                    >
+                      <Text style={[styles.pickerChipText, newDefectCat === c && styles.pickerChipTextActive]}>
+                        {c}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                <Text style={[styles.label, { marginTop: 6 }]}>Severity Level</Text>
+                <View style={styles.catPickerRow}>
+                  {(['MINOR', 'MODERATE', 'MAJOR', 'CRITICAL'] as const).map(s => {
+                    const active = newDefectSev === s;
+                    const cfg = getSeverityConfig(s);
+                    return (
+                      <Pressable
+                        key={s}
+                        style={[
+                          styles.sevChip,
+                          active && { backgroundColor: cfg.bg, borderColor: cfg.color },
+                        ]}
+                        onPress={() => setNewDefectSev(s)}
+                      >
+                        <View style={[styles.sevDot, { backgroundColor: cfg.color }]} />
+                        <Text style={[styles.sevChipText, active && { color: cfg.color, fontWeight: '800' }]}>
+                          {s}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                <Text style={[styles.label, { marginTop: 6 }]}>Location / Component Part</Text>
+                <TextInput
+                  style={styles.textInput}
+                  placeholder="e.g. Front Right Fender, Radiator Support"
+                  placeholderTextColor={color.muted}
+                  value={newDefectLoc}
+                  onChangeText={setNewDefectLoc}
+                />
+
+                <Text style={[styles.label, { marginTop: 6 }]}>Description of Finding *</Text>
+                <TextInput
+                  style={[styles.textInput, styles.defectDescInput]}
+                  placeholder="Describe observed scratch, deep dent, tear, leak, or rust"
+                  placeholderTextColor={color.muted}
+                  multiline
+                  textAlignVertical="top"
+                  value={newDefectDesc}
+                  onChangeText={setNewDefectDesc}
+                />
+              </ScrollView>
+
+              {/* Modal Footer CTA */}
+              <View style={[styles.defectModalFooter, { paddingBottom: Math.max(insets.bottom, 14) }]}>
+                <Pressable
+                  style={styles.defectCancelBtn}
+                  onPress={() => setDefectModalVisible(false)}
+                >
+                  <Text style={styles.defectCancelText}>Cancel</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.defectSubmitBtn, !newDefectDesc.trim() && styles.btnDisabled]}
+                  onPress={() => {
+                    if (!newDefectDesc.trim()) return;
+                    setDefects(prev => [
+                      ...prev,
+                      {
+                        category: newDefectCat,
+                        severity: newDefectSev,
+                        description: newDefectDesc.trim(),
+                        location: newDefectLoc.trim() || undefined,
+                      },
+                    ]);
+                    setNewDefectDesc('');
+                    setNewDefectLoc('');
+                    setDefectModalVisible(false);
+                  }}
+                  disabled={!newDefectDesc.trim()}
+                >
+                  <Check size={16} color={color.navy} />
+                  <Text style={styles.defectSubmitText}>Add to Report</Text>
+                </Pressable>
+              </View>
             </View>
           </KeyboardAvoidingView>
         </Modal>
@@ -2111,22 +2249,182 @@ const styles = StyleSheet.create({
 
   // Defects
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  defectHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: space.sm,
+    marginBottom: space.xs,
+  },
+  defectHeaderTitleCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 2,
+  },
+  defectHeaderTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  defectCountBadge: {
+    backgroundColor: 'rgba(247, 181, 3, 0.14)',
+    borderWidth: 1,
+    borderColor: 'rgba(247, 181, 3, 0.35)',
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 1,
+  },
+  defectCountText: {
+    color: color.yellow,
+    fontSize: 11,
+    fontWeight: '800',
+  },
   defectCard: {
     backgroundColor: color.surface,
     borderLeftWidth: 4,
-    borderLeftColor: color.danger,
     borderWidth: 1,
     borderColor: color.border,
     borderRadius: radius.md,
     padding: space.md,
-    gap: 4,
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.15,
+    shadowRadius: 4,
+    elevation: 2,
   },
-  defectCardTitle: { fontSize: 13, fontWeight: '800', color: color.danger },
-  defectCardDesc: { fontSize: 13, color: color.text },
-  defectCardLoc: { fontSize: 11, color: color.muted },
-  emptyDefects: { padding: 32, alignItems: 'center', gap: space.sm },
-  emptyDefectsText: { fontSize: 15, fontWeight: '700', color: color.text },
-  emptyDefectsSub: { fontSize: 12, color: color.muted, textAlign: 'center' },
+  defectCardTopRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  defectBadgesRow: {
+    flex: 1,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+    minWidth: 0,
+  },
+  defectIndexPill: {
+    backgroundColor: color.raised,
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  defectIndexText: {
+    color: color.muted,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  defectSevBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  defectSevText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  defectCatBadge: {
+    backgroundColor: color.input,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: color.border,
+    maxWidth: 160,
+  },
+  defectCatText: {
+    color: color.textSecondary,
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  defectDeleteBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
+  },
+  defectCardDesc: {
+    fontSize: 13.5,
+    color: color.white,
+    lineHeight: 19,
+    flexShrink: 1,
+  },
+  defectLocationRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.03)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.sm,
+    alignSelf: 'flex-start',
+    maxWidth: '100%',
+  },
+  defectCardLoc: {
+    fontSize: 11.5,
+    color: color.textSecondary,
+    fontWeight: '600',
+    flexShrink: 1,
+  },
+  emptyDefectsCard: {
+    backgroundColor: color.surface,
+    borderWidth: 1,
+    borderColor: color.border,
+    borderRadius: radius.lg,
+    padding: space.xl,
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  emptyDefectsIconWrap: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(34, 197, 94, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(34, 197, 94, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 4,
+  },
+  emptyDefectsText: {
+    fontSize: 15,
+    fontWeight: '800',
+    color: color.white,
+  },
+  emptyDefectsSub: {
+    fontSize: 12.5,
+    color: color.muted,
+    textAlign: 'center',
+    lineHeight: 18,
+    maxWidth: 280,
+  },
+  emptyDefectAddBtn: {
+    marginTop: space.sm,
+    backgroundColor: color.yellow,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: space.lg,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+  },
+  emptyDefectAddText: {
+    color: color.navy,
+    fontSize: 13,
+    fontWeight: '800',
+  },
 
   // Road test
   roadTestChoiceRow: { flexDirection: 'row', gap: space.md },
@@ -2192,6 +2490,15 @@ const styles = StyleSheet.create({
     gap: space.md,
   },
   modalTitle: { fontSize: 18, fontWeight: '800', color: color.text },
+  modalSub: { fontSize: 12, color: color.muted, marginTop: 2 },
+  modalCloseBtn: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: color.input,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   catPickerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space.sm },
   pickerChip: {
     paddingHorizontal: 12,
@@ -2204,4 +2511,110 @@ const styles = StyleSheet.create({
   pickerChipActive: { backgroundColor: color.yellow, borderColor: color.yellow },
   pickerChipText: { fontSize: 12, fontWeight: '700', color: color.muted },
   pickerChipTextActive: { color: color.navy },
+
+  // Defect Modal Bottom Sheet
+  defectModalSheet: {
+    backgroundColor: color.surface,
+    borderTopLeftRadius: radius.lg,
+    borderTopRightRadius: radius.lg,
+    borderTopWidth: 1,
+    borderColor: color.border,
+    maxHeight: Platform.OS === 'ios' ? '88%' : '85%',
+    width: '100%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.35,
+    shadowRadius: 14,
+    elevation: 20,
+  },
+  defectModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: space.lg,
+    paddingTop: space.lg,
+    paddingBottom: space.md,
+    borderBottomWidth: 1,
+    borderBottomColor: color.border,
+    gap: space.sm,
+  },
+  defectModalScroll: {
+    flexGrow: 0,
+    flexShrink: 1,
+  },
+  defectModalScrollBody: {
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    gap: 8,
+  },
+  sevChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: color.border,
+    backgroundColor: color.input,
+  },
+  sevDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 3.5,
+  },
+  sevChipText: {
+    fontSize: 11.5,
+    fontWeight: '700',
+    color: color.muted,
+  },
+  defectDescInput: {
+    minHeight: 80,
+    maxHeight: 140,
+    paddingTop: 10,
+    paddingBottom: 10,
+  },
+  defectModalFooter: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    paddingHorizontal: space.lg,
+    paddingTop: space.md,
+    borderTopWidth: 1,
+    borderTopColor: color.border,
+    backgroundColor: color.surface,
+  },
+  defectCancelBtn: {
+    flex: 1,
+    minHeight: 46,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: color.border,
+    backgroundColor: color.input,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  defectCancelText: {
+    color: color.textSecondary,
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  defectSubmitBtn: {
+    flex: 2,
+    minHeight: 46,
+    borderRadius: radius.md,
+    backgroundColor: color.yellow,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  defectSubmitText: {
+    color: color.navy,
+    fontSize: 14,
+    fontWeight: '800',
+  },
+  btnDisabled: {
+    opacity: 0.4,
+  },
 });
