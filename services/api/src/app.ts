@@ -138,7 +138,8 @@ export function createApp(deps: {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin'],
     credentials: false,
   }));
-  app.use(express.json({ limit: '8kb' }));
+  app.use(express.json({ limit: '50mb' }));
+  app.use(express.urlencoded({ limit: '50mb', extended: true }));
   app.use('/brand', express.static(path.resolve(__dirname, '../assets/brand')));
   app.get('/', (_req, res) => res.json({ service: 'vmotiv-api', status: 'ready', version: 'v2' }));
   app.get('/health', (_req, res) => res.json({ status: 'alive' }));
@@ -359,6 +360,11 @@ export function createApp(deps: {
 
     if (error instanceof SyntaxError) {
       res.status(400).json({ code: 'INVALID_JSON' });
+      return;
+    }
+
+    if ((error as any)?.type === 'entity.too.large' || (error as any)?.status === 413 || (error as any)?.name === 'PayloadTooLargeError') {
+      res.status(413).json({ code: 'PAYLOAD_TOO_LARGE', message: 'Request payload exceeds limit' });
       return;
     }
 
