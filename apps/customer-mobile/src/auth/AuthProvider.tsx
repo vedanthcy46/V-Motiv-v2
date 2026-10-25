@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import Constants from 'expo-constants';
 import { Linking } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { api, hasNativeFirebase as linkedFirebase } from '../api';
 import { withDeadline } from '../api-network';
 import { friendlyError } from '../format';
@@ -59,6 +60,7 @@ type AuthContextValue = {
   setActiveMode: (mode: 'customer' | 'inspector') => void;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
+  clearSessionData: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   mfaChallenge: MfaChallenge | null;
   confirmMfaCode: (code: string) => Promise<void>;
@@ -433,6 +435,48 @@ function ConfiguredProvider({ children }: React.PropsWithChildren) {
     session.setBusy(false);
   }, [session]);
 
+  const signOut = useCallback(async () => {
+    session.setBusy(true);
+    try {
+      if (googleSigninModule?.GoogleSignin) {
+        try {
+          await googleSigninModule.GoogleSignin.signOut();
+        } catch (err) {
+          console.warn('[GOOGLE_SIGNOUT_WARN]', err);
+        }
+      }
+      await session.signOut();
+    } finally {
+      session.setBusy(false);
+    }
+  }, [session, googleSigninModule]);
+
+  const clearSessionData = useCallback(async () => {
+    session.setBusy(true);
+    try {
+      if (googleSigninModule?.GoogleSignin) {
+        try {
+          await googleSigninModule.GoogleSignin.signOut();
+        } catch (err) {
+          console.warn('[GOOGLE_SIGNOUT_WARN]', err);
+        }
+        try {
+          await googleSigninModule.GoogleSignin.revokeAccess();
+        } catch (err) {
+          console.warn('[GOOGLE_REVOKE_WARN]', err);
+        }
+      }
+      try {
+        await AsyncStorage.clear();
+      } catch (err) {
+        console.warn('[ASYNC_STORAGE_CLEAR_WARN]', err);
+      }
+      await session.signOut();
+    } finally {
+      session.setBusy(false);
+    }
+  }, [session, googleSigninModule]);
+
   const value = useMemo<AuthContextValue>(() => ({
     state: session.state,
     profile: session.profile,
@@ -444,7 +488,8 @@ function ConfiguredProvider({ children }: React.PropsWithChildren) {
     activeMode: session.activeMode,
     setActiveMode: session.setActiveMode,
     signIn,
-    signOut: session.signOut,
+    signOut,
+    clearSessionData,
     refreshProfile: session.refreshProfile,
     mfaChallenge: session.mfaChallenge,
     confirmMfaCode,
@@ -459,7 +504,8 @@ function ConfiguredProvider({ children }: React.PropsWithChildren) {
     session.activeMode,
     session.setActiveMode,
     signIn,
-    session.signOut,
+    signOut,
+    clearSessionData,
     session.refreshProfile,
     session.mfaChallenge,
     confirmMfaCode,
@@ -476,11 +522,18 @@ function ExpoGoProvider({ children }: React.PropsWithChildren) {
     try { await Linking.openURL('vmotiv://account'); }
     catch { setError('Install the V MOTIV development app first: run npm run mobile:android from the project folder, then reopen it for Google sign-in.'); }
   }, []);
+  const clearSessionData = useCallback(async () => {
+    try {
+      await AsyncStorage.clear();
+    } catch (err) {
+      console.warn('[ASYNC_STORAGE_CLEAR_WARN]', err);
+    }
+  }, []);
   const value = useMemo<AuthContextValue>(() => ({
     state: 'signed-out', profile: null, user: null, configured: true, busy: false,
-    error, isInspector: false, activeMode: 'customer', setActiveMode: () => undefined, signIn, signOut: async () => undefined, refreshProfile: async () => undefined,
+    error, isInspector: false, activeMode: 'customer', setActiveMode: () => undefined, signIn, signOut: async () => undefined, clearSessionData, refreshProfile: async () => undefined,
     mfaChallenge: null, confirmMfaCode: async () => undefined, sendMfaCode: async () => undefined, cancelMfa: () => undefined,
-  }), [error, signIn]);
+  }), [error, signIn, clearSessionData]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
@@ -488,7 +541,7 @@ function UnconfiguredProvider({ children }: React.PropsWithChildren) {
   return <AuthContext.Provider value={{
     state: 'signed-out', profile: null, user: null, configured: false, busy: false,
     error: 'Google OAuth credentials are missing from this build.', isInspector: false, activeMode: 'customer',
-    setActiveMode: () => undefined, signIn: async () => undefined, signOut: async () => undefined, refreshProfile: async () => undefined,
+    setActiveMode: () => undefined, signIn: async () => undefined, signOut: async () => undefined, clearSessionData: async () => undefined, refreshProfile: async () => undefined,
     mfaChallenge: null, confirmMfaCode: async () => undefined, sendMfaCode: async () => undefined, cancelMfa: () => undefined,
   }}>{children}</AuthContext.Provider>;
 }

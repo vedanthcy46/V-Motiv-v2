@@ -1,16 +1,18 @@
 import React, { useState } from 'react';
 import Constants from 'expo-constants';
 import {
+  Alert,
   Keyboard,
   Platform,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
+  TouchableOpacity,
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
-import { CheckCircle2, ShieldCheck, Sparkles } from 'lucide-react-native';
+import { CheckCircle2, RotateCcw, ShieldCheck, Sparkles } from 'lucide-react-native';
 import { useAuth } from '../auth/AuthProvider';
 import { BrandLogo } from '../components/BrandLogo';
 import { PrimaryButton, Screen, common, useKeyboard } from '../components/ui';
@@ -18,7 +20,7 @@ import { color, radius, space } from '../theme';
 
 export function AuthScreen() {
   const expoGo = Constants.appOwnership === 'expo' || (Constants.executionEnvironment as string) === 'storeClient';
-  const { configured, busy, error, signIn, mfaChallenge, confirmMfaCode, sendMfaCode, cancelMfa } = useAuth();
+  const { configured, busy, error, signIn, clearSessionData, mfaChallenge, confirmMfaCode, sendMfaCode, cancelMfa } = useAuth();
   const [otp, setOtp] = useState('');
   const [focused, setFocused] = useState(false);
   const { isKeyboardVisible } = useKeyboard();
@@ -201,6 +203,31 @@ export function AuthScreen() {
                 disabled={!configured}
               />
 
+              <TouchableOpacity
+                style={styles.switchSessionBtn}
+                activeOpacity={0.7}
+                onPress={() => {
+                  Alert.alert(
+                    'Reset Cached Account Session?',
+                    'This clears local device cache and resets the Google account picker so you can sign in with a different account.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Reset & Switch Account',
+                        style: 'destructive',
+                        onPress: async () => {
+                          await clearSessionData();
+                        },
+                      },
+                    ]
+                  );
+                }}
+                disabled={busy}
+              >
+                <RotateCcw size={13} color={color.muted} />
+                <Text style={styles.switchSessionText}>Switch account or clear session cache</Text>
+              </TouchableOpacity>
+
               <Text style={styles.legal}>
                 By continuing, you agree to the V MOTIV Terms of Service and acknowledge the Privacy Notice. We never post or share without your consent.
               </Text>
@@ -381,6 +408,20 @@ const styles = StyleSheet.create({
     color: color.danger,
     fontSize: 13,
     lineHeight: 18,
+    fontWeight: '600',
+  },
+  switchSessionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: space.xs,
+    paddingHorizontal: space.sm,
+    alignSelf: 'center',
+  },
+  switchSessionText: {
+    color: color.muted,
+    fontSize: 12,
     fontWeight: '600',
   },
   legal: {

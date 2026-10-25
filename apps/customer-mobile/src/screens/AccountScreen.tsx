@@ -16,7 +16,9 @@ import {
   Headphones,
   LogOut,
   MapPin,
+  RotateCcw,
   Shield,
+  Trash2,
   User,
 } from 'lucide-react-native';
 import { BrandLogo } from '../components/BrandLogo';
@@ -27,7 +29,7 @@ import { color, radius, space } from '../theme';
 export function AccountScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
-  const { state, profile, busy: authBusy, signOut, isInspector, setActiveMode } = useAuth();
+  const { state, profile, busy: authBusy, signOut, clearSessionData, isInspector, setActiveMode } = useAuth();
 
   if (state !== 'signed-in') {
     return <AuthScreen />;
@@ -44,6 +46,23 @@ export function AccountScreen() {
           style: 'destructive',
           onPress: async () => {
             await signOut();
+          },
+        },
+      ]
+    );
+  }
+
+  function handleClearData() {
+    Alert.alert(
+      'Clear App Data & Switch Account',
+      'This will erase all locally cached vehicle drafts, offline inspection data, and disconnect your Google session so you can log in with a different account or session. Do you wish to continue?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear All Data & Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await clearSessionData();
           },
         },
       ]
@@ -213,6 +232,30 @@ export function AccountScreen() {
               <View style={styles.menuText}>
                 <Text style={styles.menuTitle}>Privacy & Data Protection</Text>
                 <Text style={styles.menuDesc}>Customer data terms and export rights</Text>
+              </View>
+              <ChevronRight size={16} color={color.muted} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
+        {/* Section: Session & Storage Management */}
+        <View style={styles.sectionWrap}>
+          <Text style={styles.sectionHeader}>SESSION & STORAGE</Text>
+          <View style={styles.menuGroup}>
+            <TouchableOpacity
+              style={[styles.menuItem, { borderBottomWidth: 0 }]}
+              activeOpacity={0.7}
+              onPress={handleClearData}
+              disabled={authBusy}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                <RotateCcw size={19} color="#EF4444" />
+              </View>
+              <View style={styles.menuText}>
+                <Text style={[styles.menuTitle, { color: '#FCA5A5' }]}>Clear Data & Switch Account</Text>
+                <Text style={styles.menuDesc}>
+                  Wipe device cache, drafts & disconnect Google session
+                </Text>
               </View>
               <ChevronRight size={16} color={color.muted} />
             </TouchableOpacity>
