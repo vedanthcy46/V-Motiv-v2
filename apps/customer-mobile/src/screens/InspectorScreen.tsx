@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
@@ -14,6 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
 import {
   Calendar,
   Camera,
@@ -23,10 +25,13 @@ import {
   ChevronRight,
   ClipboardCheck,
   CloudOff,
+  Eye,
   Gauge,
+  Images,
   Info,
   LogOut,
   MapPin,
+  Plus,
   RefreshCw,
   Tag,
   Trash2,
@@ -64,6 +69,7 @@ type Assignment = {
     lead: {
       id: string;
       referenceCode: string;
+      registrationNumber?: string | null;
       sellerName: string;
       sellerPhone: string;
       city: string;
@@ -79,6 +85,15 @@ type Assignment = {
   };
 };
 
+type EvidencePhoto = {
+  id: string;
+  slotId: string;
+  uri: string;
+  base64?: string;
+  time: string;
+  uploaded?: boolean;
+};
+
 type Report = {
   id: string;
   assignmentId: string;
@@ -89,6 +104,7 @@ type Report = {
   identity: Record<string, unknown>;
   answers: Array<{ itemKey: string; status: string; value?: unknown; notes?: string }>;
   defects: Array<{ category: string; severity: string; description: string; location?: string }>;
+  media?: Array<{ id: string; logicalMediaId: string; storageKey: string; mimeType: string; capturedAt?: string }>;
 };
 
 type ChecklistSection = {
@@ -237,7 +253,10 @@ export function InspectorScreen() {
   const [hypothecationDeclared, setHypothecationDeclared] = useState(false);
   const [answers, setAnswers] = useState<Record<string, { status: string; notes?: string }>>({});
   const [defects, setDefects] = useState<Array<{ category: string; severity: string; description: string; location?: string }>>([]);
-  const [capturedPhotos, setCapturedPhotos] = useState<Record<string, { base64: string; time: string }>>({});
+  const [capturedPhotos, setCapturedPhotos] = useState<Record<string, EvidencePhoto[]>>({});
+  const [photoPickerSlot, setPhotoPickerSlot] = useState<string | null>(null);
+  const [previewPhotoUri, setPreviewPhotoUri] = useState<string | null>(null);
+  const [uploadingPhotoSlot, setUploadingPhotoSlot] = useState<string | null>(null);
   const [roadTestPerformed, setRoadTestPerformed] = useState<'YES' | 'NO'>('YES');
   const [roadTestReason, setRoadTestReason] = useState('');
   const [roadTestNotes, setRoadTestNotes] = useState('');
@@ -255,6 +274,15 @@ export function InspectorScreen() {
   const [newDefectSev, setNewDefectSev] = useState<'MINOR' | 'MODERATE' | 'MAJOR' | 'CRITICAL'>('MINOR');
   const [newDefectDesc, setNewDefectDesc] = useState('');
   const [newDefectLoc, setNewDefectLoc] = useState('');
+
+  // Total Evidence Photos & Completed Slots
+  const totalPhotosCount = useMemo(() => {
+    return Object.values(capturedPhotos).reduce((acc, list) => acc + (list?.length || 0), 0);
+  }, [capturedPhotos]);
+
+  const slotsWithPhotosCount = useMemo(() => {
+    return standardPhotoSlots.filter(s => (capturedPhotos[s.id]?.length || 0) > 0).length;
+  }, [capturedPhotos]);
 
   // 1. Initial Load of Assigned Jobs & Queue Counts
   useEffect(() => {
@@ -330,7 +358,11 @@ export function InspectorScreen() {
 
       // Hydrate existing answers / fields
       const iden = (activeReport.identity || {}) as Record<string, unknown>;
-      setRegNumber(String(iden.registrationNumber || job.request.lead.referenceCode || ''));
+      // Strict fix: Use existing report registrationNumber or declared lead registrationNumber. NEVER use UUID referenceCode!
+      const existingReg = typeof iden.registrationNumber === 'string' && iden.registrationNumber.trim()
+        ? iden.registrationNumber.trim()
+        : (job.request.lead.registrationNumber || '');
+      setRegNumber(existingReg);
       setOdometerKm(String(iden.odometerKm || job.request.lead.odometerKm || ''));
       setVinChassis(String(iden.vinChassis || ''));
       setEngineNumber(String(iden.engineNumber || ''));
@@ -344,6 +376,30 @@ export function InspectorScreen() {
       });
       setAnswers(ansMap);
       setDefects(activeReport.defects || []);
+
+      // Hydrate existing media photos into slot collections
+      if (Array.isArray(activeReport.media) && activeReport.media.length > 0) {
+        const photoMap: Record<string, EvidencePhoto[]> = {};
+        activeReport.media.forEach((m: any) => {
+          const slot = standardPhotoSlots.find(
+            s => m.logicalMediaId === s.id || m.logicalMediaId.startsWith(s.id + '_')
+          );
+          const slotId = slot ? slot.id : standardPhotoSlots[0]?.id || 'front_full';
+          if (!photoMap[slotId]) photoMap[slotId] = [];
+          photoMap[slotId].push({
+            id: m.logicalMediaId || m.id,
+            slotId,
+            uri: m.storageKey?.startsWith('http')
+              ? m.storageKey
+              : `/api/v2/inspector/reports/${activeReport.id}/media/${m.id}/content`,
+            time: m.capturedAt || new Date().toISOString(),
+            uploaded: true,
+          });
+        });
+        setCapturedPhotos(photoMap);
+      } else {
+        setCapturedPhotos({});
+      }
     } catch (err: any) {
       console.warn('[START_INSPECTION_ERROR]', err?.status, err?.code, err?.message);
       Alert.alert('Inspection Error', `Could not start or load evaluation workspace: ${err?.message || err?.code || 'Please check your connection'}`);
@@ -394,37 +450,138 @@ export function InspectorScreen() {
     }
   }
 
-  // 4. Capture Guided Photo Slot
-  async function capturePhotoSlot(slotId: string) {
+  // 4. Real Photo Capture with Device Camera
+  async function takePhotoWithCamera(slotId: string) {
     if (!activeJob || !report || !user) return;
-
-    // Generates valid Base64 test evidence image
-    const sampleBase64 =
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
-
-    setCapturedPhotos(prev => ({
-      ...prev,
-      [slotId]: { base64: sampleBase64, time: new Date().toISOString() },
-    }));
-
     try {
-      await api(`/api/v2/inspector/reports/${report.id}/media/upload-json`, {
-        method: 'POST',
-        body: JSON.stringify({
-          slotId,
-          logicalMediaId: slotId,
-          base64Data: sampleBase64,
-          mimeType: 'image/jpeg',
-          capturedAt: new Date().toISOString(),
-        }),
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Camera Permission Required',
+          'Please enable camera permissions in device settings to take vehicle inspection photos.'
+        );
+        return;
+      }
+
+      setUploadingPhotoSlot(slotId);
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ['images'],
+        allowsEditing: false,
+        quality: 0.85,
+        base64: true,
       });
-    } catch {
-      await enqueueMedia(user.id, report.id, slotId, sampleBase64, 'image/jpeg');
-      await refreshQueueCounts();
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        await processAndUploadAssets(slotId, result.assets);
+      }
+    } catch (err: any) {
+      console.warn('[CAMERA_CAPTURE_ERROR]', err);
+      Alert.alert('Camera Error', err?.message || 'Unable to launch device camera.');
+    } finally {
+      setUploadingPhotoSlot(null);
+      setPhotoPickerSlot(null);
     }
   }
 
-  // 5. Submit Completed Report
+  // 5. Pick Multiple Real Photos from Device Gallery / Storage
+  async function pickPhotosFromGallery(slotId: string) {
+    if (!activeJob || !report || !user) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert(
+          'Photo Library Permission Required',
+          'Please enable photo library permissions in device settings to attach inspection evidence.'
+        );
+        return;
+      }
+
+      setUploadingPhotoSlot(slotId);
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ['images'],
+        allowsMultipleSelection: true,
+        selectionLimit: 10,
+        quality: 0.85,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets && result.assets.length > 0) {
+        await processAndUploadAssets(slotId, result.assets);
+      }
+    } catch (err: any) {
+      console.warn('[GALLERY_PICK_ERROR]', err);
+      Alert.alert('Gallery Error', err?.message || 'Unable to open photo gallery.');
+    } finally {
+      setUploadingPhotoSlot(null);
+      setPhotoPickerSlot(null);
+    }
+  }
+
+  // 6. Process Assets, Append to Slot Array, and Upload to Cloudinary / Server
+  async function processAndUploadAssets(slotId: string, assets: ImagePicker.ImagePickerAsset[]) {
+    if (!activeJob || !report || !user) return;
+
+    const newPhotos: EvidencePhoto[] = assets.map((asset, idx) => ({
+      id: `${slotId}_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+      slotId,
+      uri: asset.uri,
+      base64: asset.base64 || undefined,
+      time: new Date().toISOString(),
+      uploaded: false,
+    }));
+
+    // Update state immediately with local URIs for responsive UI preview
+    setCapturedPhotos(prev => ({
+      ...prev,
+      [slotId]: [...(prev[slotId] || []), ...newPhotos],
+    }));
+
+    // Upload each photo to the Cloudinary-backed API
+    for (const photo of newPhotos) {
+      if (!photo.base64) continue;
+      try {
+        await api(`/api/v2/inspector/reports/${report.id}/media/upload-json`, {
+          method: 'POST',
+          body: JSON.stringify({
+            slotId,
+            logicalMediaId: photo.id,
+            base64Data: photo.base64,
+            mimeType: photo.uri.endsWith('.png') ? 'image/png' : 'image/jpeg',
+            capturedAt: photo.time,
+          }),
+        });
+
+        // Mark as uploaded in state
+        setCapturedPhotos(prev => ({
+          ...prev,
+          [slotId]: (prev[slotId] || []).map(p => (p.id === photo.id ? { ...p, uploaded: true } : p)),
+        }));
+      } catch (err: any) {
+        console.warn('[PHOTO_UPLOAD_FAILED]', photo.id, err);
+        await enqueueMedia(user.id, report.id, photo.id, photo.base64, 'image/jpeg');
+        await refreshQueueCounts();
+      }
+    }
+  }
+
+  // 7. Delete Photo from Slot
+  function deletePhoto(slotId: string, photoId: string) {
+    Alert.alert('Remove Evidence Photo', 'Are you sure you want to remove this photo from this checkpoint?', [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Remove',
+        style: 'destructive',
+        onPress: () => {
+          setCapturedPhotos(prev => ({
+            ...prev,
+            [slotId]: (prev[slotId] || []).filter(p => p.id !== photoId),
+          }));
+        },
+      },
+    ]);
+  }
+
+  // 8. Submit Completed Report
   async function submitReport() {
     if (!activeJob || !report) return;
     if (!declaration) {
@@ -433,6 +590,15 @@ export function InspectorScreen() {
     }
     if (!regNumber.trim() || !odometerKm.trim()) {
       Alert.alert('Missing Identity Data', 'Observed registration number and odometer reading are required.');
+      return;
+    }
+
+    if (slotsWithPhotosCount < standardPhotoSlots.length) {
+      const missing = standardPhotoSlots.filter(s => ((capturedPhotos[s.id]?.length ?? 0) === 0));
+      Alert.alert(
+        'Incomplete Photographic Proof',
+        `All 16 mandatory angles require photographic evidence before submission. Missing (${missing.length}):\n• ${missing.slice(0, 3).map(s => s.label).join('\n• ')}${missing.length > 3 ? `\n...and ${missing.length - 3} more` : ''}`
+      );
       return;
     }
 
@@ -511,7 +677,7 @@ export function InspectorScreen() {
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
             {[
               { id: 'identity', label: '1. Identity' },
-              { id: 'photos', label: `2. Photos (${Object.keys(capturedPhotos).length}/16)` },
+              { id: 'photos', label: `2. Photos (${slotsWithPhotosCount}/16)` },
               { id: 'checklist', label: '3. 16-Checks' },
               { id: 'defects', label: `4. Defects (${defects.length})` },
               { id: 'road_test', label: '5. Road Test' },
@@ -550,14 +716,21 @@ export function InspectorScreen() {
                 <TextInput
                   style={styles.textInput}
                   value={regNumber}
-                  onChangeText={setRegNumber}
+                  onChangeText={txt => setRegNumber(txt.toUpperCase().replace(/\s+/g, ''))}
                   placeholder="e.g. KA01MJ1234"
                   placeholderTextColor={color.muted}
                   autoCapitalize="characters"
+                  autoCorrect={false}
                 />
-                <Text style={styles.inputHint} numberOfLines={1} ellipsizeMode="tail">
-                  Declared: #{formatRefCode(activeJob.request.lead.referenceCode)} (Seller: {activeJob.request.lead.sellerName})
-                </Text>
+                {activeJob.request.lead.registrationNumber ? (
+                  <Text style={styles.inputHint} numberOfLines={1} ellipsizeMode="tail">
+                    Declared at enquiry: {activeJob.request.lead.registrationNumber} (Seller: {activeJob.request.lead.sellerName})
+                  </Text>
+                ) : (
+                  <Text style={styles.inputHint} numberOfLines={1} ellipsizeMode="tail">
+                    Physical number plate on car (e.g. KA01MJ1234) · Seller: {activeJob.request.lead.sellerName}
+                  </Text>
+                )}
               </View>
 
               <View style={styles.inputGroup}>
@@ -620,35 +793,109 @@ export function InspectorScreen() {
           {/* TAB 2: PHOTOS */}
           {activeTab === 'photos' && (
             <View style={styles.formSection}>
-              <Text style={styles.sectionHeader}>Guided Photographic Proof</Text>
-              <Text style={styles.sectionSub}>All 16 mandatory photographic angles required for independent review.</Text>
+              <View style={styles.rowBetween}>
+                <View style={{ flex: 1, minWidth: 0 }}>
+                  <Text style={styles.sectionHeader}>Guided Photographic Proof</Text>
+                  <Text style={styles.sectionSub}>
+                    {slotsWithPhotosCount} of 16 mandatory angles completed · {totalPhotosCount} total photos
+                  </Text>
+                </View>
+              </View>
 
               {standardPhotoSlots.map(slot => {
-                const isCaptured = Boolean(capturedPhotos[slot.id]);
+                const photos = capturedPhotos[slot.id] || [];
+                const isCaptured = photos.length > 0;
+                const isUploading = uploadingPhotoSlot === slot.id;
+
                 return (
                   <View key={slot.id} style={styles.photoSlotCard}>
-                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
-                      <Text style={styles.photoSlotTitle} numberOfLines={1} ellipsizeMode="tail">{slot.label}</Text>
-                      <Text style={styles.photoSlotDesc} numberOfLines={2} ellipsizeMode="tail">{slot.desc}</Text>
-                      {isCaptured ? (
+                    {/* Slot Header */}
+                    <View style={styles.photoSlotHeader}>
+                      <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                        <Text style={styles.photoSlotTitle} numberOfLines={1} ellipsizeMode="tail">
+                          {slot.label}
+                        </Text>
+                        <Text style={styles.photoSlotDesc} numberOfLines={2} ellipsizeMode="tail">
+                          {slot.desc}
+                        </Text>
+                      </View>
+
+                      {/* Quick Action Buttons */}
+                      <View style={styles.photoSlotActions}>
+                        <Pressable
+                          style={styles.cameraBtn}
+                          onPress={() => void takePhotoWithCamera(slot.id)}
+                          disabled={isUploading || busy}
+                        >
+                          <Camera color={color.navy} size={14} />
+                          <Text style={styles.cameraBtnText}>Camera</Text>
+                        </Pressable>
+
+                        <Pressable
+                          style={styles.galleryBtn}
+                          onPress={() => void pickPhotosFromGallery(slot.id)}
+                          disabled={isUploading || busy}
+                        >
+                          <Images color={color.yellow} size={14} />
+                          <Text style={styles.galleryBtnText}>Gallery</Text>
+                        </Pressable>
+                      </View>
+                    </View>
+
+                    {/* Status Row */}
+                    <View style={styles.photoStatusRow}>
+                      {isUploading ? (
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                          <ActivityIndicator size="small" color={color.yellow} />
+                          <Text style={styles.photoPendingText}>Uploading evidence to cloud...</Text>
+                        </View>
+                      ) : isCaptured ? (
                         <View style={styles.photoStatusTag}>
                           <CheckCircle2 color={color.success} size={13} />
-                          <Text style={styles.photoStatusText} numberOfLines={1}>Evidence Captured</Text>
+                          <Text style={styles.photoStatusText}>
+                            {photos.length} photo{photos.length > 1 ? 's' : ''} captured
+                          </Text>
                         </View>
                       ) : (
-                        <Text style={styles.photoPendingText} numberOfLines={1}>• Photo Required</Text>
+                        <Text style={styles.photoPendingText}>• Mandatory photo required</Text>
                       )}
                     </View>
 
-                    <Pressable
-                      style={[styles.cameraBtn, isCaptured && styles.cameraBtnRetake]}
-                      onPress={() => void capturePhotoSlot(slot.id)}
-                    >
-                      <Camera color={isCaptured ? color.yellow : color.navy} size={18} />
-                      <Text style={[styles.cameraBtnText, isCaptured && { color: color.yellow }]}>
-                        {isCaptured ? 'Retake' : 'Snap'}
-                      </Text>
-                    </Pressable>
+                    {/* Thumbnails Gallery Strip */}
+                    {photos.length > 0 && (
+                      <ScrollView
+                        horizontal
+                        showsHorizontalScrollIndicator={false}
+                        contentContainerStyle={styles.thumbnailStrip}
+                      >
+                        {photos.map((item, idx) => (
+                          <View key={item.id} style={styles.thumbnailWrap}>
+                            <Pressable onPress={() => setPreviewPhotoUri(item.uri)}>
+                              <Image source={{ uri: item.uri }} style={styles.thumbnailImg} resizeMode="cover" />
+                              <View style={styles.thumbIndexBadge}>
+                                <Text style={styles.thumbIndexText}>#{idx + 1}</Text>
+                              </View>
+                            </Pressable>
+
+                            <Pressable
+                              style={styles.thumbDeleteBtn}
+                              onPress={() => deletePhoto(slot.id, item.id)}
+                              hitSlop={8}
+                            >
+                              <X color={color.white} size={11} />
+                            </Pressable>
+                          </View>
+                        ))}
+
+                        <Pressable
+                          style={styles.addMoreThumbBtn}
+                          onPress={() => setPhotoPickerSlot(slot.id)}
+                        >
+                          <Plus color={color.yellow} size={18} />
+                          <Text style={styles.addMoreThumbText}>Add</Text>
+                        </Pressable>
+                      </ScrollView>
+                    )}
                   </View>
                 );
               })}
@@ -844,8 +1091,10 @@ export function InspectorScreen() {
                   <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">{defects.length} defects</Text>
                 </View>
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey} numberOfLines={1}>Photos Captured</Text>
-                  <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">{Object.keys(capturedPhotos).length} photos</Text>
+                  <Text style={styles.summaryKey} numberOfLines={1}>Photographic Proof</Text>
+                  <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">
+                    {totalPhotosCount} photos ({slotsWithPhotosCount}/16 angles)
+                  </Text>
                 </View>
               </View>
 
@@ -969,6 +1218,69 @@ export function InspectorScreen() {
             </View>
           </KeyboardAvoidingView>
         </Modal>
+
+        {/* Fullscreen Photo Zoom Preview Modal */}
+        <Modal visible={Boolean(previewPhotoUri)} transparent animationType="fade">
+          <View style={styles.previewBackdrop}>
+            <View style={styles.previewHeader}>
+              <Text style={styles.previewTitle}>Evidence Photo</Text>
+              <Pressable style={styles.previewCloseBtn} onPress={() => setPreviewPhotoUri(null)}>
+                <X color={color.white} size={20} />
+              </Pressable>
+            </View>
+            {previewPhotoUri && (
+              <Image source={{ uri: previewPhotoUri }} style={styles.previewFullImg} resizeMode="contain" />
+            )}
+          </View>
+        </Modal>
+
+        {/* Photo Source Action Sheet Modal */}
+        <Modal visible={Boolean(photoPickerSlot)} transparent animationType="slide">
+          <Pressable style={styles.modalBackdrop} onPress={() => setPhotoPickerSlot(null)}>
+            <View style={styles.modalContent}>
+              <View style={styles.rowBetween}>
+                <Text style={styles.modalTitle}>Add Evidence Photos</Text>
+                <Pressable onPress={() => setPhotoPickerSlot(null)}>
+                  <X color={color.text} size={22} />
+                </Pressable>
+              </View>
+              <Text style={styles.sectionSub}>Choose real-time camera capture or select multiple photos from device storage.</Text>
+
+              <View style={{ gap: space.md, marginTop: space.sm }}>
+                <Pressable
+                  style={styles.photoChoiceBtn}
+                  onPress={() => photoPickerSlot && void takePhotoWithCamera(photoPickerSlot)}
+                >
+                  <Camera color={color.navy} size={20} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.photoChoiceTitle}>Take Photo with Camera</Text>
+                    <Text style={styles.photoChoiceSub}>Snap real-time photo using device camera</Text>
+                  </View>
+                  <ChevronRight color={color.navy} size={18} />
+                </Pressable>
+
+                <Pressable
+                  style={[styles.photoChoiceBtn, { backgroundColor: color.input, borderColor: color.border }]}
+                  onPress={() => photoPickerSlot && void pickPhotosFromGallery(photoPickerSlot)}
+                >
+                  <Images color={color.yellow} size={20} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.photoChoiceTitle, { color: color.text }]}>Upload from Gallery / Files</Text>
+                    <Text style={styles.photoChoiceSub}>Select multiple photos from device storage</Text>
+                  </View>
+                  <ChevronRight color={color.yellow} size={18} />
+                </Pressable>
+
+                <Pressable
+                  style={[styles.btnPrimary, { backgroundColor: 'transparent', borderColor: color.border, minHeight: 44 }]}
+                  onPress={() => setPhotoPickerSlot(null)}
+                >
+                  <Text style={[styles.btnPrimaryText, { color: color.muted, fontSize: 13 }]}>Cancel</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Pressable>
+        </Modal>
       </View>
     );
   }
@@ -1063,7 +1375,7 @@ export function InspectorScreen() {
                   <View style={styles.refTagContainer}>
                     <Tag color={color.yellow} size={11} />
                     <Text style={styles.refTagText} numberOfLines={1} ellipsizeMode="tail">
-                      #{refFormatted}
+                      JOB #{refFormatted}
                     </Text>
                   </View>
                 </View>
@@ -1076,8 +1388,17 @@ export function InspectorScreen() {
                   </Text>
                 </View>
 
-                {/* Spec Pills (Fuel, Transmission, Odometer) */}
+                {/* Spec Pills (Registration Plate, Fuel, Transmission, Odometer) */}
                 <View style={styles.specPillsRow}>
+                  {job.request.lead.registrationNumber ? (
+                    <View style={[styles.specChip, styles.regPlateChip]}>
+                      <Tag color={color.yellow} size={11} />
+                      <Text style={styles.regPlateChipText} numberOfLines={1}>
+                        {job.request.lead.registrationNumber}
+                      </Text>
+                    </View>
+                  ) : null}
+
                   {(job.request.lead.fuelType || job.request.lead.transmission) ? (
                     <View style={styles.specChip}>
                       <Car color={color.muted} size={12} />
@@ -1578,26 +1899,177 @@ const styles = StyleSheet.create({
     borderColor: color.border,
     borderRadius: radius.lg,
     padding: space.md,
+    gap: space.sm,
+  },
+  photoSlotHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: space.sm,
   },
   photoSlotTitle: { fontSize: 14, fontWeight: '700', color: color.text },
-  photoSlotDesc: { fontSize: 12, color: color.muted },
-  photoStatusTag: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
-  photoStatusText: { fontSize: 11, color: color.success, fontWeight: '700' },
-  photoPendingText: { fontSize: 11, color: color.yellow, fontWeight: '600', marginTop: 4 },
+  photoSlotDesc: { fontSize: 12, color: color.muted, marginTop: 1 },
+  photoSlotActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
   cameraBtn: {
     backgroundColor: color.yellow,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 12,
-    paddingVertical: 8,
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.sm,
+  },
+  cameraBtnText: { color: color.navy, fontWeight: '800', fontSize: 11 },
+  galleryBtn: {
+    backgroundColor: 'rgba(247, 181, 3, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(247, 181, 3, 0.35)',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
+    borderRadius: radius.sm,
+  },
+  galleryBtnText: { color: color.yellow, fontWeight: '800', fontSize: 11 },
+  photoStatusRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  photoStatusTag: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  photoStatusText: { fontSize: 11, color: color.success, fontWeight: '700' },
+  photoPendingText: { fontSize: 11, color: color.yellow, fontWeight: '600' },
+  thumbnailStrip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+    paddingTop: space.xs,
+  },
+  thumbnailWrap: {
+    width: 72,
+    height: 72,
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+    position: 'relative',
+    backgroundColor: color.input,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.15)',
+  },
+  thumbnailImg: {
+    width: 72,
+    height: 72,
+    borderRadius: radius.sm,
+  },
+  thumbIndexBadge: {
+    position: 'absolute',
+    bottom: 2,
+    left: 2,
+    backgroundColor: 'rgba(2, 11, 24, 0.85)',
+    borderRadius: 3,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  thumbIndexText: {
+    color: color.white,
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  thumbDeleteBtn: {
+    position: 'absolute',
+    top: 2,
+    right: 2,
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: 'rgba(248, 113, 113, 0.92)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addMoreThumbBtn: {
+    width: 72,
+    height: 72,
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(247, 181, 3, 0.4)',
+    borderStyle: 'dashed',
+    backgroundColor: 'rgba(247, 181, 3, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  addMoreThumbText: {
+    color: color.yellow,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  regPlateChip: {
+    borderColor: 'rgba(247, 181, 3, 0.45)',
+    backgroundColor: 'rgba(247, 181, 3, 0.12)',
+  },
+  regPlateChipText: {
+    color: color.yellow,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  // Fullscreen Preview Modal
+  previewBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.95)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: space.md,
+  },
+  previewHeader: {
+    position: 'absolute',
+    top: 50,
+    left: space.md,
+    right: space.md,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    zIndex: 10,
+  },
+  previewTitle: {
+    color: color.white,
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  previewCloseBtn: {
+    padding: 8,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    borderRadius: 20,
+  },
+  previewFullImg: {
+    width: '100%',
+    height: '75%',
+  },
+  photoChoiceBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+    backgroundColor: color.yellow,
+    borderWidth: 1,
+    borderColor: color.yellow,
+    padding: space.md,
     borderRadius: radius.md,
   },
-  cameraBtnRetake: { backgroundColor: color.raised, borderWidth: 1, borderColor: color.border },
-  cameraBtnText: { color: color.navy, fontWeight: '700', fontSize: 12 },
+  photoChoiceTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: color.navy,
+  },
+  photoChoiceSub: {
+    fontSize: 11,
+    color: color.muted,
+    marginTop: 2,
+  },
 
   // Checklist
   checklistSectionCard: {

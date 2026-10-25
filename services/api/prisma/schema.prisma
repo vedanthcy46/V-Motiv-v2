@@ -103,6 +103,13 @@ enum AcquisitionOfferStatus {
   DECLINED
   EXPIRED
 }
+enum AcquisitionValuationStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  REJECTED
+  SUPERSEDED
+}
 enum SupportCaseStatus {
   OPEN
   IN_PROGRESS
@@ -366,6 +373,7 @@ model AcquisitionLead {
   odometerKm Int
   expectedPricePaise BigInt?
   referenceCode String @unique @default(uuid())
+  registrationNumber String?
   idempotencyKey String?
   ownershipCount Int?
   registrationYear Int?
@@ -385,6 +393,7 @@ model AcquisitionLead {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   offers AcquisitionOffer[]
+  valuations AcquisitionValuation[]
   assignments SellerLeadAssignment[]
   interactions LeadInteraction[]
   tasks SalesTask[]
@@ -513,6 +522,7 @@ model InspectionReport {
   defects InspectionDefect[]
   media InspectionMedia[]
   reviewDecision InspectionReviewDecision?
+  valuationCases AcquisitionValuation[]
   @@unique([requestId, revision])
   @@index([inspectorId, status, updatedAt])
   @@index([status, submittedAt])
@@ -569,6 +579,8 @@ model AcquisitionOffer {
   id String @id @default(uuid()) @db.Uuid
   leadId String @db.Uuid
   lead AcquisitionLead @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  valuationId String? @db.Uuid
+  valuation AcquisitionValuation? @relation(fields: [valuationId], references: [id], onDelete: Restrict)
   offerAmountPaise BigInt
   validUntil DateTime
   status AcquisitionOfferStatus @default(OFFERED)
@@ -580,6 +592,32 @@ model AcquisitionOffer {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@index([leadId, createdAt])
+  @@index([valuationId])
+}
+model AcquisitionValuation {
+  id String @id @default(uuid()) @db.Uuid
+  leadId String @db.Uuid
+  inspectionReportId String @db.Uuid
+  expectedResalePaise BigInt
+  refurbishmentPaise BigInt @default(0)
+  otherCostsPaise BigInt @default(0)
+  requiredMarginPaise BigInt @default(0)
+  recommendedPurchasePaise BigInt
+  notes String?
+  status AcquisitionValuationStatus @default(DRAFT)
+  version Int @default(1)
+  createdById String @db.Uuid
+  approvedById String? @db.Uuid
+  approvedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lead AcquisitionLead @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  inspectionReport InspectionReport @relation(fields: [inspectionReportId], references: [id], onDelete: Restrict)
+  createdBy Employee @relation("AcquisitionValuationCreator", fields: [createdById], references: [userId], onDelete: Restrict)
+  approvedBy Employee? @relation("AcquisitionValuationApprover", fields: [approvedById], references: [userId], onDelete: Restrict)
+  offers AcquisitionOffer[]
+  @@index([leadId, status, createdAt])
+  @@index([inspectionReportId])
 }
 model SupportedCity {
   id String @id @default(uuid()) @db.Uuid
@@ -665,6 +703,8 @@ model Employee {
   inspectionAssignmentsCreated InspectionAssignment[] @relation("InspectionAssignmentAssigner")
   inspectionReports InspectionReport[] @relation("InspectionReportInspector")
   inspectionReviewDecisions InspectionReviewDecision[] @relation("InspectionReviewDecisionReviewer")
+  createdValuations AcquisitionValuation[] @relation("AcquisitionValuationCreator")
+  approvedValuations AcquisitionValuation[] @relation("AcquisitionValuationApprover")
   authoredQuotations BuyerQuotation[] @relation("BuyerQuotationAuthor")
   requestedDiscounts DiscountRequest[] @relation("DiscountRequester")
   decidedDiscounts DiscountRequest[] @relation("DiscountDecider")

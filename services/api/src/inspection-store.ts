@@ -39,6 +39,7 @@ const assignmentDetail = {
         select: {
           id: true,
           referenceCode: true,
+          registrationNumber: true,
           sellerName: true,
           sellerPhone: true,
           city: true,
@@ -168,6 +169,9 @@ export class PrismaInspectionStore {
           revision: 1,
           templateKey: template.key,
           templateVersion: template.version,
+          identity: assignment.request.lead.registrationNumber
+            ? { registrationNumber: assignment.request.lead.registrationNumber }
+            : {},
           startedAt: new Date(),
         },
         include: {

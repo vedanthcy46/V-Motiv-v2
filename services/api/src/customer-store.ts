@@ -17,6 +17,7 @@ type SellInput = {
   odometerKm: number;
   expectedPricePaise?: number;
   ownershipCount?: number;
+  registrationNumber?: string;
   registrationYear?: number;
   color?: string;
   registrationCity?: string;
