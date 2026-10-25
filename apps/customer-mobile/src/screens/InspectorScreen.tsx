@@ -56,6 +56,7 @@ import {
   flushMedia,
   queuedDraftCount,
   queuedMediaCount,
+  uriToBase64,
   type DraftPayload,
 } from '../services/inspector-sync';
 
@@ -340,19 +341,32 @@ export function InspectorScreen() {
     try {
       const live = await api<Assignment[]>('/api/v2/inspector/assignments');
       setJobs(live);
-      await AsyncStorage.setItem(cachedJobsKey(user.id), JSON.stringify(live));
+      try {
+        await AsyncStorage.setItem(cachedJobsKey(user.id), JSON.stringify(live));
+      } catch (e: any) {
+        if (String(e?.message).includes('CursorWindow')) {
+          await AsyncStorage.removeItem(cachedJobsKey(user.id)).catch(() => {});
+        }
+      }
     } catch (err: any) {
       console.warn('[LOAD_ASSIGNMENTS_ERROR]', err?.status, err?.code, err?.message);
-      const cached = await AsyncStorage.getItem(cachedJobsKey(user.id));
-      if (cached) {
-        setJobs(JSON.parse(cached) as Assignment[]);
-        setStatusMessage('Offline Mode · Using cached inspection assignments');
-      } else if (err?.code === 'INSPECTION_ACCESS_DENIED' || err?.status === 403) {
-        setStatusMessage('Access Denied: Your account does not have Inspector privileges.');
-      } else if (err?.code === 'NETWORK_UNREACHABLE' || err?.status === 0) {
-        setStatusMessage('Unable to reach server. Please check your internet or host connection.');
-      } else {
-        setStatusMessage(`Unable to load assignments (${err?.code || err?.message || 'Server error'}).`);
+      try {
+        const cached = await AsyncStorage.getItem(cachedJobsKey(user.id));
+        if (cached) {
+          setJobs(JSON.parse(cached) as Assignment[]);
+          setStatusMessage('Offline Mode · Using cached inspection assignments');
+        } else if (err?.code === 'INSPECTION_ACCESS_DENIED' || err?.status === 403) {
+          setStatusMessage('Access Denied: Your account does not have Inspector privileges.');
+        } else if (err?.code === 'NETWORK_UNREACHABLE' || err?.status === 0) {
+          setStatusMessage('Unable to reach server. Please check your internet or host connection.');
+        } else {
+          setStatusMessage(`Unable to load assignments (${err?.code || err?.message || 'Server error'}).`);
+        }
+      } catch (storageErr: any) {
+        if (String(storageErr?.message).includes('CursorWindow')) {
+          await AsyncStorage.removeItem(cachedJobsKey(user.id)).catch(() => {});
+        }
+        setStatusMessage(`Connection Error (${err?.code || err?.message || 'Server error'}).`);
       }
     } finally {
       setBusy(false);
@@ -498,7 +512,7 @@ export function InspectorScreen() {
       const result = await ImagePicker.launchCameraAsync({
         mediaTypes: ['images'],
         allowsEditing: false,
-        quality: 0.85,
+        quality: 0.65,
         base64: true,
       });
 
@@ -532,7 +546,7 @@ export function InspectorScreen() {
         mediaTypes: ['images'],
         allowsMultipleSelection: true,
         selectionLimit: 10,
-        quality: 0.85,
+        quality: 0.65,
         base64: true,
       });
 
@@ -569,27 +583,37 @@ export function InspectorScreen() {
 
     // Upload each photo to the Cloudinary-backed API
     for (const photo of newPhotos) {
-      if (!photo.base64) continue;
+      let base64Payload = photo.base64;
+      if (!base64Payload && photo.uri) {
+        try {
+          base64Payload = await uriToBase64(photo.uri);
+        } catch (e) {
+          console.warn('[CONVERT_URI_TO_BASE64_ERROR]', e);
+        }
+      }
+      if (!base64Payload) continue;
+
       try {
         await api(`/api/v2/inspector/reports/${report.id}/media/upload-json`, {
           method: 'POST',
           body: JSON.stringify({
             slotId,
             logicalMediaId: photo.id,
-            base64Data: photo.base64,
+            base64Data: base64Payload,
             mimeType: photo.uri.endsWith('.png') ? 'image/png' : 'image/jpeg',
             capturedAt: photo.time,
           }),
         });
 
-        // Mark as uploaded in state
+        // Mark as uploaded in state and drop base64 to save RAM
         setCapturedPhotos(prev => ({
           ...prev,
-          [slotId]: (prev[slotId] || []).map(p => (p.id === photo.id ? { ...p, uploaded: true } : p)),
+          [slotId]: (prev[slotId] || []).map(p => (p.id === photo.id ? { ...p, uploaded: true, base64: undefined } : p)),
         }));
       } catch (err: any) {
         console.warn('[PHOTO_UPLOAD_FAILED]', photo.id, err);
-        await enqueueMedia(user.id, report.id, photo.id, photo.base64, 'image/jpeg');
+        // PASS PHOTO.URI (NOT BASE64!) TO ENQUEUE MEDIA TO NEVER EXCEED SQLITE 2MB CURSORWINDOW LIMIT!
+        await enqueueMedia(user.id, report.id, photo.id, photo.uri, 'image/jpeg');
         await refreshQueueCounts();
       }
     }

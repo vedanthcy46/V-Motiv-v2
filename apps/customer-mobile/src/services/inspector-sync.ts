@@ -27,7 +27,8 @@ export type PendingMedia = {
   id: string;
   reportId: string;
   logicalMediaId: string;
-  base64Data: string;
+  uri?: string;
+  base64Data?: string;
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
   clientChecksum?: string;
   createdAt: string;
@@ -38,14 +39,33 @@ const mediaQueueKey = (uid: string) => `vmotiv-inspector/media-queue/${uid}`;
 export const cachedJobsKey = (uid: string) => `vmotiv-inspector/jobs/${uid}`;
 export const cachedTemplateKey = (key: string, version: number) => `vmotiv-inspector/template/${key}/${version}`;
 
+export async function uriToBase64(uri: string): Promise<string> {
+  const response = await fetch(uri);
+  const blob = await response.blob();
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      const dataUrl = reader.result as string;
+      const base64 = dataUrl.includes(',') ? dataUrl.split(',')[1] : dataUrl;
+      resolve(base64 || '');
+    };
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
 // --- Draft Queue ---
 
 async function readDrafts(uid: string): Promise<PendingDraft[]> {
-  const raw = await AsyncStorage.getItem(draftQueueKey(uid));
-  if (!raw) return [];
   try {
+    const raw = await AsyncStorage.getItem(draftQueueKey(uid));
+    if (!raw) return [];
     return JSON.parse(raw) as PendingDraft[];
-  } catch {
+  } catch (err: any) {
+    console.warn('[READ_DRAFTS_QUEUE_ERROR]', err?.message || err);
+    if (String(err?.message || err).includes('CursorWindow') || String(err?.message || err).includes('too big')) {
+      await AsyncStorage.removeItem(draftQueueKey(uid)).catch(() => {});
+    }
     return [];
   }
 }
@@ -64,7 +84,14 @@ export async function enqueueDraft(uid: string, reportId: string, recordVersion:
     payload,
     createdAt: new Date().toISOString(),
   });
-  await AsyncStorage.setItem(draftQueueKey(uid), JSON.stringify(next));
+  try {
+    await AsyncStorage.setItem(draftQueueKey(uid), JSON.stringify(next));
+  } catch (err: any) {
+    console.warn('[ENQUEUE_DRAFT_ERROR]', err?.message || err);
+    if (String(err?.message || err).includes('CursorWindow') || String(err?.message || err).includes('too big')) {
+      await AsyncStorage.removeItem(draftQueueKey(uid)).catch(() => {});
+    }
+  }
 }
 
 export async function flushDrafts(uid: string, send: (item: PendingDraft) => Promise<void>) {
@@ -84,11 +111,15 @@ export async function flushDrafts(uid: string, send: (item: PendingDraft) => Pro
 // --- Media Queue ---
 
 async function readMedia(uid: string): Promise<PendingMedia[]> {
-  const raw = await AsyncStorage.getItem(mediaQueueKey(uid));
-  if (!raw) return [];
   try {
+    const raw = await AsyncStorage.getItem(mediaQueueKey(uid));
+    if (!raw) return [];
     return JSON.parse(raw) as PendingMedia[];
-  } catch {
+  } catch (err: any) {
+    console.warn('[READ_MEDIA_QUEUE_ERROR]', err?.message || err);
+    if (String(err?.message || err).includes('CursorWindow') || String(err?.message || err).includes('too big')) {
+      await AsyncStorage.removeItem(mediaQueueKey(uid)).catch(() => {});
+    }
     return [];
   }
 }
@@ -101,34 +132,58 @@ export async function enqueueMedia(
   uid: string,
   reportId: string,
   logicalMediaId: string,
-  base64Data: string,
+  uriOrBase64: string,
   mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/jpeg',
   clientChecksum?: string,
 ) {
+  const isUri = uriOrBase64.startsWith('file:') || uriOrBase64.startsWith('content:') || uriOrBase64.startsWith('/') || uriOrBase64.startsWith('http');
   const current = await readMedia(uid);
   const next = current.filter(item => !(item.reportId === reportId && item.logicalMediaId === logicalMediaId));
   next.push({
     id: `${reportId}:${logicalMediaId}:${Date.now()}`,
     reportId,
     logicalMediaId,
-    base64Data,
+    uri: isUri ? uriOrBase64 : undefined,
+    // Only store base64 in SQLite if it's exceptionally small (< 100KB); otherwise uri MUST be used to prevent CursorWindow overflow
+    base64Data: !isUri && uriOrBase64.length < 100_000 ? uriOrBase64 : undefined,
     mimeType,
     clientChecksum,
     createdAt: new Date().toISOString(),
   });
-  await AsyncStorage.setItem(mediaQueueKey(uid), JSON.stringify(next));
+  try {
+    await AsyncStorage.setItem(mediaQueueKey(uid), JSON.stringify(next));
+  } catch (err: any) {
+    console.warn('[ENQUEUE_MEDIA_ERROR]', err?.message || err);
+    if (String(err?.message || err).includes('CursorWindow') || String(err?.message || err).includes('too big')) {
+      await AsyncStorage.removeItem(mediaQueueKey(uid)).catch(() => {});
+    }
+  }
 }
 
-export async function flushMedia(uid: string, send: (item: PendingMedia) => Promise<void>) {
+export async function flushMedia(
+  uid: string,
+  send: (item: PendingMedia & { base64Data: string }) => Promise<void>
+) {
   const pending = await readMedia(uid);
   const remaining: PendingMedia[] = [];
   for (const item of pending) {
     try {
-      await send(item);
+      let base64 = item.base64Data;
+      if (!base64 && item.uri) {
+        base64 = await uriToBase64(item.uri);
+      }
+      if (!base64) throw new Error('Missing base64 data for media');
+      await send({ ...item, base64Data: base64 });
     } catch {
       remaining.push(item);
     }
   }
-  await AsyncStorage.setItem(mediaQueueKey(uid), JSON.stringify(remaining));
+  try {
+    await AsyncStorage.setItem(mediaQueueKey(uid), JSON.stringify(remaining));
+  } catch (err: any) {
+    if (String(err?.message || err).includes('CursorWindow')) {
+      await AsyncStorage.removeItem(mediaQueueKey(uid)).catch(() => {});
+    }
+  }
   return { sent: pending.length - remaining.length, pending: remaining.length };
 }
