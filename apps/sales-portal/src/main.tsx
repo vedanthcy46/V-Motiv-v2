@@ -2028,6 +2028,10 @@ function SellerLeadDrawer({
 
   const handleRequestInspection = async () => {
     if (!user) return;
+    if (lead.status === 'INSPECTION_SCHEDULED') {
+      setError('An inspection has already been scheduled for this lead.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -2041,7 +2045,11 @@ function SellerLeadDrawer({
       onRefresh();
       onClose();
     } catch (err) {
-      setError(err instanceof ApiError ? err.code : 'Failed to schedule inspection');
+      if (err instanceof ApiError && (err.status === 409 || err.code === 'INSPECTION_REQUEST_NOT_ELIGIBLE')) {
+        setError('An inspection has already been scheduled for this opportunity, or it is no longer in qualifying status.');
+      } else {
+        setError(err instanceof ApiError ? err.code : 'Failed to schedule inspection');
+      }
     } finally {
       setBusy(false);
     }
@@ -2198,24 +2206,44 @@ function SellerLeadDrawer({
           {/* TAB 3: INSPECTION */}
           {tab === 'inspection' && (
             <div className="form-grid">
-              <div className="form-group">
-                <label className="form-label">Requested Date</label>
-                <input type="date" className="form-input" value={inspectionDate} onChange={e => setInspectionDate(e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Time Slot</label>
-                <select className="form-select" value={inspectionSlot} onChange={e => setInspectionSlot(e.target.value)}>
-                  <option value="10:00 AM - 12:00 PM">10:00 AM - 12:00 PM</option>
-                  <option value="11:00 AM - 01:00 PM">11:00 AM - 01:00 PM</option>
-                  <option value="02:00 PM - 04:00 PM">02:00 PM - 04:00 PM</option>
-                  <option value="04:00 PM - 06:00 PM">04:00 PM - 06:00 PM</option>
-                </select>
-              </div>
-              <div className="form-group full">
-                <button className="btn-primary" onClick={handleRequestInspection} disabled={busy}>
-                  Confirm Hub Inspection Request
-                </button>
-              </div>
+              {lead.status === 'INSPECTION_SCHEDULED' ? (
+                <div className="form-group full" style={{ background: 'rgba(217, 119, 6, 0.1)', border: '1px solid rgba(217, 119, 6, 0.3)', borderRadius: '8px', padding: '16px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#d97706', fontWeight: 600, marginBottom: '6px' }}>
+                    <Icons.Inspections size={18} />
+                    <span>Inspection Already Scheduled</span>
+                  </div>
+                  <p style={{ margin: 0, fontSize: '0.875rem', color: '#94a3b8' }}>
+                    A hub inspection request is active for this vehicle. Track progress under the Hub Operations / Inspection Queue or wait for the inspection report.
+                  </p>
+                </div>
+              ) : !['SUBMITTED', 'QUALIFYING'].includes(lead.status) ? (
+                <div className="form-group full" style={{ background: 'rgba(100, 116, 139, 0.1)', border: '1px solid rgba(100, 116, 139, 0.2)', borderRadius: '8px', padding: '16px' }}>
+                  <p style={{ margin: 0, fontSize: '0.875rem', color: '#94a3b8' }}>
+                    This lead status ({lead.status}) is not eligible for new inspection requests.
+                  </p>
+                </div>
+              ) : (
+                <>
+                  <div className="form-group">
+                    <label className="form-label">Requested Date</label>
+                    <input type="date" className="form-input" value={inspectionDate} onChange={e => setInspectionDate(e.target.value)} />
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Time Slot</label>
+                    <select className="form-select" value={inspectionSlot} onChange={e => setInspectionSlot(e.target.value)}>
+                      <option value="10:00 AM - 12:00 PM">10:00 AM - 12:00 PM</option>
+                      <option value="11:00 AM - 01:00 PM">11:00 AM - 01:00 PM</option>
+                      <option value="02:00 PM - 04:00 PM">02:00 PM - 04:00 PM</option>
+                      <option value="04:00 PM - 06:00 PM">04:00 PM - 06:00 PM</option>
+                    </select>
+                  </div>
+                  <div className="form-group full">
+                    <button className="btn-primary" onClick={handleRequestInspection} disabled={busy}>
+                      Confirm Hub Inspection Request
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
           )}
 

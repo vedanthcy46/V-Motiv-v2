@@ -285,8 +285,32 @@ export function createApp(deps: {
   }
   app.use((_req, res) => res.status(404).json({ code: 'NOT_FOUND' }));
   const errors: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
-    if (error instanceof HttpError) { res.status(error.status).json({ code: error.code }); return; }
-    if (error instanceof SyntaxError) { res.status(400).json({ code: 'INVALID_JSON' }); return; }
+    const isHttpError =
+      error instanceof HttpError ||
+      (typeof error === 'object' &&
+        error !== null &&
+        'status' in error &&
+        typeof (error as any).status === 'number' &&
+        'code' in error &&
+        typeof (error as any).code === 'string');
+
+    if (isHttpError) {
+      res.status((error as any).status).json({
+        code: (error as any).code,
+      });
+      return;
+    }
+
+    if (error instanceof ZodError) {
+      res.status(400).json({ code: 'INVALID_INPUT', issues: error.issues });
+      return;
+    }
+
+    if (error instanceof SyntaxError) {
+      res.status(400).json({ code: 'INVALID_JSON' });
+      return;
+    }
+
     // Tokens, email addresses, request bodies, provider payloads and credentials are never logged.
     if (error instanceof Error) {
       console.error('API_REQUEST_FAILED', error.constructor.name, error.message, (error as any).code ?? '', (error as any).meta ?? '');

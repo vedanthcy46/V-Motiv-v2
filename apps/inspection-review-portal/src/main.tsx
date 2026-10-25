@@ -113,7 +113,10 @@ async function api<T>(user: User, path: string, init: RequestInit = {}) {
 
   if (!response.ok) {
     const body = (await response.json().catch(() => ({}))) as { code?: string; message?: string };
-    throw new Error(body.code || body.message || 'REQUEST_FAILED');
+    const err = new Error(body.code || body.message || `HTTP_${response.status}`);
+    (err as any).status = response.status;
+    (err as any).code = body.code;
+    throw err;
   }
   return response.json() as Promise<T>;
 }
@@ -381,8 +384,13 @@ export function App() {
     try {
       const queue = await api<QueueItem[]>(activeUser, '/inspection-review/queue');
       setItems(queue);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unable to load review queue.');
+    } catch (e: any) {
+      const code = e?.code || e?.message || '';
+      if (code === 'INSPECTION_ACCESS_DENIED' || e?.status === 403) {
+        setError('Access Restricted: Your account does not have Inspection Reviewer privileges. Please sign in with an authorized Reviewer or Administrator account (e.g. vmotiv.v@gmail.com).');
+      } else {
+        setError(e instanceof Error ? e.message : 'Unable to load review queue.');
+      }
     } finally {
       setBusy(false);
     }
