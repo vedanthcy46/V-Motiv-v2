@@ -104,7 +104,13 @@ export function createInspectorRouter(deps: { verify: VerifyToken; store: Prisma
 
   router.post('/assignments/:id/start', async (req, res, next) => {
     try {
-      res.json(await deps.store.start(res.locals.inspectionActor, uuid.parse(req.params.id)));
+      const report = await deps.store.start(res.locals.inspectionActor, uuid.parse(req.params.id));
+      const template = deps.store.template(res.locals.inspectionActor, report.templateKey, report.templateVersion);
+      res.json({
+        ...report,
+        report,
+        template,
+      });
     } catch (e) {
       next(e);
     }

@@ -137,14 +137,26 @@ export class PrismaInspectionStore {
       throw new HttpError(409, 'INSPECTION_NOT_STARTABLE');
     }
 
+    const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
+
     return this.db.$transaction(async tx => {
       const existing = await tx.inspectionReport.findFirst({
-        where: {
-          assignmentId: id,
-          inspectorId: actor.userId,
-          status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] },
-        },
+        where: isElevated
+          ? {
+              assignmentId: id,
+              status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] },
+            }
+          : {
+              assignmentId: id,
+              inspectorId: actor.userId,
+              status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] },
+            },
         orderBy: { revision: 'desc' },
+        include: {
+          answers: true,
+          defects: true,
+          media: true,
+        },
       });
 
       const template = currentTemplate();
@@ -157,6 +169,11 @@ export class PrismaInspectionStore {
           templateKey: template.key,
           templateVersion: template.version,
           startedAt: new Date(),
+        },
+        include: {
+          answers: true,
+          defects: true,
+          media: true,
         },
       });
 
@@ -186,8 +203,9 @@ export class PrismaInspectionStore {
 
   async report(actor: InspectionActor, id: string) {
     checkRole(actor, inspectorRoles);
+    const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
     const report = await this.db.inspectionReport.findFirst({
-      where: { id, inspectorId: actor.userId },
+      where: isElevated ? { id } : { id, inspectorId: actor.userId },
       include: {
         answers: true,
         defects: true,
@@ -220,9 +238,12 @@ export class PrismaInspectionStore {
     }
   ) {
     checkRole(actor, inspectorRoles);
+    const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
 
     const report = await this.db.inspectionReport.findFirst({
-      where: { id, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
+      where: isElevated
+        ? { id, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } }
+        : { id, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
     });
 
     if (!report) throw new HttpError(409, 'INSPECTION_REPORT_NOT_EDITABLE');
@@ -293,9 +314,12 @@ export class PrismaInspectionStore {
 
   async submit(actor: InspectionActor, id: string, recordVersion: number) {
     checkRole(actor, inspectorRoles);
+    const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
 
     const report = await this.db.inspectionReport.findFirst({
-      where: { id, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
+      where: isElevated
+        ? { id, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } }
+        : { id, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
       include: {
         answers: true,
         defects: true,
@@ -379,8 +403,11 @@ export class PrismaInspectionStore {
     input: { logicalMediaId: string; mimeType: string }
   ) {
     checkRole(actor, inspectorRoles);
+    const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
     const report = await this.db.inspectionReport.findFirst({
-      where: { id: reportId, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
+      where: isElevated
+        ? { id: reportId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } }
+        : { id: reportId, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
     });
     if (!report) throw new HttpError(409, 'INSPECTION_REPORT_NOT_EDITABLE');
 
@@ -402,8 +429,11 @@ export class PrismaInspectionStore {
     capturedAt?: Date
   ) {
     checkRole(actor, inspectorRoles);
+    const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
     const report = await this.db.inspectionReport.findFirst({
-      where: { id: reportId, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
+      where: isElevated
+        ? { id: reportId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } }
+        : { id: reportId, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
     });
     if (!report) throw new HttpError(409, 'INSPECTION_REPORT_NOT_EDITABLE');
 

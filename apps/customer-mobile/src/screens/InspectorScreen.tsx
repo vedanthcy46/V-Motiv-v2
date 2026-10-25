@@ -212,15 +212,30 @@ export function InspectorScreen() {
     setBusy(true);
     setStatusMessage(null);
     try {
-      const startRes = await api<{ report: Report; template: Template }>(
+      const startRes = await api<any>(
         `/api/v2/inspector/assignments/${job.id}/start`,
         { method: 'POST' }
       );
-      setReport(startRes.report);
-      setTemplate(startRes.template);
+      const activeReport: Report = (startRes && (startRes.report || startRes)) as Report;
+      setReport(activeReport);
+
+      // Hydrate template if present or fetch it from API
+      let activeTemplate: Template = startRes?.template;
+      if (!activeTemplate?.sections?.length) {
+        const tKey = activeReport.templateKey || 'vehicle-standard';
+        const tVer = activeReport.templateVersion || 2;
+        try {
+          activeTemplate = await api<Template>(`/api/v2/inspector/templates/${tKey}/${tVer}`);
+        } catch {
+          // ignore
+        }
+      }
+      if (activeTemplate?.sections?.length) {
+        setTemplate(activeTemplate);
+      }
 
       // Hydrate existing answers / fields
-      const iden = startRes.report.identity || {};
+      const iden = (activeReport.identity || {}) as Record<string, unknown>;
       setRegNumber(String(iden.registrationNumber || job.request.lead.referenceCode || ''));
       setOdometerKm(String(iden.odometerKm || job.request.lead.odometerKm || ''));
       setVinChassis(String(iden.vinChassis || ''));
@@ -230,13 +245,14 @@ export function InspectorScreen() {
       setHypothecationDeclared(Boolean(iden.hypothecationDeclared));
 
       const ansMap: Record<string, { status: string; notes?: string }> = {};
-      (startRes.report.answers || []).forEach(a => {
+      (activeReport.answers || []).forEach(a => {
         ansMap[a.itemKey] = { status: a.status, notes: a.notes };
       });
       setAnswers(ansMap);
-      setDefects(startRes.report.defects || []);
-    } catch (err) {
-      Alert.alert('Inspection Error', 'Could not start or load evaluation workspace. Please try again.');
+      setDefects(activeReport.defects || []);
+    } catch (err: any) {
+      console.warn('[START_INSPECTION_ERROR]', err?.status, err?.code, err?.message);
+      Alert.alert('Inspection Error', `Could not start or load evaluation workspace: ${err?.message || err?.code || 'Please check your connection'}`);
     } finally {
       setBusy(false);
     }
