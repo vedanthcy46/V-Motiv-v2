@@ -2,7 +2,9 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -408,7 +410,16 @@ export function InspectorScreen() {
         </View>
 
         {/* Tab Content */}
-        <ScrollView contentContainerStyle={styles.contentScroll} keyboardShouldPersistTaps="handled">
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+          style={{ flex: 1 }}
+        >
+          <ScrollView
+            contentContainerStyle={styles.contentScroll}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+          >
           {/* TAB 1: IDENTITY */}
           {activeTab === 'identity' && (
             <View style={styles.formSection}>
@@ -752,10 +763,14 @@ export function InspectorScreen() {
             </View>
           )}
         </ScrollView>
+        </KeyboardAvoidingView>
 
         {/* Modal: Add Defect */}
         <Modal visible={defectModalVisible} transparent animationType="slide">
-          <View style={styles.modalBackdrop}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.modalBackdrop}
+          >
             <View style={styles.modalContent}>
               <View style={styles.rowBetween}>
                 <Text style={styles.modalTitle}>Add Vehicle Defect</Text>
@@ -831,7 +846,7 @@ export function InspectorScreen() {
                 <Text style={styles.btnPrimaryText}>Add to Report</Text>
               </Pressable>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </Modal>
       </View>
     );

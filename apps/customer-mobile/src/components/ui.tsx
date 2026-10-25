@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import {
-  ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, TextInput,
+  ActivityIndicator, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput,
   type TextInputProps, View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -22,31 +22,47 @@ export {
 export function Screen({
   children,
   scroll = true,
+  keyboardAvoiding = true,
+  keyboardVerticalOffset = Platform.OS === 'ios' ? 12 : 0,
   contentStyle,
-}: React.PropsWithChildren<{ scroll?: boolean; contentStyle?: any }>) {
+}: React.PropsWithChildren<{
+  scroll?: boolean;
+  keyboardAvoiding?: boolean;
+  keyboardVerticalOffset?: number;
+  contentStyle?: any;
+}>) {
   const insets = useSafeAreaInsets();
 
-  if (!scroll) {
-    return (
-      <View style={[styles.safe, { paddingTop: insets.top }]}>
-        <View style={[styles.fill, contentStyle]}>{children}</View>
-      </View>
-    );
-  }
+  const content = !scroll ? (
+    <View style={[styles.fill, contentStyle]}>{children}</View>
+  ) : (
+    <ScrollView
+      contentContainerStyle={[
+        styles.scroll,
+        { paddingBottom: Math.max(insets.bottom, 20) + 72 },
+        contentStyle,
+      ]}
+      showsVerticalScrollIndicator={false}
+      keyboardShouldPersistTaps="handled"
+      keyboardDismissMode="on-drag"
+    >
+      {children}
+    </ScrollView>
+  );
 
   return (
     <View style={[styles.safe, { paddingTop: insets.top }]}>
-      <ScrollView
-        contentContainerStyle={[
-          styles.scroll,
-          { paddingBottom: Math.max(insets.bottom, 20) + 72 },
-          contentStyle,
-        ]}
-        showsVerticalScrollIndicator={false}
-        keyboardShouldPersistTaps="handled"
-      >
-        {children}
-      </ScrollView>
+      {keyboardAvoiding ? (
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          keyboardVerticalOffset={keyboardVerticalOffset}
+          style={styles.fill}
+        >
+          {content}
+        </KeyboardAvoidingView>
+      ) : (
+        content
+      )}
     </View>
   );
 }
