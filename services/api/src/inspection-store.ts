@@ -17,7 +17,7 @@ const checkRole = (actor: InspectionActor, allowed: string[]) => {
   }
 };
 
-const inspectorRoles = ['INSPECTOR'];
+const inspectorRoles = ['INSPECTOR', 'SUPER_ADMIN', 'ADMIN'];
 const operationsRoles = ['OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const reviewerRoles = ['INSPECTION_REVIEWER', 'ADMIN', 'SUPER_ADMIN'];
 
@@ -98,14 +98,23 @@ export class PrismaInspectionStore {
 
   async assignments(actor: InspectionActor) {
     checkRole(actor, inspectorRoles);
+    const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
     return this.db.inspectionAssignment.findMany({
-      where: {
-        inspectorId: actor.userId,
-        OR: [
-          { status: { in: ['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'] } },
-          { reports: { some: { inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } } } },
-        ],
-      },
+      where: isElevated
+        ? {
+            OR: [
+              { inspectorId: actor.userId },
+              { status: { in: ['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'] } },
+              { reports: { some: { status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } } } },
+            ],
+          }
+        : {
+            inspectorId: actor.userId,
+            OR: [
+              { status: { in: ['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'] } },
+              { reports: { some: { inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } } } },
+            ],
+          },
       orderBy: { scheduledAt: 'asc' },
       select: assignmentDetail,
     });
@@ -113,8 +122,9 @@ export class PrismaInspectionStore {
 
   async assignment(actor: InspectionActor, id: string) {
     checkRole(actor, inspectorRoles);
+    const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
     const value = await this.db.inspectionAssignment.findFirst({
-      where: { id, inspectorId: actor.userId },
+      where: isElevated ? { id } : { id, inspectorId: actor.userId },
       select: assignmentDetail,
     });
     if (!value) throw new HttpError(404, 'INSPECTION_ASSIGNMENT_NOT_FOUND');

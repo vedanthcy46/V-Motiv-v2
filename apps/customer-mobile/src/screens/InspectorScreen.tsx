@@ -188,13 +188,18 @@ export function InspectorScreen() {
       const live = await api<Assignment[]>('/api/v2/inspector/assignments');
       setJobs(live);
       await AsyncStorage.setItem(cachedJobsKey(user.id), JSON.stringify(live));
-    } catch (err) {
+    } catch (err: any) {
+      console.warn('[LOAD_ASSIGNMENTS_ERROR]', err?.status, err?.code, err?.message);
       const cached = await AsyncStorage.getItem(cachedJobsKey(user.id));
       if (cached) {
         setJobs(JSON.parse(cached) as Assignment[]);
         setStatusMessage('Offline Mode · Using cached inspection assignments');
+      } else if (err?.code === 'INSPECTION_ACCESS_DENIED' || err?.status === 403) {
+        setStatusMessage('Access Denied: Your account does not have Inspector privileges.');
+      } else if (err?.code === 'NETWORK_UNREACHABLE' || err?.status === 0) {
+        setStatusMessage('Unable to reach server. Please check your internet or host connection.');
       } else {
-        setStatusMessage('Unable to load assignments. Please check internet connection.');
+        setStatusMessage(`Unable to load assignments (${err?.code || err?.message || 'Server error'}).`);
       }
     } finally {
       setBusy(false);
