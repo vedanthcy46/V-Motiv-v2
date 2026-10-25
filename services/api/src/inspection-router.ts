@@ -24,15 +24,17 @@ const draftInput = z.object({
 
 const mediaInitiateInput = z.object({
   logicalMediaId: z.string().trim().min(1).max(100),
-  mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  mimeType: z.string().trim().min(3).max(100),
 }).strict();
 
 const mediaUploadJsonInput = z.object({
   base64Data: z.string().min(1),
-  mimeType: z.enum(['image/jpeg', 'image/png', 'image/webp']),
+  mimeType: z.string().trim().min(3).max(100).default('image/jpeg'),
   clientChecksum: z.string().regex(/^[a-fA-F0-9]{64}$/).optional(),
   capturedAt: z.string().datetime().transform(val => new Date(val)).optional(),
-}).strict();
+  logicalMediaId: z.string().trim().min(1).max(100).optional(),
+  slotId: z.string().trim().min(1).max(100).optional(),
+}).passthrough();
 
 const assignmentInput = z.object({
   inspectorId: uuid,
@@ -163,12 +165,14 @@ export function createInspectorRouter(deps: { verify: VerifyToken; store: Prisma
     }
   });
 
-  router.post('/reports/:id/media/:mediaId/upload', express.json({ limit: '20mb' }), async (req, res, next) => {
+  const handleMediaUpload = async (req: express.Request, res: express.Response, next: express.NextFunction) => {
     try {
       const reportId = uuid.parse(req.params.id);
-      const logicalMediaId = z.string().trim().min(1).max(100).parse(req.params.mediaId);
-
       const parsed = mediaUploadJsonInput.parse(req.body);
+      const logicalMediaId = z.string().trim().min(1).max(100).parse(
+        req.params.mediaId || parsed.logicalMediaId || parsed.slotId || `evidence-${Date.now()}`
+      );
+
       const buffer = Buffer.from(parsed.base64Data, 'base64');
 
       const media = await deps.store.uploadMedia(
@@ -184,7 +188,10 @@ export function createInspectorRouter(deps: { verify: VerifyToken; store: Prisma
     } catch (e) {
       next(e);
     }
-  });
+  };
+
+  router.post('/reports/:id/media/:mediaId/upload', express.json({ limit: '50mb' }), handleMediaUpload);
+  router.post('/reports/:id/media/upload-json', express.json({ limit: '50mb' }), handleMediaUpload);
 
   router.get('/reports/:id/media/:mediaId/content', async (req, res, next) => {
     try {

@@ -317,6 +317,8 @@ export function InspectorScreen() {
       await api(`/api/v2/inspector/reports/${report.id}/media/upload-json`, {
         method: 'POST',
         body: JSON.stringify({
+          slotId,
+          logicalMediaId: slotId,
           base64Data: sampleBase64,
           mimeType: 'image/jpeg',
           capturedAt: new Date().toISOString(),
@@ -371,6 +373,8 @@ export function InspectorScreen() {
         await api(`/api/v2/inspector/reports/${item.reportId}/media/upload-json`, {
           method: 'POST',
           body: JSON.stringify({
+            slotId: item.logicalMediaId,
+            logicalMediaId: item.logicalMediaId,
             base64Data: item.base64Data,
             mimeType: item.mimeType,
             capturedAt: item.createdAt,

@@ -1,8 +1,11 @@
 import express, { type ErrorRequestHandler } from 'express';
 import cors from 'cors';
+import fs from 'node:fs';
+import crypto from 'node:crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import helmet from 'helmet';
+import { isCloudinaryConfigured, uploadToCloudinary } from './cloudinary.js';
 
 if (!('toJSON' in BigInt.prototype)) {
   Object.defineProperty(BigInt.prototype, 'toJSON', {
@@ -283,6 +286,54 @@ export function createApp(deps: {
     app.delete('/api/v1/me/addresses/:id', async (req, res) => { await deps.customer!.deleteAddress((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
     app.post('/api/v1/me/privacy-requests', async (req, res) => res.status(201).json(await deps.customer!.createPrivacyRequest((res.locals.identity as Identity).uid, parsed(privacyRequestInput, req.body).requestType)));
   }
+
+  // General Media Upload Route (Cloudinary backed)
+  app.post('/api/v2/media/upload', authentication(deps.verify), express.json({ limit: '50mb' }), async (req, res, next) => {
+    try {
+      const input = z.object({
+        base64Data: z.string().min(1),
+        mimeType: z.string().trim().min(3).max(100).default('image/jpeg'),
+        folder: z.string().trim().max(100).optional(),
+        filename: z.string().trim().max(100).optional(),
+        tags: z.array(z.string().trim().max(50)).max(20).optional(),
+      }).parse(req.body);
+
+      const buffer = Buffer.from(input.base64Data, 'base64');
+      const identity = res.locals.identity as Identity;
+
+      if (isCloudinaryConfigured()) {
+        const result = await uploadToCloudinary({
+          buffer,
+          folder: input.folder || 'vmotiv/uploads',
+          filename: input.filename,
+          mimeType: input.mimeType,
+          tags: [...(input.tags || []), `user-${identity.uid}`],
+        });
+        res.status(201).json(result);
+        return;
+      }
+
+      // Local storage fallback when Cloudinary is not configured
+      const ext = input.mimeType.split('/')[1] || 'bin';
+      const filename = `${input.filename || 'upload'}-${Date.now()}.${ext}`;
+      const localDir = path.resolve(process.cwd(), 'storage/uploads');
+      if (!fs.existsSync(localDir)) fs.mkdirSync(localDir, { recursive: true });
+      await fs.promises.writeFile(path.resolve(localDir, filename), buffer);
+      const checksumSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+      res.status(201).json({
+        url: `/storage/uploads/${filename}`,
+        secureUrl: `/storage/uploads/${filename}`,
+        publicId: filename,
+        format: ext,
+        byteSize: buffer.length,
+        resourceType: input.mimeType.startsWith('video/') ? 'video' : 'image',
+        checksumSha256,
+      });
+    } catch (e) {
+      next(e);
+    }
+  });
+
   app.use((_req, res) => res.status(404).json({ code: 'NOT_FOUND' }));
   const errors: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
     const isHttpError =
