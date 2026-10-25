@@ -5,12 +5,25 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from './src/auth/AuthProvider';
 import { CustomerNavigator } from './src/navigation/CustomerNavigator';
+import { InspectorScreen } from './src/screens/InspectorScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { color } from './src/theme';
 import { BrandRevealScreen } from './src/components/BrandRevealScreen';
 import type { RootStack } from './src/navigation/types';
 
-const theme = { ...DarkTheme, colors: { ...DarkTheme.colors, primary: color.yellow, background: color.canvas, card: color.navy, text: color.text, border: color.border, notification: color.yellow } };
+const theme = {
+  ...DarkTheme,
+  colors: {
+    ...DarkTheme.colors,
+    primary: color.yellow,
+    background: color.canvas,
+    card: color.navy,
+    text: color.text,
+    border: color.border,
+    notification: color.yellow,
+  },
+};
+
 const linking: LinkingOptions<RootStack> = {
   prefixes: ['vmotiv://'],
   config: {
@@ -24,14 +37,43 @@ const linking: LinkingOptions<RootStack> = {
 };
 
 function Root() {
-  const { state, profile } = useAuth();
-  if (state === 'booting') return <View style={{ flex: 1, backgroundColor: color.canvas, justifyContent: 'center' }}><ActivityIndicator accessibilityLabel="Restoring account" color={color.yellow} /></View>;
+  const { state, profile, isInspector, activeMode } = useAuth();
+
+  if (state === 'booting') {
+    return (
+      <View style={{ flex: 1, backgroundColor: color.canvas, justifyContent: 'center' }}>
+        <ActivityIndicator accessibilityLabel="Restoring account" color={color.yellow} />
+      </View>
+    );
+  }
+
+  // If authenticated as an Inspector and in inspector mode, redirect to Inspector Portal
+  if (state === 'signed-in' && isInspector && activeMode === 'inspector') {
+    return <InspectorScreen />;
+  }
+
   // Discovery is public. Authentication is requested only from actions that create or expose customer data.
-  if (state === 'signed-in' && (!profile?.termsAcceptedAt || !profile?.phone)) return <OnboardingScreen />;
+  if (state === 'signed-in' && (!profile?.termsAcceptedAt || !profile?.phone) && !isInspector) {
+    return <OnboardingScreen />;
+  }
+
   return <CustomerNavigator />;
 }
 
 export default function App() {
   const [revealed, setRevealed] = useState(false);
-  return <SafeAreaProvider>{revealed ? <AuthProvider><NavigationContainer<RootStack> theme={theme} linking={linking}><StatusBar style="light" /><Root /></NavigationContainer></AuthProvider> : <BrandRevealScreen onFinish={() => setRevealed(true)} />}</SafeAreaProvider>;
+  return (
+    <SafeAreaProvider>
+      {revealed ? (
+        <AuthProvider>
+          <NavigationContainer<RootStack> theme={theme} linking={linking}>
+            <StatusBar style="light" />
+            <Root />
+          </NavigationContainer>
+        </AuthProvider>
+      ) : (
+        <BrandRevealScreen onFinish={() => setRevealed(true)} />
+      )}
+    </SafeAreaProvider>
+  );
 }

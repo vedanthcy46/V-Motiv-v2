@@ -9,6 +9,12 @@ export type Profile = {
   termsAcceptedAt: string | null;
   termsVersion: string | null;
   createdAt: string;
+  employee?: {
+    role: string;
+    active: boolean;
+    permissions: string[];
+    locationIds?: string[];
+  } | null;
 };
 
 export type VehicleSummary = {

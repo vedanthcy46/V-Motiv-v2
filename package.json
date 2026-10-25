@@ -5,7 +5,8 @@
   "overrides": {
     "@grpc/grpc-js": "1.14.6",
     "deepmerge-ts": "8.0.2",
-    "jwks-rsa": "3.1.0"
+    "jwks-rsa": "3.1.0",
+    "react-native": "0.86.3"
   },
   "workspaces": [
     "services/*",
@@ -21,7 +22,6 @@
     "dev:sales": "npm run dev -w @vmotiv/sales-portal",
     "dev:inspection-review": "npm run dev -w @vmotiv/inspection-review-portal",
     "dev:mobile": "npm run start -w @vmotiv/customer-mobile --",
-    "dev:inspector": "npm run start -w @vmotiv/inspector-mobile --",
     "mobile:android": "npm run android -w @vmotiv/customer-mobile",
     "mobile:usb": "powershell -NoProfile -ExecutionPolicy Bypass -File tooling/connect-android-usb.ps1",
     "mobile:usb:watch": "powershell -NoProfile -ExecutionPolicy Bypass -File tooling/watch-android-usb.ps1",

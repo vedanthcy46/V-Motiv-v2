@@ -27,7 +27,7 @@ import { color, radius, space } from '../theme';
 export function AccountScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
-  const { state, profile, busy: authBusy, signOut } = useAuth();
+  const { state, profile, busy: authBusy, signOut, isInspector, setActiveMode } = useAuth();
 
   if (state !== 'signed-in') {
     return <AuthScreen />;
@@ -93,6 +93,27 @@ export function AccountScreen() {
             ) : null}
           </View>
         </View>
+
+        {/* Authorized Staff / Inspector Workspace Switcher */}
+        {isInspector ? (
+          <View style={styles.inspectorStaffCard}>
+            <View style={styles.inspectorStaffBadge}>
+              <Text style={styles.inspectorStaffBadgeText}>AUTHORIZED FIELD INSPECTOR</Text>
+            </View>
+            <Text style={styles.inspectorStaffTitle}>Vehicle Inspection Workspace</Text>
+            <Text style={styles.inspectorStaffSub}>
+              You are signed in with evaluator privileges. Touch to access assigned jobs and inspection tools.
+            </Text>
+            <TouchableOpacity
+              style={styles.inspectorSwitchButton}
+              activeOpacity={0.8}
+              onPress={() => setActiveMode('inspector')}
+            >
+              <Text style={styles.inspectorSwitchButtonText}>Open Inspector Workspace</Text>
+              <ChevronRight size={16} color={color.navy} />
+            </TouchableOpacity>
+          </View>
+        ) : null}
 
         {/* Section: Account & Preferences */}
         <View style={styles.sectionWrap}>
@@ -392,5 +413,54 @@ const styles = StyleSheet.create({
     color: color.muted,
     fontSize: 11.5,
     textAlign: 'center',
+  },
+  inspectorStaffCard: {
+    backgroundColor: color.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderColor: color.yellow,
+    padding: space.lg,
+    gap: space.sm,
+  },
+  inspectorStaffBadge: {
+    alignSelf: 'flex-start',
+    backgroundColor: 'rgba(247, 181, 3, 0.14)',
+    borderWidth: 1,
+    borderColor: color.yellow,
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+  },
+  inspectorStaffBadgeText: {
+    color: color.yellow,
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.8,
+  },
+  inspectorStaffTitle: {
+    color: color.white,
+    fontSize: 16,
+    fontWeight: '800',
+  },
+  inspectorStaffSub: {
+    color: color.textSecondary,
+    fontSize: 12.5,
+    lineHeight: 18,
+  },
+  inspectorSwitchButton: {
+    marginTop: space.xs,
+    backgroundColor: color.yellow,
+    borderRadius: radius.md,
+    paddingVertical: 12,
+    paddingHorizontal: space.lg,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  inspectorSwitchButtonText: {
+    color: color.navy,
+    fontSize: 13.5,
+    fontWeight: '800',
   },
 });

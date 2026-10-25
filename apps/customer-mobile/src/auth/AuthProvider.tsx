@@ -39,6 +39,9 @@ type AuthContextValue = {
   configured: boolean;
   busy: boolean;
   error: string | null;
+  isInspector: boolean;
+  activeMode: 'customer' | 'inspector';
+  setActiveMode: (mode: 'customer' | 'inspector') => void;
   signIn: () => Promise<void>;
   signOut: () => Promise<void>;
   refreshProfile: () => Promise<void>;
@@ -49,6 +52,8 @@ const AuthContext = createContext<AuthContextValue | null>(null);
 function useFirebaseSessionBase() {
   const [state, setState] = useState<AuthContextValue['state']>('booting');
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [isInspector, setIsInspector] = useState(false);
+  const [activeMode, setActiveMode] = useState<'customer' | 'inspector'>('customer');
   const [busy, setBusy] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -60,6 +65,8 @@ function useFirebaseSessionBase() {
     const revision = ++generation.current;
     if (!user) {
       setProfile(null);
+      setIsInspector(false);
+      setActiveMode('customer');
       setState('signed-out');
       setSyncing(false);
       return;
@@ -69,10 +76,39 @@ function useFirebaseSessionBase() {
     const current = () => mounted.current && revision === generation.current && authModule?.getAuth().currentUser?.uid === user.uid;
     try {
       const result = await api<Profile>('/auth/sync', { method: 'POST' });
-      if (current()) { setProfile(result); setState('signed-in'); }
+      if (current()) {
+        setProfile(result);
+        setState('signed-in');
+
+        // Check whether this authenticated user has Inspector privileges
+        let inspectorEligible = Boolean(
+          result?.employee?.active &&
+          (result.employee.role === 'INSPECTOR' || result.employee.role === 'ADMIN' || result.employee.role === 'SUPER_ADMIN')
+        );
+
+        if (!inspectorEligible) {
+          try {
+            const actor = await api<{ roles?: string[]; role?: string }>('/api/v2/inspector/me');
+            if (actor?.roles?.includes('INSPECTOR') || actor?.role === 'INSPECTOR') {
+              inspectorEligible = true;
+            }
+          } catch {
+            inspectorEligible = false;
+          }
+        }
+
+        if (current()) {
+          setIsInspector(inspectorEligible);
+          if (inspectorEligible) {
+            setActiveMode('inspector');
+          }
+        }
+      }
     } catch (syncError) {
       if (current()) {
         setProfile(null);
+        setIsInspector(false);
+        setActiveMode('customer');
         setError(friendlyError(syncError));
         setState('signed-out');
       }
@@ -137,6 +173,8 @@ function useFirebaseSessionBase() {
     setBusy(true);
     setSyncing(false);
     setProfile(null);
+    setIsInspector(false);
+    setActiveMode('customer');
     setState('signed-out');
     setError(null);
     try {
@@ -146,7 +184,7 @@ function useFirebaseSessionBase() {
     } finally { setBusy(false); }
   }, [authModule]);
 
-  return { state, profile, busy: busy || syncing, setBusy, error, setError, signOut, refreshProfile, retrySession };
+  return { state, profile, isInspector, activeMode, setActiveMode, busy: busy || syncing, setBusy, error, setError, signOut, refreshProfile, retrySession };
 }
 
 function ConfiguredProvider({ children }: React.PropsWithChildren) {
@@ -190,8 +228,11 @@ function ConfiguredProvider({ children }: React.PropsWithChildren) {
   const value = useMemo<AuthContextValue>(() => ({
     state: session.state, profile: session.profile, user: session.profile,
     configured: true, busy: session.busy, error: session.error,
+    isInspector: session.isInspector,
+    activeMode: session.activeMode,
+    setActiveMode: session.setActiveMode,
     signIn, signOut: session.signOut, refreshProfile: session.refreshProfile,
-  }), [session.state, session.profile, session.busy, session.error, signIn, session.signOut, session.refreshProfile]);
+  }), [session.state, session.profile, session.busy, session.error, session.isInspector, session.activeMode, session.setActiveMode, signIn, session.signOut, session.refreshProfile]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -204,13 +245,13 @@ function ExpoGoProvider({ children }: React.PropsWithChildren) {
   }, []);
   const value = useMemo<AuthContextValue>(() => ({
     state: 'signed-out', profile: null, user: null, configured: true, busy: false,
-    error, signIn, signOut: async () => undefined, refreshProfile: async () => undefined,
+    error, isInspector: false, activeMode: 'customer', setActiveMode: () => undefined, signIn, signOut: async () => undefined, refreshProfile: async () => undefined,
   }), [error, signIn]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
 function UnconfiguredProvider({ children }: React.PropsWithChildren) {
-  return <AuthContext.Provider value={{ state: 'signed-out', profile: null, user: null, configured: false, busy: false, error: 'Google OAuth credentials are missing from this build.', signIn: async () => undefined, signOut: async () => undefined, refreshProfile: async () => undefined }}>{children}</AuthContext.Provider>;
+  return <AuthContext.Provider value={{ state: 'signed-out', profile: null, user: null, configured: false, busy: false, error: 'Google OAuth credentials are missing from this build.', isInspector: false, activeMode: 'customer', setActiveMode: () => undefined, signIn: async () => undefined, signOut: async () => undefined, refreshProfile: async () => undefined }}>{children}</AuthContext.Provider>;
 }
 
 export function AuthProvider({ children }: React.PropsWithChildren) {

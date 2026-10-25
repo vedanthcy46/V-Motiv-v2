@@ -37,6 +37,15 @@ export function apiBaseUrl() {
   });
 }
 
+export function resolveRequestUrl(path: string) {
+  const base = apiBaseUrl();
+  if (path.startsWith('/api/')) {
+    const origin = base.replace(/\/api\/v[0-9]+\/?$/, '');
+    return `${origin}${path}`;
+  }
+  return `${base}${path.startsWith('/') ? path : `/${path}`}`;
+}
+
 export class ApiError extends Error {
   constructor(readonly status: number, readonly code: string) { super(code); }
 }
@@ -46,6 +55,7 @@ export async function api<T>(path: string, init: RequestInit = {}, forceRefresh 
   const externalAbort = () => controller.abort();
   if (init.signal?.aborted) controller.abort();
   init.signal?.addEventListener('abort', externalAbort);
+  const targetUrl = resolveRequestUrl(path);
   const request = async (refresh: boolean): Promise<T> => {
     if (controller.signal.aborted) throw new ApiError(0, 'REQUEST_CANCELLED');
     const token = await getAuthToken(refresh);
@@ -58,14 +68,14 @@ export async function api<T>(path: string, init: RequestInit = {}, forceRefresh 
     if (token) headers.set('Authorization', `Bearer ${token}`);
     let response: Response;
     try {
-      response = await fetch(`${apiBaseUrl()}${path}`, { ...init, signal: controller.signal, headers });
+      response = await fetch(targetUrl, { ...init, signal: controller.signal, headers });
     } catch (error) {
       if (init.signal?.aborted) throw new ApiError(0, 'REQUEST_CANCELLED');
       if (error instanceof Error && error.message === 'API_CONFIGURATION_REQUIRED') throw error;
       if (__DEV__ && !controller.signal.aborted) {
         await new Promise((r) => setTimeout(r, 700));
         try {
-          response = await fetch(`${apiBaseUrl()}${path}`, { ...init, signal: controller.signal, headers });
+          response = await fetch(targetUrl, { ...init, signal: controller.signal, headers });
         } catch {
           throw new ApiError(0, 'NETWORK_UNREACHABLE');
         }

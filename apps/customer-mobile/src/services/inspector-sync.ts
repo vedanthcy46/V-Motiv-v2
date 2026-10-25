@@ -102,8 +102,8 @@ export async function enqueueMedia(
   reportId: string,
   logicalMediaId: string,
   base64Data: string,
-  mimeType: 'image/jpeg' | 'image/png' | 'image/webp',
-  clientChecksum?: string
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp' = 'image/jpeg',
+  clientChecksum?: string,
 ) {
   const current = await readMedia(uid);
   const next = current.filter(item => !(item.reportId === reportId && item.logicalMediaId === logicalMediaId));
@@ -131,9 +131,4 @@ export async function flushMedia(uid: string, send: (item: PendingMedia) => Prom
   }
   await AsyncStorage.setItem(mediaQueueKey(uid), JSON.stringify(remaining));
   return { sent: pending.length - remaining.length, pending: remaining.length };
-}
-
-export async function totalQueuedCount(uid: string) {
-  const [d, m] = await Promise.all([queuedDraftCount(uid), queuedMediaCount(uid)]);
-  return d + m;
 }
