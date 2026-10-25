@@ -1,7 +1,23 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useState, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getApp, getApps, initializeApp } from 'firebase/app';
-import { GoogleAuthProvider, getAuth, onAuthStateChanged, signInWithPopup, signOut, type User } from 'firebase/auth';
+import {
+  GoogleAuthProvider,
+  PhoneAuthProvider,
+  PhoneMultiFactorGenerator,
+  RecaptchaVerifier,
+  getAuth,
+  getMultiFactorResolver,
+  getRedirectResult,
+  onAuthStateChanged,
+  signInWithPopup,
+  signInWithRedirect,
+  signOut,
+  type Auth,
+  type MultiFactorResolver,
+  type PhoneMultiFactorInfo,
+  type User,
+} from 'firebase/auth';
 import './styles.css';
 
 type QueueItem = {
@@ -150,6 +166,201 @@ function AuthenticatedImage({ user, reportId, mediaId, alt }: { user: User; repo
   return <img src={src} alt={alt} />;
 }
 
+function MfaChallengeDialog({
+  auth,
+  resolver,
+  onClose,
+  onSuccess,
+}: {
+  auth: Auth;
+  resolver: MultiFactorResolver;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
+  const [verificationId, setVerificationId] = useState('');
+  const [code, setCode] = useState('');
+  const [sending, setSending] = useState(false);
+  const [verifying, setVerifying] = useState(false);
+  const [error, setError] = useState('');
+
+  const phoneHint = resolver.hints.find(
+    hint => hint.factorId === PhoneMultiFactorGenerator.FACTOR_ID
+  ) as PhoneMultiFactorInfo | undefined;
+
+  const sendOtp = async () => {
+    if (!phoneHint) {
+      setError('No registered phone number found for 2-step verification.');
+      return;
+    }
+    setSending(true);
+    setError('');
+    try {
+      if (recaptchaVerifierRef.current) {
+        try { recaptchaVerifierRef.current.clear(); } catch { /* ignore */ }
+        recaptchaVerifierRef.current = null;
+      }
+      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
+        size: 'invisible',
+      });
+      const phoneProvider = new PhoneAuthProvider(auth);
+      const vId = await phoneProvider.verifyPhoneNumber(
+        { multiFactorHint: phoneHint, session: resolver.session },
+        recaptchaVerifierRef.current
+      );
+      setVerificationId(vId);
+    } catch (err: any) {
+      setError(err?.message || 'Failed to send SMS code. Please try again.');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  useEffect(() => {
+    void sendOtp();
+    return () => {
+      try {
+        recaptchaVerifierRef.current?.clear();
+      } catch {
+        // ignore
+      }
+    };
+  }, []);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!verificationId || code.trim().length !== 6) return;
+    setVerifying(true);
+    setError('');
+    try {
+      const cred = PhoneAuthProvider.credential(verificationId, code.trim());
+      const assertion = PhoneMultiFactorGenerator.assertion(cred);
+      await resolver.resolveSignIn(assertion);
+      onSuccess();
+    } catch (err: any) {
+      setError(err?.message || 'Invalid or expired 6-digit verification code.');
+      setVerifying(false);
+    }
+  };
+
+  const phoneDisplay = phoneHint?.phoneNumber || 'your registered mobile number';
+
+  return (
+    <div className="modal-overlay" style={{ zIndex: 1100 }}>
+      <div className="modal-dialog" style={{ maxWidth: '440px', width: '92%' }}>
+        <div className="modal-header">
+          <div>
+            <span className="eyebrow">2-STEP VERIFICATION</span>
+            <h3 style={{ margin: 0 }}>Two-Factor Security</h3>
+          </div>
+          <button
+            type="button"
+            className="btn-outline"
+            style={{ minHeight: '30px', padding: '2px 8px' }}
+            onClick={onClose}
+          >
+            ✕
+          </button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body" style={{ padding: '1.25rem' }}>
+            {error && <div className="error-banner" style={{ marginBottom: '12px' }}>{error}</div>}
+            <p style={{ color: 'var(--muted)', fontSize: '13.5px', lineHeight: 1.5, marginBottom: '16px' }}>
+              {sending
+                ? `Sending 6-digit verification code to ${phoneDisplay}…`
+                : `A 6-digit verification code was sent via SMS to ${phoneDisplay}. Enter the code below to complete sign-in.`}
+            </p>
+            <div style={{ marginBottom: '16px' }}>
+              <label
+                style={{
+                  display: 'block',
+                  marginBottom: '6px',
+                  fontSize: '12px',
+                  fontWeight: 700,
+                  color: 'var(--text-secondary)',
+                }}
+              >
+                6-DIGIT VERIFICATION CODE *
+              </label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                placeholder="123456"
+                autoFocus
+                required
+                value={code}
+                onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
+                style={{
+                  width: '100%',
+                  background: '#07182f',
+                  border: '1.5px solid var(--border)',
+                  borderRadius: '8px',
+                  padding: '12px',
+                  fontSize: '24px',
+                  letterSpacing: '8px',
+                  textAlign: 'center',
+                  color: '#fff',
+                  fontWeight: 700,
+                  outline: 'none',
+                }}
+              />
+            </div>
+            {phoneHint && (
+              <div style={{ textAlign: 'center', marginTop: '10px' }}>
+                <button
+                  type="button"
+                  disabled={sending || verifying}
+                  onClick={sendOtp}
+                  style={{
+                    background: 'none',
+                    border: 'none',
+                    color: 'var(--yellow)',
+                    fontSize: '13px',
+                    fontWeight: 600,
+                    cursor: 'pointer',
+                    textDecoration: 'underline',
+                  }}
+                >
+                  {sending ? 'Sending new code…' : "Didn't receive SMS? Resend code"}
+                </button>
+              </div>
+            )}
+          </div>
+          <div
+            className="modal-footer"
+            style={{
+              padding: '1rem 1.25rem',
+              display: 'flex',
+              gap: '10px',
+              justifyContent: 'flex-end',
+              borderTop: '1px solid var(--border)',
+            }}
+          >
+            <button
+              type="button"
+              className="button btn-secondary"
+              onClick={onClose}
+              disabled={verifying}
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="button btn-primary"
+              disabled={verifying || sending || code.trim().length !== 6}
+            >
+              {verifying ? 'Verifying…' : 'Verify & Continue'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 export function App() {
   const [user, setUser] = useState<User | null>(null);
   const [items, setItems] = useState<QueueItem[]>([]);
@@ -161,6 +372,7 @@ export function App() {
   const [search, setSearch] = useState<string>('');
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
+  const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null);
 
   const loadQueue = async (activeUser = user) => {
     if (!activeUser) return;
@@ -178,6 +390,21 @@ export function App() {
 
   useEffect(() => {
     if (!auth) return;
+    getRedirectResult(auth)
+      .then(result => {
+        if (result?.user) {
+          // Redirect login succeeded
+        }
+      })
+      .catch((err: any) => {
+        if (auth && err?.code === 'auth/multi-factor-auth-required') {
+          const resolver = getMultiFactorResolver(auth, err);
+          setMfaResolver(resolver);
+        } else {
+          setError(err?.message || 'Google sign-in could not be completed.');
+        }
+      });
+
     return onAuthStateChanged(auth, nextUser => {
       setUser(nextUser);
       if (nextUser) void loadQueue(nextUser);
@@ -186,13 +413,39 @@ export function App() {
 
   async function login() {
     if (!auth) return;
+    const currentAuth = auth;
     setError('');
+    setBusy(true);
     try {
       const provider = new GoogleAuthProvider();
       provider.setCustomParameters({ prompt: 'select_account' });
-      await signInWithPopup(auth, provider);
-    } catch (e) {
-      setError(e instanceof Error ? e.message : 'Google sign-in failed.');
+      await signInWithPopup(currentAuth, provider);
+    } catch (e: any) {
+      if (e?.code === 'auth/multi-factor-auth-required') {
+        const resolver = getMultiFactorResolver(currentAuth, e);
+        setMfaResolver(resolver);
+        setBusy(false);
+        return;
+      }
+      if (
+        e?.code === 'auth/popup-blocked' ||
+        e?.code === 'auth/popup-closed-by-user' ||
+        e?.code === 'auth/cancelled-popup-request' ||
+        e?.message?.includes('Cross-Origin-Opener-Policy')
+      ) {
+        try {
+          const provider = new GoogleAuthProvider();
+          provider.setCustomParameters({ prompt: 'select_account' });
+          await signInWithRedirect(currentAuth, provider);
+          return;
+        } catch (redirectError: any) {
+          setError(redirectError?.message || 'Redirect sign-in failed. Please try again.');
+        }
+      } else {
+        setError(e instanceof Error ? e.message : 'Google sign-in failed.');
+      }
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -277,40 +530,52 @@ export function App() {
   // --- Sign-in Screen (Identical to Admin & Sales Portals) ---
   if (!user) {
     return (
-      <main className="auth-shell">
-        <section className="auth-panel">
-          <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-          <p className="eyebrow">QUALITY CONTROL & GOVERNANCE</p>
-          <h1>Independent Inspection Review</h1>
-          <p>
-            Sign in with your authorized Quality Reviewer, Operations Manager, or Administrator credentials. Field inspectors are prohibited from approving their own submissions.
-          </p>
-          <div className="auth-actions">
-            <button className="button btn-primary" onClick={login} disabled={busy}>
-              {busy ? 'Connecting to Google…' : 'Continue with Google'}
-            </button>
-          </div>
-          {error && <div className="error-banner">{error}</div>}
-        </section>
+      <>
+        <main className="auth-shell">
+          <section className="auth-panel">
+            <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
+            <p className="eyebrow">QUALITY CONTROL & GOVERNANCE</p>
+            <h1>Independent Inspection Review</h1>
+            <p>
+              Sign in with your authorized Quality Reviewer, Operations Manager, or Administrator credentials. Field inspectors are prohibited from approving their own submissions.
+            </p>
+            <div className="auth-actions">
+              <button className="button btn-primary" onClick={login} disabled={busy}>
+                {busy ? 'Connecting to Google…' : 'Continue with Google'}
+              </button>
+            </div>
+            {error && <div className="error-banner">{error}</div>}
+          </section>
 
-        <aside className="auth-aside">
-          <div>
-            <span className="kicker">Stage 1 · Evidence Audit</span>
-            <strong>Full Physical & Photo Evidence</strong>
-            <span>16-section checklist audit, odometer corroboration, and stamped VIN cross-referencing.</span>
-          </div>
-          <div>
-            <span className="kicker">Stage 2 · Accountable Verdict</span>
-            <strong>Approve, Rework, or Reject</strong>
-            <span>Sealed approvals feed pricing and acquisition workflows without allowing silent changes.</span>
-          </div>
-          <div>
-            <span className="kicker">Governance Boundary</span>
-            <strong>Separation of Responsibilities</strong>
-            <span>Systematically prevents self-approval and preserves immutable historical revisions.</span>
-          </div>
-        </aside>
-      </main>
+          <aside className="auth-aside">
+            <div>
+              <span className="kicker">Stage 1 · Evidence Audit</span>
+              <strong>Full Physical & Photo Evidence</strong>
+              <span>16-section checklist audit, odometer corroboration, and stamped VIN cross-referencing.</span>
+            </div>
+            <div>
+              <span className="kicker">Stage 2 · Accountable Verdict</span>
+              <strong>Approve, Rework, or Reject</strong>
+              <span>Sealed approvals feed pricing and acquisition workflows without allowing silent changes.</span>
+            </div>
+            <div>
+              <span className="kicker">Governance Boundary</span>
+              <strong>Separation of Responsibilities</strong>
+              <span>Systematically prevents self-approval and preserves immutable historical revisions.</span>
+            </div>
+          </aside>
+        </main>
+
+        {mfaResolver && auth && (
+          <MfaChallengeDialog
+            auth={auth}
+            resolver={mfaResolver}
+            onClose={() => setMfaResolver(null)}
+            onSuccess={() => setMfaResolver(null)}
+          />
+        )}
+        <div id="recaptcha-container" />
+      </>
     );
   }
 
