@@ -41,7 +41,7 @@ describe.skipIf(!url)('customer mobile API against PostgreSQL', () => {
     expect((await authorized().post('/api/v1/acquisition-leads').send({ make: 'Tata' })).body.code).toBe('INVALID_INPUT');
     const unsupported = await authorized().post('/api/v1/acquisition-leads').send({ sellerName: 'Mobile Customer', sellerPhone: '+919876543210', city: 'Not Configured', pincode: '560001', make: 'Honda', model: 'City', manufacturingYear: 2020, fuelType: 'PETROL', transmission: 'MANUAL', odometerKm: 42000 }); expect(unsupported.body.code).toBe('CITY_NOT_SUPPORTED');
     const result = await authorized().post('/api/v1/acquisition-leads').send({ sellerName: 'Mobile Customer', sellerPhone: '+919876543210', city: 'Bengaluru', pincode: '560001', make: 'Honda', model: 'City', manufacturingYear: 2020, fuelType: 'PETROL', transmission: 'MANUAL', odometerKm: 42000, expectedPricePaise: 72500000, ownershipCount: 1, accidentHistory: 'NO', serviceHistory: 'COMPLETE', sellerNotes: 'Single owner and regularly maintained.', inspectionDate: '2026-11-05', inspectionTimeSlot: '10:00-12:00', inspectionLocationType: 'HUB' });
-    expect(result.status).toBe(201); expect(result.body.status).toBe('INSPECTION_SCHEDULED'); expect(result.body.expectedPricePaise).toBe('72500000');
+    expect(result.status).toBe(201); expect(result.body.status).toBe('SUBMITTED'); expect(result.body.expectedPricePaise).toBe('72500000');
     const leadId = result.body.id;
     const retrieved = await authorized().get(`/api/v1/me/acquisition-leads/${leadId}`);
     expect(retrieved.status).toBe(200); expect(retrieved.body.make).toBe('Honda');

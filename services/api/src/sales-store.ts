@@ -19,8 +19,9 @@ import {
 import crypto from 'node:crypto';
 import { HttpError } from './errors.js';
 
-export const salesRoles: EmployeeRole[] = ['SALES_EXECUTIVE', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
+export const salesRoles: EmployeeRole[] = ['SALES_EXECUTIVE', 'OPERATIONS_MANAGER', 'PRICING_APPROVER', 'ADMIN', 'SUPER_ADMIN'];
 export const globalSalesRoles: EmployeeRole[] = ['SUPER_ADMIN', 'ADMIN', 'OPERATIONS_MANAGER'];
+const pricingRoles: EmployeeRole[] = ['PRICING_APPROVER', 'ADMIN', 'SUPER_ADMIN'];
 
 export type SalesActor = {
   userId: string;
@@ -96,10 +97,15 @@ export interface SalesStore {
   }): Promise<unknown>;
   inspectionSummary(actor: SalesActor, leadId: string): Promise<unknown>;
 
+  valuations(actor: SalesActor, leadId: string): Promise<unknown>;
+  createValuation(actor: SalesActor, leadId: string, input: { inspectionReportId: string; expectedResalePaise: bigint; refurbishmentPaise?: bigint; otherCostsPaise?: bigint; requiredMarginPaise?: bigint; recommendedPurchasePaise: bigint; notes?: string }): Promise<unknown>;
+  decideValuation(actor: SalesActor, leadId: string, valuationId: string, input: { version: number; decision: 'APPROVE' | 'REJECT'; reason?: string }): Promise<unknown>;
+
   // Acquisition Offers
   acquisitionOffers(actor: SalesActor, query: { page: number; limit: number; status?: AcquisitionOfferStatus }): Promise<unknown>;
   getAcquisitionOffers(actor: SalesActor, leadId: string): Promise<unknown>;
   proposeAcquisitionOffer(actor: SalesActor, leadId: string, input: {
+    valuationId: string;
     offerAmountPaise: bigint;
     validUntil: Date;
     terms?: string;
@@ -198,6 +204,7 @@ function scope(actor: SalesActor): Prisma.AcquisitionLeadWhereInput {
     ],
   };
 }
+function requirePricing(actor: SalesActor) { if (!actor.roles.some(role => pricingRoles.includes(role))) throw new HttpError(403, 'PRICING_ACCESS_DENIED'); }
 
 function buyerScope(actor: SalesActor): Prisma.PurchaseEnquiryWhereInput {
   if (actor.globalScope) return {};
@@ -759,10 +766,16 @@ export class PrismaSalesStore implements SalesStore {
     notes?: string;
   }) {
     const lead = await this.db.acquisitionLead.findFirst({
-      where: { id, ...scope(actor), status: { in: ['SUBMITTED', 'QUALIFYING'] } },
+      where: { id, ...scope(actor), status: { in: ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'] } },
       select: { id: true, referenceCode: true, city: true },
     });
     if (!lead) throw new HttpError(409, 'INSPECTION_REQUEST_NOT_ELIGIBLE');
+
+    const activeReq = await this.db.inspectionRequest.findFirst({
+      where: { leadId: id, status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS'] } },
+    });
+    if (activeReq) throw new HttpError(409, 'INSPECTION_REQUEST_ALREADY_ACTIVE');
+
     const branch = actor.branches.find(item => item.city.toLowerCase() === lead.city.toLowerCase());
 
     return this.db.$transaction(async tx => {
@@ -844,6 +857,33 @@ export class PrismaSalesStore implements SalesStore {
     };
   }
 
+  async valuations(actor: SalesActor, leadId: string) {
+    requirePricing(actor);
+    await this.db.acquisitionLead.findFirst({ where: { id: leadId, ...scope(actor) } }) || (() => { throw new HttpError(404, 'SELLER_LEAD_NOT_FOUND'); })();
+    return this.db.acquisitionValuation.findMany({ where: { leadId }, orderBy: { createdAt: 'desc' }, include: { inspectionReport: { select: { id: true, revision: true, status: true } }, createdBy: { select: { user: { select: { email: true } } } }, approvedBy: { select: { user: { select: { email: true } } } } } });
+  }
+
+  async createValuation(actor: SalesActor, leadId: string, input: { inspectionReportId: string; expectedResalePaise: bigint; refurbishmentPaise?: bigint; otherCostsPaise?: bigint; requiredMarginPaise?: bigint; recommendedPurchasePaise: bigint; notes?: string }) {
+    requirePricing(actor);
+    const lead = await this.db.acquisitionLead.findFirst({ where: { id: leadId, ...scope(actor) }, select: { id: true, referenceCode: true } });
+    if (!lead) throw new HttpError(404, 'SELLER_LEAD_NOT_FOUND');
+    const report = await this.db.inspectionReport.findFirst({ where: { id: input.inspectionReportId, request: { leadId }, status: 'APPROVED' }, select: { id: true, revision: true } });
+    if (!report) throw new HttpError(409, 'VALUATION_REQUIRES_APPROVED_INSPECTION');
+    const calculated = input.expectedResalePaise - (input.refurbishmentPaise || 0n) - (input.otherCostsPaise || 0n) - (input.requiredMarginPaise || 0n);
+    if (input.recommendedPurchasePaise <= 0n || input.recommendedPurchasePaise > calculated) throw new HttpError(400, 'VALUATION_AMOUNT_INVALID');
+    return this.db.$transaction(async tx => { const valuation = await tx.acquisitionValuation.create({ data: { leadId, inspectionReportId: report.id, expectedResalePaise: input.expectedResalePaise, refurbishmentPaise: input.refurbishmentPaise || 0n, otherCostsPaise: input.otherCostsPaise || 0n, requiredMarginPaise: input.requiredMarginPaise || 0n, recommendedPurchasePaise: input.recommendedPurchasePaise, notes: input.notes, status: 'PENDING_APPROVAL', createdById: actor.userId } }); await tx.acquisitionLead.update({ where: { id: leadId }, data: { status: 'OFFER_PENDING' } }); await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'ACQUISITION_VALUATION_SUBMITTED', entityType: 'AcquisitionValuation', entityId: valuation.id, details: { leadId, reportId: report.id, reportRevision: report.revision, recommendedPurchasePaise: input.recommendedPurchasePaise.toString() } } }); return valuation; });
+  }
+
+  async decideValuation(actor: SalesActor, leadId: string, valuationId: string, input: { version: number; decision: 'APPROVE' | 'REJECT'; reason?: string }) {
+    requirePricing(actor);
+    const valuation = await this.db.acquisitionValuation.findFirst({ where: { id: valuationId, leadId, status: 'PENDING_APPROVAL' } });
+    if (!valuation) throw new HttpError(409, 'VALUATION_NOT_PENDING');
+    if (valuation.version !== input.version) throw new HttpError(409, 'VALUATION_VERSION_CONFLICT');
+    if (valuation.createdById === actor.userId) throw new HttpError(403, 'VALUATION_SELF_APPROVAL_DENIED');
+    if (input.decision === 'REJECT' && !input.reason) throw new HttpError(400, 'VALUATION_REJECTION_REASON_REQUIRED');
+    return this.db.$transaction(async tx => { const updated = await tx.acquisitionValuation.update({ where: { id: valuationId }, data: { status: input.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED', approvedById: actor.userId, approvedAt: new Date(), version: { increment: 1 } } }); await tx.auditEvent.create({ data: { actorId: actor.userId, action: input.decision === 'APPROVE' ? 'ACQUISITION_VALUATION_APPROVED' : 'ACQUISITION_VALUATION_REJECTED', entityType: 'AcquisitionValuation', entityId: valuationId, details: { leadId, reason: input.reason ?? null } } }); return updated; });
+  }
+
   async acquisitionOffers(actor: SalesActor, query: { page: number; limit: number; status?: AcquisitionOfferStatus }) {
     const where: Prisma.AcquisitionOfferWhereInput = {
       lead: scope(actor),
@@ -896,16 +936,21 @@ export class PrismaSalesStore implements SalesStore {
   }
 
   async proposeAcquisitionOffer(actor: SalesActor, leadId: string, input: {
+    valuationId: string;
     offerAmountPaise: bigint;
     validUntil: Date;
     terms?: string;
   }) {
+    requirePricing(actor);
     const lead = await this.db.acquisitionLead.findFirst({
       where: { id: leadId, ...scope(actor), status: { in: ['INSPECTION_SCHEDULED', 'OFFER_PENDING', 'OFFERED'] } },
       select: { id: true, referenceCode: true },
     });
     if (!lead) throw new HttpError(409, 'OFFER_PROPOSAL_NOT_ELIGIBLE');
 
+    const valuation = await this.db.acquisitionValuation.findFirst({ where: { id: input.valuationId, leadId, status: 'APPROVED' } });
+    if (!valuation) throw new HttpError(409, 'OFFER_REQUIRES_APPROVED_VALUATION');
+    if (input.offerAmountPaise > valuation.recommendedPurchasePaise) throw new HttpError(400, 'OFFER_EXCEEDS_APPROVED_VALUATION');
     const latestOffer = await this.db.acquisitionOffer.findFirst({
       where: { leadId },
       orderBy: { version: 'desc' },
@@ -917,6 +962,7 @@ export class PrismaSalesStore implements SalesStore {
       const offer = await tx.acquisitionOffer.create({
         data: {
           leadId,
+          valuationId: valuation.id,
           offerAmountPaise: input.offerAmountPaise,
           validUntil: input.validUntil,
           terms: input.terms,

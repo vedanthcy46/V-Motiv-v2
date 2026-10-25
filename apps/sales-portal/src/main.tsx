@@ -1958,8 +1958,34 @@ function SellerLeadDrawer({
   const [outcome, setOutcome] = useState('CONNECTED');
 
   const [offerRupees, setOfferRupees] = useState('550000');
-  const [inspectionDate, setInspectionDate] = useState(new Date().toISOString().slice(0, 10));
-  const [inspectionSlot, setInspectionSlot] = useState('11:00 AM - 01:00 PM');
+  const [inspectionDate, setInspectionDate] = useState(
+    lead.inspectionDate ? new Date(lead.inspectionDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
+  );
+  const [inspectionSlot, setInspectionSlot] = useState(lead.inspectionTimeSlot || '11:00 AM - 01:00 PM');
+  const [inspectionLocationType, setInspectionLocationType] = useState<'HUB' | 'HOME'>('HUB');
+  const [inspectionAddress, setInspectionAddress] = useState(`${lead.city} Hub`);
+  const [inspectionSummary, setInspectionSummary] = useState<{
+    requests: Array<{
+      id: string;
+      status: string;
+      requestedDate: string | null;
+      timeSlot: string | null;
+      locationType: string;
+      address: string | null;
+      notes: string | null;
+      scheduledAt: string | null;
+      createdAt: string;
+      assignment?: {
+        id: string;
+        status: string;
+        scheduledAt: string | null;
+        locationType: string;
+        address: string | null;
+      } | null;
+    }>;
+    latestStatus: string;
+    approvedReport: any;
+  } | null>(null);
 
   const loadInteractions = async () => {
     if (!user) return;
@@ -1973,8 +1999,19 @@ function SellerLeadDrawer({
     }
   };
 
+  const loadInspectionSummary = async () => {
+    if (!user) return;
+    try {
+      const res = await salesApi.inspectionSummary(user, lead.id);
+      setInspectionSummary(res as any);
+    } catch {
+      // ignore
+    }
+  };
+
   useEffect(() => {
     void loadInteractions();
+    void loadInspectionSummary();
   }, [lead.id]);
 
   const handleClaim = async () => {
@@ -2028,25 +2065,25 @@ function SellerLeadDrawer({
 
   const handleRequestInspection = async () => {
     if (!user) return;
-    if (lead.status === 'INSPECTION_SCHEDULED') {
-      setError('An inspection has already been scheduled for this lead.');
+    if (inspectionSummary?.requests?.some(r => ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS'].includes(r.status))) {
+      setError('An active inspection request already exists for this lead.');
       return;
     }
     setBusy(true);
     setError('');
     try {
       await salesApi.requestInspection(user, lead.id, {
-        locationType: 'HUB',
+        locationType: inspectionLocationType,
         requestedDate: inspectionDate,
         timeSlot: inspectionSlot,
-        address: `${lead.city} Hub`,
+        address: inspectionLocationType === 'HUB' ? `${lead.city} Hub` : (inspectionAddress || `${lead.city} Doorstep`),
       });
-      alert('Inspection scheduled successfully!');
+      alert('Inspection requested successfully!');
+      await loadInspectionSummary();
       onRefresh();
-      onClose();
     } catch (err) {
-      if (err instanceof ApiError && (err.status === 409 || err.code === 'INSPECTION_REQUEST_NOT_ELIGIBLE')) {
-        setError('An inspection has already been scheduled for this opportunity, or it is no longer in qualifying status.');
+      if (err instanceof ApiError && (err.status === 409 || err.code === 'INSPECTION_REQUEST_ALREADY_ACTIVE')) {
+        setError('An inspection has already been requested or scheduled for this opportunity.');
       } else {
         setError(err instanceof ApiError ? err.code : 'Failed to schedule inspection');
       }
@@ -2097,9 +2134,14 @@ function SellerLeadDrawer({
               Claim Lead
             </button>
             {lead.status === 'SUBMITTED' && (
-              <button className="btn-primary btn-sm" onClick={() => handleStatusChange('QUALIFYING')}>
-                Start Qualification
-              </button>
+              <>
+                <button className="btn-primary btn-sm" onClick={() => handleStatusChange('QUALIFYING')}>
+                  Start Qualification
+                </button>
+                <button className="btn-secondary btn-sm" onClick={() => setTab('inspection')}>
+                  Schedule Inspection
+                </button>
+              </>
             )}
             {lead.status === 'QUALIFYING' && (
               <button className="btn-primary btn-sm" onClick={() => setTab('inspection')}>
@@ -2107,9 +2149,14 @@ function SellerLeadDrawer({
               </button>
             )}
             {lead.status === 'INSPECTION_SCHEDULED' && (
-              <button className="btn-primary btn-sm" onClick={() => setTab('offer')}>
-                Propose Purchase Offer
-              </button>
+              <>
+                <button className="btn-secondary btn-sm" onClick={() => setTab('inspection')}>
+                  View Inspection Status
+                </button>
+                <button className="btn-primary btn-sm" onClick={() => setTab('offer')}>
+                  Propose Purchase Offer
+                </button>
+              </>
             )}
           </div>
 
@@ -2206,17 +2253,53 @@ function SellerLeadDrawer({
           {/* TAB 3: INSPECTION */}
           {tab === 'inspection' && (
             <div className="form-grid">
-              {lead.status === 'INSPECTION_SCHEDULED' ? (
-                <div className="form-group full" style={{ background: 'rgba(217, 119, 6, 0.1)', border: '1px solid rgba(217, 119, 6, 0.3)', borderRadius: '8px', padding: '16px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#d97706', fontWeight: 600, marginBottom: '6px' }}>
-                    <Icons.Inspections size={18} />
-                    <span>Inspection Already Scheduled</span>
-                  </div>
-                  <p style={{ margin: 0, fontSize: '0.875rem', color: '#94a3b8' }}>
-                    A hub inspection request is active for this vehicle. Track progress under the Hub Operations / Inspection Queue or wait for the inspection report.
-                  </p>
-                </div>
-              ) : !['SUBMITTED', 'QUALIFYING'].includes(lead.status) ? (
+              {inspectionSummary?.requests && inspectionSummary.requests.length > 0 ? (
+                (() => {
+                  const activeReq = inspectionSummary.requests[0];
+                  const hasInspector = Boolean(activeReq.assignment);
+
+                  return (
+                    <div className="form-group full" style={{
+                      background: hasInspector ? 'rgba(16, 185, 129, 0.08)' : 'rgba(217, 119, 6, 0.08)',
+                      border: `1px solid ${hasInspector ? 'rgba(16, 185, 129, 0.3)' : 'rgba(217, 119, 6, 0.3)'}`,
+                      borderRadius: '8px',
+                      padding: '16px',
+                      gap: '8px',
+                      display: 'flex',
+                      flexDirection: 'column',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: hasInspector ? '#10b981' : '#d97706', fontWeight: 600 }}>
+                          <Icons.Inspections size={18} />
+                          <span>
+                            {hasInspector ? `Inspector Assigned · ${activeReq.assignment?.status}` : 'Inspection Requested · Awaiting Inspector Assignment'}
+                          </span>
+                        </div>
+                        <span className={`badge ${hasInspector ? 'badge-green' : 'badge-yellow'}`}>
+                          {hasInspector ? activeReq.assignment?.status : activeReq.status}
+                        </span>
+                      </div>
+
+                      <p style={{ margin: 0, fontSize: '0.875rem', color: '#94a3b8', lineHeight: 1.5 }}>
+                        {hasInspector
+                          ? `An inspector has been assigned for ${activeReq.assignment?.locationType || activeReq.locationType} inspection at ${activeReq.assignment?.address || activeReq.address}. Appointment: ${activeReq.assignment?.scheduledAt ? new Date(activeReq.assignment.scheduledAt).toLocaleString() : 'Scheduled'}.`
+                          : `Inspection requested for ${activeReq.requestedDate ? new Date(activeReq.requestedDate).toLocaleDateString() : 'Immediate'} (${activeReq.timeSlot || 'Anytime'}) at ${activeReq.address || activeReq.locationType}. Hub Operations will assign a certified field inspector shortly.`}
+                      </p>
+
+                      {inspectionSummary.approvedReport ? (
+                        <div style={{ marginTop: '8px', padding: '10px', background: 'rgba(16, 185, 129, 0.12)', borderRadius: '6px' }}>
+                          <div style={{ color: '#10b981', fontWeight: 600, fontSize: '0.85rem' }}>
+                            ✓ Inspection Report Approved (Rev #{inspectionSummary.approvedReport.revision})
+                          </div>
+                          <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>
+                            {inspectionSummary.approvedReport.defectsCount} defects recorded · {inspectionSummary.approvedReport.mediaCount} evidence photos attached
+                          </div>
+                        </div>
+                      ) : null}
+                    </div>
+                  );
+                })()
+              ) : !['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'].includes(lead.status) ? (
                 <div className="form-group full" style={{ background: 'rgba(100, 116, 139, 0.1)', border: '1px solid rgba(100, 116, 139, 0.2)', borderRadius: '8px', padding: '16px' }}>
                   <p style={{ margin: 0, fontSize: '0.875rem', color: '#94a3b8' }}>
                     This lead status ({lead.status}) is not eligible for new inspection requests.
@@ -2224,6 +2307,17 @@ function SellerLeadDrawer({
                 </div>
               ) : (
                 <>
+                  {(lead.inspectionDate || lead.inspectionTimeSlot) && (
+                    <div className="form-group full" style={{ background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.25)', borderRadius: '8px', padding: '12px' }}>
+                      <div style={{ color: '#38bdf8', fontWeight: 600, fontSize: '0.85rem' }}>
+                        Customer Stated Preferred Appointment:
+                      </div>
+                      <div style={{ color: '#cbd5e1', fontSize: '0.85rem', marginTop: '2px' }}>
+                        {lead.inspectionDate ? new Date(lead.inspectionDate).toLocaleDateString() : 'Date pending'} · {lead.inspectionTimeSlot || 'Anytime'}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="form-group">
                     <label className="form-label">Requested Date</label>
                     <input type="date" className="form-input" value={inspectionDate} onChange={e => setInspectionDate(e.target.value)} />
@@ -2237,9 +2331,26 @@ function SellerLeadDrawer({
                       <option value="04:00 PM - 06:00 PM">04:00 PM - 06:00 PM</option>
                     </select>
                   </div>
+                  <div className="form-group">
+                    <label className="form-label">Location Type</label>
+                    <select className="form-select" value={inspectionLocationType} onChange={e => setInspectionLocationType(e.target.value as any)}>
+                      <option value="HUB">Hub Inspection</option>
+                      <option value="HOME">Doorstep (Home) Visit</option>
+                    </select>
+                  </div>
+                  <div className="form-group">
+                    <label className="form-label">Location / Address</label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      value={inspectionAddress}
+                      onChange={e => setInspectionAddress(e.target.value)}
+                      placeholder="Hub name or customer doorstep address"
+                    />
+                  </div>
                   <div className="form-group full">
                     <button className="btn-primary" onClick={handleRequestInspection} disabled={busy}>
-                      Confirm Hub Inspection Request
+                      {busy ? 'Scheduling...' : 'Confirm Hub / Doorstep Inspection Request'}
                     </button>
                   </div>
                 </>

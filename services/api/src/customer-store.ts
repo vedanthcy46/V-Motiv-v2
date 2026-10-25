@@ -201,7 +201,7 @@ export class PrismaCustomerStore implements CustomerStore {
           city,
           expectedPricePaise: input.expectedPricePaise === undefined ? undefined : BigInt(input.expectedPricePaise),
           inspectionDate: inspectionDate ? new Date(`${inspectionDate}T00:00:00.000Z`) : undefined,
-          status: inspectionDate ? 'INSPECTION_SCHEDULED' : 'SUBMITTED',
+          status: 'SUBMITTED',
           userId: user.id,
         },
         include: { offers: true },
