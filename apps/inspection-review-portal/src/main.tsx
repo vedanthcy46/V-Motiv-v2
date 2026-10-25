@@ -132,14 +132,22 @@ function AuthenticatedImage({ user, reportId, mediaId, alt }: { user: User; repo
   }, [user, reportId, mediaId]);
 
   if (loading) {
-    return <div style={{ width: '100%', height: '100%', background: '#E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#64748B' }}>Loading...</div>;
+    return (
+      <div style={{ width: '100%', height: '100%', background: '#07182f', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: 'var(--muted)' }}>
+        Loading evidence...
+      </div>
+    );
   }
 
   if (!src) {
-    return <div style={{ width: '100%', height: '100%', background: '#F1F5F9', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: '#94A3B8' }}>No Image</div>;
+    return (
+      <div style={{ width: '100%', height: '100%', background: '#07182f', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: 'var(--muted)' }}>
+        Unavailable
+      </div>
+    );
   }
 
-  return <img src={src} alt={alt} className="gallery-img" />;
+  return <img src={src} alt={alt} />;
 }
 
 export function App() {
@@ -253,378 +261,415 @@ export function App() {
 
   if (!configured) {
     return (
-      <div className="auth-center">
-        <div className="auth-card">
-          <span className="brand-badge">CONFIGURATION</span>
-          <h2>V MOTIV REVIEW</h2>
-          <p style={{ color: '#64748B', fontSize: '14px' }}>
-            Firebase environment variables are required. Set <code>VITE_FIREBASE_API_KEY</code>, <code>VITE_FIREBASE_PROJECT_ID</code> in <code>.env</code>.
+      <main className="auth-shell">
+        <section className="auth-panel">
+          <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
+          <p className="eyebrow">CONFIGURATION REQUIRED</p>
+          <h1>Environment Missing</h1>
+          <p>
+            Firebase public environment variables are required. Set <code>VITE_FIREBASE_API_KEY</code>, <code>VITE_FIREBASE_PROJECT_ID</code> in <code>.env</code>.
           </p>
-        </div>
-      </div>
+        </section>
+      </main>
     );
   }
 
+  // --- Sign-in Screen (Identical to Admin & Sales Portals) ---
   if (!user) {
     return (
-      <div className="auth-center">
-        <div className="auth-card">
-          <span className="brand-badge">V MOTIV QUALITY CONTROL</span>
-          <h1 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--color-navy)' }}>Inspection Review Portal</h1>
-          <p style={{ color: '#64748B', fontSize: '14px', lineHeight: 1.5 }}>
-            Authorized Reviewers, Operations Managers, and Quality Assurance personnel only. Inspectors cannot evaluate their own submissions.
+      <main className="auth-shell">
+        <section className="auth-panel">
+          <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
+          <p className="eyebrow">QUALITY CONTROL & GOVERNANCE</p>
+          <h1>Independent Inspection Review</h1>
+          <p>
+            Sign in with your authorized Quality Reviewer, Operations Manager, or Administrator credentials. Field inspectors are prohibited from approving their own submissions.
           </p>
-          <button className="btn btn-primary" style={{ width: '100%' }} onClick={login}>
-            Sign in with Google
-          </button>
-          {error && <div className="alert-box alert-danger">{error}</div>}
-        </div>
-      </div>
+          <div className="auth-actions">
+            <button className="button btn-primary" onClick={login} disabled={busy}>
+              {busy ? 'Connecting to Google…' : 'Continue with Google'}
+            </button>
+          </div>
+          {error && <div className="error-banner">{error}</div>}
+        </section>
+
+        <aside className="auth-aside">
+          <div>
+            <span className="kicker">Stage 1 · Evidence Audit</span>
+            <strong>Full Physical & Photo Evidence</strong>
+            <span>16-section checklist audit, odometer corroboration, and stamped VIN cross-referencing.</span>
+          </div>
+          <div>
+            <span className="kicker">Stage 2 · Accountable Verdict</span>
+            <strong>Approve, Rework, or Reject</strong>
+            <span>Sealed approvals feed pricing and acquisition workflows without allowing silent changes.</span>
+          </div>
+          <div>
+            <span className="kicker">Governance Boundary</span>
+            <strong>Separation of Responsibilities</strong>
+            <span>Systematically prevents self-approval and preserves immutable historical revisions.</span>
+          </div>
+        </aside>
+      </main>
     );
   }
 
+  // --- Authenticated Workspace View ---
   return (
-    <div className="portal-container">
-      {/* Header */}
-      <header className="portal-header">
-        <div className="header-brand">
-          <span className="brand-badge">QC REVIEW</span>
-          <span className="brand-title">V MOTIV Inspection Review System</span>
+    <>
+      {/* Topbar (Matching Admin and Sales) */}
+      <header className="topbar">
+        <div className="brand-lockup">
+          <img src="/brand/vmotiv-header-brand.png" alt="V MOTIV" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
+          <span className="brand-pill">INSPECTION REVIEW</span>
         </div>
-        <div className="header-user">
-          <span className="user-email">{user.email}</span>
-          <button className="btn btn-outline" style={{ minHeight: '36px', padding: '6px 14px' }} onClick={() => signOut(auth!)}>
+        <div className="topbar-user">
+          <span>Reviewer: <strong>{user.email}</strong></span>
+          <button className="btn-outline" style={{ minHeight: '34px', padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => signOut(auth!)}>
             Sign out
           </button>
         </div>
       </header>
 
-      {error && <div className="alert-box alert-danger">{error}</div>}
+      <div className="workspace-container">
+        {error && <div className="error-banner">{error}</div>}
 
-      <div className="portal-layout">
-        {/* Left: Queue Panel */}
-        <aside className="queue-panel">
-          <div className="queue-title-row">
-            <h2 className="queue-title">Review Queue</h2>
-            <span className="queue-badge">{filteredItems.length} Pending</span>
-          </div>
+        <div className="layout-grid">
+          {/* Left Panel: Review Queue */}
+          <aside className="panel">
+            <div className="panel-header">
+              <h2>Review Queue</h2>
+              <span className="badge badge-amber">{filteredItems.length} Awaiting</span>
+            </div>
 
-          <input
-            type="text"
-            className="queue-search"
-            placeholder="Search by car, lead code, seller..."
-            value={search}
-            onChange={e => setSearch(e.target.value)}
-          />
+            <input
+              type="text"
+              className="search-input"
+              placeholder="Search by car, lead code, seller..."
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+            />
 
-          <div className="queue-list">
-            {filteredItems.length ? (
-              filteredItems.map(item => (
-                <div
-                  key={item.id}
-                  className={`queue-card ${report?.id === item.id ? 'active' : ''}`}
-                  onClick={() => openReport(item)}
-                >
-                  <div className="card-top">
-                    <span className="card-vehicle">
-                      {item.request.lead.manufacturingYear} {item.request.lead.make} {item.request.lead.model}
-                    </span>
-                    <span className="card-rev">REV {item.revision}</span>
+            <div className="queue-scroll">
+              {filteredItems.length ? (
+                filteredItems.map(item => (
+                  <div
+                    key={item.id}
+                    className={`queue-item ${report?.id === item.id ? 'active' : ''}`}
+                    onClick={() => openReport(item)}
+                  >
+                    <div className="queue-item-top">
+                      <span className="queue-item-vehicle">
+                        {item.request.lead.manufacturingYear} {item.request.lead.make} {item.request.lead.model}
+                      </span>
+                      <span className="badge badge-blue">REV {item.revision}</span>
+                    </div>
+                    <div className="queue-item-seller">
+                      {item.request.lead.sellerName} · {item.request.lead.city}
+                    </div>
+                    <div className="queue-item-meta">
+                      <span>{item.request.lead.referenceCode}</span>
+                      <span>{item._count.defects} Defects · {item._count.media} Photos</span>
+                    </div>
                   </div>
-                  <div className="card-seller">{item.request.lead.sellerName} · {item.request.lead.city}</div>
-                  <div className="card-meta">
-                    <span>{item.request.lead.referenceCode}</span>
-                    <span>{item._count.defects} Defects · {item._count.media} Photos</span>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <div className="empty-state">
-                <p>No reports currently awaiting review.</p>
-              </div>
-            )}
-          </div>
-        </aside>
-
-        {/* Right: Inspection Detailed View */}
-        <main className="detail-panel">
-          {report ? (
-            <div>
-              <div className="detail-header">
-                <div className="detail-kicker">
-                  {report.request.lead.referenceCode} · REVISION {report.revision}
-                </div>
-                <h1 className="detail-title">
-                  {report.request.lead.manufacturingYear} {report.request.lead.make} {report.request.lead.model} {report.request.lead.variant || ''}
-                </h1>
-                <div className="detail-meta-row">
-                  <span><strong>Seller:</strong> {report.request.lead.sellerName} ({report.request.lead.sellerPhone})</span>
-                  <span><strong>City:</strong> {report.request.lead.city}</span>
-                  <span><strong>Inspector:</strong> {report.inspector?.user.displayName || report.inspector?.user.email || 'Assigned Staff'}</span>
-                  <span><strong>Submitted:</strong> {new Date(report.submittedAt).toLocaleString()}</span>
-                </div>
-              </div>
-
-              {/* Rework Alert if Applicable */}
-              {report.parentReport && (
-                <div className="alert-box alert-warning">
-                  <strong>Revision {report.revision} (Resubmitted Rework):</strong> Previous revision {report.parentReport.revision} feedback: "{report.parentReport.reviewDecision?.reason || 'Correction requested'}".
+                ))
+              ) : (
+                <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--muted)', fontSize: '0.88rem' }}>
+                  No inspection reports currently awaiting review.
                 </div>
               )}
+            </div>
+          </aside>
 
-              {/* Tabs */}
-              <div className="tab-row">
-                <button
-                  className={`tab-btn ${activeTab === 'checklist' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('checklist')}
-                >
-                  Checklist ({report.answers.length})
-                </button>
-                <button
-                  className={`tab-btn ${activeTab === 'defects' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('defects')}
-                >
-                  Defects ({report.defects.length})
-                </button>
-                <button
-                  className={`tab-btn ${activeTab === 'gallery' ? 'active' : ''}`}
-                  onClick={() => setActiveTab('gallery')}
-                >
-                  Evidence Photos ({report.media.length})
-                </button>
+          {/* Right Panel: Detailed Inspection Report */}
+          <main className="panel">
+            {report ? (
+              <div className="detail-box">
+                <div className="detail-head-card">
+                  <p className="eyebrow">
+                    {report.request.lead.referenceCode} · REPORT REVISION {report.revision}
+                  </p>
+                  <h1 className="detail-title">
+                    {report.request.lead.manufacturingYear} {report.request.lead.make} {report.request.lead.model} {report.request.lead.variant || ''}
+                  </h1>
+                  <div className="meta-tags-row">
+                    <span>Seller: <strong>{report.request.lead.sellerName}</strong> ({report.request.lead.sellerPhone})</span>
+                    <span>City: <strong>{report.request.lead.city}</strong></span>
+                    <span>Inspector: <strong>{report.inspector?.user.displayName || report.inspector?.user.email || 'Field Staff'}</strong></span>
+                    <span>Submitted: <strong>{new Date(report.submittedAt).toLocaleString()}</strong></span>
+                  </div>
+                </div>
+
                 {report.parentReport && (
-                  <button
-                    className={`tab-btn ${activeTab === 'diff' ? 'active' : ''}`}
-                    onClick={() => setActiveTab('diff')}
-                  >
-                    Revision Diff
-                  </button>
+                  <div className="badge badge-warning" style={{ width: '100%', padding: '10px 14px', borderRadius: '6px', textAlign: 'left', lineHeight: 1.5 }}>
+                    <strong>Revision {report.revision} (Resubmitted Rework):</strong> Previous revision {report.parentReport.revision} feedback: "{report.parentReport.reviewDecision?.reason || 'Correction requested'}".
+                  </div>
                 )}
-              </div>
 
-              {/* TAB 1: Checklist & Identity */}
-              {activeTab === 'checklist' && (
-                <div>
-                  <div className="section-box">
-                    <h3 className="section-box-title">Vehicle Identity Verification</h3>
-                    <div className="grid-3">
-                      <div className="info-item">
-                        <span className="info-label">Observed Registration</span>
-                        <span className="info-val">{String(report.identity.registrationNumber || 'Not recorded')}</span>
+                {/* Navigation Tabs */}
+                <div className="tab-row">
+                  <button
+                    className={`tab-button ${activeTab === 'checklist' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('checklist')}
+                  >
+                    Checklist ({report.answers.length})
+                  </button>
+                  <button
+                    className={`tab-button ${activeTab === 'defects' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('defects')}
+                  >
+                    Defects ({report.defects.length})
+                  </button>
+                  <button
+                    className={`tab-button ${activeTab === 'gallery' ? 'active' : ''}`}
+                    onClick={() => setActiveTab('gallery')}
+                  >
+                    Evidence Photos ({report.media.length})
+                  </button>
+                  {report.parentReport && (
+                    <button
+                      className={`tab-button ${activeTab === 'diff' ? 'active' : ''}`}
+                      onClick={() => setActiveTab('diff')}
+                    >
+                      Revision Diff
+                    </button>
+                  )}
+                </div>
+
+                {/* TAB 1: Checklist & Identity */}
+                {activeTab === 'checklist' && (
+                  <div>
+                    <div className="subpanel">
+                      <h3 className="subpanel-title">Vehicle Identity Verification</h3>
+                      <div className="grid-3">
+                        <div className="info-block">
+                          <span className="info-label">Observed Registration</span>
+                          <span className="info-value">{String(report.identity.registrationNumber || 'Not recorded')}</span>
+                        </div>
+                        <div className="info-block">
+                          <span className="info-label">Observed Odometer</span>
+                          <span className="info-value">{String(report.identity.odometerKm || '0')} km</span>
+                        </div>
+                        <div className="info-block">
+                          <span className="info-label">VIN / Chassis Marking</span>
+                          <span className="info-value">{String(report.identity.vinChassis || 'Inspected on vehicle')}</span>
+                        </div>
+                        <div className="info-block">
+                          <span className="info-label">RC Verification</span>
+                          <span className="info-value">{String(report.identity.rcVerified ? 'Verified' : 'Document Checked')}</span>
+                        </div>
                       </div>
-                      <div className="info-item">
-                        <span className="info-label">Observed Odometer</span>
-                        <span className="info-val">{String(report.identity.odometerKm || '0')} km</span>
-                      </div>
-                      <div className="info-item">
-                        <span className="info-label">VIN / Chassis Marking</span>
-                        <span className="info-val">{String(report.identity.vinChassis || 'Inspected on vehicle')}</span>
-                      </div>
-                      <div className="info-item">
-                        <span className="info-label">RC Status</span>
-                        <span className="info-val">{String(report.identity.rcVerified ? 'Verified' : 'Document Checked')}</span>
+                    </div>
+
+                    <div className="subpanel">
+                      <h3 className="subpanel-title">Physical Checklist Findings</h3>
+                      <div>
+                        {report.answers.map(ans => (
+                          <div key={ans.id} className="check-row">
+                            <div style={{ flex: 1 }}>
+                              <div className="check-key">{ans.itemKey}</div>
+                              {ans.notes ? <div className="check-notes">Inspector notes: {ans.notes}</div> : null}
+                              {ans.value !== undefined && ans.value !== null ? (
+                                <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '2px' }}>Observed: {String(ans.value)}</div>
+                              ) : null}
+                            </div>
+                            <div>
+                              <span
+                                className={`badge ${
+                                  ans.status === 'PASS'
+                                    ? 'badge-green'
+                                    : ans.status === 'ISSUE'
+                                    ? 'badge-red'
+                                    : ans.status === 'NOT_TESTED'
+                                    ? 'badge-amber'
+                                    : 'badge-gray'
+                                }`}
+                              >
+                                {ans.status.replace('_', ' ')}
+                              </span>
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
+                )}
 
-                  <div className="section-box">
-                    <h3 className="section-box-title">Physical Checklist Findings</h3>
-                    <div>
-                      {report.answers.map(ans => (
-                        <div key={ans.id} className="check-item">
-                          <div className="check-desc">
-                            <div className="check-key">{ans.itemKey}</div>
-                            {ans.notes ? <div className="check-notes">Inspector notes: {ans.notes}</div> : null}
-                            {ans.value !== undefined && ans.value !== null ? (
-                              <div style={{ fontSize: '12px', color: '#64748B' }}>Observed value: {String(ans.value)}</div>
-                            ) : null}
-                          </div>
-                          <div>
+                {/* TAB 2: Defects */}
+                {activeTab === 'defects' && (
+                  <div className="subpanel">
+                    <h3 className="subpanel-title">Identified Defects ({report.defects.length})</h3>
+                    {report.defects.length ? (
+                      report.defects.map(d => (
+                        <div key={d.id} className="defect-card">
+                          <div className="defect-top">
+                            <span className="defect-title">{d.category} {d.location ? `· ${d.location}` : ''}</span>
                             <span
                               className={`badge ${
-                                ans.status === 'PASS'
-                                  ? 'badge-pass'
-                                  : ans.status === 'ISSUE'
-                                  ? 'badge-issue'
-                                  : ans.status === 'NOT_TESTED'
-                                  ? 'badge-untested'
-                                  : 'badge-na'
+                                d.severity === 'CRITICAL' || d.severity === 'MAJOR'
+                                  ? 'badge-red'
+                                  : d.severity === 'MODERATE'
+                                  ? 'badge-amber'
+                                  : 'badge-blue'
                               }`}
                             >
-                              {ans.status.replace('_', ' ')}
+                              {d.severity}
                             </span>
                           </div>
+                          <p className="defect-desc">{d.description}</p>
                         </div>
-                      ))}
+                      ))
+                    ) : (
+                      <p style={{ color: 'var(--muted)', fontStyle: 'italic', fontSize: '0.88rem' }}>No defects recorded for this vehicle.</p>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB 3: Evidence Gallery */}
+                {activeTab === 'gallery' && (
+                  <div className="subpanel">
+                    <h3 className="subpanel-title">Private Evidence Media ({report.media.length})</h3>
+                    {report.media.length ? (
+                      <div className="gallery-grid">
+                        {report.media.map(m => (
+                          <div key={m.id} className="gallery-card" onClick={() => setSelectedPhoto(m.id)}>
+                            <AuthenticatedImage user={user} reportId={report.id} mediaId={m.id} alt={m.logicalMediaId} />
+                            <div className="gallery-tag">{m.logicalMediaId}</div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <p style={{ color: 'var(--muted)', fontStyle: 'italic', fontSize: '0.88rem' }}>No evidence photos submitted with this report.</p>
+                    )}
+                  </div>
+                )}
+
+                {/* TAB 4: Revision Diff */}
+                {activeTab === 'diff' && diff && (
+                  <div className="subpanel">
+                    <h3 className="subpanel-title">Comparison with Revision {diff.parentRevision}</h3>
+                    {diff.priorReviewerReason && (
+                      <p style={{ fontSize: '0.85rem', color: 'var(--muted)', marginBottom: '1rem' }}>
+                        Prior Reviewer Feedback: <em>"{diff.priorReviewerReason}"</em>
+                      </p>
+                    )}
+
+                    <h4 style={{ fontSize: '0.9rem', color: 'var(--yellow)', margin: '1rem 0 0.5rem', fontFamily: 'var(--font-heading)' }}>Checklist Changes</h4>
+                    {diff.answerDiffs && diff.answerDiffs.length ? (
+                      diff.answerDiffs.map(ad => (
+                        <div key={ad.itemKey} className="diff-card">
+                          <div>
+                            <span className="info-label">{ad.itemKey} (Rev {diff.parentRevision})</span>
+                            <div style={{ marginTop: '4px' }}>
+                              <span className={`badge ${ad.oldStatus === 'PASS' ? 'badge-green' : 'badge-red'}`}>{ad.oldStatus || 'Not recorded'}</span>
+                            </div>
+                            {ad.oldNotes ? <small style={{ color: 'var(--muted)', display: 'block', marginTop: '4px' }}>{ad.oldNotes}</small> : null}
+                          </div>
+                          <div>
+                            <span className="info-label">Current (Rev {diff.currentRevision})</span>
+                            <div style={{ marginTop: '4px' }}>
+                              <span className={`badge ${ad.newStatus === 'PASS' ? 'badge-green' : 'badge-red'}`}>{ad.newStatus}</span>
+                            </div>
+                            {ad.newNotes ? <small style={{ color: 'var(--muted)', display: 'block', marginTop: '4px' }}>{ad.newNotes}</small> : null}
+                          </div>
+                        </div>
+                      ))
+                    ) : (
+                      <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>No checklist differences detected.</p>
+                    )}
+
+                    <h4 style={{ fontSize: '0.9rem', color: 'var(--yellow)', margin: '1.2rem 0 0.5rem', fontFamily: 'var(--font-heading)' }}>Defect Changes</h4>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                      <div>
+                        <span className="info-label">New Defects</span>
+                        {diff.defectDiffs?.added.length ? (
+                          diff.defectDiffs.added.map(d => (
+                            <div key={d.description} className="defect-card">
+                              <span className="defect-title">{d.severity} · {d.category}</span>
+                              <span className="defect-desc">{d.description}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>None</p>
+                        )}
+                      </div>
+                      <div>
+                        <span className="info-label">Resolved / Removed</span>
+                        {diff.defectDiffs?.resolved.length ? (
+                          diff.defectDiffs.resolved.map(d => (
+                            <div key={d.description} className="defect-card" style={{ borderLeftColor: 'var(--success)' }}>
+                              <span className="defect-title">{d.severity} · {d.category}</span>
+                              <span className="defect-desc">{d.description}</span>
+                            </div>
+                          ))
+                        ) : (
+                          <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>None</p>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* TAB 2: Defects */}
-              {activeTab === 'defects' && (
-                <div className="section-box">
-                  <h3 className="section-box-title">Identified Defects ({report.defects.length})</h3>
-                  {report.defects.length ? (
-                    report.defects.map(d => (
-                      <div key={d.id} className="defect-card">
-                        <div className="defect-top">
-                          <span className="defect-cat">{d.category} {d.location ? `· ${d.location}` : ''}</span>
-                          <span
-                            className={`badge ${
-                              d.severity === 'CRITICAL' || d.severity === 'MAJOR'
-                                ? 'badge-issue'
-                                : d.severity === 'MODERATE'
-                                ? 'badge-untested'
-                                : 'badge-na'
-                            }`}
-                          >
-                            {d.severity}
-                          </span>
-                        </div>
-                        <p className="defect-desc">{d.description}</p>
-                      </div>
-                    ))
-                  ) : (
-                    <p style={{ color: '#64748B', fontStyle: 'italic' }}>No defects recorded for this vehicle.</p>
-                  )}
-                </div>
-              )}
+                {/* Independent Review Decision Box */}
+                <div className="decision-panel">
+                  <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#fff', marginBottom: '0.5rem' }}>
+                    Accountable Review Decision
+                  </h3>
+                  <p style={{ fontSize: '0.84rem', color: 'var(--muted)', lineHeight: 1.5 }}>
+                    Decisions are permanently logged with your employee identity. Rejection or correction requests mandate actionable feedback for the field inspector.
+                  </p>
 
-              {/* TAB 3: Evidence Gallery */}
-              {activeTab === 'gallery' && (
-                <div className="section-box">
-                  <h3 className="section-box-title">Private Evidence Media ({report.media.length})</h3>
-                  {report.media.length ? (
-                    <div className="gallery-grid">
-                      {report.media.map(m => (
-                        <div key={m.id} className="gallery-thumb" onClick={() => setSelectedPhoto(m.id)}>
-                          <AuthenticatedImage user={user} reportId={report.id} mediaId={m.id} alt={m.logicalMediaId} />
-                          <div className="gallery-tag">{m.logicalMediaId}</div>
-                        </div>
-                      ))}
-                    </div>
-                  ) : (
-                    <p style={{ color: '#64748B', fontStyle: 'italic' }}>No private evidence photos submitted with this report.</p>
-                  )}
-                </div>
-              )}
+                  <textarea
+                    className="decision-textarea"
+                    placeholder="Document specific reviewer observations, discrepancies, or rework instructions..."
+                    value={reason}
+                    onChange={e => setReason(e.target.value)}
+                  />
 
-              {/* TAB 4: Revision Diff */}
-              {activeTab === 'diff' && diff && (
-                <div className="section-box">
-                  <h3 className="section-box-title">Comparison with Revision {diff.parentRevision}</h3>
-                  {diff.priorReviewerReason && (
-                    <p style={{ fontSize: '13px', color: '#64748B', marginBottom: '16px' }}>
-                      Prior Reviewer Comment: <em>"{diff.priorReviewerReason}"</em>
-                    </p>
-                  )}
-
-                  <h4 style={{ fontSize: '14px', fontWeight: 700, margin: '14px 0 8px' }}>Checklist Changes</h4>
-                  {diff.answerDiffs && diff.answerDiffs.length ? (
-                    diff.answerDiffs.map(ad => (
-                      <div key={ad.itemKey} className="diff-row">
-                        <div className="diff-col">
-                          <span className="info-label">{ad.itemKey} (Rev {diff.parentRevision})</span>
-                          <span className={`badge ${ad.oldStatus === 'PASS' ? 'badge-pass' : 'badge-issue'}`}>{ad.oldStatus || 'Not recorded'}</span>
-                          {ad.oldNotes ? <small style={{ color: '#64748B' }}>{ad.oldNotes}</small> : null}
-                        </div>
-                        <div className="diff-col">
-                          <span className="info-label">Current (Rev {diff.currentRevision})</span>
-                          <span className={`badge ${ad.newStatus === 'PASS' ? 'badge-pass' : 'badge-issue'}`}>{ad.newStatus}</span>
-                          {ad.newNotes ? <small style={{ color: '#64748B' }}>{ad.newNotes}</small> : null}
-                        </div>
-                      </div>
-                    ))
-                  ) : (
-                    <p style={{ fontSize: '13px', color: '#64748B' }}>No checklist differences detected.</p>
-                  )}
-
-                  <h4 style={{ fontSize: '14px', fontWeight: 700, margin: '16px 0 8px' }}>Defect Changes</h4>
-                  <div className="grid-2">
-                    <div>
-                      <span className="info-label">New Defects</span>
-                      {diff.defectDiffs?.added.length ? (
-                        diff.defectDiffs.added.map(d => (
-                          <div key={d.description} className="defect-card">
-                            <strong>{d.severity} · {d.category}</strong>
-                            <span>{d.description}</span>
-                          </div>
-                        ))
-                      ) : (
-                        <p style={{ fontSize: '13px', color: '#64748B' }}>None</p>
-                      )}
-                    </div>
-                    <div>
-                      <span className="info-label">Resolved / Removed Defects</span>
-                      {diff.defectDiffs?.resolved.length ? (
-                        diff.defectDiffs.resolved.map(d => (
-                          <div key={d.description} className="defect-card" style={{ borderLeftColor: 'var(--color-success)' }}>
-                            <strong>{d.severity} · {d.category}</strong>
-                            <span>{d.description}</span>
-                          </div>
-                        ))
-                      ) : (
-                        <p style={{ fontSize: '13px', color: '#64748B' }}>None</p>
-                      )}
-                    </div>
+                  <div className="decision-actions">
+                    <button className="btn-approve" disabled={busy} onClick={() => recordDecision('APPROVE')}>
+                      ✓ Approve Inspection Report
+                    </button>
+                    <button className="btn-secondary" disabled={busy} onClick={() => recordDecision('REQUEST_CORRECTION')}>
+                      ↩ Return for Rework
+                    </button>
+                    <button className="btn-danger" disabled={busy} onClick={() => recordDecision('REJECT')}>
+                      ✕ Reject Report
+                    </button>
                   </div>
-                </div>
-              )}
-
-              {/* Decision Section */}
-              <div className="decision-card">
-                <h3 className="decision-title">Independent Review Decision</h3>
-                <p style={{ fontSize: '14px', color: '#64748B', marginBottom: '12px' }}>
-                  Decisions are immutable and logged with your employee credentials. A rejection or correction request requires a clear reason for the inspector.
-                </p>
-
-                <textarea
-                  className="decision-textarea"
-                  placeholder="Enter specific reviewer feedback or reasons (required for correction or rejection)..."
-                  value={reason}
-                  onChange={e => setReason(e.target.value)}
-                />
-
-                <div className="decision-actions">
-                  <button className="btn btn-approve" disabled={busy} onClick={() => recordDecision('APPROVE')}>
-                    ✓ Approve Report
-                  </button>
-                  <button className="btn btn-rework" disabled={busy} onClick={() => recordDecision('REQUEST_CORRECTION')}>
-                    ↩ Request Correction
-                  </button>
-                  <button className="btn btn-danger" disabled={busy} onClick={() => recordDecision('REJECT')}>
-                    ✕ Reject Report
-                  </button>
                 </div>
               </div>
-            </div>
-          ) : (
-            <div className="empty-state">
-              <h3>Select an inspection from the queue</h3>
-              <p>Review the vehicle's identity, physical checks, defects, and photos before issuing an authoritative decision.</p>
-            </div>
-          )}
-        </main>
+            ) : (
+              <div style={{ textAlign: 'center', padding: '4rem 1rem', color: 'var(--muted)' }}>
+                <h3 style={{ color: '#fff', marginBottom: '0.5rem' }}>Select an inspection from the queue</h3>
+                <p style={{ fontSize: '0.88rem', maxWidth: '30rem', margin: '0 auto' }}>
+                  Review vehicle identity verification, physical checklist checks, defects, and evidence photos before recording an authorized decision.
+                </p>
+              </div>
+            )}
+          </main>
+        </div>
       </div>
 
       {/* Modal Photo Zoom */}
       {selectedPhoto && report && (
         <div className="modal-overlay" onClick={() => setSelectedPhoto(null)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <AuthenticatedImage user={user} reportId={report.id} mediaId={selectedPhoto} alt="Zoomed Evidence" />
-            <div className="modal-bar">
-              <span style={{ fontWeight: 700, fontSize: '14px', color: 'var(--color-navy)' }}>
+          <div className="modal-card" onClick={e => e.stopPropagation()}>
+            <div className="modal-img-container">
+              <AuthenticatedImage user={user} reportId={report.id} mediaId={selectedPhoto} alt="Zoomed Evidence" />
+            </div>
+            <div className="modal-footer">
+              <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff', fontFamily: 'var(--font-heading)' }}>
                 {report.media.find(m => m.id === selectedPhoto)?.logicalMediaId}
               </span>
-              <button className="btn btn-outline" style={{ minHeight: '36px' }} onClick={() => setSelectedPhoto(null)}>
+              <button className="btn-outline" style={{ minHeight: '34px', padding: '4px 14px' }} onClick={() => setSelectedPhoto(null)}>
                 Close
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
 

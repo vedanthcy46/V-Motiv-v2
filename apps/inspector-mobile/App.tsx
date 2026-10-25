@@ -44,28 +44,31 @@ import {
   type DraftPayload,
 } from './offline-sync';
 
-// Official V MOTIV Navy & Yellow Brand Palette
+// Official V MOTIV Dark Luxury Brand Palette (Unified with Admin & Sales Portals)
 const palette = {
   navy: '#061A38',
-  navyDark: '#041026',
+  navyDark: '#020B18',
   yellow: '#F7B503',
-  yellowHover: '#E5A600',
+  yellowHover: '#FFD04D',
   white: '#FFFFFF',
-  ink: '#0F172A',
-  muted: '#64748B',
-  subtle: '#94A3B8',
-  background: '#F8FAFC',
-  card: '#FFFFFF',
-  border: '#E2E8F0',
-  borderDark: '#CBD5E1',
-  success: '#059669',
-  successBg: '#ECFDF5',
-  danger: '#DC2626',
-  dangerBg: '#FEF2F2',
-  warning: '#D97706',
-  warningBg: '#FFFBEB',
-  info: '#2563EB',
-  infoBg: '#EFF6FF',
+  ink: '#F8FAFC',
+  muted: '#AEBBD0',
+  subtle: '#64748B',
+  background: '#020B18',
+  backgroundAlt: '#071327',
+  card: '#0B1E3B',
+  cardAlt: '#10294F',
+  border: '#29466D',
+  borderDark: '#1E3557',
+  inputBg: '#07182F',
+  success: '#61D99A',
+  successBg: 'rgba(97, 217, 154, 0.12)',
+  danger: '#FF7C86',
+  dangerBg: 'rgba(139, 31, 44, 0.25)',
+  warning: '#FFD166',
+  warningBg: 'rgba(247, 181, 3, 0.12)',
+  info: '#93C5FD',
+  infoBg: 'rgba(147, 197, 253, 0.12)',
 };
 
 type Assignment = {
@@ -697,8 +700,8 @@ export default function App() {
                       style={[styles.cameraBtn, isCaptured && styles.cameraBtnRetake]}
                       onPress={() => capturePhotoSlot(slot.id)}
                     >
-                      <Camera color={isCaptured ? palette.navy : palette.white} size={18} />
-                      <Text style={[styles.cameraBtnText, isCaptured && { color: palette.navy }]}>
+                      <Camera color={isCaptured ? palette.yellow : palette.navyDark} size={18} />
+                      <Text style={[styles.cameraBtnText, isCaptured && { color: palette.yellow }]}>
                         {isCaptured ? 'Retake' : 'Snap'}
                       </Text>
                     </Pressable>
@@ -922,11 +925,11 @@ export default function App() {
 
               <View style={{ gap: 12, marginTop: 20 }}>
                 <Pressable
-                  style={[styles.btnPrimary, { backgroundColor: palette.navy }]}
+                  style={[styles.btnPrimary, { backgroundColor: palette.cardAlt, borderWidth: 1, borderColor: palette.border }]}
                   onPress={() => void saveDraft()}
                   disabled={busy}
                 >
-                  <Text style={[styles.btnPrimaryText, { color: palette.white }]}>
+                  <Text style={[styles.btnPrimaryText, { color: palette.yellow }]}>
                     {busy ? 'Saving...' : 'Save Local / Cloud Draft'}
                   </Text>
                 </Pressable>
@@ -1073,7 +1076,7 @@ export default function App() {
       <View style={styles.actionsBar}>
         <Text style={styles.actionsBarTitle}>Assigned Jobs ({jobs.length})</Text>
         <Pressable style={styles.refreshBtn} onPress={() => void loadJobs()} disabled={busy}>
-          <RefreshCw color={palette.navy} size={16} />
+          <RefreshCw color={palette.yellow} size={16} />
           <Text style={styles.refreshBtnText}>Refresh</Text>
         </Pressable>
       </View>
@@ -1081,7 +1084,7 @@ export default function App() {
       {statusMessage ? <Text style={styles.statusToast}>{statusMessage}</Text> : null}
 
       <ScrollView contentContainerStyle={styles.jobsListScroll}>
-        {busy && <ActivityIndicator color={palette.navy} size="small" style={{ marginVertical: 10 }} />}
+        {busy && <ActivityIndicator color={palette.yellow} size="small" style={{ marginVertical: 10 }} />}
 
         {jobs.length ? (
           jobs.map(job => (
@@ -1136,7 +1139,7 @@ export default function App() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: palette.background },
   // Auth Screen
-  authContainer: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: palette.navy },
+  authContainer: { flex: 1, justifyContent: 'center', padding: 24, backgroundColor: palette.navyDark },
   authHeader: { alignItems: 'center', marginBottom: 28 },
   logoBadge: {
     backgroundColor: palette.yellow,
@@ -1149,15 +1152,17 @@ const styles = StyleSheet.create({
   authTitle: { color: palette.white, fontSize: 28, fontWeight: '800' },
   authSubtitle: { color: palette.subtle, fontSize: 14, textAlign: 'center', marginTop: 4 },
   authCard: {
-    backgroundColor: palette.white,
+    backgroundColor: palette.card,
     borderRadius: 16,
     padding: 24,
+    borderWidth: 1,
+    borderColor: palette.border,
     shadowColor: '#000',
-    shadowOpacity: 0.1,
-    shadowRadius: 10,
-    elevation: 4,
+    shadowOpacity: 0.35,
+    shadowRadius: 16,
+    elevation: 6,
   },
-  authCardTitle: { color: palette.navy, fontSize: 18, fontWeight: '800', textAlign: 'center', marginBottom: 6 },
+  authCardTitle: { color: palette.ink, fontSize: 18, fontWeight: '800', textAlign: 'center', marginBottom: 6 },
   authCardCopy: { color: palette.muted, fontSize: 14, textAlign: 'center', lineHeight: 20, marginBottom: 20 },
   errorText: { color: palette.danger, marginTop: 12, textAlign: 'center', fontSize: 13 },
 
@@ -1183,12 +1188,14 @@ const styles = StyleSheet.create({
 
   // Main List Header
   mainHeader: {
-    backgroundColor: palette.navy,
+    backgroundColor: palette.card,
     paddingHorizontal: 20,
     paddingVertical: 16,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    borderBottomWidth: 1,
+    borderColor: palette.border,
   },
   headerBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   logoBadgeSmall: { backgroundColor: palette.yellow, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 },
@@ -1199,7 +1206,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: 'rgba(255,255,255,0.08)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1207,7 +1214,7 @@ const styles = StyleSheet.create({
   // Sync Banner
   syncBanner: {
     backgroundColor: palette.warningBg,
-    borderColor: '#FDE68A',
+    borderColor: 'rgba(247, 181, 3, 0.3)',
     borderBottomWidth: 1,
     paddingHorizontal: 16,
     paddingVertical: 10,
@@ -1217,7 +1224,7 @@ const styles = StyleSheet.create({
   },
   syncBannerText: { color: palette.warning, fontSize: 12, fontWeight: '700' },
   btnSync: { backgroundColor: palette.warning, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 6 },
-  btnSyncText: { color: palette.white, fontSize: 11, fontWeight: '800' },
+  btnSyncText: { color: palette.navyDark, fontSize: 11, fontWeight: '800' },
 
   // Actions Bar
   actionsBar: {
@@ -1227,9 +1234,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 12,
   },
-  actionsBarTitle: { fontSize: 16, fontWeight: '800', color: palette.navy },
+  actionsBarTitle: { fontSize: 16, fontWeight: '800', color: palette.yellow },
   refreshBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 6 },
-  refreshBtnText: { color: palette.navy, fontWeight: '700', fontSize: 13 },
+  refreshBtnText: { color: palette.yellow, fontWeight: '700', fontSize: 13 },
   statusToast: {
     marginHorizontal: 20,
     marginBottom: 8,
@@ -1248,17 +1255,13 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
     padding: 16,
-    shadowColor: '#000',
-    shadowOpacity: 0.04,
-    shadowRadius: 4,
-    elevation: 2,
     gap: 6,
   },
   jobCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  jobVehicle: { fontSize: 17, fontWeight: '800', color: palette.navy },
-  jobRef: { fontSize: 12, fontWeight: '800', color: palette.info },
-  jobSeller: { fontSize: 13, color: palette.ink },
-  jobDate: { fontSize: 12, color: palette.muted },
+  jobVehicle: { fontSize: 17, fontWeight: '800', color: palette.ink },
+  jobRef: { fontSize: 12, fontWeight: '800', color: palette.yellow },
+  jobSeller: { fontSize: 13, color: palette.muted },
+  jobDate: { fontSize: 12, color: palette.subtle },
   jobInstructions: { fontSize: 12, color: palette.warning, fontStyle: 'italic', marginTop: 2 },
   jobCardBottom: {
     flexDirection: 'row',
@@ -1269,7 +1272,14 @@ const styles = StyleSheet.create({
     borderTopWidth: 1,
     borderColor: palette.border,
   },
-  statusPill: { backgroundColor: '#F1F5F9', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  statusPill: {
+    backgroundColor: 'rgba(255,255,255,0.06)',
+    borderWidth: 1,
+    borderColor: palette.border,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
   statusPillText: { fontSize: 11, fontWeight: '800', color: palette.muted },
   startBtnPill: {
     backgroundColor: palette.yellow,
@@ -1292,40 +1302,42 @@ const styles = StyleSheet.create({
     gap: 10,
     marginTop: 30,
   },
-  emptyJobsTitle: { fontSize: 17, fontWeight: '800', color: palette.navy },
+  emptyJobsTitle: { fontSize: 17, fontWeight: '800', color: palette.ink },
   emptyJobsSub: { fontSize: 13, color: palette.muted, textAlign: 'center', lineHeight: 18 },
 
   // Workspace
   workspaceHeader: {
-    backgroundColor: palette.navy,
+    backgroundColor: palette.card,
     paddingHorizontal: 16,
     paddingVertical: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
+    borderBottomWidth: 1,
+    borderColor: palette.border,
   },
   backButton: { paddingRight: 4 },
   backButtonText: { color: palette.yellow, fontWeight: '800', fontSize: 16 },
   workspaceKicker: { color: palette.yellow, fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   workspaceVehicle: { color: palette.white, fontSize: 16, fontWeight: '800' },
 
-  tabsContainer: { backgroundColor: '#0B2247', borderBottomWidth: 1, borderColor: '#173669' },
+  tabsContainer: { backgroundColor: '#071327', borderBottomWidth: 1, borderColor: palette.border },
   tabsScroll: { paddingHorizontal: 12, paddingVertical: 8, gap: 8 },
-  tabButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.08)' },
+  tabButton: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: 20, backgroundColor: 'rgba(255,255,255,0.06)' },
   tabButtonActive: { backgroundColor: palette.yellow },
-  tabButtonText: { color: '#94A3B8', fontWeight: '700', fontSize: 12 },
+  tabButtonText: { color: palette.muted, fontWeight: '700', fontSize: 12 },
   tabButtonTextActive: { color: palette.navyDark, fontWeight: '800' },
 
   contentScroll: { padding: 16, paddingBottom: 48 },
   formSection: { gap: 16 },
-  sectionHeader: { fontSize: 18, fontWeight: '800', color: palette.navy },
+  sectionHeader: { fontSize: 18, fontWeight: '800', color: palette.yellow },
   sectionSub: { fontSize: 13, color: palette.muted, marginTop: -12, marginBottom: 4 },
 
   inputGroup: { gap: 6 },
   label: { fontSize: 13, fontWeight: '700', color: palette.ink },
   inputHint: { fontSize: 11, color: palette.muted },
   textInput: {
-    backgroundColor: palette.white,
+    backgroundColor: palette.inputBg,
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 8,
@@ -1339,7 +1351,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 12,
-    backgroundColor: palette.white,
+    backgroundColor: palette.card,
     borderWidth: 1,
     borderColor: palette.border,
     padding: 14,
@@ -1350,16 +1362,16 @@ const styles = StyleSheet.create({
     height: 22,
     borderRadius: 6,
     borderWidth: 2,
-    borderColor: palette.borderDark,
+    borderColor: palette.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  checkboxActive: { backgroundColor: palette.navy, borderColor: palette.navy },
+  checkboxActive: { backgroundColor: palette.yellow, borderColor: palette.yellow },
   checkCardLabel: { fontSize: 14, fontWeight: '600', color: palette.ink, flex: 1 },
 
   // Photos
   photoSlotCard: {
-    backgroundColor: palette.white,
+    backgroundColor: palette.card,
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 12,
@@ -1368,13 +1380,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 12,
   },
-  photoSlotTitle: { fontSize: 14, fontWeight: '700', color: palette.navy },
+  photoSlotTitle: { fontSize: 14, fontWeight: '700', color: palette.ink },
   photoSlotDesc: { fontSize: 12, color: palette.muted },
   photoStatusTag: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 4 },
   photoStatusText: { fontSize: 11, color: palette.success, fontWeight: '700' },
   photoPendingText: { fontSize: 11, color: palette.warning, fontWeight: '600', marginTop: 4 },
   cameraBtn: {
-    backgroundColor: palette.navy,
+    backgroundColor: palette.yellow,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
@@ -1382,19 +1394,19 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
     borderRadius: 8,
   },
-  cameraBtnRetake: { backgroundColor: '#E2E8F0' },
-  cameraBtnText: { color: palette.white, fontWeight: '700', fontSize: 12 },
+  cameraBtnRetake: { backgroundColor: palette.cardAlt, borderWidth: 1, borderColor: palette.border },
+  cameraBtnText: { color: palette.navyDark, fontWeight: '700', fontSize: 12 },
 
   // Checklist
   checklistSectionCard: {
-    backgroundColor: palette.white,
+    backgroundColor: palette.card,
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 12,
     padding: 16,
     gap: 12,
   },
-  secCardTitle: { fontSize: 15, fontWeight: '800', color: palette.navy },
+  secCardTitle: { fontSize: 15, fontWeight: '800', color: palette.yellow },
   secCardDesc: { fontSize: 12, color: palette.muted, marginTop: -8 },
   itemRow: { borderTopWidth: 1, borderColor: palette.border, paddingTop: 12, gap: 8 },
   itemLabel: { fontSize: 14, fontWeight: '600', color: palette.ink },
@@ -1405,14 +1417,14 @@ const styles = StyleSheet.create({
     borderRadius: 6,
     paddingHorizontal: 8,
     paddingVertical: 6,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: '#07182F',
   },
   statusChoiceText: { fontSize: 11, fontWeight: '700', color: palette.muted },
   statusChoiceTextActive: { color: palette.white },
   statusPass: { backgroundColor: palette.success, borderColor: palette.success },
   statusIssue: { backgroundColor: palette.danger, borderColor: palette.danger },
   statusUntested: { backgroundColor: palette.warning, borderColor: palette.warning },
-  statusNA: { backgroundColor: palette.muted, borderColor: palette.muted },
+  statusNA: { backgroundColor: palette.subtle, borderColor: palette.subtle },
   itemNotesInput: {
     borderWidth: 1,
     borderColor: palette.border,
@@ -1420,13 +1432,13 @@ const styles = StyleSheet.create({
     padding: 8,
     fontSize: 12,
     color: palette.ink,
-    backgroundColor: '#FAFAFA',
+    backgroundColor: palette.inputBg,
   },
 
   // Defects
   rowBetween: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   defectCard: {
-    backgroundColor: palette.white,
+    backgroundColor: palette.card,
     borderLeftWidth: 4,
     borderLeftColor: palette.danger,
     borderWidth: 1,
@@ -1435,11 +1447,11 @@ const styles = StyleSheet.create({
     padding: 12,
     gap: 4,
   },
-  defectCardTitle: { fontSize: 13, fontWeight: '800', color: palette.navy },
+  defectCardTitle: { fontSize: 13, fontWeight: '800', color: palette.danger },
   defectCardDesc: { fontSize: 13, color: palette.ink },
   defectCardLoc: { fontSize: 11, color: palette.muted },
   emptyDefects: { padding: 32, alignItems: 'center', gap: 8 },
-  emptyDefectsText: { fontSize: 15, fontWeight: '700', color: palette.navy },
+  emptyDefectsText: { fontSize: 15, fontWeight: '700', color: palette.ink },
   emptyDefectsSub: { fontSize: 12, color: palette.muted, textAlign: 'center' },
 
   // Road test
@@ -1450,16 +1462,16 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 8,
-    backgroundColor: palette.white,
+    backgroundColor: palette.card,
     alignItems: 'center',
   },
-  roadTestChoiceActive: { backgroundColor: palette.navy, borderColor: palette.navy },
+  roadTestChoiceActive: { backgroundColor: palette.yellow, borderColor: palette.yellow },
   roadTestChoiceText: { fontSize: 13, fontWeight: '700', color: palette.muted },
-  roadTestChoiceTextActive: { color: palette.white },
+  roadTestChoiceTextActive: { color: palette.navyDark },
 
   // Review
   summaryCard: {
-    backgroundColor: palette.white,
+    backgroundColor: palette.card,
     borderWidth: 1,
     borderColor: palette.border,
     borderRadius: 12,
@@ -1468,30 +1480,32 @@ const styles = StyleSheet.create({
   },
   summaryRow: { flexDirection: 'row', justifyContent: 'space-between' },
   summaryKey: { fontSize: 13, color: palette.muted },
-  summaryVal: { fontSize: 13, fontWeight: '700', color: palette.navy },
+  summaryVal: { fontSize: 13, fontWeight: '700', color: palette.yellow },
   declarationCard: {
     flexDirection: 'row',
     gap: 12,
-    backgroundColor: '#FFFBEB',
+    backgroundColor: 'rgba(247, 181, 3, 0.08)',
     borderWidth: 1,
-    borderColor: '#FDE68A',
+    borderColor: 'rgba(247, 181, 3, 0.35)',
     borderRadius: 10,
     padding: 14,
     alignItems: 'flex-start',
   },
   declarationCardActive: { borderColor: palette.yellow },
-  declarationText: { fontSize: 12, lineHeight: 18, color: '#92400E', flex: 1, fontWeight: '600' },
+  declarationText: { fontSize: 12, lineHeight: 18, color: '#FDE68A', flex: 1, fontWeight: '600' },
 
   // Modal
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.6)', justifyContent: 'flex-end' },
+  modalBackdrop: { flex: 1, backgroundColor: 'rgba(0,6,15,0.85)', justifyContent: 'flex-end' },
   modalContent: {
-    backgroundColor: palette.white,
+    backgroundColor: palette.card,
     borderTopLeftRadius: 20,
     borderTopRightRadius: 20,
+    borderTopWidth: 1,
+    borderColor: palette.border,
     padding: 24,
     gap: 14,
   },
-  modalTitle: { fontSize: 18, fontWeight: '800', color: palette.navy },
+  modalTitle: { fontSize: 18, fontWeight: '800', color: palette.ink },
   catPickerRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pickerChip: {
     paddingHorizontal: 12,
@@ -1499,8 +1513,9 @@ const styles = StyleSheet.create({
     borderRadius: 16,
     borderWidth: 1,
     borderColor: palette.border,
+    backgroundColor: palette.inputBg,
   },
-  pickerChipActive: { backgroundColor: palette.navy, borderColor: palette.navy },
+  pickerChipActive: { backgroundColor: palette.yellow, borderColor: palette.yellow },
   pickerChipText: { fontSize: 12, fontWeight: '700', color: palette.muted },
-  pickerChipTextActive: { color: palette.white },
+  pickerChipTextActive: { color: palette.navyDark },
 });

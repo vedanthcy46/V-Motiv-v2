@@ -16,4 +16,5 @@ google-services.json
 GoogleService-Info.plist
 secrets/
 playwright-report/
+.expo/
 
