@@ -15,15 +15,22 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
+  Calendar,
   Camera,
+  Car,
   Check,
   CheckCircle2,
   ChevronRight,
   ClipboardCheck,
   CloudOff,
+  Gauge,
+  Info,
   LogOut,
+  MapPin,
   RefreshCw,
+  Tag,
   Trash2,
+  User,
   UserCheck,
   X,
 } from 'lucide-react-native';
@@ -123,6 +130,93 @@ const standardPhotoSlots = [
   { id: 'tyre_front_left', label: 'Front Left Tyre Tread', desc: 'Check depth, sidewall cracks' },
   { id: 'rc_smartcard', label: 'Registration Certificate (RC)', desc: 'Physical card or mParivahan record' },
 ];
+
+function formatRefCode(code: string | null | undefined): string {
+  if (!code) return 'N/A';
+  if (code.length > 12) {
+    return code.slice(0, 8).toUpperCase();
+  }
+  return code.toUpperCase();
+}
+
+function formatScheduleDate(dateString: string | null | undefined): string {
+  if (!dateString) return 'Appointment Pending';
+  try {
+    const d = new Date(dateString);
+    if (isNaN(d.getTime())) return 'Appointment Pending';
+    const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+    const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+    const dayName = dayNames[d.getDay()];
+    const dateNum = d.getDate();
+    const monthName = monthNames[d.getMonth()];
+    const year = d.getFullYear();
+    let hours = d.getHours();
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'PM' : 'AM';
+    hours = hours % 12;
+    hours = hours ? hours : 12;
+    return `${dayName}, ${dateNum} ${monthName} ${year} · ${hours}:${minutes} ${ampm}`;
+  } catch {
+    return 'Appointment Pending';
+  }
+}
+
+function getStatusTheme(status: string) {
+  switch (status?.toUpperCase()) {
+    case 'ASSIGNED':
+      return {
+        bg: 'rgba(247, 181, 3, 0.14)',
+        border: 'rgba(247, 181, 3, 0.4)',
+        text: color.yellow,
+        label: 'ASSIGNED',
+      };
+    case 'CONFIRMED':
+      return {
+        bg: 'rgba(52, 211, 153, 0.14)',
+        border: 'rgba(52, 211, 153, 0.4)',
+        text: color.success,
+        label: 'CONFIRMED',
+      };
+    case 'IN_PROGRESS':
+      return {
+        bg: 'rgba(56, 189, 248, 0.14)',
+        border: 'rgba(56, 189, 248, 0.4)',
+        text: '#38BDF8',
+        label: 'IN PROGRESS',
+      };
+    case 'COMPLETED':
+      return {
+        bg: 'rgba(34, 197, 94, 0.14)',
+        border: 'rgba(34, 197, 94, 0.4)',
+        text: '#4ADE80',
+        label: 'COMPLETED',
+      };
+    case 'RESCHEDULED':
+      return {
+        bg: 'rgba(251, 146, 60, 0.14)',
+        border: 'rgba(251, 146, 60, 0.4)',
+        text: '#FB923C',
+        label: 'RESCHEDULED',
+      };
+    default:
+      return {
+        bg: 'rgba(130, 146, 174, 0.14)',
+        border: 'rgba(130, 146, 174, 0.3)',
+        text: color.muted,
+        label: (status || 'UNKNOWN').replace(/_/g, ' '),
+      };
+  }
+}
+
+function getLocationTypeTheme(locationType: string | null | undefined) {
+  const isHub = locationType?.toUpperCase() === 'HUB';
+  return {
+    label: isHub ? 'HUB VISIT' : 'DOORSTEP VISIT',
+    bg: isHub ? 'rgba(99, 102, 241, 0.14)' : 'rgba(236, 72, 153, 0.14)',
+    border: isHub ? 'rgba(99, 102, 241, 0.35)' : 'rgba(236, 72, 153, 0.35)',
+    text: isHub ? '#A5B4FC' : '#F472B6',
+  };
+}
 
 export function InspectorScreen() {
   const insets = useSafeAreaInsets();
@@ -399,16 +493,16 @@ export function InspectorScreen() {
           <Pressable style={styles.backButton} onPress={() => setActiveJob(null)}>
             <Text style={styles.backButtonText}>‹ Jobs</Text>
           </Pressable>
-          <View style={{ flex: 1 }}>
-            <Text style={styles.workspaceKicker} numberOfLines={1}>
-              EVALUATION · {activeJob.request.lead.referenceCode}
+          <View style={{ flex: 1, minWidth: 0 }}>
+            <Text style={styles.workspaceKicker} numberOfLines={1} ellipsizeMode="tail">
+              EVALUATION · #{formatRefCode(activeJob.request.lead.referenceCode)}
             </Text>
-            <Text style={styles.workspaceVehicle} numberOfLines={1}>
-              {activeJob.request.lead.make} {activeJob.request.lead.model}
+            <Text style={styles.workspaceVehicle} numberOfLines={1} ellipsizeMode="tail">
+              {activeJob.request.lead.manufacturingYear} {activeJob.request.lead.make} {activeJob.request.lead.model}
             </Text>
           </View>
           <Pressable style={styles.btnSmallYellow} onPress={() => void saveDraft()} disabled={busy}>
-            <Text style={styles.btnSmallYellowText}>{busy ? '…' : 'Save'}</Text>
+            <Text style={styles.btnSmallYellowText}>{busy ? '…' : 'Save Draft'}</Text>
           </Pressable>
         </View>
 
@@ -461,7 +555,9 @@ export function InspectorScreen() {
                   placeholderTextColor={color.muted}
                   autoCapitalize="characters"
                 />
-                <Text style={styles.inputHint}>Declared: {activeJob.request.lead.referenceCode} (Seller: {activeJob.request.lead.sellerName})</Text>
+                <Text style={styles.inputHint} numberOfLines={1} ellipsizeMode="tail">
+                  Declared: #{formatRefCode(activeJob.request.lead.referenceCode)} (Seller: {activeJob.request.lead.sellerName})
+                </Text>
               </View>
 
               <View style={styles.inputGroup}>
@@ -531,16 +627,16 @@ export function InspectorScreen() {
                 const isCaptured = Boolean(capturedPhotos[slot.id]);
                 return (
                   <View key={slot.id} style={styles.photoSlotCard}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.photoSlotTitle}>{slot.label}</Text>
-                      <Text style={styles.photoSlotDesc}>{slot.desc}</Text>
+                    <View style={{ flex: 1, minWidth: 0, gap: 2 }}>
+                      <Text style={styles.photoSlotTitle} numberOfLines={1} ellipsizeMode="tail">{slot.label}</Text>
+                      <Text style={styles.photoSlotDesc} numberOfLines={2} ellipsizeMode="tail">{slot.desc}</Text>
                       {isCaptured ? (
                         <View style={styles.photoStatusTag}>
                           <CheckCircle2 color={color.success} size={13} />
-                          <Text style={styles.photoStatusText}>Evidence Captured</Text>
+                          <Text style={styles.photoStatusText} numberOfLines={1}>Evidence Captured</Text>
                         </View>
                       ) : (
-                        <Text style={styles.photoPendingText}>• Photo Required</Text>
+                        <Text style={styles.photoPendingText} numberOfLines={1}>• Photo Required</Text>
                       )}
                     </View>
 
@@ -573,8 +669,8 @@ export function InspectorScreen() {
 
                 return (
                   <View key={sec.key} style={styles.checklistSectionCard}>
-                    <Text style={styles.secCardTitle}>{sec.title}</Text>
-                    <Text style={styles.secCardDesc}>{sec.description}</Text>
+                    <Text style={styles.secCardTitle} numberOfLines={2}>{sec.title}</Text>
+                    <Text style={styles.secCardDesc} numberOfLines={3}>{sec.description}</Text>
 
                     {secItems.map(item => {
                       const currentAns = answers[item.key]?.status;
@@ -582,7 +678,7 @@ export function InspectorScreen() {
 
                       return (
                         <View key={item.key} style={styles.itemRow}>
-                          <Text style={styles.itemLabel}>{item.label}</Text>
+                          <Text style={styles.itemLabel} numberOfLines={2} ellipsizeMode="tail">{item.label}</Text>
 
                           <View style={styles.btnGroup}>
                             {['PASS', 'ISSUE', 'NOT_TESTED', 'NOT_APPLICABLE'].map(s => {
@@ -652,13 +748,13 @@ export function InspectorScreen() {
                 defects.map((d, idx) => (
                   <View key={idx} style={styles.defectCard}>
                     <View style={styles.rowBetween}>
-                      <Text style={styles.defectCardTitle}>{d.category} · {d.severity}</Text>
+                      <Text style={styles.defectCardTitle} numberOfLines={1} ellipsizeMode="tail">{d.category} · {d.severity}</Text>
                       <Pressable onPress={() => setDefects(prev => prev.filter((_, i) => i !== idx))}>
                         <Trash2 color={color.danger} size={18} />
                       </Pressable>
                     </View>
-                    <Text style={styles.defectCardDesc}>{d.description}</Text>
-                    {d.location ? <Text style={styles.defectCardLoc}>Location: {d.location}</Text> : null}
+                    <Text style={styles.defectCardDesc} numberOfLines={4} ellipsizeMode="tail">{d.description}</Text>
+                    {d.location ? <Text style={styles.defectCardLoc} numberOfLines={1} ellipsizeMode="tail">Location: {d.location}</Text> : null}
                   </View>
                 ))
               ) : (
@@ -732,24 +828,24 @@ export function InspectorScreen() {
 
               <View style={styles.summaryCard}>
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>Registration Plate</Text>
-                  <Text style={styles.summaryVal}>{regNumber || 'Missing'}</Text>
+                  <Text style={styles.summaryKey} numberOfLines={1}>Registration Plate</Text>
+                  <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">{regNumber || 'Missing'}</Text>
                 </View>
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>Observed Odometer</Text>
-                  <Text style={styles.summaryVal}>{odometerKm ? `${odometerKm} km` : 'Missing'}</Text>
+                  <Text style={styles.summaryKey} numberOfLines={1}>Observed Odometer</Text>
+                  <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">{odometerKm ? `${odometerKm} km` : 'Missing'}</Text>
                 </View>
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>Checklist Answered</Text>
-                  <Text style={styles.summaryVal}>{Object.keys(answers).length} items</Text>
+                  <Text style={styles.summaryKey} numberOfLines={1}>Checklist Answered</Text>
+                  <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">{Object.keys(answers).length} items</Text>
                 </View>
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>Defects Logged</Text>
-                  <Text style={styles.summaryVal}>{defects.length} defects</Text>
+                  <Text style={styles.summaryKey} numberOfLines={1}>Defects Logged</Text>
+                  <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">{defects.length} defects</Text>
                 </View>
                 <View style={styles.summaryRow}>
-                  <Text style={styles.summaryKey}>Photos Captured</Text>
-                  <Text style={styles.summaryVal}>{Object.keys(capturedPhotos).length} photos</Text>
+                  <Text style={styles.summaryKey} numberOfLines={1}>Photos Captured</Text>
+                  <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">{Object.keys(capturedPhotos).length} photos</Text>
                 </View>
               </View>
 
@@ -904,9 +1000,9 @@ export function InspectorScreen() {
       {/* Sync Banner */}
       {(pendingDrafts > 0 || pendingPhotos > 0) && (
         <View style={styles.syncBanner}>
-          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: space.sm }}>
-            <CloudOff color={color.yellow} size={18} />
-            <Text style={styles.syncBannerText}>
+          <View style={styles.syncBannerContent}>
+            <CloudOff color={color.yellow} size={16} />
+            <Text style={styles.syncBannerText} numberOfLines={1} ellipsizeMode="tail">
               {pendingDrafts} draft(s), {pendingPhotos} photo(s) awaiting cloud sync
             </Text>
           </View>
@@ -918,7 +1014,7 @@ export function InspectorScreen() {
 
       {/* Actions Bar */}
       <View style={styles.actionsBar}>
-        <Text style={styles.actionsBarTitle}>Assigned Inspections ({jobs.length})</Text>
+        <Text style={styles.actionsBarTitle} numberOfLines={1}>Assigned Inspections ({jobs.length})</Text>
         <Pressable style={styles.refreshBtn} onPress={() => void loadJobs()} disabled={busy}>
           <RefreshCw color={color.yellow} size={15} />
           <Text style={styles.refreshBtnText}>Refresh</Text>
@@ -931,42 +1027,148 @@ export function InspectorScreen() {
         {busy && <ActivityIndicator color={color.yellow} size="small" style={{ marginVertical: space.md }} />}
 
         {jobs.length ? (
-          jobs.map(job => (
-            <Pressable
-              key={job.id}
-              style={styles.jobCard}
-              onPress={() => void startInspection(job)}
-            >
-              <View style={styles.jobCardTop}>
-                <Text style={styles.jobVehicle}>
-                  {job.request.lead.manufacturingYear} {job.request.lead.make} {job.request.lead.model}
-                </Text>
-                <Text style={styles.jobRef}>{job.request.lead.referenceCode}</Text>
-              </View>
+          jobs.map(job => {
+            const statusTheme = getStatusTheme(job.status);
+            const locTheme = getLocationTypeTheme(job.locationType);
+            const refFormatted = formatRefCode(job.request.lead.referenceCode);
+            const scheduleFormatted = formatScheduleDate(job.scheduledAt);
+            const addressText = job.address || job.request.lead.inspectionAddress || job.request.lead.city;
 
-              <Text style={styles.jobSeller}>
-                Seller: {job.request.lead.sellerName} · {job.request.lead.city} ({job.locationType})
-              </Text>
-              <Text style={styles.jobDate}>
-                {job.scheduledAt ? new Date(job.scheduledAt).toLocaleString() : 'Scheduled Appointment Pending'}
-              </Text>
+            return (
+              <Pressable
+                key={job.id}
+                style={({ pressed }) => [
+                  styles.jobCard,
+                  pressed && styles.jobCardPressed,
+                ]}
+                onPress={() => void startInspection(job)}
+              >
+                {/* Header Row: Status Badge, Type Badge, and Truncated Reference Tag */}
+                <View style={styles.cardHeaderRow}>
+                  <View style={styles.cardHeaderBadges}>
+                    <View style={[styles.statusBadge, { backgroundColor: statusTheme.bg, borderColor: statusTheme.border }]}>
+                      <View style={[styles.statusDot, { backgroundColor: statusTheme.text }]} />
+                      <Text style={[styles.statusBadgeText, { color: statusTheme.text }]} numberOfLines={1}>
+                        {statusTheme.label}
+                      </Text>
+                    </View>
 
-              {job.instructions ? (
-                <Text style={styles.jobInstructions}>Instructions: {job.instructions}</Text>
-              ) : null}
+                    <View style={[styles.locationBadge, { backgroundColor: locTheme.bg, borderColor: locTheme.border }]}>
+                      <Text style={[styles.locationBadgeText, { color: locTheme.text }]} numberOfLines={1}>
+                        {locTheme.label}
+                      </Text>
+                    </View>
+                  </View>
 
-              <View style={styles.jobCardBottom}>
-                <View style={styles.statusPill}>
-                  <Text style={styles.statusPillText}>{job.status}</Text>
+                  <View style={styles.refTagContainer}>
+                    <Tag color={color.yellow} size={11} />
+                    <Text style={styles.refTagText} numberOfLines={1} ellipsizeMode="tail">
+                      #{refFormatted}
+                    </Text>
+                  </View>
                 </View>
 
-                <View style={styles.startBtnPill}>
-                  <Text style={styles.startBtnText}>Start Inspection</Text>
-                  <ChevronRight color={color.navy} size={15} />
+                {/* Vehicle Headline */}
+                <View style={styles.vehicleTitleBlock}>
+                  <Text style={styles.jobVehicle} numberOfLines={2} ellipsizeMode="tail">
+                    {job.request.lead.manufacturingYear} {job.request.lead.make} {job.request.lead.model}
+                    {job.request.lead.variant ? ` · ${job.request.lead.variant}` : ''}
+                  </Text>
                 </View>
-              </View>
-            </Pressable>
-          ))
+
+                {/* Spec Pills (Fuel, Transmission, Odometer) */}
+                <View style={styles.specPillsRow}>
+                  {(job.request.lead.fuelType || job.request.lead.transmission) ? (
+                    <View style={styles.specChip}>
+                      <Car color={color.muted} size={12} />
+                      <Text style={styles.specChipText} numberOfLines={1}>
+                        {[job.request.lead.fuelType, job.request.lead.transmission].filter(Boolean).join(' · ')}
+                      </Text>
+                    </View>
+                  ) : null}
+
+                  {job.request.lead.odometerKm != null ? (
+                    <View style={styles.specChip}>
+                      <Gauge color={color.muted} size={12} />
+                      <Text style={styles.specChipText} numberOfLines={1}>
+                        {job.request.lead.odometerKm.toLocaleString()} km
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+
+                {/* Meta Detail Grid */}
+                <View style={styles.cardMetaGrid}>
+                  {/* Seller Row */}
+                  <View style={styles.metaRow}>
+                    <View style={styles.metaIconCol}>
+                      <User color={color.muted} size={14} />
+                    </View>
+                    <View style={styles.metaContentCol}>
+                      <Text style={styles.metaLabel} numberOfLines={1}>Customer / Seller</Text>
+                      <Text style={styles.metaValue} numberOfLines={1} ellipsizeMode="tail">
+                        {job.request.lead.sellerName}
+                        {job.request.lead.sellerPhone ? ` · ${job.request.lead.sellerPhone}` : ''}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Location Row */}
+                  <View style={styles.metaRow}>
+                    <View style={styles.metaIconCol}>
+                      <MapPin color={color.muted} size={14} />
+                    </View>
+                    <View style={styles.metaContentCol}>
+                      <Text style={styles.metaLabel} numberOfLines={1}>Inspection Location</Text>
+                      <Text style={styles.metaValue} numberOfLines={2} ellipsizeMode="tail">
+                        {addressText}
+                      </Text>
+                    </View>
+                  </View>
+
+                  {/* Schedule Row */}
+                  <View style={styles.metaRow}>
+                    <View style={styles.metaIconCol}>
+                      <Calendar color={color.muted} size={14} />
+                    </View>
+                    <View style={styles.metaContentCol}>
+                      <Text style={styles.metaLabel} numberOfLines={1}>Appointment Schedule</Text>
+                      <Text style={styles.metaValueHighlight} numberOfLines={1}>
+                        {scheduleFormatted}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Special Instructions Callout */}
+                {job.instructions ? (
+                  <View style={styles.instructionsCallout}>
+                    <View style={styles.instructionsHeaderRow}>
+                      <Info color={color.yellow} size={13} />
+                      <Text style={styles.instructionsTitle}>Special Instructions</Text>
+                    </View>
+                    <Text style={styles.instructionsText} numberOfLines={3} ellipsizeMode="tail">
+                      {job.instructions}
+                    </Text>
+                  </View>
+                ) : null}
+
+                {/* Card Action Footer */}
+                <View style={styles.jobCardFooter}>
+                  <Text style={styles.cardFooterHint} numberOfLines={1} ellipsizeMode="tail">
+                    {job.status === 'IN_PROGRESS' ? 'Evaluation in progress' : 'Ready to inspect'}
+                  </Text>
+
+                  <View style={styles.startBtnPill}>
+                    <Text style={styles.startBtnText}>
+                      {job.status === 'IN_PROGRESS' ? 'Resume' : 'Start Inspection'}
+                    </Text>
+                    <ChevronRight color={color.navy} size={15} />
+                  </View>
+                </View>
+              </Pressable>
+            );
+          })
         ) : !busy ? (
           <View style={styles.emptyJobsCard}>
             <ClipboardCheck color={color.muted} size={48} />
@@ -1037,8 +1239,16 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    gap: space.sm,
   },
-  syncBannerText: { color: color.yellow, fontSize: 12, fontWeight: '700' },
+  syncBannerContent: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.sm,
+  },
+  syncBannerText: { color: color.yellow, fontSize: 12, fontWeight: '700', flex: 1 },
   btnSync: { backgroundColor: color.yellow, paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.sm },
   btnSyncText: { color: color.navy, fontSize: 11, fontWeight: '800' },
 
@@ -1063,7 +1273,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
   },
 
-  // Jobs List
+  // Jobs List & Cards
   jobsListScroll: { paddingHorizontal: space.lg, paddingBottom: 40, gap: space.md },
   jobCard: {
     backgroundColor: color.surface,
@@ -1071,42 +1281,206 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: color.border,
     padding: space.lg,
-    gap: 6,
+    gap: space.md,
   },
-  jobCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'baseline' },
-  jobVehicle: { fontSize: 16, fontWeight: '800', color: color.text },
-  jobRef: { fontSize: 12, fontWeight: '800', color: color.yellow },
-  jobSeller: { fontSize: 13, color: color.textSecondary },
-  jobDate: { fontSize: 12, color: color.muted },
-  jobInstructions: { fontSize: 12, color: color.yellow, fontStyle: 'italic', marginTop: 2 },
-  jobCardBottom: {
+  jobCardPressed: {
+    backgroundColor: color.raised,
+    borderColor: 'rgba(247, 181, 3, 0.45)',
+  },
+  cardHeaderRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    marginTop: space.sm,
-    paddingTop: space.sm,
-    borderTopWidth: 1,
-    borderColor: color.border,
+    gap: space.sm,
   },
-  statusPill: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
+  cardHeaderBadges: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexWrap: 'wrap',
+    flex: 1,
+    minWidth: 0,
+  },
+  statusBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
     borderWidth: 1,
-    borderColor: color.border,
+  },
+  statusDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+  },
+  statusBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  locationBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    borderWidth: 1,
+  },
+  locationBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  refTagContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(247, 181, 3, 0.08)',
+    borderWidth: 1,
+    borderColor: 'rgba(247, 181, 3, 0.25)',
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: radius.pill,
+    flexShrink: 0,
+  },
+  refTagText: {
+    color: color.yellow,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  vehicleTitleBlock: {
+    gap: 2,
+  },
+  jobVehicle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: color.text,
+    lineHeight: 22,
+  },
+  specPillsRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flexWrap: 'wrap',
+  },
+  specChip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: radius.sm,
   },
-  statusPillText: { fontSize: 11, fontWeight: '800', color: color.muted },
+  specChipText: {
+    color: color.textSecondary,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  cardMetaGrid: {
+    backgroundColor: 'rgba(2, 11, 24, 0.35)',
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: 'rgba(26, 59, 107, 0.4)',
+    padding: space.md,
+    gap: 10,
+  },
+  metaRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+  },
+  metaIconCol: {
+    width: 20,
+    height: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: 1,
+  },
+  metaContentCol: {
+    flex: 1,
+    minWidth: 0,
+    gap: 1,
+  },
+  metaLabel: {
+    fontSize: 10,
+    fontWeight: '700',
+    color: color.muted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  metaValue: {
+    fontSize: 13,
+    color: color.textSecondary,
+    lineHeight: 18,
+    fontWeight: '500',
+  },
+  metaValueHighlight: {
+    fontSize: 13,
+    color: '#FEF08A',
+    lineHeight: 18,
+    fontWeight: '700',
+  },
+  instructionsCallout: {
+    backgroundColor: 'rgba(247, 181, 3, 0.08)',
+    borderLeftWidth: 3,
+    borderLeftColor: color.yellow,
+    borderRadius: radius.sm,
+    padding: space.sm + 2,
+    gap: 4,
+  },
+  instructionsHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  instructionsTitle: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: color.yellow,
+    textTransform: 'uppercase',
+    letterSpacing: 0.5,
+  },
+  instructionsText: {
+    fontSize: 12,
+    color: '#FDE68A',
+    lineHeight: 17,
+    fontStyle: 'italic',
+  },
+  jobCardFooter: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingTop: space.sm,
+    borderTopWidth: 1,
+    borderColor: 'rgba(26, 59, 107, 0.6)',
+    gap: space.sm,
+  },
+  cardFooterHint: {
+    fontSize: 11,
+    color: color.muted,
+    fontWeight: '600',
+    flex: 1,
+    minWidth: 0,
+  },
   startBtnPill: {
     backgroundColor: color.yellow,
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 7,
     borderRadius: radius.md,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
+    flexShrink: 0,
   },
-  startBtnText: { color: color.navy, fontWeight: '800', fontSize: 13 },
+  startBtnText: {
+    color: color.navy,
+    fontWeight: '800',
+    fontSize: 12,
+  },
 
   emptyJobsCard: {
     backgroundColor: color.surface,
@@ -1306,9 +1680,9 @@ const styles = StyleSheet.create({
     padding: space.lg,
     gap: space.md,
   },
-  summaryRow: { flexDirection: 'row', justifyContent: 'space-between' },
-  summaryKey: { fontSize: 13, color: color.muted },
-  summaryVal: { fontSize: 13, fontWeight: '700', color: color.yellow },
+  summaryRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: space.sm },
+  summaryKey: { fontSize: 13, color: color.muted, flex: 1 },
+  summaryVal: { fontSize: 13, fontWeight: '700', color: color.yellow, flexShrink: 1, textAlign: 'right' },
   declarationCard: {
     flexDirection: 'row',
     gap: space.md,
