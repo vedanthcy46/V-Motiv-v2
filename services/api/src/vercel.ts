@@ -39,6 +39,7 @@ function getFirebase() {
 
 const db = new PrismaClient({
   datasourceUrl: config.DATABASE_URL,
+  datasources: { db: { url: config.DATABASE_URL } },
   transactionOptions: { timeout: 15000, maxWait: 5000 },
 });
 

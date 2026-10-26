@@ -7,7 +7,15 @@
   "functions": {
     "api/index.ts": {
       "maxDuration": 60,
-      "includeFiles": "node_modules/.prisma/client/**"
+      "includeFiles": [
+        "node_modules/.prisma/client/**",
+        "node_modules/@prisma/client/**",
+        "node_modules/prisma/**",
+        "services/api/prisma/**",
+        "services/api/dist/**",
+        "services/api/node_modules/.prisma/client/**",
+        "services/api/node_modules/@prisma/client/**"
+      ]
     }
   },
   "rewrites": [

@@ -1,3 +1,70 @@
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+function preparePrismaEnvironment() {
+  const cwd = process.cwd();
+
+  // 1. Locate and set PRISMA_QUERY_ENGINE_LIBRARY if not already valid
+  if (!process.env.PRISMA_QUERY_ENGINE_LIBRARY || !existsSync(process.env.PRISMA_QUERY_ENGINE_LIBRARY)) {
+    const candidateEngineNames = [
+      'libquery_engine-rhel-openssl-3.0.x.so.node',
+      'libquery_engine-rhel-openssl-1.0.x.so.node',
+      'libquery_engine-debian-openssl-3.0.x.so.node',
+      'libquery_engine-debian-openssl-1.1.x.so.node',
+      'query_engine-windows.dll.node',
+    ];
+
+    const candidateSearchDirs = [
+      join(cwd, 'node_modules/.prisma/client'),
+      join(cwd, 'node_modules/@prisma/client'),
+      join(cwd, 'node_modules/prisma'),
+      join(cwd, 'services/api/node_modules/.prisma/client'),
+      join(cwd, 'services/api/node_modules/@prisma/client'),
+      join(cwd, 'services/api/node_modules/prisma'),
+      '/var/task/node_modules/.prisma/client',
+      '/var/task/node_modules/@prisma/client',
+      '/var/task/node_modules/prisma',
+      '/var/task/services/api/node_modules/.prisma/client',
+      '/var/task/services/api/node_modules/@prisma/client',
+    ];
+
+    for (const dir of candidateSearchDirs) {
+      for (const name of candidateEngineNames) {
+        const candidate = join(dir, name);
+        try {
+          if (existsSync(candidate)) {
+            process.env.PRISMA_QUERY_ENGINE_LIBRARY = candidate;
+            break;
+          }
+        } catch {}
+      }
+      if (process.env.PRISMA_QUERY_ENGINE_LIBRARY) break;
+    }
+  }
+
+  // 2. Locate and set PRISMA_SCHEMA_PATH if not already valid
+  if (!process.env.PRISMA_SCHEMA_PATH || !existsSync(process.env.PRISMA_SCHEMA_PATH)) {
+    const candidateSchemas = [
+      join(cwd, 'services/api/prisma/schema.prisma'),
+      join(cwd, 'node_modules/.prisma/client/schema.prisma'),
+      '/var/task/services/api/prisma/schema.prisma',
+      '/var/task/node_modules/.prisma/client/schema.prisma',
+      join(cwd, 'prisma/schema.prisma'),
+    ];
+
+    for (const schemaPath of candidateSchemas) {
+      try {
+        if (existsSync(schemaPath)) {
+          process.env.PRISMA_SCHEMA_PATH = schemaPath;
+          break;
+        }
+      } catch {}
+    }
+  }
+}
+
+preparePrismaEnvironment();
+
 let appPromise: Promise<any> | null = null;
 
 export default async function handler(req: any, res: any) {
@@ -33,6 +100,10 @@ export default async function handler(req: any, res: any) {
                 : diagnostic.includes('firebase-admin') || diagnostic.includes('Firebase') ? 'FIREBASE_RUNTIME_STARTUP_FAILED'
                   : diagnostic.includes('Cannot find module') || diagnostic.includes('ERR_MODULE_NOT_FOUND') ? 'API_RUNTIME_DEPENDENCY_MISSING'
                     : 'API_STARTUP_FAILED';
-    return res.status(503).json({ code });
+    return res.status(503).json({
+      code,
+      message,
+      detail: diagnostic.split('\n').slice(0, 5).join('\n'),
+    });
   }
 }

@@ -16,6 +16,7 @@
     "node": "^22.13.0 || ^24.3.0 || >=26.0.0"
   },
   "scripts": {
+    "postinstall": "npm run db:generate -w @vmotiv/api",
     "dev:api": "npm run dev -w @vmotiv/api",
     "dev:web": "npm run dev -w @vmotiv/customer-web",
     "dev:admin": "npm run dev -w @vmotiv/admin-portal",
