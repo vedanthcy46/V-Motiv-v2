@@ -110,6 +110,68 @@ enum AcquisitionValuationStatus {
   REJECTED
   SUPERSEDED
 }
+enum AcquisitionCaseStatus {
+  DOCUMENTATION_REQUIRED
+  SETTLEMENT_READY
+  HANDOVER_READY
+  COMPLETED
+  ON_HOLD
+  CANCELLED
+}
+enum AcquisitionDocumentStatus {
+  NOT_REQUESTED
+  REQUESTED
+  RECEIVED
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  EXPIRED
+  MISMATCH
+  WAIVED_BY_AUTHORIZED_POLICY
+}
+enum AcquisitionSettlementStatus {
+  NOT_READY
+  READY_FOR_PAYMENT
+  PAYMENT_PENDING
+  PAYMENT_VERIFIED
+  PAYMENT_FAILED
+  CANCELLED
+}
+enum VehicleCustodyStatus {
+  PENDING
+  SCHEDULED
+  RECEIVED
+  DISPUTED
+  REJECTED
+}
+enum VehicleStockStatus {
+  RECEIVED
+  REFURBISHMENT_PENDING
+  IN_REFURBISHMENT
+  QC_PENDING
+  LISTING_PREPARATION
+  LISTING_READY
+  LISTED
+  RESERVED
+  SOLD
+  ON_HOLD
+  RETIRED
+}
+enum RefurbishmentWorkOrderStatus {
+  DRAFT
+  PENDING_COST_APPROVAL
+  APPROVED
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+enum QualityControlStatus {
+  PENDING
+  IN_PROGRESS
+  PASSED
+  REWORK_REQUIRED
+  FAILED
+}
 enum SupportCaseStatus {
   OPEN
   IN_PROGRESS
@@ -299,6 +361,7 @@ model Vehicle {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   listing VehicleListing?
+  stockUnit VehicleStockUnit?
 }
 model VehicleListing {
   id String @id @default(uuid()) @db.Uuid
@@ -394,6 +457,7 @@ model AcquisitionLead {
   updatedAt DateTime @updatedAt
   offers AcquisitionOffer[]
   valuations AcquisitionValuation[]
+  acquisitionCases AcquisitionCase[]
   assignments SellerLeadAssignment[]
   interactions LeadInteraction[]
   tasks SalesTask[]
@@ -591,6 +655,7 @@ model AcquisitionOffer {
   declinedAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  acquisitionCase AcquisitionCase?
   @@index([leadId, createdAt])
   @@index([valuationId])
 }
@@ -618,6 +683,164 @@ model AcquisitionValuation {
   offers AcquisitionOffer[]
   @@index([leadId, status, createdAt])
   @@index([inspectionReportId])
+}
+model AcquisitionCase {
+  id String @id @default(uuid()) @db.Uuid
+  caseReference String @unique @default(uuid())
+  leadId String @db.Uuid
+  offerId String @unique @db.Uuid
+  sellerAcceptedByUserId String @db.Uuid
+  acceptedAt DateTime
+  status AcquisitionCaseStatus @default(DOCUMENTATION_REQUIRED)
+  settlementStatus AcquisitionSettlementStatus @default(NOT_READY)
+  custodyStatus VehicleCustodyStatus @default(PENDING)
+  completedAt DateTime?
+  completionNotes String?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  lead AcquisitionLead @relation(fields: [leadId], references: [id], onDelete: Restrict)
+  offer AcquisitionOffer @relation(fields: [offerId], references: [id], onDelete: Restrict)
+  documents AcquisitionDocumentReview[]
+  settlement AcquisitionSettlement?
+  handover VehicleHandover?
+  stockUnit VehicleStockUnit?
+  @@index([leadId, status, createdAt])
+  @@index([settlementStatus, custodyStatus])
+}
+model AcquisitionDocumentReview {
+  id String @id @default(uuid()) @db.Uuid
+  acquisitionCaseId String @db.Uuid
+  documentType String
+  status AcquisitionDocumentStatus @default(NOT_REQUESTED)
+  notes String?
+  reviewedByEmployeeId String? @db.Uuid
+  reviewedAt DateTime?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  acquisitionCase AcquisitionCase @relation(fields: [acquisitionCaseId], references: [id], onDelete: Restrict)
+  @@unique([acquisitionCaseId, documentType])
+  @@index([acquisitionCaseId, status])
+}
+model AcquisitionSettlement {
+  id String @id @default(uuid()) @db.Uuid
+  acquisitionCaseId String @unique @db.Uuid
+  status AcquisitionSettlementStatus @default(NOT_READY)
+  approvedConsiderationPaise BigInt
+  transactionReference String?
+  notes String?
+  verifiedByEmployeeId String? @db.Uuid
+  verifiedAt DateTime?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  acquisitionCase AcquisitionCase @relation(fields: [acquisitionCaseId], references: [id], onDelete: Restrict)
+  @@index([status, verifiedAt])
+}
+model VehicleHandover {
+  id String @id @default(uuid()) @db.Uuid
+  acquisitionCaseId String @unique @db.Uuid
+  branchId String? @db.Uuid
+  custodianEmployeeId String @db.Uuid
+  status VehicleCustodyStatus @default(PENDING)
+  location String
+  observedAt DateTime
+  registrationNumber String?
+  odometerKm Int?
+  mainKeysReceived Int @default(0)
+  spareKeysReceived Int @default(0)
+  documentsReceived Boolean @default(false)
+  accessoriesNotes String?
+  conditionNotes String?
+  exceptionNotes String?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  acquisitionCase AcquisitionCase @relation(fields: [acquisitionCaseId], references: [id], onDelete: Restrict)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  @@index([branchId, status, observedAt])
+}
+model VehicleStockUnit {
+  id String @id @default(uuid()) @db.Uuid
+  stockCode String @unique
+  acquisitionCaseId String @unique @db.Uuid
+  vehicleId String? @unique @db.Uuid
+  branchId String? @db.Uuid
+  receivedByEmployeeId String @db.Uuid
+  status VehicleStockStatus @default(RECEIVED)
+  physicalLocation String
+  registrationNumber String?
+  make String
+  model String
+  variant String?
+  manufacturingYear Int
+  fuelType String
+  transmission String
+  odometerKm Int
+  acquisitionCostPaise BigInt
+  notes String?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  acquisitionCase AcquisitionCase @relation(fields: [acquisitionCaseId], references: [id], onDelete: Restrict)
+  vehicle Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
+  workOrders RefurbishmentWorkOrder[]
+  qualityControlReports QualityControlReport[]
+  @@index([branchId, status, createdAt])
+  @@index([status, createdAt])
+}
+model RefurbishmentWorkOrder {
+  id String @id @default(uuid()) @db.Uuid
+  stockUnitId String @db.Uuid
+  createdByEmployeeId String @db.Uuid
+  category String
+  requiredAction String
+  assignedProvider String?
+  estimatedCostPaise BigInt?
+  actualCostPaise BigInt?
+  status RefurbishmentWorkOrderStatus @default(DRAFT)
+  notes String?
+  startedAt DateTime?
+  completedAt DateTime?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  stockUnit VehicleStockUnit @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  costApproval RefurbishmentCostApproval?
+  qualityControlReports QualityControlReport[]
+  @@index([stockUnitId, status, createdAt])
+}
+model RefurbishmentCostApproval {
+  id String @id @default(uuid()) @db.Uuid
+  workOrderId String @unique @db.Uuid
+  requestedByEmployeeId String @db.Uuid
+  decidedByEmployeeId String? @db.Uuid
+  status ApprovalStatus @default(PENDING)
+  reason String?
+  decidedAt DateTime?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  workOrder RefurbishmentWorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Restrict)
+  @@index([status, createdAt])
+}
+model QualityControlReport {
+  id String @id @default(uuid()) @db.Uuid
+  stockUnitId String @db.Uuid
+  workOrderId String? @db.Uuid
+  reviewerEmployeeId String @db.Uuid
+  status QualityControlStatus @default(PENDING)
+  findings String?
+  evidenceNotes String?
+  reviewedAt DateTime?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  stockUnit VehicleStockUnit @relation(fields: [stockUnitId], references: [id], onDelete: Restrict)
+  workOrder RefurbishmentWorkOrder? @relation(fields: [workOrderId], references: [id], onDelete: SetNull)
+  @@index([stockUnitId, status, createdAt])
 }
 model SupportedCity {
   id String @id @default(uuid()) @db.Uuid
@@ -833,6 +1056,8 @@ model Branch {
   invitations EmployeeInvitationBranch[]
   sellerLeadAssignments SellerLeadAssignment[]
   inspectionRequests InspectionRequest[]
+  vehicleHandovers VehicleHandover[]
+  stockUnits VehicleStockUnit[]
 }
 model EmployeeBranchAssignment {
   employeeId String @db.Uuid

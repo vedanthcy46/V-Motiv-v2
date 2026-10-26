@@ -79,9 +79,9 @@ const statusBadgeClass = (status: string): string => {
   const s = status.toUpperCase();
   if (['SUBMITTED', 'RECEIVED', 'DRAFT', 'OPEN'].includes(s)) return 'badge-blue';
   if (['QUALIFYING', 'IN_REVIEW', 'IN_PROGRESS', 'REQUESTED'].includes(s)) return 'badge-amber';
-  if (['INSPECTION_SCHEDULED', 'CONFIRMED'].includes(s)) return 'badge-purple';
+  if (['INSPECTION_SCHEDULED', 'CONFIRMED', 'RESERVED'].includes(s)) return 'badge-purple';
   if (['ACCEPTED', 'COMPLETED', 'PUBLISHED', 'APPROVED', 'CONVERTED_TO_SALE'].includes(s)) return 'badge-green';
-  if (['REJECTED', 'DECLINED', 'CANCELLED', 'EXPIRED', 'NO_SHOW'].includes(s)) return 'badge-red';
+  if (['REJECTED', 'DECLINED', 'CANCELLED', 'EXPIRED', 'NO_SHOW', 'RELEASED'].includes(s)) return 'badge-red';
   return 'badge-gray';
 };
 
@@ -383,6 +383,9 @@ function App() {
   const [showManualLeadModal, setShowManualLeadModal] = useState(false);
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [showReservationModal, setShowReservationModal] = useState(false);
+  const [showReleaseModal, setShowReleaseModal] = useState(false);
+  const [targetReleaseListing, setTargetReleaseListing] = useState<InventoryItem | null>(null);
+  const [targetReleaseReservation, setTargetReleaseReservation] = useState<Reservation | { id: string; reservationNumber?: string; status: string; expiresAt: string; notes?: string | null; customer?: { id?: string; displayName?: string | null; email?: string } } | null>(null);
   const [showTestDriveModal, setShowTestDriveModal] = useState(false);
   const [showCompleteTaskModal, setShowCompleteTaskModal] = useState<string | null>(null);
   const [showDiscountModal, setShowDiscountModal] = useState<string | null>(null); // quotationId
@@ -1143,16 +1146,31 @@ function App() {
                               >
                                 Test Drive
                               </button>
-                              <button
-                                className="btn-outline btn-sm"
-                                onClick={() => {
-                                  setTargetListingId(item.id);
-                                  setShowReservationModal(true);
-                                }}
-                                title="Reserve Stock"
-                              >
-                                Reserve
-                              </button>
+                              {item.status === 'RESERVED' ? (
+                                <button
+                                  className="btn-danger btn-sm"
+                                  style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                  onClick={() => {
+                                    setTargetReleaseListing(item);
+                                    setTargetReleaseReservation(item.reservations?.[0] || null);
+                                    setShowReleaseModal(true);
+                                  }}
+                                  title="Unreserve / Release Stock"
+                                >
+                                  <Icons.Close size={13} /> Unreserve
+                                </button>
+                              ) : (
+                                <button
+                                  className="btn-outline btn-sm"
+                                  onClick={() => {
+                                    setTargetListingId(item.id);
+                                    setShowReservationModal(true);
+                                  }}
+                                  title="Reserve Stock"
+                                >
+                                  Reserve
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -1368,16 +1386,18 @@ function App() {
                           <td>{formatDate(r.expiresAt)}</td>
                           <td><span className={`badge ${statusBadgeClass(r.status)}`}>{r.status}</span></td>
                           <td>
-                            {r.status === 'REQUESTED' && (
+                            {['CONFIRMED', 'REQUESTED'].includes(r.status) && (
                               <button
                                 className="btn-danger btn-sm"
-                                onClick={async () => {
-                                  if (!user) return;
-                                  await salesApi.releaseReservation(user, r.id, 'Released by sales executive');
-                                  void loadData();
+                                style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                onClick={() => {
+                                  setTargetReleaseListing(null);
+                                  setTargetReleaseReservation(r);
+                                  setShowReleaseModal(true);
                                 }}
+                                title="Release reservation and return stock to inventory"
                               >
-                                Release
+                                <Icons.Close size={13} /> Release
                               </button>
                             )}
                           </td>
@@ -1783,6 +1803,28 @@ function App() {
             setShowReservationModal(false);
             setTargetListingId('');
             setPrefilledCustomerId('');
+            void loadData();
+          }}
+        />
+      )}
+
+      {/* ========================================== */}
+      {/* MODAL: RELEASE / UNRESERVE STOCK */}
+      {/* ========================================== */}
+      {showReleaseModal && (
+        <ReleaseReservationModal
+          user={user}
+          listing={targetReleaseListing}
+          reservation={targetReleaseReservation}
+          onClose={() => {
+            setShowReleaseModal(false);
+            setTargetReleaseListing(null);
+            setTargetReleaseReservation(null);
+          }}
+          onSuccess={() => {
+            setShowReleaseModal(false);
+            setTargetReleaseListing(null);
+            setTargetReleaseReservation(null);
             void loadData();
           }}
         />
@@ -3334,6 +3376,153 @@ function RequestReservationModal({
           <div className="modal-footer">
             <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn-primary" disabled={busy}>Confirm Reservation</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: RELEASE RESERVATION MODAL
+// ==========================================
+function ReleaseReservationModal({
+  user,
+  listing,
+  reservation,
+  onClose,
+  onSuccess,
+}: {
+  user: User | null;
+  listing?: InventoryItem | null;
+  reservation?: Reservation | { id: string; reservationNumber?: string; status: string; expiresAt: string; notes?: string | null; customer?: { id?: string; displayName?: string | null; email?: string } } | null;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [reason, setReason] = useState('Released by sales executive');
+
+  const vehicleTitle = listing?.title || (reservation as Reservation | undefined)?.listing?.title || 'Selected Vehicle';
+  const customerName = reservation?.customer?.displayName || reservation?.customer?.email || (listing?.reservations?.[0]?.customer?.displayName || listing?.reservations?.[0]?.customer?.email);
+  const expiresAt = reservation?.expiresAt || listing?.reservations?.[0]?.expiresAt;
+  const targetReservationId = reservation?.id || listing?.reservations?.[0]?.id;
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      if (targetReservationId) {
+        await salesApi.releaseReservation(user, targetReservationId, reason.trim() || undefined);
+      } else if (listing?.id) {
+        await salesApi.releaseListingReservation(user, listing.id, reason.trim() || undefined);
+      } else {
+        throw new Error('No target listing or reservation found to release.');
+      }
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to release reservation.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog">
+        <div className="modal-header">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ color: 'var(--color-danger, #ef4444)' }}>
+              <Icons.Tag size={20} />
+            </span>
+            <h3>Release Vehicle Reservation</h3>
+          </div>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body">
+            {error && <div className="error-banner">{error}</div>}
+
+            <div style={{
+              background: 'rgba(239, 68, 68, 0.08)',
+              border: '1px solid rgba(239, 68, 68, 0.25)',
+              borderRadius: '8px',
+              padding: '14px',
+              marginBottom: '16px'
+            }}>
+              <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#b91c1c', marginBottom: '4px' }}>
+                Unreserve & Return to Available Stock
+              </div>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: '#4b5563' }}>
+                Releasing this reservation will mark it as <strong>RELEASED</strong> and restore the vehicle's status to <strong>PUBLISHED</strong>. It will be immediately available for new quotes, test drives, and bookings.
+              </p>
+            </div>
+
+            <div className="form-grid">
+              <div className="form-group full">
+                <label className="form-label">Vehicle</label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={vehicleTitle}
+                  disabled
+                  style={{ background: '#f3f4f6', fontWeight: 600 }}
+                />
+              </div>
+
+              {customerName && (
+                <div className="form-group">
+                  <label className="form-label">Reserved By Customer</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={customerName}
+                    disabled
+                    style={{ background: '#f3f4f6' }}
+                  />
+                </div>
+              )}
+
+              {expiresAt && (
+                <div className="form-group">
+                  <label className="form-label">Expires At</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    value={formatDate(expiresAt)}
+                    disabled
+                    style={{ background: '#f3f4f6' }}
+                  />
+                </div>
+              )}
+
+              <div className="form-group full">
+                <label className="form-label">Reason for Release / Unreserve</label>
+                <textarea
+                  className="form-textarea"
+                  value={reason}
+                  onChange={e => setReason(e.target.value)}
+                  placeholder="e.g. Customer changed mind, deposit refunded, loan rejected, token expired..."
+                  required
+                />
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-outline" onClick={onClose} disabled={busy}>
+              Keep Reservation
+            </button>
+            <button
+              type="submit"
+              className="btn-danger"
+              disabled={busy}
+              style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+            >
+              <Icons.Close size={15} />
+              {busy ? 'Releasing...' : 'Confirm Release & Make Available'}
+            </button>
           </div>
         </form>
       </div>

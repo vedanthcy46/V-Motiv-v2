@@ -171,6 +171,7 @@ export interface SalesStore {
     notes?: string;
   }): Promise<unknown>;
   releaseReservation(actor: SalesActor, id: string, reason?: string): Promise<unknown>;
+  releaseListingReservation(actor: SalesActor, listingId: string, reason?: string): Promise<unknown>;
 
   // Customers CRM
   customers(actor: SalesActor, query: { page: number; limit: number; search?: string }): Promise<unknown>;
@@ -988,6 +989,9 @@ export class PrismaSalesStore implements SalesStore {
     decision: 'ACCEPTED' | 'DECLINED';
     declineReason?: string;
   }) {
+    if (input.decision === 'ACCEPTED') {
+      throw new HttpError(403, 'SELLER_ACCEPTANCE_REQUIRES_CUSTOMER_AUTHENTICATION');
+    }
     const lead = await this.db.acquisitionLead.findFirst({
       where: { id: leadId, ...scope(actor), status: 'OFFERED' },
       select: { id: true, referenceCode: true },
@@ -1012,12 +1016,12 @@ export class PrismaSalesStore implements SalesStore {
       });
       await tx.acquisitionLead.update({
         where: { id: leadId },
-        data: { status: input.decision === 'ACCEPTED' ? 'ACCEPTED' : 'REJECTED' },
+        data: { status: 'REJECTED' },
       });
       await tx.auditEvent.create({
         data: {
           actorId: actor.userId,
-          action: input.decision === 'ACCEPTED' ? 'OFFER_ACCEPTED_BY_SELLER' : 'OFFER_DECLINED_BY_SELLER',
+          action: 'OFFER_DECLINED_BY_SELLER',
           entityType: 'AcquisitionOffer',
           entityId: offerId,
           details: { leadId, referenceCode: lead.referenceCode, decision: input.decision, reason: input.declineReason },
@@ -1166,6 +1170,20 @@ export class PrismaSalesStore implements SalesStore {
             },
           },
           media: { select: { url: true }, take: 1 },
+          reservations: {
+            where: { status: { in: ['CONFIRMED', 'REQUESTED'] } },
+            select: {
+              id: true,
+              status: true,
+              expiresAt: true,
+              notes: true,
+              customer: {
+                select: { id: true, displayName: true, email: true, phone: true },
+              },
+            },
+            take: 1,
+            orderBy: { createdAt: 'desc' },
+          },
         },
       }),
       this.db.vehicleListing.count({ where }),
@@ -1616,8 +1634,8 @@ export class PrismaSalesStore implements SalesStore {
   }
 
   async releaseReservation(actor: SalesActor, id: string, reason?: string) {
-    const res = await this.db.vehicleReservation.findUnique({
-      where: { id, status: 'CONFIRMED' },
+    const res = await this.db.vehicleReservation.findFirst({
+      where: { id, status: { in: ['CONFIRMED', 'REQUESTED'] } },
       select: { id: true, listingId: true },
     });
     if (!res) throw new HttpError(404, 'RESERVATION_NOT_FOUND');
@@ -1643,6 +1661,48 @@ export class PrismaSalesStore implements SalesStore {
         },
       });
       return updated;
+    });
+  }
+
+  async releaseListingReservation(actor: SalesActor, listingId: string, reason?: string) {
+    const listing = await this.db.vehicleListing.findFirst({
+      where: { id: listingId, ...listingScope(actor) },
+      select: { id: true, status: true, title: true },
+    });
+    if (!listing) throw new HttpError(404, 'LISTING_NOT_FOUND');
+    if (listing.status !== 'RESERVED') throw new HttpError(400, 'LISTING_NOT_RESERVED');
+
+    const activeRes = await this.db.vehicleReservation.findFirst({
+      where: { listingId, status: { in: ['CONFIRMED', 'REQUESTED'] } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true },
+    });
+
+    return this.db.$transaction(async tx => {
+      let releasedReservation = null;
+      if (activeRes) {
+        releasedReservation = await tx.vehicleReservation.update({
+          where: { id: activeRes.id },
+          data: { status: 'RELEASED', releasedAt: new Date(), notes: reason },
+        });
+      }
+
+      const updatedListing = await tx.vehicleListing.update({
+        where: { id: listingId },
+        data: { status: 'PUBLISHED' },
+      });
+
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'VEHICLE_RESERVATION_RELEASED',
+          entityType: 'VehicleListing',
+          entityId: listingId,
+          details: { listingId, reservationId: activeRes?.id, reason },
+        },
+      });
+
+      return { listing: updatedListing, reservation: releasedReservation };
     });
   }
 

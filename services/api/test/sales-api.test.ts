@@ -282,6 +282,10 @@ function setup(options: { actorError?: Error } = {}) {
       id: '88888888-8888-4888-8888-888888888888',
       status: 'RELEASED',
     }),
+    releaseListingReservation: vi.fn().mockResolvedValue({
+      listing: { id: '55555555-5555-4555-8555-555555555555', status: 'PUBLISHED' },
+      reservation: { id: '88888888-8888-4888-8888-888888888888', status: 'RELEASED' },
+    }),
     customers: vi.fn().mockResolvedValue({
       items: [
         {
@@ -430,6 +434,7 @@ describe('Sales Executive Portal API Boundaries', () => {
       .post('/api/v2/sales/seller-leads/22222222-2222-4222-8222-222222222222/offers')
       .set('Authorization', 'Bearer valid-firebase-token')
       .send({
+        valuationId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
         offerAmountPaise: 92000000,
         validUntil: new Date(Date.now() + 7 * 86400000).toISOString(),
         terms: 'Valid for 7 days upon physical verification',
@@ -466,6 +471,18 @@ describe('Sales Executive Portal API Boundaries', () => {
         notes: 'Deposit paid at hub',
       });
     expect(reserveRes.status).toBe(201);
+
+    const releaseRes = await request(app)
+      .post('/api/v2/sales/reservations/88888888-8888-4888-8888-888888888888/release')
+      .set('Authorization', 'Bearer valid-firebase-token')
+      .send({ reason: 'Customer changed mind' });
+    expect(releaseRes.status).toBe(200);
+
+    const releaseListingRes = await request(app)
+      .post('/api/v2/sales/listings/55555555-5555-4555-8555-555555555555/release-reservation')
+      .set('Authorization', 'Bearer valid-firebase-token')
+      .send({ reason: 'Customer cancelled' });
+    expect(releaseListingRes.status).toBe(200);
   });
 
   it('queries all branch inspection requests and acquisition offers', async () => {

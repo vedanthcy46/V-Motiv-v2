@@ -212,6 +212,19 @@ export type InventoryItem = {
     registrationNumber: string | null;
     exteriorColor: string | null;
   };
+  reservations?: Array<{
+    id: string;
+    reservationNumber?: string;
+    status: string;
+    expiresAt: string;
+    notes?: string | null;
+    customer?: {
+      id: string;
+      displayName: string | null;
+      email: string;
+      phone?: string | null;
+    };
+  }>;
 };
 
 export type InventoryPage = {
@@ -531,6 +544,8 @@ export const salesApi = {
     call<Reservation>(user, '/reservations', { method: 'POST', body: JSON.stringify(input) }),
   releaseReservation: (user: User, id: string, reason?: string) =>
     call<Reservation>(user, `/reservations/${id}/release`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  releaseListingReservation: (user: User, listingId: string, reason?: string) =>
+    call<{ listing: unknown; reservation: unknown }>(user, `/listings/${listingId}/release-reservation`, { method: 'POST', body: JSON.stringify({ reason }) }),
 
   // Customers CRM
   customers: (user: User, params: { page?: number; limit?: number; search?: string } = {}) =>

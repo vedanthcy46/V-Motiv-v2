@@ -39,7 +39,10 @@ const firebase = initializeApp({
   credential: firebaseCredential,
   projectId: config.FIREBASE_PROJECT_ID,
 });
-const db = new PrismaClient({ datasourceUrl: config.DATABASE_URL, transactionOptions: { timeout: 15000, maxWait: 5000 } });
+const db = new PrismaClient({
+  datasources: config.DATABASE_URL ? { db: { url: config.DATABASE_URL } } : undefined,
+  transactionOptions: { timeout: 15000, maxWait: 5000 },
+});
 
 let drainOutbox: (() => Promise<number>) | undefined;
 let emailInterval: NodeJS.Timeout | null = null;

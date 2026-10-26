@@ -90,10 +90,13 @@ const acquisitionOfferQuery = pagination.extend({
 }).strip();
 
 const offerInput = z.object({
+  valuationId: uuid,
   offerAmountPaise: z.coerce.bigint().positive(),
   validUntil: z.string().datetime().transform(value => new Date(value)),
   terms: z.string().trim().max(1000).optional(),
 }).strict();
+const valuationInput = z.object({ inspectionReportId: uuid, expectedResalePaise: z.coerce.bigint().positive(), refurbishmentPaise: z.coerce.bigint().min(0n).optional(), otherCostsPaise: z.coerce.bigint().min(0n).optional(), requiredMarginPaise: z.coerce.bigint().min(0n).optional(), recommendedPurchasePaise: z.coerce.bigint().positive(), notes: z.string().trim().max(2_000).optional() }).strict();
+const valuationDecisionInput = z.object({ version: z.number().int().positive(), decision: z.enum(['APPROVE', 'REJECT']), reason: z.string().trim().max(1_000).optional() }).strict();
 
 const offerResponseInput = z.object({
   decision: z.enum(['ACCEPTED', 'DECLINED']),
@@ -221,6 +224,10 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   router.post('/seller-leads/:id/inspection-requests', async (req, res) => res.status(201).json(await deps.store.requestInspection(res.locals.salesActor, uuid.parse(req.params.id), inspectionInput.parse(req.body))));
   router.get('/seller-leads/:id/inspection-summary', async (req, res) => res.json(await deps.store.inspectionSummary(res.locals.salesActor, uuid.parse(req.params.id))));
 
+  router.get('/seller-leads/:id/valuations', async (req, res) => res.json(await deps.store.valuations(res.locals.salesActor, uuid.parse(req.params.id))));
+  router.post('/seller-leads/:id/valuations', async (req, res) => res.status(201).json(await deps.store.createValuation(res.locals.salesActor, uuid.parse(req.params.id), valuationInput.parse(req.body))));
+  router.post('/seller-leads/:id/valuations/:valuationId/decision', async (req, res) => res.json(await deps.store.decideValuation(res.locals.salesActor, uuid.parse(req.params.id), uuid.parse(req.params.valuationId), valuationDecisionInput.parse(req.body))));
+
   // Acquisition offers
   router.get('/acquisition-offers', async (req, res) => res.json(await deps.store.acquisitionOffers(res.locals.salesActor, acquisitionOfferQuery.parse(req.query))));
   router.get('/seller-leads/:id/offers', async (req, res) => res.json(await deps.store.getAcquisitionOffers(res.locals.salesActor, uuid.parse(req.params.id))));
@@ -253,6 +260,8 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   router.get('/reservations', async (req, res) => res.json(await deps.store.reservations(res.locals.salesActor, reservationQuery.parse(req.query))));
   router.post('/reservations', async (req, res) => res.status(201).json(await deps.store.requestReservation(res.locals.salesActor, requestReservationInput.parse(req.body))));
   router.post('/reservations/:id/release', async (req, res) => res.json(await deps.store.releaseReservation(res.locals.salesActor, uuid.parse(req.params.id), releaseReservationInput.parse(req.body).reason)));
+  router.post('/listings/:id/release-reservation', async (req, res) => res.json(await deps.store.releaseListingReservation(res.locals.salesActor, uuid.parse(req.params.id), releaseReservationInput.parse(req.body).reason)));
+  router.post('/inventory/:id/release-reservation', async (req, res) => res.json(await deps.store.releaseListingReservation(res.locals.salesActor, uuid.parse(req.params.id), releaseReservationInput.parse(req.body).reason)));
 
   // Customers CRM
   router.get('/customers', async (req, res) => res.json(await deps.store.customers(res.locals.salesActor, pagination.parse(req.query))));
