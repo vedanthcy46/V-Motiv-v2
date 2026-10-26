@@ -147,14 +147,14 @@ export function createAdminRouter(deps: {
   router.post('/admin/policies/proposals', async (req, res) => res.status(202).json(await deps.store.proposePolicy(res.locals.adminActor as AdminActor, parse(policyProposalInput, req.body))));
   router.get('/admin/employees', async (req, res) => res.json(await deps.store.employees(res.locals.adminActor as AdminActor, parse(employeeQuery, req.query))));
   router.post('/admin/invitations', async (req, res) => {
-    const invitation = await deps.store.invite(res.locals.adminActor as AdminActor, { ...parse(inviteInput, req.body), adminOrigin: deps.adminWebOrigin });
+    const invitation = await deps.store.invite(res.locals.adminActor as AdminActor, { ...parse(inviteInput, req.body) as { email: string; fullName: string; designation?: string; roleId: string; branchIds: string[]; expiresInHours: number }, adminOrigin: deps.adminWebOrigin });
     if (deps.drainEmails) void deps.drainEmails().catch(() => undefined);
     res.status(201).json(invitation);
   });
   router.post('/admin/approvals/privileged-invitations', async (req, res) => {
     const body = parse(privilegedInvitationProposal, req.body);
     const { reason, ...invitation } = body;
-    const proposal = await deps.store.proposePrivilegedInvitation(res.locals.adminActor as AdminActor, { ...invitation, adminOrigin: deps.adminWebOrigin }, reason);
+    const proposal = await deps.store.proposePrivilegedInvitation(res.locals.adminActor as AdminActor, { ...invitation as { email: string; fullName: string; designation?: string; roleId: string; branchIds: string[]; expiresInHours: number }, adminOrigin: deps.adminWebOrigin }, reason);
     res.status(202).json(proposal);
   });
   router.get('/admin/approvals', async (req, res) => res.json(await deps.store.approvals(res.locals.adminActor as AdminActor, parse(approvalQuery, req.query))));
