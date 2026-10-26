@@ -23,11 +23,16 @@ export default async function handler(req: any, res: any) {
     // would disclose deployment and configuration information.
     console.error('VMOTIV_API_BOOT_FAILED', error);
     const message = error instanceof Error ? error.message : '';
+    const diagnostic = `${message}\n${error instanceof Error ? error.stack || '' : ''}`;
     const code = message.includes('DATABASE_URL') ? 'DATABASE_URL_INVALID_OR_MISSING'
       : message.includes('WEB_ORIGIN') ? 'WEB_ORIGIN_INVALID_OR_MISSING'
         : message.includes('FIREBASE_PROJECT_ID') ? 'FIREBASE_PROJECT_ID_MISSING'
           : message.includes('EMAIL_') ? 'EMAIL_CONFIGURATION_INVALID'
-            : 'API_STARTUP_FAILED';
+            : diagnostic.includes('/config.') ? 'API_CONFIGURATION_INVALID'
+              : diagnostic.includes('@prisma/client') || diagnostic.includes('Prisma') ? 'PRISMA_RUNTIME_STARTUP_FAILED'
+                : diagnostic.includes('firebase-admin') || diagnostic.includes('Firebase') ? 'FIREBASE_RUNTIME_STARTUP_FAILED'
+                  : diagnostic.includes('Cannot find module') || diagnostic.includes('ERR_MODULE_NOT_FOUND') ? 'API_RUNTIME_DEPENDENCY_MISSING'
+                    : 'API_STARTUP_FAILED';
     return res.status(503).json({ code });
   }
 }
