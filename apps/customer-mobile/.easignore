@@ -1,0 +1,29 @@
+# Dependencies are installed by EAS from package.json and the workspace lockfile.
+node_modules/
+
+# Expo, IDE and local development state.
+.expo/
+.idea/
+dist/
+coverage/
+*.log
+.env
+.env.*
+!.env.example
+
+# Android generated build products and machine-specific state. EAS recreates them.
+android/.gradle/
+android/.kotlin/
+android/.idea/
+android/build/
+android/app/build/
+android/**/.cxx/
+android/**/build/
+android/local.properties
+android/**/*.iml
+android/**/*.hprof
+android/app/src/main/java/inline/
+android/**/*.jsbundle
+
+# Keep these tracked build inputs: android/app/src/, assets/, app.json,
+# eas.json, google-services.json, package.json and the workspace lockfile.
