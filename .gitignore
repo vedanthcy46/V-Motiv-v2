@@ -17,4 +17,6 @@ GoogleService-Info.plist
 secrets/
 playwright-report/
 .expo/
+storage/
+services/api/storage/
 

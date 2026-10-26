@@ -98,10 +98,33 @@ export class InspectionMediaService {
 
     const ext = MIME_EXTENSION_MAP[mimeType] || 'bin';
     const safeLogicalId = logicalMediaId.replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    // 1. When Cloudinary is configured, upload directly to cloud storage without storing on local disk
+    if (isCloudinaryConfigured()) {
+      try {
+        const cloudResult = await uploadToCloudinary({
+          buffer,
+          folder: `vmotiv/inspections/${reportId}`,
+          filename: `${safeLogicalId}-${Date.now()}`,
+          mimeType,
+          tags: ['inspection', `report-${reportId}`, safeLogicalId],
+        });
+
+        // Cloudinary upload successful - no local disk storage required
+        return {
+          storageKey: cloudResult.secureUrl,
+          checksumSha256: calculatedChecksum,
+          byteSize: cloudResult.byteSize,
+          mimeType,
+        };
+      } catch (cloudErr) {
+        console.error('[CLOUDINARY_UPLOAD_ERROR, FALLING_BACK_TO_LOCAL]', cloudErr);
+      }
+    }
+
+    // 2. Fallback to local storage ONLY if Cloudinary is unconfigured or failed
     const relativeKey = `${reportId}/${safeLogicalId}-${Date.now()}.${ext}`;
     const destinationPath = path.resolve(this.baseDir, relativeKey);
-
-    // Save local cache / fallback
     if (destinationPath.startsWith(this.baseDir)) {
       const parentDir = path.dirname(destinationPath);
       if (!fs.existsSync(parentDir)) {
@@ -114,34 +137,23 @@ export class InspectionMediaService {
       }
     }
 
-    // Upload to Cloudinary when configured
-    if (isCloudinaryConfigured()) {
-      try {
-        const cloudResult = await uploadToCloudinary({
-          buffer,
-          folder: `vmotiv/inspections/${reportId}`,
-          filename: `${safeLogicalId}-${Date.now()}`,
-          mimeType,
-          tags: ['inspection', `report-${reportId}`, safeLogicalId],
-        });
-
-        return {
-          storageKey: cloudResult.secureUrl,
-          checksumSha256: calculatedChecksum,
-          byteSize: cloudResult.byteSize,
-          mimeType,
-        };
-      } catch (cloudErr) {
-        console.error('[CLOUDINARY_UPLOAD_ERROR, FALLING_BACK_TO_LOCAL]', cloudErr);
-      }
-    }
-
     return {
       storageKey: relativeKey,
       checksumSha256: calculatedChecksum,
       byteSize: buffer.length,
       mimeType,
     };
+  }
+
+  async cleanupReportLocalMedia(reportId: string): Promise<void> {
+    const reportDir = path.resolve(this.baseDir, reportId);
+    if (reportDir.startsWith(this.baseDir) && fs.existsSync(reportDir)) {
+      try {
+        await fs.promises.rm(reportDir, { recursive: true, force: true });
+      } catch (err) {
+        console.warn('[LOCAL_MEDIA_CLEANUP_ERROR]', err);
+      }
+    }
   }
 
   getMediaPath(storageKey: string): string {

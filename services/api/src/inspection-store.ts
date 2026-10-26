@@ -484,6 +484,11 @@ export class PrismaInspectionStore {
         },
       });
 
+      // Once submitted, clean up any local fallback files since media is stored in Cloudinary
+      void this.mediaService.cleanupReportLocalMedia(id).catch(err => {
+        console.warn('[LOCAL_MEDIA_CLEANUP_ON_SUBMIT_WARNING]', err);
+      });
+
       return updated;
     });
   }
