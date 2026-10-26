@@ -738,7 +738,7 @@ export class PrismaAdminStore implements AdminStore {
           offers: { orderBy: { createdAt: 'desc' }, take: 1 },
         },
       }),
-      this.db.acquisitionLead.groupBy({
+      (this.db.acquisitionLead as any).groupBy({
         by: ['status'],
         where: scopeWhere,
         orderBy: { status: 'asc' },

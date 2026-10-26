@@ -29,6 +29,7 @@ function setup(options: { actorError?: Error } = {}) {
 
   const sales: SalesStore = {
     actor: options.actorError ? vi.fn().mockRejectedValue(options.actorError) : vi.fn().mockResolvedValue(actor),
+    updateQuotation: vi.fn().mockResolvedValue({ id: 'quote-1', status: 'DRAFT' }),
     dashboard: vi.fn().mockResolvedValue({
       sellerFunnel: { SUBMITTED: 5, QUALIFYING: 2 },
       buyerFunnel: { RECEIVED: 4, CONTACTED: 1 },

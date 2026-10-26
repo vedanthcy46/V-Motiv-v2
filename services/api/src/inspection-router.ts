@@ -358,7 +358,10 @@ export function createOperationsInspectionRouter(deps: { verify: VerifyToken; st
   });
 
   router.post('/acquisitions/:id/handover', async (req, res, next) => {
-    try { res.json(await deps.store.recordVehicleHandover(res.locals.inspectionActor, uuid.parse(req.params.id), handoverInput.parse(req.body))); }
+    try {
+      const input = handoverInput.parse(req.body);
+      res.json(await deps.store.recordVehicleHandover(res.locals.inspectionActor, uuid.parse(req.params.id), { ...input, observedAt: input.observedAt ?? new Date() }));
+    }
     catch (e) { next(e); }
   });
 
@@ -463,7 +466,8 @@ export function createOperationsInspectionRouter(deps: { verify: VerifyToken; st
 
   router.post('/inspection-requests/:id/reschedule', async (req, res, next) => {
     try {
-      res.json(await deps.store.reschedule(res.locals.inspectionActor, uuid.parse(req.params.id), rescheduleInput.parse(req.body)));
+      const input = rescheduleInput.parse(req.body);
+      res.json(await deps.store.reschedule(res.locals.inspectionActor, uuid.parse(req.params.id), { ...input, scheduledAt: input.scheduledAt! }));
     } catch (e) {
       next(e);
     }

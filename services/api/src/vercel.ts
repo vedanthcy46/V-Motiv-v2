@@ -42,11 +42,11 @@ const db = new PrismaClient({
   transactionOptions: { timeout: 15000, maxWait: 5000 },
 });
 
-const resendApiKey = config.RESEND_API_KEY || process.env.RESEND_API_KEY || 're_i8oE9bq9_JZd414LvUod6NhRWCCMn6xtF';
-const emailFrom = config.EMAIL_FROM || process.env.EMAIL_FROM || 'noreply@vmotiv.in';
+const resendApiKey = config.RESEND_API_KEY;
+const emailFrom = config.EMAIL_FROM;
 
 let drainEmails: (() => Promise<number>) | undefined;
-if (resendApiKey && emailFrom) {
+if (config.EMAIL_DELIVERY_ENABLED === 'true' && resendApiKey && emailFrom) {
   try {
     const send = createResendSender({
       apiKey: resendApiKey,

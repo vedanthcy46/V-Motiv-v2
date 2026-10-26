@@ -15,6 +15,13 @@ export default async function handler(req: any, res: any) {
     req.url = '/api/' + pathValue + (qsStr ? `?${qsStr}` : '');
   }
 
-  const app = await appPromise;
-  return app(req, res);
+  try {
+    const app = await appPromise;
+    return app(req, res);
+  } catch (error) {
+    // Keep details in the Vercel Function Log; returning internals to a browser
+    // would disclose deployment and configuration information.
+    console.error('VMOTIV_API_BOOT_FAILED', error);
+    return res.status(503).json({ code: 'API_STARTUP_FAILED' });
+  }
 }
