@@ -38,6 +38,8 @@ import {
   IconHandover,
   IconInventory,
   IconLock,
+  IconLogout,
+  IconMenu,
   IconPublish,
   IconQC,
   IconRefresh,
@@ -391,6 +393,7 @@ function SignIn() {
 export const App: FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -875,81 +878,194 @@ export const App: FC = () => {
     return <SignIn />;
   }
 
+  const TAB_LABELS: Record<TabKey, string> = {
+    overview: 'Executive Overview',
+    dispatch: 'Inspection Dispatch',
+    acquisitions: 'Acquisitions & Valuation',
+    documentation: 'Seller Documentation',
+    handover: 'Custody Handover',
+    inventory: 'Stock Inventory',
+    refurbishment: 'Workshop Repairs',
+    qc: 'Quality Control',
+    studio: 'Listing Studio & Photography',
+    publication: 'Retail Publication',
+    deliveries: 'Test Drives & Buyer Delivery',
+    team: 'Operations Team & Tasks',
+  };
+
   return (
-    <div className="app-container">
-      {/* Top Header */}
-      <header className="top-header">
-        <div className="brand-section">
-          <a href="#overview" className="brand-logo" onClick={() => setActiveTab('overview')}>
-            <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" style={{ height: '32px', width: 'auto' }} />
-            <div>
-              <div className="brand-title">Operations Portal</div>
-              <div className="brand-subtitle">ops.vmotiv.in</div>
-            </div>
-          </a>
+    <div className="app-shell">
+      {/* Left Sidebar Navigation (Matching Admin Panel) */}
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
+        <div className="brand">
+          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
+          <span>Operations</span>
         </div>
-        <div className="user-section">
-          <div className="user-badge">
-            <span className="user-name">{user.displayName || user.email}</span>
-            <span className="user-role">Operations & Fleet Manager</span>
-          </div>
-          <button className="btn-signout" onClick={() => void signOut(auth!)}>
-            Sign out
+
+        <nav aria-label="Operations Primary Navigation">
+          <div className="sidebar-nav-section">Fleet & Dispatch</div>
+          <button
+            type="button"
+            className={activeTab === 'overview' ? 'active' : ''}
+            onClick={() => { setActiveTab('overview'); setSidebarOpen(false); }}
+          >
+            <IconDashboard />
+            <span>Overview</span>
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'dispatch' ? 'active' : ''}
+            onClick={() => { setActiveTab('dispatch'); setStatusFilter('ALL'); setSidebarOpen(false); }}
+          >
+            <IconDispatch />
+            <span>Inspection Dispatch</span>
+            {metrics?.unassigned ? <span className="tab-badge">{metrics.unassigned}</span> : null}
+          </button>
+
+          <div className="sidebar-nav-section">Post-Inspection & Custody</div>
+          <button
+            type="button"
+            className={activeTab === 'acquisitions' ? 'active' : ''}
+            onClick={() => { setActiveTab('acquisitions'); setStatusFilter('ALL'); setSidebarOpen(false); }}
+          >
+            <IconAcquisitions />
+            <span>Acquisitions & Valuation</span>
+            {metrics?.acquisitions?.documentationRequired ? (
+              <span className="tab-badge">{metrics.acquisitions.documentationRequired}</span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'documentation' ? 'active' : ''}
+            onClick={() => { setActiveTab('documentation'); setStatusFilter('ALL'); setSidebarOpen(false); }}
+          >
+            <IconDocuments />
+            <span>Seller Documentation</span>
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'handover' ? 'active' : ''}
+            onClick={() => { setActiveTab('handover'); setStatusFilter('ALL'); setSidebarOpen(false); }}
+          >
+            <IconHandover />
+            <span>Custody Handover</span>
+            {metrics?.acquisitions?.handoverReady ? (
+              <span className="tab-badge">{metrics.acquisitions.handoverReady}</span>
+            ) : metrics?.acquisitions?.settlementReady ? (
+              <span className="tab-badge">{metrics.acquisitions.settlementReady}</span>
+            ) : null}
+          </button>
+
+          <div className="sidebar-nav-section">Vehicle Preparation</div>
+          <button
+            type="button"
+            className={activeTab === 'inventory' ? 'active' : ''}
+            onClick={() => { setActiveTab('inventory'); setStatusFilter('ALL'); setSidebarOpen(false); }}
+          >
+            <IconInventory />
+            <span>Stock Inventory</span>
+            {inventory.length ? <span className="tab-badge">{inventory.length}</span> : null}
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'refurbishment' ? 'active' : ''}
+            onClick={() => { setActiveTab('refurbishment'); setSidebarOpen(false); }}
+          >
+            <IconRefurbishment />
+            <span>Workshop Repairs</span>
+            {metrics?.refurbishment?.pendingCostApprovals ? (
+              <span className="tab-badge" style={{ background: 'var(--yellow)', color: 'var(--navy)' }}>{metrics.refurbishment.pendingCostApprovals} cost</span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'qc' ? 'active' : ''}
+            onClick={() => { setActiveTab('qc'); setSidebarOpen(false); }}
+          >
+            <IconQC />
+            <span>Quality Control</span>
+            {metrics?.stock?.qcPending ? <span className="tab-badge">{metrics.stock.qcPending}</span> : null}
+          </button>
+
+          <div className="sidebar-nav-section">Marketplace & Delivery</div>
+          <button
+            type="button"
+            className={activeTab === 'studio' ? 'active' : ''}
+            onClick={() => { setActiveTab('studio'); setSidebarOpen(false); }}
+          >
+            <IconStudio />
+            <span>Listing Studio</span>
+            {metrics?.stock?.listingPreparation ? (
+              <span className="tab-badge">{metrics.stock.listingPreparation}</span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'publication' ? 'active' : ''}
+            onClick={() => { setActiveTab('publication'); setSidebarOpen(false); }}
+          >
+            <IconPublish />
+            <span>Retail Publication</span>
+            {metrics?.stock?.listingReady ? (
+              <span className="tab-badge">{metrics.stock.listingReady}</span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'deliveries' ? 'active' : ''}
+            onClick={() => { setActiveTab('deliveries'); setSidebarOpen(false); }}
+          >
+            <IconDelivery />
+            <span>Test Drives & Delivery</span>
+            {testDrives.length ? <span className="tab-badge">{testDrives.length}</span> : null}
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'team' ? 'active' : ''}
+            onClick={() => { setActiveTab('team'); setSidebarOpen(false); }}
+          >
+            <IconLock />
+            <span>Operations Team</span>
+          </button>
+        </nav>
+
+        <div className="sidebar-account">
+          <span>{user.displayName || user.email}</span>
+          <small>Operations & Fleet Manager</small>
+          <button type="button" onClick={() => void signOut(auth!)}>
+            <IconLogout /> Sign out
           </button>
         </div>
-      </header>
+      </aside>
 
-      {/* Sub Navigation Bar */}
-      <nav className="sub-nav">
-        <button className={`nav-tab ${activeTab === 'overview' ? 'active' : ''}`} onClick={() => setActiveTab('overview')}>
-          <IconDashboard /> Overview
-        </button>
-        <button className={`nav-tab ${activeTab === 'dispatch' ? 'active' : ''}`} onClick={() => { setActiveTab('dispatch'); setStatusFilter('ALL'); }}>
-          <IconDispatch /> Inspection Dispatch
-          {metrics?.unassigned ? <span className="tab-badge">{metrics.unassigned}</span> : null}
-        </button>
-        <button className={`nav-tab ${activeTab === 'acquisitions' ? 'active' : ''}`} onClick={() => { setActiveTab('acquisitions'); setStatusFilter('ALL'); }}>
-          <IconAcquisitions /> Acquisitions
-          {metrics?.acquisitions?.documentationRequired ? <span className="tab-badge">{metrics.acquisitions.documentationRequired}</span> : null}
-        </button>
-        <button className={`nav-tab ${activeTab === 'documentation' ? 'active' : ''}`} onClick={() => setActiveTab('documentation')}>
-          <IconDocuments /> Documentation
-        </button>
-        <button className={`nav-tab ${activeTab === 'handover' ? 'active' : ''}`} onClick={() => setActiveTab('handover')}>
-          <IconHandover /> Handover & Custody
-          {metrics?.acquisitions?.settlementReady ? <span className="tab-badge">{metrics.acquisitions.settlementReady}</span> : null}
-        </button>
-        <button className={`nav-tab ${activeTab === 'inventory' ? 'active' : ''}`} onClick={() => { setActiveTab('inventory'); setStatusFilter('ALL'); }}>
-          <IconInventory /> Stock Inventory
-          {inventory.length ? <span className="tab-badge">{inventory.length}</span> : null}
-        </button>
-        <button className={`nav-tab ${activeTab === 'refurbishment' ? 'active' : ''}`} onClick={() => setActiveTab('refurbishment')}>
-          <IconRefurbishment /> Refurbishment
-          {metrics?.refurbishment?.pendingCostApprovals ? <span className="tab-badge" style={{ background: '#F7B503', color: '#061A38' }}>{metrics.refurbishment.pendingCostApprovals} cost</span> : null}
-        </button>
-        <button className={`nav-tab ${activeTab === 'qc' ? 'active' : ''}`} onClick={() => setActiveTab('qc')}>
-          <IconQC /> Quality Control
-          {metrics?.stock?.qcPending ? <span className="tab-badge">{metrics.stock.qcPending}</span> : null}
-        </button>
-        <button className={`nav-tab ${activeTab === 'studio' ? 'active' : ''}`} onClick={() => setActiveTab('studio')}>
-          <IconStudio /> Listing Studio
-          {metrics?.stock?.listingPreparation ? <span className="tab-badge">{metrics.stock.listingPreparation}</span> : null}
-        </button>
-        <button className={`nav-tab ${activeTab === 'publication' ? 'active' : ''}`} onClick={() => setActiveTab('publication')}>
-          <IconPublish /> Retail Publication
-          {metrics?.stock?.listingReady ? <span className="tab-badge">{metrics.stock.listingReady}</span> : null}
-        </button>
-        <button className={`nav-tab ${activeTab === 'deliveries' ? 'active' : ''}`} onClick={() => setActiveTab('deliveries')}>
-          <IconDelivery /> Test Drives & Delivery
-          {testDrives.length ? <span className="tab-badge">{testDrives.length}</span> : null}
-        </button>
-        <button className={`nav-tab ${activeTab === 'team' ? 'active' : ''}`} onClick={() => setActiveTab('team')}>
-          Team & Tasks
-        </button>
-      </nav>
+      {sidebarOpen && <button className="scrim" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
 
-      {/* Main Container */}
-      <main className="main-content">
+      <div className="app-main">
+        {/* Topbar (Matching Admin Panel) */}
+        <header className="topbar">
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+            <button
+              type="button"
+              className="icon-button mobile-menu"
+              aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
+              aria-expanded={sidebarOpen}
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+            >
+              {sidebarOpen ? <IconCross /> : <IconMenu />}
+            </button>
+            <div>
+              <span className="breadcrumb">V MOTIV Operations /</span>
+              <strong>{TAB_LABELS[activeTab] || 'Workspace'}</strong>
+            </div>
+          </div>
+          <div className="identity">
+            <span>{user.email}</span>
+            <span className="mfa-badge">MFA verified</span>
+          </div>
+        </header>
+
+        {/* Main Content Area */}
+        <main id="main" className="main-content" tabIndex={-1}>
         {/* Alerts */}
         {error ? (
           <aside className="alert-error" role="alert">
@@ -2334,7 +2450,8 @@ export const App: FC = () => {
             </div>
           </div>
         ) : null}
-      </main>
+        </main>
+      </div>
 
       {/* ======================================================== */}
       {/* MODAL: ASSIGN INSPECTOR                                  */}
