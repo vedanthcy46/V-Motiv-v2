@@ -9,7 +9,7 @@ describe('Admin API client', () => {
   it('sends Firebase credentials and does not submit frontend authority', async () => {
     const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ userId: 'one', permissions: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     await adminApi.me(user);
-    expect(fetch).toHaveBeenCalledWith('/api/v2/admin/me', expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer verified-token' }) }));
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/v2/admin/me'), expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer verified-token' }) }));
     expect(JSON.stringify(fetch.mock.calls[0])).not.toContain('SUPER_ADMIN');
   });
 
@@ -31,14 +31,14 @@ describe('Admin API client', () => {
     const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ activeInventoryCount: 5 }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     
     await adminApi.businessFinance(user);
-    expect(fetch).toHaveBeenCalledWith('/api/v2/admin/business/finance', expect.anything());
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/v2/admin/business/finance'), expect.anything());
 
     fetch.mockResolvedValueOnce(new Response(JSON.stringify([]), { status: 200, headers: { 'Content-Type': 'application/json' } }));
     await adminApi.masterData(user, 'CAR_MAKE');
-    expect(fetch).toHaveBeenCalledWith('/api/v2/admin/master-data?category=CAR_MAKE', expect.anything());
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/v2/admin/master-data?category=CAR_MAKE'), expect.anything());
 
     fetch.mockResolvedValueOnce(new Response(JSON.stringify({ id: 'export-1', status: 'READY' }), { status: 201, headers: { 'Content-Type': 'application/json' } }));
     await adminApi.createExportJob(user, { resourceType: 'INVENTORY' });
-    expect(fetch).toHaveBeenCalledWith('/api/v2/admin/exports', expect.objectContaining({ method: 'POST' }));
+    expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/v2/admin/exports'), expect.objectContaining({ method: 'POST' }));
   });
 });

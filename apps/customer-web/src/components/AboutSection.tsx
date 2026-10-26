@@ -1,7 +1,7 @@
 import React from 'react';
 
 export const AboutSection: React.FC = () => {
-  const cities = ['Bengaluru', 'Chennai', 'Delhi NCR', 'Hyderabad', 'Mumbai', 'Pune'];
+  const cities = ['Bengaluru'];
 
   return (
     <section id="about" className="about-section">

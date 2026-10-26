@@ -22,6 +22,7 @@
     "dev:sales": "npm run dev -w @vmotiv/sales-portal",
     "dev:inspection-review": "npm run dev -w @vmotiv/inspection-review-portal",
     "dev:operations": "npm run dev -w @vmotiv/operations-portal",
+    "dev:finance": "npm run dev -w @vmotiv/finance-portal",
     "dev:mobile": "npm run start -w @vmotiv/customer-mobile --",
     "mobile:android": "npm run android -w @vmotiv/customer-mobile",
     "mobile:usb": "powershell -NoProfile -ExecutionPolicy Bypass -File tooling/connect-android-usb.ps1",

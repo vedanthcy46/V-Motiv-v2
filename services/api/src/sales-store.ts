@@ -2249,10 +2249,20 @@ export class PrismaSalesStore implements SalesStore {
         addresses: {
           select: { id: true, label: true, addressLine: true, city: true, pincode: true },
         },
+        emails: {
+          select: { id: true, subject: true, text: true, templateVersion: true, state: true, attempts: true, createdAt: true, lastErrorCode: true },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        },
+        notifications: {
+          select: { id: true, title: true, body: true, category: true, eventType: true, read: true, createdAt: true },
+          orderBy: { createdAt: 'desc' },
+          take: 20,
+        },
       },
     });
     if (!user) throw new HttpError(404, 'CUSTOMER_NOT_FOUND');
-    return user;
+    return { ...user, emailOutbox: user.emails };
   }
 
   async reports(actor: SalesActor) {

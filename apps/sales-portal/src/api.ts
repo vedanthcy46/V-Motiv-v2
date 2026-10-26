@@ -475,6 +475,8 @@ export type Customer = {
   purchaseEnquiries?: Array<{ id: string; status: string; listing: { title: string } }>;
   testDriveRequests?: Array<{ id: string; status: string; requestedDate: string; listing: { title: string } }>;
   addresses?: Array<{ id: string; label: string; line1: string; city: string; state: string; pincode: string }>;
+  emailOutbox?: Array<{ id: string; subject: string; text: string; templateVersion: string; state: string; attempts: number; createdAt: string; lastErrorCode?: string | null }>;
+  notifications?: Array<{ id: string; title: string; body: string; category: string; eventType: string; read: boolean; createdAt: string }>;
 };
 
 export type CustomerPage = {
@@ -683,7 +685,16 @@ export const salesApi = {
     call<CustomerPage>(user, `/customers?${query(params)}`),
   customer: (user: User, id: string) => call<Customer>(user, `/customers/${id}`),
 
-  // Communications
+  // Communications & Notifications
   sendEmail: (user: User, input: { customerId: string; template: string; variables?: Record<string, string> }) =>
     call<{ id: string; state: string; queuedAt: string }>(user, '/communications/email', { method: 'POST', body: JSON.stringify(input) }),
+  // In-App Inbox Notifications
+  inboxNotifications: (user: User, page = 1) =>
+    call<{ items: any[]; total: number; unreadCount: number }>(user, `/notifications?page=${page}&limit=20`),
+  unreadInboxCount: (user: User) =>
+    call<{ count: number }>(user, '/notifications/unread-count'),
+  markNotificationRead: (user: User, id: string) =>
+    call<{ success: boolean }>(user, `/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllNotificationsRead: (user: User) =>
+    call<{ success: boolean }>(user, '/notifications/read-all', { method: 'POST' }),
 };

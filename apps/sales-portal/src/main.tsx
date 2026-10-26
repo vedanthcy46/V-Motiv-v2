@@ -3546,6 +3546,52 @@ function CustomerProfileDrawer({
               </tbody>
             </table>
           </div>
+
+          <h4 style={{ margin: '14px 0 8px', fontSize: '14px' }}>Communications & Notification History</h4>
+          <div className="table-responsive">
+            <table>
+              <thead>
+                <tr><th>Channel / Type</th><th>Subject / Title</th><th>Status</th><th>Date</th></tr>
+              </thead>
+              <tbody>
+                {((customer.emailOutbox || []).map(e => ({
+                  id: e.id,
+                  channel: 'EMAIL',
+                  title: e.subject,
+                  template: e.templateVersion,
+                  status: e.state,
+                  date: e.createdAt,
+                  detail: e.text,
+                })).concat((customer.notifications || []).map(n => ({
+                  id: n.id,
+                  channel: 'IN_APP',
+                  title: n.title,
+                  template: n.category,
+                  status: n.read ? 'READ' : 'UNREAD',
+                  date: n.createdAt,
+                  detail: n.body,
+                })))).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(c => (
+                  <tr key={c.id}>
+                    <td>
+                      <span className={`badge ${c.channel === 'EMAIL' ? 'badge-blue' : 'badge-amber'}`}>
+                        {c.channel}
+                      </span>
+                      <small style={{ display: 'block', fontSize: '10px', color: 'var(--muted)' }}>{c.template}</small>
+                    </td>
+                    <td>
+                      <div style={{ fontWeight: 600 }}>{c.title}</div>
+                      {c.detail && <small style={{ color: 'var(--muted)', display: 'block', fontSize: '11px', whiteSpace: 'pre-wrap', maxHeight: '40px', overflow: 'hidden' }}>{c.detail}</small>}
+                    </td>
+                    <td><span className={`badge ${statusBadgeClass(c.status)}`}>{c.status}</span></td>
+                    <td><small>{new Date(c.date).toLocaleString()}</small></td>
+                  </tr>
+                ))}
+                {(!customer.emailOutbox || customer.emailOutbox.length === 0) && (!customer.notifications || customer.notifications.length === 0) && (
+                  <tr><td colSpan={4} className="empty-state">No communications recorded.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
         <div className="modal-footer">
           <button className="btn-outline" onClick={onClose}>Close</button>

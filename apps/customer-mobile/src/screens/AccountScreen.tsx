@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -22,6 +22,13 @@ import {
   User,
 } from 'lucide-react-native';
 import { BrandLogo } from '../components/BrandLogo';
+import { NotificationsModal } from '../components/NotificationsModal';
+import {
+  fetchUserNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  type InAppNotification,
+} from '../services/notifications';
 import { useAuth } from '../auth/AuthProvider';
 import { AuthScreen } from './AuthScreen';
 import { color, radius, space } from '../theme';
@@ -30,6 +37,110 @@ export function AccountScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { state, profile, busy: authBusy, signOut, clearSessionData, isInspector, setActiveMode } = useAuth();
+
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<InAppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      const res = await fetchUserNotifications(30);
+      setNotifications(res.items);
+      setUnreadCount(res.unreadCount);
+    } catch {
+      // Keep existing notifications
+    }
+  }, []);
+
+  useEffect(() => {
+    if (state === 'signed-in') {
+      void loadNotifications();
+    }
+  }, [loadNotifications, state]);
+
+  const handleCustomerNotificationNavigation = useCallback(
+    async (n: InAppNotification) => {
+      try {
+        if (!n.read) {
+          void markNotificationRead(n.id);
+          setNotifications((prev) =>
+            prev.map((item) => (item.id === n.id ? { ...item, read: true } : item))
+          );
+          setUnreadCount((prev) => Math.max(0, prev - 1));
+        }
+      } catch (err) {
+        console.warn('[NOTIF_MARK_READ_ERROR]', err);
+      }
+
+      setNotificationsOpen(false);
+
+      const event = (n.eventType || '').toUpperCase();
+      const cat = (n.category || '').toUpperCase();
+      const entityId = n.entityId || (n.deepLink ? n.deepLink.split('/').pop() : undefined);
+
+      if (n.deepLink) {
+        if (n.deepLink.includes('/selling/') && entityId) {
+          navigation.navigate('SellingRequestDetails', { leadId: entityId });
+          return;
+        }
+        if (n.deepLink.includes('/vehicles/') && entityId) {
+          navigation.navigate('Vehicle', { listingId: entityId });
+          return;
+        }
+        if (n.deepLink.includes('/support/') && entityId) {
+          navigation.navigate('SupportCaseDetails', { caseId: entityId });
+          return;
+        }
+      }
+
+      if (
+        cat.includes('OFFER') ||
+        event.includes('OFFER') ||
+        cat.includes('VALUATION') ||
+        cat.includes('INSPECTION') ||
+        cat.includes('SELLING') ||
+        event.includes('LEAD')
+      ) {
+        if (entityId) {
+          navigation.navigate('SellingRequestDetails', { leadId: entityId });
+        } else {
+          navigation.navigate('Tabs', { screen: 'Activity' });
+        }
+        return;
+      }
+
+      if (
+        cat.includes('PURCHASE') ||
+        cat.includes('VEHICLE') ||
+        event.includes('PRICE') ||
+        event.includes('DROP')
+      ) {
+        if (entityId) {
+          navigation.navigate('Vehicle', { listingId: entityId });
+        } else {
+          navigation.navigate('Tabs', { screen: 'Explore' });
+        }
+        return;
+      }
+
+      if (cat.includes('TEST_DRIVE') || event.includes('TEST_DRIVE')) {
+        navigation.navigate('Tabs', { screen: 'Activity' });
+        return;
+      }
+
+      if (cat.includes('SUPPORT') || event.includes('TICKET') || event.includes('CASE')) {
+        if (entityId) {
+          navigation.navigate('SupportCaseDetails', { caseId: entityId });
+        } else {
+          navigation.navigate('Support');
+        }
+        return;
+      }
+
+      navigation.navigate('Tabs', { screen: 'Activity' });
+    },
+    [navigation]
+  );
 
   if (state !== 'signed-in') {
     return <AuthScreen />;
@@ -186,6 +297,26 @@ export function AccountScreen() {
             </TouchableOpacity>
 
             <TouchableOpacity
+              style={styles.menuItem}
+              activeOpacity={0.7}
+              onPress={() => setNotificationsOpen(true)}
+            >
+              <View style={styles.menuIcon}>
+                <Bell size={19} color={color.yellow} />
+              </View>
+              <View style={styles.menuText}>
+                <Text style={styles.menuTitle}>Notification Inbox</Text>
+                <Text style={styles.menuDesc}>Offers, inspection reports & status alerts</Text>
+              </View>
+              {unreadCount > 0 && (
+                <View style={styles.unreadBadgePill}>
+                  <Text style={styles.unreadBadgePillText}>{unreadCount} new</Text>
+                </View>
+              )}
+              <ChevronRight size={16} color={color.muted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
               style={[styles.menuItem, { borderBottomWidth: 0 }]}
               activeOpacity={0.7}
               onPress={() => navigation.navigate('MarketingPreferences')}
@@ -281,6 +412,29 @@ export function AccountScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Customer In-App Notifications Modal */}
+      <NotificationsModal
+        visible={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        onMarkAsRead={async (id) => {
+          await markNotificationRead(id);
+          setNotifications((prev) =>
+            prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+          );
+          setUnreadCount((prev) => Math.max(0, prev - 1));
+        }}
+        onMarkAllAsRead={async () => {
+          await markAllNotificationsRead();
+          setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+          setUnreadCount(0);
+        }}
+        onSelectNotification={handleCustomerNotificationNavigation}
+        title="Notifications"
+        subtitle="Offers, inspection reports & status alerts"
+      />
     </View>
   );
 }
@@ -504,6 +658,20 @@ const styles = StyleSheet.create({
   inspectorSwitchButtonText: {
     color: color.navy,
     fontSize: 13.5,
+    fontWeight: '800',
+  },
+  unreadBadgePill: {
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.35)',
+    paddingHorizontal: 8,
+    paddingVertical: 2.5,
+    borderRadius: radius.pill,
+    marginRight: 6,
+  },
+  unreadBadgePillText: {
+    color: '#ef4444',
+    fontSize: 11,
     fontWeight: '800',
   },
 });

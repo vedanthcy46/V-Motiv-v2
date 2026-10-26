@@ -89,6 +89,42 @@ export function renderEmailHtml(event: EmailTemplateData): string {
     const invitationUrl = text.match(/https?:\/\/[^\s]+\/accept-invitation\?token=[A-Za-z0-9_%.-]+/)?.[0];
     ctaUrl = invitationUrl || webOrigin;
     bannerSubtitle = 'Secure Employee Onboarding';
+  } else if (templateVersion === 'inspection-assigned-v1') {
+    badgeText = 'INSPECTION ASSIGNED';
+    badgeColor = '#F7B503';
+    ctaTitle = 'Open Inspector App';
+    ctaUrl = `${webOrigin}/inspector`;
+    bannerSubtitle = 'New Vehicle Inspection Assignment';
+  } else if (templateVersion === 'inspection-rework-v1') {
+    badgeText = 'CORRECTIONS REQUIRED';
+    badgeColor = '#EF4444';
+    ctaTitle = 'Review Feedback';
+    ctaUrl = `${webOrigin}/inspector`;
+    bannerSubtitle = 'Reviewer Feedback on Inspection Report';
+  } else if (templateVersion === 'inspection-approved-v1') {
+    badgeText = 'INSPECTION APPROVED';
+    badgeColor = '#10B981';
+    ctaTitle = 'View Certification';
+    ctaUrl = `${webOrigin}/inspection-review`;
+    bannerSubtitle = 'Vehicle Certification Report Approved';
+  } else if (templateVersion === 'inspection-requested-v1') {
+    badgeText = 'INSPECTION REQUEST';
+    badgeColor = '#3B82F6';
+    ctaTitle = 'Open Operations';
+    ctaUrl = `${webOrigin}/operations`;
+    bannerSubtitle = 'New Inspection Request in Dispatch Queue';
+  } else if (templateVersion === 'offer-communicated-v1') {
+    badgeText = 'PURCHASE OFFER';
+    badgeColor = '#10B981';
+    ctaTitle = 'Review Offer';
+    ctaUrl = `${webOrigin}/account`;
+    bannerSubtitle = 'Official Acquisition Offer for Your Vehicle';
+  } else if (templateVersion === 'payment-verified-v1') {
+    badgeText = 'PAYMENT VERIFIED';
+    badgeColor = '#10B981';
+    ctaTitle = 'View Account';
+    ctaUrl = `${webOrigin}/account`;
+    bannerSubtitle = 'Direct Purchase Payment Processed';
   }
 
   // Format text paragraphs and list items

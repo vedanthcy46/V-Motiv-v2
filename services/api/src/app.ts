@@ -1,4 +1,4 @@
-import express, { type ErrorRequestHandler } from 'express';
+import express, { type ErrorRequestHandler, type Router } from 'express';
 import cors from 'cors';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -32,6 +32,9 @@ import { createSalesRouter } from './sales-router.js';
 import type { SalesStore } from './sales-store.js';
 import { createFinanceAcquisitionRouter, createInspectorRouter, createInspectionReviewRouter, createOperationsInspectionRouter } from './inspection-router.js';
 import type { PrismaInspectionStore } from './inspection-store.js';
+import { createFinanceRouter } from './finance-router.js';
+import type { PrismaFinanceStore } from './finance-store.js';
+import type { NotificationService } from './notification/index.js';
 
 const uuid = z.string().uuid();
 const profileInput = z.object({ displayName: z.string().trim().min(1).max(80).optional(), phone: z.string().regex(/^\+91[6-9]\d{9}$/).optional(), marketingConsent: z.boolean().optional(), preferredCity: z.string().trim().min(2).max(100).optional(), termsVersion: z.string().trim().min(1).max(40).optional() }).strict().refine(value => Object.keys(value).length > 0);
@@ -87,6 +90,9 @@ export function createApp(deps: {
   admin?: AdminStore;
   sales?: SalesStore;
   inspection?: PrismaInspectionStore;
+  finance?: PrismaFinanceStore;
+  notificationRouter?: Router;
+  notificationService?: NotificationService;
   revokeTokens?: (firebaseUid: string) => Promise<void>;
   onEmailQueued?: () => Promise<unknown> | unknown;
   drainEmails?: () => Promise<number>;
@@ -104,7 +110,7 @@ export function createApp(deps: {
     deps.webOrigin,
     deps.adminWebOrigin,
     ...(deps.employeePortalOrigins || []),
-    ...(localDevelopmentOrigin ? ['http://localhost:3100', 'http://127.0.0.1:3100', 'http://localhost:3200', 'http://127.0.0.1:3200', 'http://localhost:3300', 'http://127.0.0.1:3300', 'http://localhost:3400', 'http://127.0.0.1:3400', 'http://localhost:5173', 'http://127.0.0.1:5173'] : []),
+    ...(localDevelopmentOrigin ? ['http://localhost:3100', 'http://127.0.0.1:3100', 'http://localhost:3200', 'http://127.0.0.1:3200', 'http://localhost:3300', 'http://127.0.0.1:3300', 'http://localhost:3400', 'http://127.0.0.1:3400', 'http://localhost:3500', 'http://127.0.0.1:3500', 'http://localhost:3600', 'http://127.0.0.1:3600', 'http://localhost:5173', 'http://127.0.0.1:5173'] : []),
   ].filter((origin): origin is string => Boolean(origin)));
   app.use(cors({
     origin: (origin, callback) => {
@@ -122,17 +128,23 @@ export function createApp(deps: {
         normalizedOrigin === 'http://127.0.0.1:3300' ||
         normalizedOrigin === 'http://localhost:3400' ||
         normalizedOrigin === 'http://127.0.0.1:3400' ||
+        normalizedOrigin === 'http://localhost:3500' ||
+        normalizedOrigin === 'http://127.0.0.1:3500' ||
+        normalizedOrigin === 'http://localhost:3600' ||
+        normalizedOrigin === 'http://127.0.0.1:3600' ||
         normalizedOrigin === 'https://vmotiv.in' ||
         normalizedOrigin === 'https://www.vmotiv.in' ||
         normalizedOrigin === 'https://admin.vmotiv.in' ||
         normalizedOrigin === 'https://sales.vmotiv.in' ||
         normalizedOrigin === 'https://review.vmotiv.in' ||
         normalizedOrigin === 'https://ops.vmotiv.in' ||
+        normalizedOrigin === 'https://finance.vmotiv.in' ||
         normalizedOrigin === 'https://api.vmotiv.in' ||
         normalizedOrigin === 'https://vmotiv-admin.vercel.app' ||
         normalizedOrigin === 'https://vmotiv-sales.vercel.app' ||
         normalizedOrigin === 'https://vmotiv-review.vercel.app' ||
         normalizedOrigin === 'https://vmotiv-ops.vercel.app' ||
+        normalizedOrigin === 'https://vmotiv-finance.vercel.app' ||
         normalizedOrigin === 'https://vmotiv.vercel.app'
       ) {
         return callback(null, true);
@@ -191,6 +203,13 @@ export function createApp(deps: {
     app.use('/api/operations', standardLimiter, operationsRouter);
     app.use('/operations', standardLimiter, operationsRouter);
 
+    app.use('/api/v2/finance-legacy', financeLimiter, financeRouter);
+    app.use('/api/finance-legacy', financeLimiter, financeRouter);
+    app.use('/finance-legacy', financeLimiter, financeRouter);
+  }
+  if (deps.finance) {
+    const financeLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+    const financeRouter = createFinanceRouter({ verify: deps.verify, store: deps.finance });
     app.use('/api/v2/finance', financeLimiter, financeRouter);
     app.use('/api/finance', financeLimiter, financeRouter);
     app.use('/finance', financeLimiter, financeRouter);
@@ -221,6 +240,10 @@ export function createApp(deps: {
     app.use('/api/v2', adminLimiter, adminRouter);
     app.use('/admin', adminLimiter, adminRouter);
     app.use('/staff', adminLimiter, adminRouter);
+  }
+  if (deps.notificationRouter) {
+    const notifLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+    app.use('/api/v2', notifLimiter, deps.notificationRouter);
   }
   // Published inventory is deliberately public. Every account-linked mutation remains below authentication.
   if (deps.customer) {

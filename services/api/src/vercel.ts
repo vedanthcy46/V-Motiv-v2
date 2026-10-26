@@ -9,6 +9,8 @@ import { createResendSender, drainOutbox } from './email.js';
 import { PrismaAdminStore } from './admin-store.js';
 import { PrismaSalesStore } from './sales-store.js';
 import { PrismaInspectionStore } from './inspection-store.js';
+import { PrismaFinanceStore } from './finance-store.js';
+import { NotificationService, createNotificationRouter } from './notification/index.js';
 
 const config = readConfig(process.env);
 
@@ -68,12 +70,21 @@ const employeePortalOrigins = {
   inspector: config.INSPECTOR_MOBILE_DEEP_LINK || 'vmotiv://inspector',
 };
 
+const verifyToken = (token: string, revoked: boolean) => {
+  const hasServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
+  return getAuth(getFirebase()).verifyIdToken(token, hasServiceAccount ? revoked : false);
+};
+
+const notificationService = new NotificationService(db);
+const notificationRouter = createNotificationRouter({
+  verify: verifyToken,
+  db,
+  service: notificationService,
+});
+
 // Serverless entry point: transactional outbox drains inline on mutation requests
 export default createApp({
-  verify: (token, revoked) => {
-    const hasServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-    return getAuth(getFirebase()).verifyIdToken(token, hasServiceAccount ? revoked : false);
-  },
+  verify: verifyToken,
   store: new PrismaIdentityStore(db),
   customer: new PrismaCustomerStore(db),
   webOrigin: config.WEB_ORIGIN,
@@ -82,7 +93,10 @@ export default createApp({
   adminPortalDestinations: employeePortalOrigins,
   admin: new PrismaAdminStore(db),
   sales: new PrismaSalesStore(db),
-  inspection: new PrismaInspectionStore(db),
+  inspection: new PrismaInspectionStore(db, undefined, notificationService),
+  finance: new PrismaFinanceStore(db),
+  notificationRouter,
+  notificationService,
   revokeTokens: firebaseUid => {
     const hasServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
     if (!hasServiceAccount) return Promise.resolve();

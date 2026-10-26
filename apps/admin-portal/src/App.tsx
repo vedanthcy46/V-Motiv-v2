@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent, type ReactNode } from 'react';
 import {
   GoogleAuthProvider,
   getMultiFactorResolver,
@@ -28,6 +28,7 @@ import type {
   BusinessFinance,
   BusinessInventoryPage,
   BusinessSellingPage,
+  CommunicationsOutboxItem,
   CommunicationsOutboxPage,
   CommunicationsTemplate,
   Dashboard,
@@ -801,6 +802,98 @@ const navItems = [
   { path: '/reports' as Route, label: 'Audit & Reports', icon: 'reports' as const, permission: 'audit.read' },
   { path: '/branches' as Route, label: 'Settings & Branches', icon: 'branches' as const, permission: 'branch.read' },
 ];
+function NotificationBell({ user }: { user: User }) {
+  const [open, setOpen] = useState(false);
+  const [unreadCount, setUnreadCount] = useState(0);
+  const [items, setItems] = useState<any[]>([]);
+
+  const loadNotifs = useCallback(() => {
+    adminApi.unreadNotificationsCount(user)
+      .then(res => setUnreadCount(res.count))
+      .catch(() => {});
+    if (open) {
+      adminApi.notifications(user, 1)
+        .then(res => setItems(res.items))
+        .catch(() => {});
+    }
+  }, [user, open]);
+
+  useEffect(() => {
+    loadNotifs();
+    const interval = setInterval(loadNotifs, 15000);
+    return () => clearInterval(interval);
+  }, [loadNotifs]);
+
+  const markAllRead = async () => {
+    try {
+      await adminApi.markAllNotificationsRead(user);
+      setItems(prev => prev.map(i => ({ ...i, read: true })));
+      setUnreadCount(0);
+    } catch {}
+  };
+
+  const markRead = async (id: string) => {
+    try {
+      await adminApi.markNotificationRead(user, id);
+      setItems(prev => prev.map(i => i.id === id ? { ...i, read: true } : i));
+      setUnreadCount(prev => Math.max(0, prev - 1));
+    } catch {}
+  };
+
+  return (
+    <div style={{ position: 'relative' }}>
+      <button
+        type="button"
+        className="icon-button"
+        style={{ position: 'relative', background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px' }}
+        onClick={() => { setOpen(!open); }}
+        title="Notifications"
+      >
+        <span style={{ fontSize: '16px' }}>🔔</span>
+        {unreadCount > 0 && (
+          <span style={{ position: 'absolute', top: '-2px', right: '-2px', background: 'var(--red, #EF4444)', color: '#fff', borderRadius: '10px', fontSize: '10px', fontWeight: 800, padding: '1px 5px' }}>
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div style={{ position: 'absolute', right: 0, top: '36px', width: '320px', maxHeight: '420px', overflowY: 'auto', background: 'var(--navy, #061A38)', border: '1px solid var(--border, #1A3B6B)', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 1000, padding: '12px' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid var(--border, #1A3B6B)', paddingBottom: '6px' }}>
+            <strong style={{ fontSize: '13px' }}>Notifications</strong>
+            {unreadCount > 0 && (
+              <button className="text-button" style={{ fontSize: '11px', color: 'var(--yellow, #F7B503)', cursor: 'pointer' }} onClick={markAllRead}>
+                Mark all read
+              </button>
+            )}
+          </div>
+          {items.length === 0 ? (
+            <p style={{ color: 'var(--muted, #8899A6)', fontSize: '12px', textAlign: 'center', padding: '16px 0' }}>No notifications</p>
+          ) : (
+            items.map(item => (
+              <div
+                key={item.id}
+                style={{ padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', opacity: item.read ? 0.7 : 1, cursor: 'pointer' }}
+                onClick={() => markRead(item.id)}
+              >
+                <div style={{ fontWeight: item.read ? 600 : 700, fontSize: '12px', color: item.read ? 'inherit' : 'var(--yellow, #F7B503)' }}>
+                  {item.title}
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--muted, #8899A6)', marginTop: '2px' }}>
+                  {item.body}
+                </div>
+                <small style={{ fontSize: '10px', color: 'var(--muted, #8899A6)', marginTop: '4px', display: 'block' }}>
+                  {new Date(item.createdAt).toLocaleString()}
+                </small>
+              </div>
+            ))
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function Shell({ actor, user, route, onLogout }: { actor: AdminActor; user: User; route: Route; onLogout: () => void }) {
   const [open, setOpen] = useState(false);
   const nav = navItems.filter(item => actor.permissions.includes(item.permission));
@@ -843,7 +936,8 @@ function Shell({ actor, user, route, onLogout }: { actor: AdminActor; user: User
             <span className="breadcrumb">V MOTIV Admin /</span>
             <strong>{title}</strong>
           </div>
-          <div className="identity">
+          <div className="identity" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <NotificationBell user={user} />
             <span>{user.email}</span>
             <span className="mfa-badge">MFA verified</span>
           </div>
@@ -1617,6 +1711,7 @@ function CommunicationsPage({ user }: { user: User; actor: AdminActor }) {
   const [tab, setTab] = useState<'outbox' | 'templates'>('outbox');
   const [data, setData] = useState<CommunicationsOutboxPage | null>(null);
   const [templates, setTemplates] = useState<CommunicationsTemplate[] | null>(null);
+  const [selectedMessage, setSelectedMessage] = useState<CommunicationsOutboxItem | null>(null);
   const [state, setState] = useState('');
   const [page, setPage] = useState(1);
   const [error, setError] = useState('');
@@ -1723,8 +1818,9 @@ function CommunicationsPage({ user }: { user: User; actor: AdminActor }) {
                             <time>{new Date(item.sentAt || item.createdAt).toLocaleString()}</time>
                           </td>
                           <td>
+                            <button className="text-button" onClick={() => setSelectedMessage(item)}>View</button>
                             {(item.state === 'FAILED' || item.state === 'DEAD_LETTER') && (
-                              <button className="text-button" onClick={() => retryDelivery(item.id)}>
+                              <button className="text-button" style={{ marginLeft: '8px' }} onClick={() => retryDelivery(item.id)}>
                                 Retry
                               </button>
                             )}
@@ -1739,6 +1835,40 @@ function CommunicationsPage({ user }: { user: User; actor: AdminActor }) {
               )}
               <Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage} />
             </section>
+          )}
+
+          {selectedMessage && (
+            <div className="dialog-scrim" onClick={() => setSelectedMessage(null)}>
+              <div className="dialog" onClick={e => e.stopPropagation()} style={{ maxWidth: '640px', width: '90%' }}>
+                <div className="dialog-header">
+                  <h2>Outbox Message Details</h2>
+                  <button className="icon-button" onClick={() => setSelectedMessage(null)}><Icon name="close" /></button>
+                </div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', padding: '16px 0' }}>
+                  <div><strong>Subject:</strong> {selectedMessage.subject}</div>
+                  <div><strong>Recipient (Masked):</strong> <code>{selectedMessage.recipient}</code></div>
+                  <div><strong>Event Key:</strong> <code>{selectedMessage.eventKey}</code></div>
+                  <div><strong>Status:</strong> <StatusBadge value={selectedMessage.state} /></div>
+                  {selectedMessage.templateVersion && <div><strong>Template:</strong> <code>{selectedMessage.templateVersion}</code></div>}
+                  {selectedMessage.providerMessageId && <div><strong>Resend Message ID:</strong> <code>{selectedMessage.providerMessageId}</code></div>}
+                  <div><strong>Attempts:</strong> {selectedMessage.attempts} / {selectedMessage.maxAttempts}</div>
+                  {selectedMessage.lastErrorCode && <div><strong>Error Code:</strong> <span style={{ color: 'var(--red, #EF4444)' }}>{selectedMessage.lastErrorCode}</span></div>}
+                  <div><strong>Queued At:</strong> {new Date(selectedMessage.createdAt).toLocaleString()}</div>
+                  {selectedMessage.sentAt && <div><strong>Delivered At:</strong> {new Date(selectedMessage.sentAt).toLocaleString()}</div>}
+                  {selectedMessage.text && (
+                    <div>
+                      <strong>Body:</strong>
+                      <pre style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: '6px', padding: '12px', whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto', fontSize: '12px', marginTop: '6px' }}>
+                        {selectedMessage.text}
+                      </pre>
+                    </div>
+                  )}
+                </div>
+                <div className="dialog-actions">
+                  <button className="button secondary" onClick={() => setSelectedMessage(null)}>Close</button>
+                </div>
+              </div>
+            </div>
           )}
         </>
       )}

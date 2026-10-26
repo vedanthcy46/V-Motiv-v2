@@ -41,8 +41,9 @@
     ],
     "extra": {
       "eas": {
-        "projectId": "REPLACE_WITH_EAS_PROJECT_ID"
+        "projectId": "9372ce4b-bbbe-47a5-b288-77ea40a7e537"
       }
-    }
+    },
+    "owner": "vmotiv"
   }
 }

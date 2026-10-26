@@ -167,9 +167,12 @@ export function createInspectorRouter(deps: { verify: VerifyToken; store: Prisma
 
   router.get('/me', (_req, res) => res.json(res.locals.inspectionActor));
 
-  router.get('/assignments', async (_req, res, next) => {
+  router.get('/assignments', async (req, res, next) => {
     try {
-      res.json(await deps.store.assignments(res.locals.inspectionActor));
+      const sort = req.query.sort ? String(req.query.sort) : undefined;
+      const status = req.query.status ? String(req.query.status) : undefined;
+      const search = req.query.search ? String(req.query.search) : undefined;
+      res.json(await deps.store.assignments(res.locals.inspectionActor, { sort, status, search }));
     } catch (e) {
       next(e);
     }
@@ -291,9 +294,12 @@ export function createInspectorRouter(deps: { verify: VerifyToken; store: Prisma
 export function createInspectionReviewRouter(deps: { verify: VerifyToken; store: PrismaInspectionStore }) {
   const router = secured(deps.store, deps.verify);
 
-  router.get('/queue', async (_req, res, next) => {
+  router.get('/queue', async (req, res, next) => {
     try {
-      res.json(await deps.store.reviewQueue(res.locals.inspectionActor));
+      const sort = req.query.sort ? String(req.query.sort) : undefined;
+      const status = req.query.status ? String(req.query.status) : undefined;
+      const search = req.query.search ? String(req.query.search) : undefined;
+      res.json(await deps.store.reviewQueue(res.locals.inspectionActor, { sort, status, search }));
     } catch (e) {
       next(e);
     }

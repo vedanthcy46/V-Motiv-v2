@@ -11,7 +11,9 @@ import { PrismaCustomerStore } from './customer-store.js';
 import { PrismaAdminStore } from './admin-store.js';
 import { PrismaSalesStore } from './sales-store.js';
 import { PrismaInspectionStore } from './inspection-store.js';
+import { PrismaFinanceStore } from './finance-store.js';
 import { processEmail, resendSender } from './email.js';
+import { NotificationService, createNotificationRouter } from './notification/index.js';
 
 const config = readConfig(process.env);
 
@@ -40,7 +42,7 @@ const firebase = initializeApp({
   projectId: config.FIREBASE_PROJECT_ID,
 });
 const db = new PrismaClient({
-  datasources: config.DATABASE_URL ? { db: { url: config.DATABASE_URL } } : undefined,
+  datasourceUrl: config.DATABASE_URL || undefined,
   transactionOptions: { timeout: 15000, maxWait: 5000 },
 });
 
@@ -77,17 +79,30 @@ const employeePortalOrigins = {
   sales: config.SALES_WEB_ORIGIN || 'http://localhost:3300',
   inspectionReview: config.INSPECTION_REVIEW_WEB_ORIGIN || 'http://localhost:3400',
   operations: config.OPERATIONS_WEB_ORIGIN || 'http://localhost:3500',
+  finance: config.FINANCE_WEB_ORIGIN || 'http://localhost:3600',
   inspector: config.INSPECTOR_MOBILE_DEEP_LINK || 'vmotiv://inspector',
 };
+
+const verifyToken = (token: string, revoked: boolean) => getAuth(firebase).verifyIdToken(token, revoked);
+const notificationService = new NotificationService(db);
+const notificationRouter = createNotificationRouter({
+  verify: verifyToken,
+  db,
+  service: notificationService,
+});
+
 const app = createApp({
-  verify: (token, revoked) => getAuth(firebase).verifyIdToken(token, revoked),
+  verify: verifyToken,
   store: new PrismaIdentityStore(db), customer: new PrismaCustomerStore(db), webOrigin: config.WEB_ORIGIN,
   adminWebOrigin,
   employeePortalOrigins: Object.values(employeePortalOrigins),
   adminPortalDestinations: employeePortalOrigins,
   admin: new PrismaAdminStore(db),
   sales: new PrismaSalesStore(db),
-  inspection: new PrismaInspectionStore(db),
+  inspection: new PrismaInspectionStore(db, undefined, notificationService),
+  finance: new PrismaFinanceStore(db, notificationService),
+  notificationRouter,
+  notificationService,
   revokeTokens: firebaseUid => getAuth(firebase).revokeRefreshTokens(firebaseUid),
   drainEmails: drainOutbox,
 });

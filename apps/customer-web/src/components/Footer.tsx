@@ -66,12 +66,8 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenPrivacy, onOpe
           <div className="footer-hubs-col">
             <h4 className="footer-col-title">Operating Hubs</h4>
             <ul className="footer-hubs-list">
-              <li>Bengaluru • Indiranagar & Electronic City</li>
-              <li>Chennai • Guindy & OMR</li>
-              <li>Delhi NCR • Gurugram & Noida</li>
-              <li>Hyderabad • Hitec City & Gachibowli</li>
-              <li>Mumbai • BKC & Andheri</li>
-              <li>Pune • Baner & Kharadi</li>
+              <li>Bengaluru
+                Sulibele Road, near Veera Kempamma Veera Tamanna Kula Devastana, Lakkondanahalli, Hoskote, Alappanahalli, Karnataka 562165</li>
             </ul>
           </div>
 

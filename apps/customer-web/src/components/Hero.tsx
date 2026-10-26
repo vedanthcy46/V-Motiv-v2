@@ -85,7 +85,7 @@ export const Hero: React.FC<HeroProps> = ({ onExploreCars, onSellCar }) => {
             <div className="preview-top-badge">VERIFIED SELECTION</div>
             <div className="preview-image-wrap">
               <img
-                src="https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=900&q=80"
+                src="https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcQpjMfN5Zf2hT5IamhsGctaV7zIQkayHWhUR3gsQElkoA&s=10"
                 alt="V MOTIV verified car showcase"
                 className="preview-car-image"
                 loading="eager"

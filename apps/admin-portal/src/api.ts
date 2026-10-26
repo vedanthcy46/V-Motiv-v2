@@ -111,6 +111,16 @@ export const adminApi = {
   retryEmailOutbox: (user: User, id: string) =>
     call<{ id: string; state: string }>(user, `/admin/communications/outbox/${id}/retry`, { method: 'POST' }),
 
+  // Notifications
+  notifications: (user: User, page = 1) =>
+    call<{ items: any[]; total: number; unreadCount: number }>(user, `/notifications?page=${page}&limit=20`),
+  unreadNotificationsCount: (user: User) =>
+    call<{ count: number }>(user, '/notifications/unread-count'),
+  markNotificationRead: (user: User, id: string) =>
+    call<{ success: boolean }>(user, `/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllNotificationsRead: (user: User) =>
+    call<{ success: boolean }>(user, '/notifications/read-all', { method: 'POST' }),
+
   // Privacy Requests
   privacyRequests: (user: User, page = 1, status?: string) =>
     call<PrivacyRequestPage>(user, `/admin/support/privacy-requests?${new URLSearchParams({ page: String(page), limit: '25', ...(status ? { status } : {}) })}`),

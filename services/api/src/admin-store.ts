@@ -954,6 +954,7 @@ export class PrismaAdminStore implements AdminStore {
     const safeItems = items.map(item => ({
       ...item,
       recipient: maskEmail(item.recipient),
+      maxAttempts: 6,
     }));
     return { page: query.page, limit: query.limit, total, items: safeItems, summary };
   }

@@ -162,6 +162,9 @@ export type CommunicationsOutboxItem = {
   eventKey: string;
   recipient: string;
   subject: string;
+  text?: string;
+  templateVersion?: string;
+  providerMessageId?: string | null;
   state: string;
   attempts: number;
   maxAttempts: number;

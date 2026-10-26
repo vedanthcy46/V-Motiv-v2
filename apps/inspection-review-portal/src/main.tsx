@@ -384,16 +384,26 @@ export function App() {
   const [selectedPhoto, setSelectedPhoto] = useState<string | null>(null);
   const [reason, setReason] = useState<string>('');
   const [search, setSearch] = useState<string>('');
+  const [sortOrder, setSortOrder] = useState<'submitted_desc' | 'submitted_asc'>('submitted_desc');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'SUBMITTED' | 'UNDER_REVIEW'>('ALL');
+  const [notifications, setNotifications] = useState<any[]>([]);
+  const [unreadNotifsCount, setUnreadNotifsCount] = useState(0);
+  const [notifsOpen, setNotifsOpen] = useState(false);
   const [busy, setBusy] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null);
 
-  const loadQueue = async (activeUser = user) => {
+  const loadQueue = async (activeUser = user, sort = sortOrder, status = statusFilter, query = search) => {
     if (!activeUser) return;
     setBusy(true);
     setError('');
     try {
-      const queue = await api<QueueItem[]>(activeUser, '/inspection-review/queue');
+      const params = new URLSearchParams();
+      if (sort) params.set('sort', sort);
+      if (status && status !== 'ALL') params.set('status', status);
+      if (query.trim()) params.set('search', query.trim());
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      const queue = await api<QueueItem[]>(activeUser, `/inspection-review/queue${qs}`);
       setItems(queue);
     } catch (e: any) {
       const code = e?.code || e?.message || '';
@@ -404,6 +414,28 @@ export function App() {
       }
     } finally {
       setBusy(false);
+    }
+  };
+
+  const loadNotifications = async (activeUser = user) => {
+    if (!activeUser) return;
+    try {
+      const res = await api<{ items: any[]; unreadCount: number }>(activeUser, '/api/v2/notifications?limit=25');
+      setNotifications(res.items || []);
+      setUnreadNotifsCount(res.unreadCount || 0);
+    } catch {
+      // ignore
+    }
+  };
+
+  const markAllRead = async () => {
+    if (!user) return;
+    try {
+      await api(user, '/api/v2/notifications/read-all', { method: 'POST' });
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setUnreadNotifsCount(0);
+    } catch {
+      // ignore
     }
   };
 
@@ -426,7 +458,10 @@ export function App() {
 
     return onAuthStateChanged(auth, nextUser => {
       setUser(nextUser);
-      if (nextUser) void loadQueue(nextUser);
+      if (nextUser) {
+        void loadQueue(nextUser);
+        void loadNotifications(nextUser);
+      }
     });
   }, []);
 
@@ -607,7 +642,95 @@ export function App() {
           <img src="/brand/vmotiv-header-brand.png" alt="V MOTIV" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
           <span className="brand-pill">INSPECTION REVIEW</span>
         </div>
-        <div className="topbar-user">
+        <div className="topbar-user" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          {/* Notification Bell */}
+          <div style={{ position: 'relative' }}>
+            <button
+              className="btn-outline"
+              style={{ padding: '6px 10px', position: 'relative', cursor: 'pointer' }}
+              onClick={() => setNotifsOpen(!notifsOpen)}
+              title="Notifications"
+            >
+              🔔
+              {unreadNotifsCount > 0 && (
+                <span
+                  style={{
+                    position: 'absolute',
+                    top: '-4px',
+                    right: '-4px',
+                    background: '#EF4444',
+                    color: '#fff',
+                    borderRadius: '10px',
+                    fontSize: '10px',
+                    fontWeight: 700,
+                    padding: '1px 5px',
+                  }}
+                >
+                  {unreadNotifsCount}
+                </span>
+              )}
+            </button>
+
+            {notifsOpen && (
+              <div
+                style={{
+                  position: 'absolute',
+                  right: 0,
+                  top: '42px',
+                  width: '320px',
+                  maxHeight: '400px',
+                  overflowY: 'auto',
+                  background: '#07162C',
+                  border: '1px solid #1A3B6B',
+                  borderRadius: '8px',
+                  boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
+                  zIndex: 9999,
+                  padding: '12px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid #1A3B6B', paddingBottom: '6px' }}>
+                  <strong style={{ fontSize: '13px' }}>Review Notifications</strong>
+                  {unreadNotifsCount > 0 && (
+                    <button className="text-button" style={{ fontSize: '11px', color: '#F7B503', cursor: 'pointer' }} onClick={markAllRead}>
+                      Mark all read
+                    </button>
+                  )}
+                </div>
+                {notifications.length === 0 ? (
+                  <p style={{ color: '#8899A6', fontSize: '12px', textAlign: 'center', padding: '16px 0' }}>No notifications</p>
+                ) : (
+                  notifications.map(n => (
+                    <div
+                      key={n.id}
+                      style={{
+                        padding: '8px 0',
+                        borderBottom: '1px solid rgba(255,255,255,0.06)',
+                        opacity: n.read ? 0.7 : 1,
+                        cursor: 'pointer',
+                      }}
+                      onClick={async () => {
+                        if (!n.read) {
+                          await api(user, `/api/v2/notifications/${n.id}/read`, { method: 'PATCH' }).catch(() => {});
+                          setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: true } : item));
+                          setUnreadNotifsCount(prev => Math.max(0, prev - 1));
+                        }
+                        if (n.entityId) {
+                          const target = items.find(i => i.id === n.entityId);
+                          if (target) openReport(target);
+                        }
+                      }}
+                    >
+                      <div style={{ fontWeight: n.read ? 600 : 700, fontSize: '12px', color: n.read ? '#fff' : '#F7B503' }}>
+                        {n.title}
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#8899A6', marginTop: '2px' }}>{n.body}</div>
+                    </div>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+
           <span>Reviewer: <strong>{user.email}</strong></span>
           <button className="btn-outline" style={{ minHeight: '34px', padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => signOut(auth!)}>
             Sign out
@@ -631,8 +754,61 @@ export function App() {
               className="search-input"
               placeholder="Search by car, lead code, seller..."
               value={search}
-              onChange={e => setSearch(e.target.value)}
+              onChange={e => {
+                setSearch(e.target.value);
+                void loadQueue(user, sortOrder, statusFilter, e.target.value);
+              }}
             />
+
+            {/* Filter pills and Sort order */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', margin: '8px 0' }}>
+              <div style={{ display: 'flex', gap: '6px' }}>
+                {(['ALL', 'SUBMITTED', 'UNDER_REVIEW'] as const).map(st => (
+                  <button
+                    key={st}
+                    className={`btn-outline ${statusFilter === st ? 'active' : ''}`}
+                    style={{
+                      flex: 1,
+                      padding: '4px 6px',
+                      fontSize: '11px',
+                      background: statusFilter === st ? 'rgba(247, 181, 3, 0.15)' : 'transparent',
+                      borderColor: statusFilter === st ? '#F7B503' : '#1A3B6B',
+                      color: statusFilter === st ? '#F7B503' : '#8899A6',
+                      cursor: 'pointer',
+                    }}
+                    onClick={() => {
+                      setStatusFilter(st);
+                      void loadQueue(user, sortOrder, st, search);
+                    }}
+                  >
+                    {st === 'ALL' ? 'All' : st === 'SUBMITTED' ? 'Submitted' : 'Under Review'}
+                  </button>
+                ))}
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: '#8899A6' }}>
+                <span>Sort order:</span>
+                <select
+                  value={sortOrder}
+                  onChange={e => {
+                    const next = e.target.value as any;
+                    setSortOrder(next);
+                    void loadQueue(user, next, statusFilter, search);
+                  }}
+                  style={{
+                    background: '#07162C',
+                    color: '#fff',
+                    border: '1px solid #1A3B6B',
+                    borderRadius: '4px',
+                    padding: '2px 6px',
+                    fontSize: '11px',
+                  }}
+                >
+                  <option value="submitted_desc">Newest submitted first</option>
+                  <option value="submitted_asc">Oldest submitted first</option>
+                </select>
+              </div>
+            </div>
 
             <div className="queue-scroll">
               {filteredItems.length ? (

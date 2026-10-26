@@ -138,6 +138,156 @@ enum AcquisitionSettlementStatus {
   PAYMENT_FAILED
   CANCELLED
 }
+enum FinancePayoutStatus {
+  DRAFT
+  DOCUMENTS_PENDING
+  APPROVAL_PENDING
+  APPROVED
+  EXECUTION_PENDING
+  PROCESSING
+  RECONCILIATION_PENDING
+  PAID_VERIFIED
+  ON_HOLD
+  FAILED
+  CANCELLED
+  REVERSED
+  RECONCILIATION_EXCEPTION
+}
+enum FinancePaymentMethod {
+  MANUAL_BANK_TRANSFER
+  NEFT
+  RTGS
+  IMPS
+  UPI
+  PAYMENT_GATEWAY
+  FINANCE_PARTNER
+}
+enum FinanceEvidenceKind {
+  BANK_STATEMENT
+  PROVIDER_SETTLEMENT
+  MANUAL_BANK_CONFIRMATION
+}
+enum PaymentObligationStatus {
+  PENDING
+  PARTIALLY_PAID
+  PAID_VERIFIED
+  OVERDUE
+  REFUNDED
+  CANCELLED
+}
+enum IncomingReceiptStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  RECONCILED
+  REVERSED
+}
+enum RefundReason {
+  CANCELLED_RESERVATION
+  CANCELLED_SALE
+  DUPLICATE_PAYMENT
+  EXCESS_COLLECTION
+  DISPUTE_RESOLUTION
+  CONTRACTUAL_ADJUSTMENT
+}
+enum RefundStatus {
+  REQUESTED
+  APPROVAL_PENDING
+  APPROVED
+  PROCESSING
+  REFUNDED_VERIFIED
+  REJECTED
+  CANCELLED
+  FAILED
+}
+enum VendorCategory {
+  WORKSHOP_MECHANICAL
+  WORKSHOP_BODY_PAINT
+  DETAILING
+  LOGISTICS_TOWING
+  PARTS_SUPPLIER
+  DOCUMENTATION_RTO
+  INSPECTION_AGENCY
+  OTHER
+}
+enum ExpenseCategory {
+  REFURBISHMENT_MECHANICAL
+  REFURBISHMENT_BODYWORK
+  REFURBISHMENT_DETAILING
+  PARTS
+  TOWING_TRANSPORT
+  RTO_DOCUMENTATION
+  STORAGE_PARKING
+  INSPECTION_FEE
+  OTHER
+}
+enum ExpenseStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  PAID
+  REJECTED
+  CANCELLED
+}
+enum StatementImportStatus {
+  PENDING
+  PROCESSED
+  FAILED
+}
+enum StatementEntryStatus {
+  UNMATCHED
+  MATCH_CANDIDATE
+  MATCHED
+  EXCEPTION
+}
+enum ReconciliationExceptionType {
+  UNMATCHED_BANK_CREDIT
+  UNMATCHED_BANK_DEBIT
+  AMOUNT_MISMATCH
+  DUPLICATE_SUSPECTED
+  COUNTERPARTY_MISMATCH
+  TIMING_DIFFERENCE
+}
+enum ExceptionResolutionStatus {
+  OPEN
+  INVESTIGATING
+  RESOLVED
+  WRITTEN_OFF
+}
+enum AccountCategory {
+  ASSET
+  LIABILITY
+  EQUITY
+  REVENUE
+  EXPENSE
+}
+enum NormalBalance {
+  DEBIT
+  CREDIT
+}
+enum PeriodStatus {
+  OPEN
+  CLOSING_PENDING
+  CLOSED
+}
+enum JournalSourceType {
+  ACQUISITION_SETTLEMENT
+  BUYER_RECEIPT
+  EXPENSE_CLAIM
+  REFUND_DISBURSEMENT
+  MANUAL_ADJUSTMENT
+  PERIOD_CLOSE
+}
+enum JournalStatus {
+  DRAFT
+  POSTED
+  REVERSED
+}
+enum InvoiceType {
+  VEHICLE_SALE_TAX_INVOICE
+  ACQUISITION_SETTLEMENT_STATEMENT
+  CREDIT_NOTE
+  PAYMENT_RECEIPT_VOUCHER
+}
 enum VehicleCustodyStatus {
   PENDING
   SCHEDULED
@@ -284,6 +434,25 @@ enum InspectionReviewDecisionType {
   REQUEST_CORRECTION
   REJECT
 }
+enum NotificationChannel {
+  IN_APP
+  PUSH
+  EMAIL
+}
+enum NotificationPriority {
+  LOW
+  NORMAL
+  HIGH
+  URGENT
+}
+enum PushDeliveryState {
+  QUEUED
+  SENDING
+  PROVIDER_ACCEPTED
+  PROVIDER_HANDOFF_CONFIRMED
+  FAILED
+  DISABLED
+}
 model User {
   id String @id @default(uuid()) @db.Uuid
   firebaseUid String @unique
@@ -311,6 +480,13 @@ model User {
   policyVersions PolicyVersion[] @relation("PolicyVersionCreator")
   buyerQuotations BuyerQuotation[] @relation("BuyerQuotationCustomer")
   vehicleReservations VehicleReservation[] @relation("ReservationCustomer")
+  notifications Notification[]
+  pushDevices PushDevice[]
+  notificationPreference NotificationPreference?
+  buyerPaymentObligations BuyerPaymentObligation[] @relation("BuyerObligationCustomer")
+  incomingReceipts IncomingReceipt[] @relation("CustomerReceipt")
+  refunds RefundCase[] @relation("CustomerRefund")
+  invoices InvoiceDocument[] @relation("CustomerInvoice")
 }
 model CustomerAddress {
   id String @id @default(uuid()) @db.Uuid
@@ -381,6 +557,7 @@ model VehicleListing {
   purchaseEnquiries PurchaseEnquiry[]
   quotations BuyerQuotation[]
   reservations VehicleReservation[]
+  paymentObligations BuyerPaymentObligation[]
   @@index([status, publishedAt])
 }
 model VehicleMedia {
@@ -729,6 +906,10 @@ model AcquisitionSettlement {
   acquisitionCaseId String @unique @db.Uuid
   status AcquisitionSettlementStatus @default(NOT_READY)
   approvedConsiderationPaise BigInt
+  sellerPayablePaise BigInt?
+  lenderPayoffPaise BigInt?
+  lenderName String?
+  lenderAccountMasked String?
   transactionReference String?
   notes String?
   verifiedByEmployeeId String? @db.Uuid
@@ -737,7 +918,55 @@ model AcquisitionSettlement {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   acquisitionCase AcquisitionCase @relation(fields: [acquisitionCaseId], references: [id], onDelete: Restrict)
+  payoutInstructions FinancePayoutInstruction[]
   @@index([status, verifiedAt])
+}
+model FinancePayoutInstruction {
+  id String @id @default(uuid()) @db.Uuid
+  settlementId String @db.Uuid
+  payoutPurpose String @default("SELLER_PROCEEDS")
+  amountPaise BigInt
+  currency String @default("INR") @db.VarChar(3)
+  beneficiaryName String
+  beneficiaryAccountMasked String
+  beneficiaryVersion Int @default(1)
+  paymentMethod FinancePaymentMethod @default(MANUAL_BANK_TRANSFER)
+  status FinancePayoutStatus @default(DRAFT)
+  idempotencyKey String @unique
+  requestedByEmployeeId String @db.Uuid
+  approvedByEmployeeId String? @db.Uuid
+  executedByEmployeeId String? @db.Uuid
+  verifiedByEmployeeId String? @db.Uuid
+  approvedAt DateTime?
+  executedAt DateTime?
+  verifiedAt DateTime?
+  bankReference String? @unique
+  executionNotes String?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  settlement AcquisitionSettlement @relation(fields: [settlementId], references: [id], onDelete: Restrict)
+  requestedBy Employee @relation("FinancePayoutPreparer", fields: [requestedByEmployeeId], references: [userId], onDelete: Restrict)
+  approvedBy Employee? @relation("FinancePayoutApprover", fields: [approvedByEmployeeId], references: [userId], onDelete: Restrict)
+  executedBy Employee? @relation("FinancePayoutExecutor", fields: [executedByEmployeeId], references: [userId], onDelete: Restrict)
+  verifiedBy Employee? @relation("FinancePayoutVerifier", fields: [verifiedByEmployeeId], references: [userId], onDelete: Restrict)
+  evidence FinancePaymentEvidence[]
+  @@index([settlementId, status, createdAt])
+  @@index([status, createdAt])
+}
+model FinancePaymentEvidence {
+  id String @id @default(uuid()) @db.Uuid
+  payoutInstructionId String @db.Uuid
+  kind FinanceEvidenceKind
+  reference String
+  evidenceUri String
+  observedAt DateTime
+  recordedByEmployeeId String @db.Uuid
+  createdAt DateTime @default(now())
+  payoutInstruction FinancePayoutInstruction @relation(fields: [payoutInstructionId], references: [id], onDelete: Restrict)
+  recordedBy Employee @relation("FinanceEvidenceRecorder", fields: [recordedByEmployeeId], references: [userId], onDelete: Restrict)
+  @@unique([payoutInstructionId, reference])
+  @@index([reference])
 }
 model VehicleHandover {
   id String @id @default(uuid()) @db.Uuid
@@ -789,6 +1018,8 @@ model VehicleStockUnit {
   branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
   workOrders RefurbishmentWorkOrder[]
   qualityControlReports QualityControlReport[]
+  expenseClaims ExpenseClaim[]
+  invoices InvoiceDocument[]
   @@index([branchId, status, createdAt])
   @@index([status, createdAt])
 }
@@ -933,6 +1164,27 @@ model Employee {
   requestedDiscounts DiscountRequest[] @relation("DiscountRequester")
   decidedDiscounts DiscountRequest[] @relation("DiscountDecider")
   vehicleReservations VehicleReservation[] @relation("ReservationCreator")
+  financePayoutsPrepared FinancePayoutInstruction[] @relation("FinancePayoutPreparer")
+  financePayoutsApproved FinancePayoutInstruction[] @relation("FinancePayoutApprover")
+  financePayoutsExecuted FinancePayoutInstruction[] @relation("FinancePayoutExecutor")
+  financePayoutsVerified FinancePayoutInstruction[] @relation("FinancePayoutVerifier")
+  financeEvidenceRecorded FinancePaymentEvidence[] @relation("FinanceEvidenceRecorder")
+  incomingReceiptsRecorded IncomingReceipt[] @relation("IncomingReceiptRecorder")
+  incomingReceiptsVerified IncomingReceipt[] @relation("IncomingReceiptVerifier")
+  receiptAllocations ReceiptAllocation[] @relation("ReceiptAllocator")
+  refundsRequested RefundCase[] @relation("RefundRequester")
+  refundsApproved RefundCase[] @relation("RefundApprover")
+  refundsExecuted RefundCase[] @relation("RefundExecutor")
+  refundsVerified RefundCase[] @relation("RefundVerifier")
+  expenseClaimsSubmitted ExpenseClaim[] @relation("ExpenseSubmitter")
+  expenseClaimsApproved ExpenseClaim[] @relation("ExpenseApprover")
+  expenseClaimsPaid ExpenseClaim[] @relation("ExpensePayer")
+  bankStatementsImported BankStatementImport[] @relation("BankStatementImporter")
+  bankStatementEntriesMatched BankStatementEntry[] @relation("BankStatementMatcher")
+  reconciliationExceptionsResolved ReconciliationException[] @relation("ReconciliationResolver")
+  periodsClosed AccountingPeriod[] @relation("PeriodCloser")
+  journalsPosted FinancialJournal[] @relation("JournalPoster")
+  invoicesIssued InvoiceDocument[] @relation("InvoiceIssuer")
 }
 
 model BuyerQuotation {
@@ -961,6 +1213,7 @@ model BuyerQuotation {
   author Employee @relation("BuyerQuotationAuthor", fields: [employeeId], references: [userId], onDelete: Restrict)
   discountRequests DiscountRequest[]
   reservations VehicleReservation[]
+  paymentObligations BuyerPaymentObligation[]
   @@index([enquiryId, createdAt])
   @@index([listingId, status])
   @@index([customerId, createdAt])
@@ -1003,6 +1256,7 @@ model VehicleReservation {
   enquiry PurchaseEnquiry? @relation(fields: [enquiryId], references: [id], onDelete: SetNull)
   customer User @relation("ReservationCustomer", fields: [customerId], references: [id], onDelete: Restrict)
   reservedBy Employee @relation("ReservationCreator", fields: [reservedById], references: [userId], onDelete: Restrict)
+  paymentObligations BuyerPaymentObligation[]
   @@index([listingId, status])
   @@index([customerId, status])
 }
@@ -1059,6 +1313,7 @@ model Branch {
   inspectionRequests InspectionRequest[]
   vehicleHandovers VehicleHandover[]
   stockUnits VehicleStockUnit[]
+  expenseClaims ExpenseClaim[]
 }
 model EmployeeBranchAssignment {
   employeeId String @db.Uuid
@@ -1214,6 +1469,481 @@ model MasterDataItem {
   updatedAt DateTime @updatedAt
   @@unique([category, code])
   @@index([category, active])
+}
+
+model Notification {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  eventType String
+  category String @default("GENERAL")
+  priority NotificationPriority @default(NORMAL)
+  title String
+  body String
+  entityType String?
+  entityId String?
+  deepLink String?
+  targetApp String?
+  read Boolean @default(false)
+  readAt DateTime?
+  metadata Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  deliveries NotificationDelivery[]
+
+  @@index([userId, read, createdAt])
+  @@index([userId, category, createdAt])
+  @@index([eventType, createdAt])
+}
+
+model NotificationPreference {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @unique @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emailEnabled Boolean @default(true)
+  pushEnabled Boolean @default(true)
+  inAppEnabled Boolean @default(true)
+  inspectionAlerts Boolean @default(true)
+  offerAlerts Boolean @default(true)
+  orderAlerts Boolean @default(true)
+  operationalEscalations Boolean @default(true)
+  marketingEnabled Boolean @default(false)
+  quietHoursEnabled Boolean @default(false)
+  quietHoursStart String? @default("22:00")
+  quietHoursEnd String? @default("08:00")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model PushDevice {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  app String
+  token String
+  platform String
+  installationId String?
+  projectId String?
+  environment String @default("production")
+  active Boolean @default(true)
+  lastSeenAt DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  tickets PushTicket[]
+
+  @@unique([userId, token, app])
+  @@index([userId, active])
+  @@index([app, active])
+  @@index([token])
+}
+
+model NotificationDelivery {
+  id String @id @default(uuid()) @db.Uuid
+  notificationId String @db.Uuid
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  channel NotificationChannel
+  status String @default("QUEUED")
+  provider String?
+  providerId String?
+  error String?
+  sentAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([notificationId, channel])
+  @@index([status, createdAt])
+}
+
+model PushTicket {
+  id String @id @default(uuid()) @db.Uuid
+  deviceId String @db.Uuid
+  device PushDevice @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+  notificationId String? @db.Uuid
+  title String?
+  body String?
+  data Json?
+  ticketId String?
+  status PushDeliveryState @default(QUEUED)
+  receiptStatus String?
+  receiptMessage String?
+  receiptDetails Json?
+  attempts Int @default(0)
+  lastAttemptAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([ticketId])
+}
+
+model ResendWebhookEvent {
+  id String @id @default(uuid()) @db.Uuid
+  eventId String @unique
+  eventType String
+  emailId String?
+  recipient String?
+  payload Json
+  createdAt DateTime @default(now())
+
+  @@index([emailId])
+}
+
+model BuyerPaymentObligation {
+  id String @id @default(uuid()) @db.Uuid
+  obligationNumber String @unique
+  customerId String @db.Uuid
+  listingId String @db.Uuid
+  quotationId String? @db.Uuid
+  reservationId String? @db.Uuid
+  totalPayablePaise BigInt
+  paidAmountPaise BigInt @default(0)
+  remainingBalancePaise BigInt
+  chargeBreakdown Json?
+  status PaymentObligationStatus @default(PENDING)
+  dueDate DateTime?
+  deliveryEligible Boolean @default(false)
+  notes String?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer User @relation("BuyerObligationCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  listing VehicleListing @relation(fields: [listingId], references: [id], onDelete: Restrict)
+  quotation BuyerQuotation? @relation(fields: [quotationId], references: [id], onDelete: SetNull)
+  reservation VehicleReservation? @relation(fields: [reservationId], references: [id], onDelete: SetNull)
+  allocations ReceiptAllocation[]
+  refunds RefundCase[]
+
+  @@index([customerId, status])
+  @@index([listingId, status])
+  @@index([status, createdAt])
+}
+
+model CompanyBankAccount {
+  id String @id @default(uuid()) @db.Uuid
+  bankName String
+  accountName String
+  accountNumberMasked String
+  ifscCode String
+  branchName String?
+  accountType String @default("CURRENT")
+  currency String @default("INR") @db.VarChar(3)
+  active Boolean @default(true)
+  balancePaise BigInt @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  receipts IncomingReceipt[]
+  statementImports BankStatementImport[]
+  statementEntries BankStatementEntry[]
+}
+
+model IncomingReceipt {
+  id String @id @default(uuid()) @db.Uuid
+  receiptNumber String @unique
+  customerId String? @db.Uuid
+  payerName String
+  amountPaise BigInt
+  unappliedAmountPaise BigInt
+  paymentMethod FinancePaymentMethod @default(NEFT)
+  transactionReference String @unique
+  companyBankAccountId String? @db.Uuid
+  evidenceUri String?
+  notes String?
+  status IncomingReceiptStatus @default(PENDING_VERIFICATION)
+  recordedByEmployeeId String @db.Uuid
+  verifiedByEmployeeId String? @db.Uuid
+  verifiedAt DateTime?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer User? @relation("CustomerReceipt", fields: [customerId], references: [id], onDelete: SetNull)
+  companyBankAccount CompanyBankAccount? @relation(fields: [companyBankAccountId], references: [id], onDelete: SetNull)
+  recordedBy Employee @relation("IncomingReceiptRecorder", fields: [recordedByEmployeeId], references: [userId], onDelete: Restrict)
+  verifiedBy Employee? @relation("IncomingReceiptVerifier", fields: [verifiedByEmployeeId], references: [userId], onDelete: Restrict)
+  allocations ReceiptAllocation[]
+  refunds RefundCase[]
+
+  @@index([status, createdAt])
+}
+
+model ReceiptAllocation {
+  id String @id @default(uuid()) @db.Uuid
+  receiptId String @db.Uuid
+  obligationId String @db.Uuid
+  allocatedAmountPaise BigInt
+  notes String?
+  allocatedByEmployeeId String @db.Uuid
+  createdAt DateTime @default(now())
+
+  receipt IncomingReceipt @relation(fields: [receiptId], references: [id], onDelete: Restrict)
+  obligation BuyerPaymentObligation @relation(fields: [obligationId], references: [id], onDelete: Restrict)
+  allocatedBy Employee @relation("ReceiptAllocator", fields: [allocatedByEmployeeId], references: [userId], onDelete: Restrict)
+
+  @@index([obligationId, createdAt])
+  @@index([receiptId, createdAt])
+}
+
+model RefundCase {
+  id String @id @default(uuid()) @db.Uuid
+  refundNumber String @unique
+  obligationId String? @db.Uuid
+  receiptId String? @db.Uuid
+  customerId String @db.Uuid
+  reason RefundReason
+  notes String
+  requestedAmountPaise BigInt
+  eligibleAmountPaise BigInt
+  deductionAmountPaise BigInt @default(0)
+  approvedAmountPaise BigInt
+  status RefundStatus @default(REQUESTED)
+  beneficiaryName String
+  beneficiaryAccountMasked String
+  paymentMethod FinancePaymentMethod @default(NEFT)
+  bankReference String?
+  evidenceUri String?
+  requestedByEmployeeId String @db.Uuid
+  approvedByEmployeeId String? @db.Uuid
+  executedByEmployeeId String? @db.Uuid
+  verifiedByEmployeeId String? @db.Uuid
+  approvedAt DateTime?
+  executedAt DateTime?
+  verifiedAt DateTime?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  obligation BuyerPaymentObligation? @relation(fields: [obligationId], references: [id], onDelete: SetNull)
+  receipt IncomingReceipt? @relation(fields: [receiptId], references: [id], onDelete: SetNull)
+  customer User @relation("CustomerRefund", fields: [customerId], references: [id], onDelete: Restrict)
+  requestedBy Employee @relation("RefundRequester", fields: [requestedByEmployeeId], references: [userId], onDelete: Restrict)
+  approvedBy Employee? @relation("RefundApprover", fields: [approvedByEmployeeId], references: [userId], onDelete: Restrict)
+  executedBy Employee? @relation("RefundExecutor", fields: [executedByEmployeeId], references: [userId], onDelete: Restrict)
+  verifiedBy Employee? @relation("RefundVerifier", fields: [verifiedByEmployeeId], references: [userId], onDelete: Restrict)
+
+  @@index([status, createdAt])
+  @@index([customerId, status])
+}
+
+model Vendor {
+  id String @id @default(uuid()) @db.Uuid
+  vendorCode String @unique
+  name String
+  category VendorCategory
+  contactPerson String?
+  phone String?
+  email String?
+  gstin String?
+  beneficiaryAccountMasked String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  expenseClaims ExpenseClaim[]
+}
+
+model ExpenseClaim {
+  id String @id @default(uuid()) @db.Uuid
+  claimNumber String @unique
+  vendorId String @db.Uuid
+  stockUnitId String? @db.Uuid
+  branchId String? @db.Uuid
+  category ExpenseCategory
+  invoiceNumber String?
+  invoiceDate DateTime?
+  estimatedAmountPaise BigInt @default(0)
+  invoiceAmountPaise BigInt
+  taxAmountPaise BigInt @default(0)
+  status ExpenseStatus @default(DRAFT)
+  paymentMethod FinancePaymentMethod @default(MANUAL_BANK_TRANSFER)
+  bankReference String?
+  description String
+  evidenceUri String?
+  submittedByEmployeeId String @db.Uuid
+  approvedByEmployeeId String? @db.Uuid
+  paidByEmployeeId String? @db.Uuid
+  approvedAt DateTime?
+  paidAt DateTime?
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vendor Vendor @relation(fields: [vendorId], references: [id], onDelete: Restrict)
+  stockUnit VehicleStockUnit? @relation(fields: [stockUnitId], references: [id], onDelete: SetNull)
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  submittedBy Employee @relation("ExpenseSubmitter", fields: [submittedByEmployeeId], references: [userId], onDelete: Restrict)
+  approvedBy Employee? @relation("ExpenseApprover", fields: [approvedByEmployeeId], references: [userId], onDelete: Restrict)
+  paidBy Employee? @relation("ExpensePayer", fields: [paidByEmployeeId], references: [userId], onDelete: Restrict)
+
+  @@index([stockUnitId, status])
+  @@index([vendorId, status])
+  @@index([status, createdAt])
+}
+
+model BankStatementImport {
+  id String @id @default(uuid()) @db.Uuid
+  companyBankAccountId String @db.Uuid
+  filename String
+  importedByEmployeeId String @db.Uuid
+  startDate DateTime
+  endDate DateTime
+  totalEntries Int @default(0)
+  matchedEntries Int @default(0)
+  exceptionEntries Int @default(0)
+  status StatementImportStatus @default(PROCESSED)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  companyBankAccount CompanyBankAccount @relation(fields: [companyBankAccountId], references: [id], onDelete: Restrict)
+  importedBy Employee @relation("BankStatementImporter", fields: [importedByEmployeeId], references: [userId], onDelete: Restrict)
+  entries BankStatementEntry[]
+}
+
+model BankStatementEntry {
+  id String @id @default(uuid()) @db.Uuid
+  statementImportId String @db.Uuid
+  companyBankAccountId String @db.Uuid
+  entryDate DateTime
+  valueDate DateTime?
+  description String
+  reference String?
+  debitPaise BigInt @default(0)
+  creditPaise BigInt @default(0)
+  balancePaise BigInt?
+  status StatementEntryStatus @default(UNMATCHED)
+  reconciledWithKind String?
+  reconciledWithId String? @db.Uuid
+  matchedByEmployeeId String? @db.Uuid
+  matchedAt DateTime?
+  createdAt DateTime @default(now())
+
+  statementImport BankStatementImport @relation(fields: [statementImportId], references: [id], onDelete: Cascade)
+  companyBankAccount CompanyBankAccount @relation(fields: [companyBankAccountId], references: [id], onDelete: Restrict)
+  matchedBy Employee? @relation("BankStatementMatcher", fields: [matchedByEmployeeId], references: [userId], onDelete: SetNull)
+  exceptions ReconciliationException[]
+
+  @@index([statementImportId, status])
+  @@index([status, entryDate])
+}
+
+model ReconciliationException {
+  id String @id @default(uuid()) @db.Uuid
+  statementEntryId String? @db.Uuid
+  internalTransactionType String?
+  internalTransactionId String? @db.Uuid
+  exceptionType ReconciliationExceptionType
+  details Json?
+  status ExceptionResolutionStatus @default(OPEN)
+  resolutionNotes String?
+  resolvedByEmployeeId String? @db.Uuid
+  resolvedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  statementEntry BankStatementEntry? @relation(fields: [statementEntryId], references: [id], onDelete: SetNull)
+  resolvedBy Employee? @relation("ReconciliationResolver", fields: [resolvedByEmployeeId], references: [userId], onDelete: SetNull)
+
+  @@index([status, createdAt])
+}
+
+model ChartOfAccount {
+  id String @id @default(uuid()) @db.Uuid
+  code String @unique
+  name String
+  category AccountCategory
+  normalBalance NormalBalance
+  description String?
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  lines FinancialJournalLine[]
+}
+
+model AccountingPeriod {
+  id String @id @default(uuid()) @db.Uuid
+  periodName String @unique
+  startDate DateTime
+  endDate DateTime
+  status PeriodStatus @default(OPEN)
+  closedByEmployeeId String? @db.Uuid
+  closedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  journals FinancialJournal[]
+  closedBy Employee? @relation("PeriodCloser", fields: [closedByEmployeeId], references: [userId], onDelete: SetNull)
+}
+
+model FinancialJournal {
+  id String @id @default(uuid()) @db.Uuid
+  journalNumber String @unique
+  periodId String @db.Uuid
+  postingDate DateTime
+  sourceType JournalSourceType
+  sourceId String? @db.Uuid
+  narration String
+  totalDebitPaise BigInt
+  totalCreditPaise BigInt
+  status JournalStatus @default(POSTED)
+  postedByEmployeeId String @db.Uuid
+  postedAt DateTime @default(now())
+  reversedJournalId String? @db.Uuid
+  version Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  period AccountingPeriod @relation(fields: [periodId], references: [id], onDelete: Restrict)
+  postedBy Employee @relation("JournalPoster", fields: [postedByEmployeeId], references: [userId], onDelete: Restrict)
+  lines FinancialJournalLine[]
+
+  @@index([periodId, postingDate])
+  @@index([sourceType, sourceId])
+}
+
+model FinancialJournalLine {
+  id String @id @default(uuid()) @db.Uuid
+  journalId String @db.Uuid
+  accountId String @db.Uuid
+  debitPaise BigInt @default(0)
+  creditPaise BigInt @default(0)
+  narration String?
+
+  journal FinancialJournal @relation(fields: [journalId], references: [id], onDelete: Cascade)
+  account ChartOfAccount @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@index([journalId])
+  @@index([accountId])
+}
+
+model InvoiceDocument {
+  id String @id @default(uuid()) @db.Uuid
+  invoiceNumber String @unique
+  invoiceType InvoiceType
+  stockUnitId String? @db.Uuid
+  customerId String? @db.Uuid
+  sellerLeadId String? @db.Uuid
+  subtotalPaise BigInt
+  cgstPaise BigInt @default(0)
+  sgstPaise BigInt @default(0)
+  igstPaise BigInt @default(0)
+  totalAmountPaise BigInt
+  pdfUri String?
+  issuedAt DateTime @default(now())
+  issuedByEmployeeId String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  stockUnit VehicleStockUnit? @relation(fields: [stockUnitId], references: [id], onDelete: SetNull)
+  customer User? @relation("CustomerInvoice", fields: [customerId], references: [id], onDelete: SetNull)
+  issuedBy Employee @relation("InvoiceIssuer", fields: [issuedByEmployeeId], references: [userId], onDelete: Restrict)
+
+  @@index([invoiceType, issuedAt])
+  @@index([stockUnitId])
+  @@index([customerId])
 }
 
 

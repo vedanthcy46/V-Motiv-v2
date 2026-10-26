@@ -13,6 +13,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import {
   ArrowRight,
+  Bell,
   Bookmark,
   Calendar,
   CarFront,
@@ -26,7 +27,15 @@ import {
   Sparkles,
 } from 'lucide-react-native';
 import { BrandLogo } from '../components/BrandLogo';
+import { NotificationsModal } from '../components/NotificationsModal';
 import { customer } from '../services/customer';
+import {
+  fetchUserNotifications,
+  markAllNotificationsRead,
+  markNotificationRead,
+  registerForPushNotificationsAsync,
+  type InAppNotification,
+} from '../services/notifications';
 import { useAuth } from '../auth/AuthProvider';
 import { color, radius, space } from '../theme';
 import { formatPrice } from '../format';
@@ -41,10 +50,26 @@ export function HomeScreen({ navigation }: Props) {
   const [featured, setFeatured] = useState<VehicleSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [notifications, setNotifications] = useState<InAppNotification[]>([]);
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  const loadNotifications = useCallback(async () => {
+    try {
+      const res = await fetchUserNotifications(30);
+      setNotifications(res.items);
+      setUnreadCount(res.unreadCount);
+    } catch {
+      // Keep existing notifications if network hiccup
+    }
+  }, []);
 
   const loadData = useCallback(async () => {
     try {
-      const res = await customer.inventory({ limit: 6, sort: 'newest' });
+      const [res] = await Promise.all([
+        customer.inventory({ limit: 6, sort: 'newest' }),
+        loadNotifications(),
+      ]);
       setFeatured(res.items);
     } catch {
       // Keep previous data if network hiccup
@@ -52,43 +77,151 @@ export function HomeScreen({ navigation }: Props) {
       setLoading(false);
       setRefreshing(false);
     }
-  }, []);
+  }, [loadNotifications]);
 
   useEffect(() => {
     void loadData();
-  }, [loadData]);
+    if (state === 'signed-in') {
+      void registerForPushNotificationsAsync('CUSTOMER');
+    }
+  }, [loadData, state]);
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     void loadData();
-  }, [loadData]);
+    void loadNotifications();
+  }, [loadData, loadNotifications]);
+
+  const handleCustomerNotificationNavigation = useCallback(
+    async (n: InAppNotification) => {
+      try {
+        if (!n.read) {
+          void markNotificationRead(n.id);
+          setNotifications((prev) =>
+            prev.map((item) => (item.id === n.id ? { ...item, read: true } : item))
+          );
+          setUnreadCount((prev) => Math.max(0, prev - 1));
+        }
+      } catch (err) {
+        console.warn('[NOTIF_MARK_READ_ERROR]', err);
+      }
+
+      setNotificationsOpen(false);
+
+      const rootNav = (navigation.getParent() as any) || navigation;
+      const event = (n.eventType || '').toUpperCase();
+      const cat = (n.category || '').toUpperCase();
+      const entityId = n.entityId || (n.deepLink ? n.deepLink.split('/').pop() : undefined);
+
+      if (n.deepLink) {
+        if (n.deepLink.includes('/selling/') && entityId) {
+          rootNav.navigate('SellingRequestDetails', { leadId: entityId });
+          return;
+        }
+        if (n.deepLink.includes('/vehicles/') && entityId) {
+          rootNav.navigate('Vehicle', { listingId: entityId });
+          return;
+        }
+        if (n.deepLink.includes('/support/') && entityId) {
+          rootNav.navigate('SupportCaseDetails', { caseId: entityId });
+          return;
+        }
+      }
+
+      if (
+        cat.includes('OFFER') ||
+        event.includes('OFFER') ||
+        cat.includes('VALUATION') ||
+        cat.includes('INSPECTION') ||
+        cat.includes('SELLING') ||
+        event.includes('LEAD')
+      ) {
+        if (entityId) {
+          rootNav.navigate('SellingRequestDetails', { leadId: entityId });
+        } else {
+          navigation.navigate('Activity');
+        }
+        return;
+      }
+
+      if (
+        cat.includes('PURCHASE') ||
+        cat.includes('VEHICLE') ||
+        event.includes('PRICE') ||
+        event.includes('DROP')
+      ) {
+        if (entityId) {
+          rootNav.navigate('Vehicle', { listingId: entityId });
+        } else {
+          navigation.navigate('Explore');
+        }
+        return;
+      }
+
+      if (cat.includes('TEST_DRIVE') || event.includes('TEST_DRIVE')) {
+        navigation.navigate('Activity');
+        return;
+      }
+
+      if (cat.includes('SUPPORT') || event.includes('TICKET') || event.includes('CASE')) {
+        if (entityId) {
+          rootNav.navigate('SupportCaseDetails', { caseId: entityId });
+        } else {
+          rootNav.navigate('Support');
+        }
+        return;
+      }
+
+      navigation.navigate('Activity');
+    },
+    [navigation]
+  );
 
   const cityName = profile?.preferredCity || user?.preferredCity || 'All Cities';
 
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Top Navbar with Official Brand Logo and City Selector */}
+      {/* Top Navbar with Official Brand Logo, City Selector, and Notification Bell */}
       <View style={styles.topBar}>
         <BrandLogo
           variant="horizontal"
-          size={26}
+          size={24}
           showTagline={true}
           taglineText="YOUR NEXT CHAPTER"
         />
 
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel={`Change city. Currently selected: ${cityName}`}
-          style={styles.cityPill}
-          activeOpacity={0.75}
-          onPress={() => (navigation.getParent() as any)?.navigate('CitySelection')}
-        >
-          <MapPin size={13} color={color.yellow} />
-          <Text style={styles.cityText} numberOfLines={1}>
-            {cityName}
-          </Text>
-          <ChevronRight size={13} color={color.muted} />
-        </TouchableOpacity>
+        <View style={styles.topBarActions}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={`Change city. Currently selected: ${cityName}`}
+            style={styles.cityPill}
+            activeOpacity={0.75}
+            onPress={() => (navigation.getParent() as any)?.navigate('CitySelection')}
+          >
+            <MapPin size={13} color={color.yellow} />
+            <Text style={styles.cityText} numberOfLines={1}>
+              {cityName}
+            </Text>
+            <ChevronRight size={13} color={color.muted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Notifications"
+            style={styles.bellButton}
+            activeOpacity={0.75}
+            onPress={() => setNotificationsOpen(true)}
+          >
+            <Bell size={19} color={color.text} />
+            {unreadCount > 0 && (
+              <View style={styles.bellBadge}>
+                <Text style={styles.bellBadgeText}>
+                  {unreadCount > 9 ? '9+' : unreadCount}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
@@ -320,6 +453,29 @@ export function HomeScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
       </ScrollView>
+
+      {/* Customer In-App Notifications Modal */}
+      <NotificationsModal
+        visible={notificationsOpen}
+        onClose={() => setNotificationsOpen(false)}
+        notifications={notifications}
+        unreadCount={unreadCount}
+        onMarkAsRead={async (id) => {
+          await markNotificationRead(id);
+          setNotifications((prev) =>
+            prev.map((n) => (n.id === id ? { ...n, read: true } : n))
+          );
+          setUnreadCount((prev) => Math.max(0, prev - 1));
+        }}
+        onMarkAllAsRead={async () => {
+          await markAllNotificationsRead();
+          setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
+          setUnreadCount(0);
+        }}
+        onSelectNotification={handleCustomerNotificationNavigation}
+        title="Notifications"
+        subtitle="Offers, inspections & status updates"
+      />
     </View>
   );
 }
@@ -338,6 +494,41 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: color.border,
     backgroundColor: color.navy,
+  },
+  topBarActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  bellButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: color.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: color.border,
+    position: 'relative',
+  },
+  bellBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    backgroundColor: '#ef4444',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+    borderWidth: 1.5,
+    borderColor: color.navy,
+  },
+  bellBadgeText: {
+    color: '#ffffff',
+    fontSize: 9.5,
+    fontWeight: '800',
   },
   cityPill: {
     flexDirection: 'row',

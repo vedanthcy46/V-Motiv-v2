@@ -21,6 +21,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { useKeyboard } from '../components/ui';
 import {
+  ArrowUpDown,
+  Bell,
   Calendar,
   Camera,
   Car,
@@ -30,6 +32,7 @@ import {
   ClipboardCheck,
   CloudOff,
   Eye,
+  Filter,
   Gauge,
   Images,
   Info,
@@ -47,6 +50,7 @@ import { BrandLogo } from '../components/BrandLogo';
 import { useAuth } from '../auth/AuthProvider';
 import { api, resolveRequestUrl } from '../api';
 import { color, radius, space } from '../theme';
+import { registerForPushNotificationsAsync, type InAppNotification } from '../services/notifications';
 import {
   cachedJobsKey,
   cachedTemplateKey,
@@ -207,6 +211,23 @@ function formatScheduleDate(dateString: string | null | undefined): string {
   }
 }
 
+function formatRelativeTime(dateString: string | null | undefined): string {
+  if (!dateString) return '';
+  try {
+    const diffMs = Date.now() - new Date(dateString).getTime();
+    const diffMins = Math.floor(diffMs / 60000);
+    if (diffMins < 1) return 'Just now';
+    if (diffMins < 60) return `${diffMins}m ago`;
+    const diffHours = Math.floor(diffMins / 60);
+    if (diffHours < 24) return `${diffHours}h ago`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays}d ago`;
+    return new Date(dateString).toLocaleDateString([], { month: 'short', day: 'numeric' });
+  } catch {
+    return '';
+  }
+}
+
 function getStatusTheme(status: string) {
   switch (status?.toUpperCase()) {
     case 'ASSIGNED':
@@ -327,11 +348,63 @@ export function InspectorScreen() {
     return standardPhotoSlots.filter(s => (capturedPhotos[s.id]?.length || 0) > 0).length;
   }, [capturedPhotos]);
 
-  // 1. Initial Load of Assigned Jobs & Queue Counts
+  // Inspector Filters & Sorting
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'ASSIGNED' | 'IN_PROGRESS' | 'REWORK_REQUIRED' | 'COMPLETED'>('ALL');
+  const [sortOrder, setSortOrder] = useState<'newest_assigned' | 'appointment_asc'>('newest_assigned');
+
+  // Inspector In-App Notifications
+  const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [unreadNotifsCount, setUnreadNotifsCount] = useState(0);
+  const [notifications, setNotifications] = useState<InAppNotification[]>([]);
+
+  // 1. Initial Load of Assigned Jobs, Queue Counts & Notifications
   useEffect(() => {
     void refreshQueueCounts();
-    void loadJobs();
+    void loadJobs(statusFilter, sortOrder);
+    void loadNotifications();
+    void registerForPushNotificationsAsync('INSPECTOR');
   }, [user]);
+
+  async function loadNotifications() {
+    if (!user) return;
+    try {
+      const res = await api<{ items: InAppNotification[]; unreadCount: number }>('/api/v2/notifications?limit=30');
+      setNotifications(res.items || []);
+      setUnreadNotifsCount(res.unreadCount || 0);
+    } catch {
+      // Offline fallback
+    }
+  }
+
+  async function markNotificationAsRead(id: string) {
+    try {
+      await api(`/api/v2/notifications/${id}/read`, { method: 'PATCH' });
+      setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
+      setUnreadNotifsCount(prev => Math.max(0, prev - 1));
+    } catch {
+      // offline
+    }
+  }
+
+  async function markAllNotificationsAsRead() {
+    try {
+      await api('/api/v2/notifications/read-all', { method: 'POST' });
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+      setUnreadNotifsCount(0);
+    } catch {
+      // offline
+    }
+  }
+
+  function applyFilter(f: typeof statusFilter) {
+    setStatusFilter(f);
+    void loadJobs(f, sortOrder);
+  }
+
+  function applySort(s: typeof sortOrder) {
+    setSortOrder(s);
+    void loadJobs(statusFilter, s);
+  }
 
   async function refreshQueueCounts() {
     if (!user) return;
@@ -345,12 +418,16 @@ export function InspectorScreen() {
     }
   }
 
-  async function loadJobs() {
+  async function loadJobs(filter = statusFilter, sort = sortOrder) {
     if (!user) return;
     setBusy(true);
     setStatusMessage(null);
     try {
-      const live = await api<Assignment[]>('/api/v2/inspector/assignments');
+      const params = new URLSearchParams();
+      if (sort) params.set('sort', sort);
+      if (filter && filter !== 'ALL') params.set('status', filter);
+      const qs = params.toString() ? `?${params.toString()}` : '';
+      const live = await api<Assignment[]>(`/api/v2/inspector/assignments${qs}`);
       setJobs(live);
       try {
         await AsyncStorage.setItem(cachedJobsKey(user.id), JSON.stringify(live));
@@ -462,6 +539,41 @@ export function InspectorScreen() {
       Alert.alert('Inspection Error', `Could not start or load evaluation workspace: ${err?.message || err?.code || 'Please check your connection'}`);
     } finally {
       setBusy(false);
+    }
+  }
+
+  // Navigation-Aware Notification Handler
+  async function handleNotificationNavigation(n: InAppNotification) {
+    if (!n.read) {
+      void markNotificationAsRead(n.id);
+    }
+    setNotificationsOpen(false);
+
+    const targetId = n.entityId || (n.deepLink ? n.deepLink.match(/([0-9a-fA-F-]{36}|[0-9a-zA-Z_-]+)$/)?.[1] : null);
+    if (!targetId) return;
+
+    // 1. Search in current loaded jobs
+    let target = jobs.find(j => j.id === targetId || (j.request && (j.request as any).id === targetId));
+
+    // 2. If not found in current filtered subset, reload all assignments
+    if (!target && user) {
+      try {
+        setBusy(true);
+        const live = await api<Assignment[]>('/api/v2/inspector/assignments');
+        setJobs(live);
+        setStatusFilter('ALL');
+        target = live.find(j => j.id === targetId || (j.request && (j.request as any).id === targetId));
+      } catch (err) {
+        console.warn('[NAVIGATE_NOTIFICATION_ERROR]', err);
+      } finally {
+        setBusy(false);
+      }
+    }
+
+    if (target) {
+      void startInspection(target);
+    } else {
+      Alert.alert(n.title, n.body, [{ text: 'OK' }]);
     }
   }
 
@@ -1706,9 +1818,18 @@ export function InspectorScreen() {
         </View>
 
         <View style={styles.headerRightActions}>
+          <Pressable style={styles.iconCircle} onPress={() => setNotificationsOpen(true)}>
+            <Bell color={unreadNotifsCount > 0 ? color.yellow : color.textSecondary} size={18} />
+            {unreadNotifsCount > 0 && (
+              <View style={styles.notifBadge}>
+                <Text style={styles.notifBadgeText}>{unreadNotifsCount > 9 ? '9+' : unreadNotifsCount}</Text>
+              </View>
+            )}
+          </Pressable>
+
           <Pressable style={styles.modeSwitchBtn} onPress={() => setActiveMode('customer')}>
-            <UserCheck color={color.yellow} size={15} />
-            <Text style={styles.modeSwitchText}>Customer Mode</Text>
+            <UserCheck color={color.yellow} size={14} />
+            <Text style={styles.modeSwitchText} numberOfLines={1}>Customer</Text>
           </Pressable>
 
           <Pressable style={styles.iconCircle} onPress={() => void signOut()}>
@@ -1734,16 +1855,82 @@ export function InspectorScreen() {
 
       {/* Actions Bar */}
       <View style={styles.actionsBar}>
-        <Text style={styles.actionsBarTitle} numberOfLines={1}>Assigned Inspections ({jobs.length})</Text>
-        <Pressable style={styles.refreshBtn} onPress={() => void loadJobs()} disabled={busy}>
-          <RefreshCw color={color.yellow} size={15} />
+        <View style={styles.actionsBarTitleGroup}>
+          <Text style={styles.actionsBarTitle} numberOfLines={1}>Assigned Inspections</Text>
+          <View style={styles.countBadge}>
+            <Text style={styles.countBadgeText}>{jobs.length}</Text>
+          </View>
+        </View>
+        <Pressable style={styles.refreshBtn} onPress={() => void loadJobs(statusFilter, sortOrder)} disabled={busy} hitSlop={8}>
+          <RefreshCw color={color.yellow} size={14} />
           <Text style={styles.refreshBtnText}>Refresh</Text>
         </Pressable>
       </View>
 
+      {/* Filter Section */}
+      <View style={styles.filterSection}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={styles.filterScrollView}
+          contentContainerStyle={styles.filterPillsScroll}
+        >
+          {[
+            { key: 'ALL', label: 'All' },
+            { key: 'ASSIGNED', label: 'Assigned' },
+            { key: 'IN_PROGRESS', label: 'In Progress' },
+            { key: 'REWORK_REQUIRED', label: 'Rework' },
+            { key: 'COMPLETED', label: 'Completed' },
+          ].map(tab => {
+            const active = statusFilter === tab.key;
+            return (
+              <Pressable
+                key={tab.key}
+                style={[styles.filterPill, active && styles.filterPillActive]}
+                onPress={() => applyFilter(tab.key as any)}
+              >
+                <Text style={[styles.filterPillText, active && styles.filterPillTextActive]}>{tab.label}</Text>
+              </Pressable>
+            );
+          })}
+        </ScrollView>
+      </View>
+
+      {/* Sort Selector Bar */}
+      <View style={styles.sortSelectorRow}>
+        <View style={styles.sortHeader}>
+          <ArrowUpDown color={color.muted} size={13} />
+          <Text style={styles.sortLabel}>Sort</Text>
+        </View>
+        <View style={styles.sortSegmentedGroup}>
+          <Pressable
+            style={[styles.sortSegment, sortOrder === 'newest_assigned' && styles.sortSegmentActive]}
+            onPress={() => applySort('newest_assigned')}
+          >
+            <Text
+              style={[styles.sortSegmentText, sortOrder === 'newest_assigned' && styles.sortSegmentTextActive]}
+              numberOfLines={1}
+            >
+              Newest First
+            </Text>
+          </Pressable>
+          <Pressable
+            style={[styles.sortSegment, sortOrder === 'appointment_asc' && styles.sortSegmentActive]}
+            onPress={() => applySort('appointment_asc')}
+          >
+            <Text
+              style={[styles.sortSegmentText, sortOrder === 'appointment_asc' && styles.sortSegmentTextActive]}
+              numberOfLines={1}
+            >
+              Appointment
+            </Text>
+          </Pressable>
+        </View>
+      </View>
+
       {statusMessage ? <Text style={styles.statusToast}>{statusMessage}</Text> : null}
 
-      <ScrollView contentContainerStyle={styles.jobsListScroll}>
+      <ScrollView contentContainerStyle={[styles.jobsListScroll, { paddingBottom: Math.max(insets.bottom, 16) + 40 }]}>
         {busy && <ActivityIndicator color={color.yellow} size="small" style={{ marginVertical: space.md }} />}
 
         {jobs.length ? (
@@ -1908,6 +2095,117 @@ export function InspectorScreen() {
           </View>
         ) : null}
       </ScrollView>
+
+      {/* In-App Notifications Bottom Sheet (Navigation-Aware & Safe Area Padded) */}
+      <Modal visible={notificationsOpen} transparent animationType="slide" onRequestClose={() => setNotificationsOpen(false)}>
+        <Pressable style={styles.modalBackdrop} onPress={() => setNotificationsOpen(false)}>
+          <Pressable
+            style={[
+              styles.modalContent,
+              styles.notifModalContent,
+              { paddingBottom: Math.max(insets.bottom, 16) + space.md },
+            ]}
+            onPress={e => e.stopPropagation()}
+          >
+            {/* Sheet Handle */}
+            <View style={styles.sheetHandle} />
+
+            {/* Header */}
+            <View style={styles.notifSheetHeader}>
+              <View style={styles.notifSheetHeaderLeft}>
+                <View style={styles.notifIconWrap}>
+                  <Bell color={color.yellow} size={16} />
+                </View>
+                <View style={{ gap: 2 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Text style={styles.notifSheetTitle}>Notifications</Text>
+                    {unreadNotifsCount > 0 && (
+                      <View style={styles.notifCountBadge}>
+                        <Text style={styles.notifCountBadgeText}>{unreadNotifsCount} new</Text>
+                      </View>
+                    )}
+                  </View>
+                  <Text style={styles.notifSheetSub}>Inspection dispatch and review updates</Text>
+                </View>
+              </View>
+
+              <View style={styles.notifSheetHeaderRight}>
+                {unreadNotifsCount > 0 && (
+                  <Pressable onPress={() => void markAllNotificationsAsRead()} hitSlop={8}>
+                    <Text style={styles.markReadText}>Mark all read</Text>
+                  </Pressable>
+                )}
+                <Pressable style={styles.sheetCloseBtn} onPress={() => setNotificationsOpen(false)} hitSlop={8}>
+                  <X color={color.muted} size={18} />
+                </Pressable>
+              </View>
+            </View>
+
+            {/* Notifications List */}
+            <ScrollView
+              style={{ maxHeight: 420 }}
+              contentContainerStyle={{ paddingBottom: space.sm }}
+              showsVerticalScrollIndicator={false}
+            >
+              {notifications.length === 0 ? (
+                <View style={styles.notifEmptyWrap}>
+                  <Bell color={color.muted} size={32} />
+                  <Text style={styles.notifEmptyTitle}>No notifications yet</Text>
+                  <Text style={styles.notifEmptySub}>
+                    Real-time assignment alerts, rework notes, and approval updates will appear here.
+                  </Text>
+                </View>
+              ) : (
+                notifications.map(n => {
+                  const hasTarget = Boolean(n.entityId || n.deepLink);
+                  return (
+                    <Pressable
+                      key={n.id}
+                      style={({ pressed }) => [
+                        styles.notifItemCard,
+                        !n.read && styles.notifItemCardUnread,
+                        pressed && styles.notifItemCardPressed,
+                      ]}
+                      onPress={() => void handleNotificationNavigation(n)}
+                    >
+                      <View style={styles.notifItemTop}>
+                        <View style={styles.notifBadgeRow}>
+                          {!n.read && <View style={styles.unreadDot} />}
+                          <View style={styles.notifCategoryTag}>
+                            <Text style={styles.notifCategoryTagText}>
+                              {n.category || 'INSPECTION'}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={styles.notifTimeText}>
+                          {formatRelativeTime(n.createdAt)}
+                        </Text>
+                      </View>
+
+                      <Text style={[styles.notifTitle, !n.read && styles.notifTitleUnread]}>
+                        {n.title}
+                      </Text>
+
+                      <Text style={styles.notifBody} numberOfLines={3} ellipsizeMode="tail">
+                        {n.body}
+                      </Text>
+
+                      {hasTarget && (
+                        <View style={styles.notifActionRow}>
+                          <View style={styles.notifNavPill}>
+                            <Text style={styles.notifNavPillText}>Open Inspection</Text>
+                            <ChevronRight size={13} color={color.yellow} />
+                          </View>
+                        </View>
+                      )}
+                    </Pressable>
+                  );
+                })
+              )}
+            </ScrollView>
+          </Pressable>
+        </Pressable>
+      </Modal>
     </View>
   );
 }
@@ -1925,28 +2223,31 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     borderBottomWidth: 1,
     borderColor: color.border,
+    gap: space.xs,
   },
-  headerBrandRow: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  headerBrandRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 1, minWidth: 0 },
   badgePill: {
     backgroundColor: 'rgba(247, 181, 3, 0.12)',
     borderWidth: 1,
     borderColor: color.yellow,
-    paddingHorizontal: 8,
+    paddingHorizontal: 7,
     paddingVertical: 2,
     borderRadius: radius.pill,
+    flexShrink: 0,
   },
-  badgePillText: { color: color.yellow, fontWeight: '800', fontSize: 10, letterSpacing: 1 },
-  headerRightActions: { flexDirection: 'row', alignItems: 'center', gap: space.sm },
+  badgePillText: { color: color.yellow, fontWeight: '800', fontSize: 10, letterSpacing: 0.5 },
+  headerRightActions: { flexDirection: 'row', alignItems: 'center', gap: 6, flexShrink: 0 },
   modeSwitchBtn: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 5,
+    gap: 4,
     backgroundColor: color.surface,
     borderWidth: 1,
     borderColor: color.border,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
     borderRadius: radius.md,
+    flexShrink: 0,
   },
   modeSwitchText: { color: color.textSecondary, fontSize: 11, fontWeight: '700' },
   iconCircle: {
@@ -1956,6 +2257,292 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.06)',
     alignItems: 'center',
     justifyContent: 'center',
+  },
+  notifBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#EF4444',
+    borderRadius: 8,
+    minWidth: 16,
+    height: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 3,
+  },
+  notifBadgeText: {
+    color: '#FFFFFF',
+    fontSize: 9,
+    fontWeight: '800',
+  },
+  filterSection: {
+    paddingVertical: 2,
+    borderBottomWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.04)',
+  },
+  filterScrollView: {
+    flexGrow: 0,
+  },
+  filterPillsScroll: {
+    paddingHorizontal: space.lg,
+    paddingVertical: 8,
+    gap: 8,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  filterPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 7,
+    borderRadius: radius.pill,
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    flexShrink: 0,
+  },
+  filterPillActive: {
+    backgroundColor: 'rgba(247, 181, 3, 0.16)',
+    borderColor: color.yellow,
+  },
+  filterPillText: {
+    color: color.muted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  filterPillTextActive: {
+    color: color.yellow,
+    fontWeight: '800',
+  },
+  sortSelectorRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: space.lg,
+    paddingVertical: 7,
+    backgroundColor: 'rgba(2, 11, 24, 0.45)',
+    borderBottomWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  sortHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    flexShrink: 0,
+  },
+  sortLabel: {
+    color: color.muted,
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  sortSegmentedGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    borderRadius: radius.pill,
+    padding: 3,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+    flex: 1,
+    maxWidth: 240,
+    marginLeft: space.sm,
+  },
+  sortSegment: {
+    flex: 1,
+    paddingVertical: 5,
+    paddingHorizontal: 8,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sortSegmentActive: {
+    backgroundColor: 'rgba(247, 181, 3, 0.18)',
+    borderWidth: 1,
+    borderColor: 'rgba(247, 181, 3, 0.5)',
+  },
+  sortSegmentText: {
+    color: color.muted,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  sortSegmentTextActive: {
+    color: color.yellow,
+    fontWeight: '800',
+  },
+
+  // In-App Notifications Bottom Sheet Styles
+  sheetHandle: {
+    width: 36,
+    height: 4,
+    borderRadius: 2,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    alignSelf: 'center',
+    marginBottom: space.sm,
+  },
+  notifModalContent: {
+    padding: space.lg,
+    gap: space.sm,
+  },
+  notifSheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingBottom: space.sm,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  notifSheetHeaderLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+    minWidth: 0,
+  },
+  notifIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    backgroundColor: 'rgba(247, 181, 3, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(247, 181, 3, 0.25)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notifSheetTitle: {
+    fontSize: 16,
+    fontWeight: '800',
+    color: color.text,
+  },
+  notifSheetSub: {
+    fontSize: 11,
+    color: color.muted,
+  },
+  notifCountBadge: {
+    backgroundColor: color.yellow,
+    paddingHorizontal: 6,
+    paddingVertical: 1,
+    borderRadius: radius.pill,
+  },
+  notifCountBadgeText: {
+    color: color.navy,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  notifSheetHeaderRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space.md,
+  },
+  markReadText: {
+    color: color.yellow,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  sheetCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  notifEmptyWrap: {
+    paddingVertical: 36,
+    alignItems: 'center',
+    gap: space.xs,
+  },
+  notifEmptyTitle: {
+    color: color.text,
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: space.sm,
+  },
+  notifEmptySub: {
+    color: color.muted,
+    fontSize: 12,
+    textAlign: 'center',
+    paddingHorizontal: space.lg,
+  },
+  notifItemCard: {
+    padding: space.md,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.06)',
+    marginBottom: space.sm,
+    gap: 6,
+  },
+  notifItemCardUnread: {
+    backgroundColor: 'rgba(247, 181, 3, 0.06)',
+    borderColor: 'rgba(247, 181, 3, 0.35)',
+  },
+  notifItemCardPressed: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+  },
+  notifItemTop: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  notifBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  unreadDot: {
+    width: 7,
+    height: 7,
+    borderRadius: 4,
+    backgroundColor: color.yellow,
+  },
+  notifCategoryTag: {
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  notifCategoryTagText: {
+    color: color.muted,
+    fontSize: 9,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  notifTimeText: {
+    color: color.muted,
+    fontSize: 11,
+  },
+  notifTitle: {
+    color: color.textSecondary,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  notifTitleUnread: {
+    color: color.yellow,
+    fontWeight: '800',
+  },
+  notifBody: {
+    color: color.muted,
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  notifActionRow: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+    marginTop: 2,
+  },
+  notifNavPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: 'rgba(247, 181, 3, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(247, 181, 3, 0.3)',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  notifNavPillText: {
+    color: color.yellow,
+    fontSize: 11,
+    fontWeight: '700',
   },
 
   // Sync Banner
@@ -1987,9 +2574,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: space.lg,
-    paddingVertical: space.md,
+    paddingTop: space.md,
+    paddingBottom: space.xs,
   },
-  actionsBarTitle: { fontSize: 16, fontWeight: '800', color: color.yellow },
+  actionsBarTitleGroup: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    minWidth: 0,
+  },
+  actionsBarTitle: { fontSize: 16, fontWeight: '800', color: color.text },
+  countBadge: {
+    backgroundColor: 'rgba(247, 181, 3, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(247, 181, 3, 0.3)',
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    flexShrink: 0,
+  },
+  countBadgeText: {
+    color: color.yellow,
+    fontSize: 11,
+    fontWeight: '800',
+  },
   refreshBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, padding: 6 },
   refreshBtnText: { color: color.yellow, fontWeight: '700', fontSize: 13 },
   statusToast: {

@@ -6,6 +6,7 @@ import { api, hasNativeFirebase as linkedFirebase } from '../api';
 import { withDeadline } from '../api-network';
 import { friendlyError } from '../format';
 import type { Profile } from '../types';
+import { registerForPushNotificationsAsync } from '../services/notifications';
 
 const isExpoGo =
   Constants.appOwnership === 'expo' ||
@@ -88,10 +89,11 @@ function extractResolver(authModule: any, error: any) {
   }
   const rawResolver = error.userInfo?.resolver || error.userInfo;
   if (rawResolver && Array.isArray(rawResolver.hints) && rawResolver.session && auth) {
-    try {
-      const MultiFactorResolverClass = require('@react-native-firebase/auth/lib/MultiFactorResolver').default;
-      return new MultiFactorResolverClass(auth, rawResolver);
-    } catch {}
+    if (typeof authModule?.MultiFactorResolver === 'function') {
+      try {
+        return new authModule.MultiFactorResolver(auth, rawResolver);
+      } catch {}
+    }
     return {
       hints: rawResolver.hints,
       session: rawResolver.session,
@@ -165,6 +167,9 @@ function useFirebaseSessionBase() {
           setIsInspector(inspectorEligible);
           if (inspectorEligible) {
             setActiveMode('inspector');
+            void registerForPushNotificationsAsync('INSPECTOR');
+          } else {
+            void registerForPushNotificationsAsync('CUSTOMER');
           }
         }
       }

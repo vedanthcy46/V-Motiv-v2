@@ -2,6 +2,7 @@ import { type InspectionAnswerStatus, type InspectionDefectSeverity, Prisma, Pri
 import { HttpError } from './errors.js';
 import { knownTemplateItem, templateFor, currentTemplate, isItemApplicable, type InspectionTemplateItem } from './inspection-template.js';
 import { InspectionMediaService } from './inspection-media.js';
+import type { NotificationService } from './notification/index.js';
 
 export type InspectionActor = {
   userId: string;
@@ -78,7 +79,11 @@ const assignmentDetail = {
 export class PrismaInspectionStore {
   private mediaService: InspectionMediaService;
 
-  constructor(private db: PrismaClient, mediaService?: InspectionMediaService) {
+  constructor(
+    private db: PrismaClient,
+    mediaService?: InspectionMediaService,
+    private notificationService?: NotificationService
+  ) {
     this.mediaService = mediaService || new InspectionMediaService();
   }
 
@@ -115,26 +120,93 @@ export class PrismaInspectionStore {
 
   // --- Inspector Operations ---
 
-  async assignments(actor: InspectionActor) {
+  async assignments(
+    actor: InspectionActor,
+    query?: { sort?: string; status?: string; search?: string }
+  ) {
     checkRole(actor, inspectorRoles);
     const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
-    return this.db.inspectionAssignment.findMany({
-      where: isElevated
-        ? {
-            OR: [
-              { inspectorId: actor.userId },
-              { status: { in: ['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'] } },
-              { reports: { some: { status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } } } },
-            ],
-          }
-        : {
-            inspectorId: actor.userId,
-            OR: [
-              { status: { in: ['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'] } },
-              { reports: { some: { inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } } } },
-            ],
+
+    // Default: newest assigned first (createdAt DESC, id DESC) as required
+    let orderBy: Prisma.InspectionAssignmentOrderByWithRelationInput[] = [{ createdAt: 'desc' }, { id: 'desc' }];
+    if (query?.sort === 'appointment_asc') {
+      orderBy = [{ scheduledAt: 'asc' }, { id: 'desc' }];
+    } else if (query?.sort === 'appointment_desc') {
+      orderBy = [{ scheduledAt: 'desc' }, { id: 'desc' }];
+    } else if (query?.sort === 'oldest_assigned') {
+      orderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
+    } else if (query?.sort === 'updated_desc') {
+      orderBy = [{ updatedAt: 'desc' }, { id: 'desc' }];
+    }
+
+    let statusCondition: Prisma.InspectionAssignmentWhereInput = {};
+    if (query?.status === 'ASSIGNED') {
+      statusCondition = { status: 'ASSIGNED' };
+    } else if (query?.status === 'IN_PROGRESS') {
+      statusCondition = {
+        OR: [
+          { status: { in: ['CONFIRMED', 'RESCHEDULED'] } },
+          { reports: { some: { status: 'DRAFT' } } },
+        ],
+      };
+    } else if (query?.status === 'REWORK_REQUIRED' || query?.status === 'REWORK') {
+      statusCondition = {
+        reports: { some: { status: 'REWORK_REQUIRED' } },
+      };
+    } else if (query?.status === 'REVIEW') {
+      statusCondition = {
+        reports: { some: { status: { in: ['SUBMITTED', 'UNDER_REVIEW'] } } },
+      };
+    } else if (query?.status === 'COMPLETED') {
+      statusCondition = {
+        status: 'COMPLETED',
+      };
+    }
+
+    const searchCondition: Prisma.InspectionAssignmentWhereInput = query?.search?.trim()
+      ? {
+          request: {
+            lead: {
+              OR: [
+                { make: { contains: query.search.trim(), mode: 'insensitive' } },
+                { model: { contains: query.search.trim(), mode: 'insensitive' } },
+                { referenceCode: { contains: query.search.trim(), mode: 'insensitive' } },
+                { registrationNumber: { contains: query.search.trim(), mode: 'insensitive' } },
+                { sellerName: { contains: query.search.trim(), mode: 'insensitive' } },
+                { city: { contains: query.search.trim(), mode: 'insensitive' } },
+              ],
+            },
           },
-      orderBy: { scheduledAt: 'asc' },
+        }
+      : {};
+
+    const baseWhere: Prisma.InspectionAssignmentWhereInput = isElevated
+      ? {
+          OR: [
+            { inspectorId: actor.userId },
+            { status: { in: ['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'] } },
+            { reports: { some: { status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } } } },
+          ],
+        }
+      : {
+          inspectorId: actor.userId,
+          ...(query?.status ? {} : {
+            OR: [
+              { status: { in: ['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'] } },
+              { reports: { some: { inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED', 'SUBMITTED', 'APPROVED'] } } } },
+            ],
+          }),
+        };
+
+    return this.db.inspectionAssignment.findMany({
+      where: {
+        AND: [
+          baseWhere,
+          statusCondition,
+          searchCondition,
+        ],
+      },
+      orderBy,
       select: assignmentDetail,
     });
   }
@@ -485,6 +557,28 @@ export class PrismaInspectionStore {
           details: { revision: report.revision, defectCount: report.defects.length, mediaCount: report.media.length },
         },
       });
+
+      // Notify inspection review queue
+      if (this.notificationService) {
+        const vehicleTitle = `${report.request?.lead?.make || ''} ${report.request?.lead?.model || ''}`.trim() || 'Vehicle';
+        const refCode = report.request?.lead?.referenceCode || id.slice(0, 8);
+        await this.notificationService.dispatchDomainEvent({
+          type: 'INSPECTION_REPORT_SUBMITTED',
+          category: 'INSPECTION',
+          priority: 'NORMAL',
+          recipientRoles: ['INSPECTION_REVIEWER', 'REVIEWER', 'SUPER_ADMIN'],
+          branchId: report.request?.branchId || undefined,
+          title: `Report Submitted: ${vehicleTitle}`,
+          body: `Inspector submitted report revision v${report.revision} for ${vehicleTitle} (${refCode}). Ready for verification.`,
+          actionUrl: `/inspection-review?reportId=${id}`,
+          referenceId: id,
+          entityType: 'InspectionReport',
+          metadata: { targetApp: 'REVIEW', reportId: id, revision: report.revision },
+          emailTemplate: 'inspection-requested-v1',
+          emailSubject: `Inspection Report Submitted for Review: ${vehicleTitle} [${refCode}]`,
+          emailBody: `A completed inspection report revision v${report.revision} has been submitted for ${vehicleTitle} (${refCode}) and is awaiting verification in the review queue.\n\nPlease sign in to the Inspection Review Portal to examine the checklist, defect photos, and digital sign-off.`,
+        }, tx);
+      }
 
       // Once submitted, clean up any local fallback files since media is stored in Cloudinary
       void this.mediaService.cleanupReportLocalMedia(id).catch(err => {
@@ -1367,8 +1461,14 @@ export class PrismaInspectionStore {
     checkRole(actor, operationsRoles);
     const request = await this.db.inspectionRequest.findFirst({
       where: { id: requestId, ...(actor.roles.includes('SUPER_ADMIN') ? {} : { branchId: { in: actor.branchIds } }) },
+      include: { lead: true },
     });
     if (!request || request.status === 'CANCELLED') throw new HttpError(404, 'INSPECTION_REQUEST_NOT_FOUND');
+
+    const previousAssignment = await this.db.inspectionAssignment.findUnique({
+      where: { requestId },
+      select: { id: true, inspectorId: true },
+    });
 
     const inspector = await this.db.employee.findUnique({
       where: { userId: input.inspectorId },
@@ -1423,6 +1523,47 @@ export class PrismaInspectionStore {
           details: { requestId, inspectorId: input.inspectorId, scheduledAt: input.scheduledAt?.toISOString() },
         },
       });
+
+      // Notification Dispatch
+      if (this.notificationService) {
+        const vehicleTitle = `${request.lead?.make || ''} ${request.lead?.model || ''}`.trim() || 'Vehicle';
+        const refCode = request.lead?.referenceCode || requestId.slice(0, 8);
+
+        if (previousAssignment?.inspectorId && previousAssignment.inspectorId !== input.inspectorId) {
+          // Reassignment: notify previous inspector
+          await this.notificationService.dispatchDomainEvent({
+            type: 'INSPECTION_REASSIGNED',
+            category: 'INSPECTION',
+            priority: 'HIGH',
+            recipientUserIds: [previousAssignment.inspectorId],
+            title: `Inspection Reassigned: ${vehicleTitle}`,
+            body: `Inspection assignment for ${vehicleTitle} (${refCode}) has been reassigned to another inspector.`,
+            referenceId: assignment.id,
+            entityType: 'InspectionAssignment',
+            metadata: { targetApp: 'INSPECTOR', requestId, assignmentId: assignment.id },
+            emailTemplate: 'inspection-assigned-v1',
+            emailSubject: `Inspection Assignment Update — ${vehicleTitle} [${refCode}]`,
+            emailBody: `Hello,\n\nThe inspection assignment for ${vehicleTitle} (${refCode}) has been reassigned to another inspector.\n\nV MOTIV Operations`,
+          }, tx);
+        }
+
+        // Notify newly assigned inspector
+        await this.notificationService.dispatchDomainEvent({
+          type: 'INSPECTION_ASSIGNED',
+          category: 'INSPECTION',
+          priority: 'HIGH',
+          recipientUserIds: [input.inspectorId],
+          title: `New Inspection Assigned: ${vehicleTitle}`,
+          body: `You have been assigned to inspect ${vehicleTitle} (${refCode}). Tap to open job details.`,
+          deepLink: `vmotiv://inspections/${assignment.id}`,
+          referenceId: assignment.id,
+          entityType: 'InspectionAssignment',
+          metadata: { targetApp: 'INSPECTOR', requestId, assignmentId: assignment.id },
+          emailTemplate: 'inspection-assigned-v1',
+          emailSubject: `New Inspection Assignment: ${vehicleTitle} [${refCode}]`,
+          emailBody: `Hello,\n\nYou have been assigned a new vehicle inspection:\n\nVehicle: ${vehicleTitle}\nRef Code: ${refCode}\nScheduled: ${input.scheduledAt ? new Date(input.scheduledAt).toLocaleString() : 'Pending confirmation'}\nLocation: ${input.address || 'Doorstep / Hub'}\n\nPlease open the V MOTIV Inspector app to review the assignment checklist.\n\nV MOTIV Operations`,
+        }, tx);
+      }
 
       return assignment;
     });
@@ -1512,16 +1653,46 @@ export class PrismaInspectionStore {
     return actor.roles.includes('SUPER_ADMIN') ? {} : { request: { branchId: { in: actor.branchIds } } };
   }
 
-  async reviewQueue(actor: InspectionActor) {
+  async reviewQueue(
+    actor: InspectionActor,
+    query?: { sort?: string; status?: string; search?: string }
+  ) {
     checkRole(actor, reviewerRoles);
     const isSuperAdmin = actor.roles.includes('SUPER_ADMIN');
+
+    const orderBy: Prisma.InspectionReportOrderByWithRelationInput[] =
+      query?.sort === 'submitted_asc'
+        ? [{ submittedAt: 'asc' }, { id: 'asc' }]
+        : [{ submittedAt: 'desc' }, { id: 'desc' }];
+
+    const statusFilter =
+      query?.status && query.status !== 'ALL'
+        ? [query.status as any]
+        : ['SUBMITTED', 'UNDER_REVIEW'];
+
+    const searchFilter: Prisma.InspectionReportWhereInput = query?.search?.trim()
+      ? {
+          request: {
+            lead: {
+              OR: [
+                { make: { contains: query.search.trim(), mode: 'insensitive' } },
+                { model: { contains: query.search.trim(), mode: 'insensitive' } },
+                { referenceCode: { contains: query.search.trim(), mode: 'insensitive' } },
+                { sellerName: { contains: query.search.trim(), mode: 'insensitive' } },
+              ],
+            },
+          },
+        }
+      : {};
+
     return this.db.inspectionReport.findMany({
       where: {
-        status: { in: ['SUBMITTED', 'UNDER_REVIEW'] },
+        status: { in: statusFilter },
         ...(isSuperAdmin ? {} : { inspectorId: { not: actor.userId } }),
         ...this.reviewScope(actor),
+        ...searchFilter,
       },
-      orderBy: { submittedAt: 'asc' },
+      orderBy,
       select: {
         id: true,
         revision: true,
@@ -1598,7 +1769,7 @@ export class PrismaInspectionStore {
 
     const report = await this.db.inspectionReport.findFirst({
       where: { id, status: 'SUBMITTED', ...this.reviewScope(actor) },
-      include: { answers: true, defects: true, media: true },
+      include: { answers: true, defects: true, media: true, request: { include: { lead: true } } },
     });
 
     if (!report) throw new HttpError(409, 'INSPECTION_REPORT_NOT_REVIEWABLE');
@@ -1697,6 +1868,60 @@ export class PrismaInspectionStore {
           details: { revision: report.revision, nextRevisionId: nextRevisionId ?? null, reason: input.reason },
         },
       });
+
+      // Notification Dispatch on Review Decision
+      if (this.notificationService) {
+        const vehicleTitle = `${report.request?.lead?.make || ''} ${report.request?.lead?.model || ''}`.trim() || 'Vehicle';
+        const refCode = report.request?.lead?.referenceCode || id.slice(0, 8);
+
+        if (input.decision === 'REQUEST_CORRECTION') {
+          await this.notificationService.dispatchDomainEvent({
+            type: 'INSPECTION_REWORK_REQUIRED',
+            category: 'INSPECTION',
+            priority: 'HIGH',
+            recipientUserIds: [report.inspectorId],
+            title: `Corrections Requested: ${vehicleTitle}`,
+            body: `Reviewer feedback requires attention on report revision v${report.revision}: ${input.reason?.trim() || 'Please review notes in app'}.`,
+            deepLink: `vmotiv://inspections/${report.assignmentId}`,
+            referenceId: report.assignmentId,
+            entityType: 'InspectionReport',
+            metadata: { targetApp: 'INSPECTOR', reportId: id, assignmentId: report.assignmentId, revision: report.revision },
+            emailTemplate: 'inspection-rework-v1',
+            emailSubject: `Corrections Required: Inspection Report for ${vehicleTitle} [${refCode}]`,
+            emailBody: `Hello,\n\nThe review team has reviewed your inspection report revision v${report.revision} for ${vehicleTitle} (${refCode}) and requested corrections before approval:\n\nCorrection Notes: ${input.reason?.trim()}\n\nPlease open the V MOTIV Inspector app, review the requested corrections, capture required supplementary evidence, and resubmit.\n\nV MOTIV Review Team`,
+          }, tx);
+        } else if (input.decision === 'APPROVE') {
+          await this.notificationService.dispatchDomainEvent({
+            type: 'INSPECTION_REVIEW_APPROVED',
+            category: 'INSPECTION',
+            priority: 'NORMAL',
+            recipientRoles: ['SALES', 'FINANCE', 'SUPER_ADMIN'],
+            branchId: report.request?.branchId || undefined,
+            title: `Inspection Approved: ${vehicleTitle}`,
+            body: `Inspection report for ${vehicleTitle} (${refCode}) has been certified and approved. Ready for offer generation.`,
+            actionUrl: `/inspection-review?reportId=${id}`,
+            referenceId: id,
+            entityType: 'InspectionReport',
+            metadata: { targetApp: 'SALES', reportId: id },
+            emailTemplate: 'inspection-approved-v1',
+            emailSubject: `Inspection Certified & Approved: ${vehicleTitle} [${refCode}]`,
+            emailBody: `The 180-point vehicle inspection report for ${vehicleTitle} (${refCode}) has been officially certified and approved.\n\nThe certified valuation and condition grade are now available for customer offer finalization.`,
+          }, tx);
+        } else if (input.decision === 'REJECT') {
+          await this.notificationService.dispatchDomainEvent({
+            type: 'INSPECTION_REVIEW_REJECTED',
+            category: 'INSPECTION',
+            priority: 'NORMAL',
+            recipientRoles: ['SALES', 'OPERATIONS', 'SUPER_ADMIN'],
+            branchId: report.request?.branchId || undefined,
+            title: `Inspection Rejected: ${vehicleTitle}`,
+            body: `Inspection report for ${vehicleTitle} (${refCode}) was rejected: ${input.reason?.trim() || 'Criteria not met'}.`,
+            referenceId: id,
+            entityType: 'InspectionReport',
+            metadata: { targetApp: 'OPS', reportId: id },
+          }, tx);
+        }
+      }
 
       return { status, nextRevisionId };
     });

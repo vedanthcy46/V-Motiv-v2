@@ -51,6 +51,13 @@ export const permissionCatalog = {
   'inspection.review.reject': 'Reject a report with a documented reason.',
   'inspection.template.read': 'Read approved inspection templates.',
   'inspection.template.manage': 'Manage controlled inspection template versions.',
+  'finance.portal.access': 'Enter the Finance Control Centre.',
+  'finance.settlement.read': 'Read branch-scoped seller settlement cases and masked financial instructions.',
+  'finance.settlement.prepare': 'Prepare seller payout instructions from verified acquisition settlements.',
+  'finance.payout.approve': 'Independently approve seller payout instructions.',
+  'finance.payout.execute': 'Record a controlled manual payout execution reference.',
+  'finance.payout.verify': 'Independently record financial evidence and verify a payout.',
+  'finance.audit.read': 'Read authorized finance workflow audit events.',
 } as const;
 
 export type PermissionKey = keyof typeof permissionCatalog;
@@ -94,7 +101,7 @@ export const roleCatalog: Record<EmployeeRole, RoleDefinition> = {
   INVENTORY_MANAGER: { name: 'Inventory Manager', description: 'Vehicle custody and inventory workflow.', privileged: false, permissions: [] },
   LISTING_EXECUTIVE: { name: 'Listing Executive', description: 'Listing preparation and publication workflow.', privileged: false, permissions: [] },
   PRICING_APPROVER: { name: 'Pricing Approver', description: 'Independent acquisition and retail pricing authority.', privileged: true, permissions: [] },
-  FINANCE: { name: 'Finance', description: 'Payment verification and reconciliation authority.', privileged: true, permissions: [] },
+  FINANCE: { name: 'Finance Executive', description: 'Prepares and reads branch-scoped financial settlement work. Approval, execution, and verification are separately granted permissions.', privileged: true, permissions: ['finance.portal.access', 'finance.settlement.read', 'finance.settlement.prepare', 'finance.audit.read'] },
 };
 
 type CatalogClient = Pick<PrismaClient, 'permission' | 'role' | 'rolePermission'> | Prisma.TransactionClient;
