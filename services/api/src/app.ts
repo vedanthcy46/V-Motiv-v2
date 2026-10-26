@@ -219,7 +219,6 @@ export function createApp(deps: {
     });
     const adminLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
     app.use('/api/v2', adminLimiter, adminRouter);
-    app.use('/api', adminLimiter, adminRouter);
     app.use('/admin', adminLimiter, adminRouter);
     app.use('/staff', adminLimiter, adminRouter);
   }
