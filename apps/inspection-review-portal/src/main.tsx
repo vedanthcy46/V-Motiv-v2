@@ -98,10 +98,18 @@ const config = {
 
 const configured = Object.values(config).every(val => typeof val === 'string' && val.trim());
 const auth = configured ? (getApps().length ? getAuth(getApp()) : getAuth(initializeApp(config))) : null;
-const base = (import.meta.env.VITE_API_BASE || 'http://localhost:4100/api/v2')
-  .replace('https://vmotiv.in', 'https://api.vmotiv.in')
-  .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
-  .replace(/\/$/, '');
+function resolveApiBase(): string {
+  const env = (import.meta.env.VITE_API_BASE || '').trim();
+  const raw = (env || 'http://localhost:4100/api/v2')
+    .replace('https://vmotiv.in', 'https://api.vmotiv.in')
+    .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
+    .replace(/\/$/, '');
+  if (raw.endsWith('/api/v2') || raw.endsWith('/api/v1')) {
+    return raw;
+  }
+  return `${raw}/api/v2`;
+}
+const base = resolveApiBase();
 
 async function api<T>(user: User, path: string, init: RequestInit = {}) {
   const token = await user.getIdToken();

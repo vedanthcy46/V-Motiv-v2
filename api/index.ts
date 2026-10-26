@@ -72,14 +72,19 @@ export default async function handler(req: any, res: any) {
     appPromise = import('../services/api/dist/vercel.js').then((m) => m.default);
   }
 
-  // Vercel rewrites /api/v1/foo → /api?path=v1%2Ffoo
-  // Reconstruct the proper URL so Express can route it correctly.
-  if (req.query && req.query.path) {
-    const pathValue = Array.isArray(req.query.path) ? req.query.path[0] : req.query.path;
+  // Vercel rewrites: reconstruct proper path and query params for Express
+  if (req.query && req.query.path !== undefined) {
+    const rawPath = (Array.isArray(req.query.path) ? req.query.path[0] : String(req.query.path)).replace(/^\/+/, '');
     const qs = new URLSearchParams(req.query);
     qs.delete('path');
     const qsStr = qs.toString();
-    req.url = '/api/' + pathValue + (qsStr ? `?${qsStr}` : '');
+    req.url = '/' + rawPath + (qsStr ? `?${qsStr}` : '');
+  } else if (req.headers && (req.headers['x-matched-path'] || req.headers['x-forwarded-uri'])) {
+    const matched = String(req.headers['x-matched-path'] || req.headers['x-forwarded-uri']);
+    if (matched && matched !== '/api') {
+      const qs = req.url.includes('?') ? req.url.slice(req.url.indexOf('?')) : '';
+      req.url = (matched.startsWith('/') ? matched : `/${matched}`) + qs;
+    }
   }
 
   try {

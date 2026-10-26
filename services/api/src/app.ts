@@ -170,8 +170,40 @@ export function createApp(deps: {
   };
 
   app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }));
+  if (deps.inspection) {
+    const inspectorRouter = createInspectorRouter({ verify: deps.verify, store: deps.inspection });
+    const inspectionReviewRouter = createInspectionReviewRouter({ verify: deps.verify, store: deps.inspection });
+    const operationsRouter = createOperationsInspectionRouter({ verify: deps.verify, store: deps.inspection });
+    const financeRouter = createFinanceAcquisitionRouter({ verify: deps.verify, store: deps.inspection });
+
+    const standardLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+    const financeLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+
+    app.use('/api/v2/inspector', standardLimiter, inspectorRouter);
+    app.use('/api/inspector', standardLimiter, inspectorRouter);
+    app.use('/inspector', standardLimiter, inspectorRouter);
+
+    app.use('/api/v2/inspection-review', standardLimiter, inspectionReviewRouter);
+    app.use('/api/inspection-review', standardLimiter, inspectionReviewRouter);
+    app.use('/inspection-review', standardLimiter, inspectionReviewRouter);
+
+    app.use('/api/v2/operations', standardLimiter, operationsRouter);
+    app.use('/api/operations', standardLimiter, operationsRouter);
+    app.use('/operations', standardLimiter, operationsRouter);
+
+    app.use('/api/v2/finance', financeLimiter, financeRouter);
+    app.use('/api/finance', financeLimiter, financeRouter);
+    app.use('/finance', financeLimiter, financeRouter);
+  }
+  if (deps.sales) {
+    const salesRouter = createSalesRouter({ verify: deps.verify, store: deps.sales });
+    const salesLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+    app.use('/api/v2/sales', salesLimiter, salesRouter);
+    app.use('/api/sales', salesLimiter, salesRouter);
+    app.use('/sales', salesLimiter, salesRouter);
+  }
   if (deps.admin && deps.adminWebOrigin && deps.revokeTokens) {
-    app.use('/api/v2', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createAdminRouter({
+    const adminRouter = createAdminRouter({
       verify: deps.verify,
       store: deps.admin,
       adminWebOrigin: deps.adminWebOrigin,
@@ -184,14 +216,12 @@ export function createApp(deps: {
       },
       revokeTokens: deps.revokeTokens,
       drainEmails: deps.drainEmails,
-    }));
-  }
-  if (deps.sales) app.use('/api/v2/sales', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createSalesRouter({ verify: deps.verify, store: deps.sales }));
-  if (deps.inspection) {
-    app.use('/api/v2/inspector', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createInspectorRouter({ verify: deps.verify, store: deps.inspection }));
-    app.use('/api/v2/inspection-review', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createInspectionReviewRouter({ verify: deps.verify, store: deps.inspection }));
-    app.use('/api/v2/operations', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createOperationsInspectionRouter({ verify: deps.verify, store: deps.inspection }));
-    app.use('/api/v2/finance', rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }), createFinanceAcquisitionRouter({ verify: deps.verify, store: deps.inspection }));
+    });
+    const adminLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+    app.use('/api/v2', adminLimiter, adminRouter);
+    app.use('/api', adminLimiter, adminRouter);
+    app.use('/admin', adminLimiter, adminRouter);
+    app.use('/staff', adminLimiter, adminRouter);
   }
   // Published inventory is deliberately public. Every account-linked mutation remains below authentication.
   if (deps.customer) {
