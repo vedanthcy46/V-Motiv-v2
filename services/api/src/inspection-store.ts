@@ -134,24 +134,11 @@ export class PrismaInspectionStore {
 
   async start(actor: InspectionActor, id: string) {
     const assignment = await this.assignment(actor, id);
-    if (!['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'].includes(assignment.status)) {
-      throw new HttpError(409, 'INSPECTION_NOT_STARTABLE');
-    }
-
-    const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
 
     return this.db.$transaction(async tx => {
+      // 1. Check if a report already exists for this assignment (whether DRAFT, SUBMITTED, etc.)
       const existing = await tx.inspectionReport.findFirst({
-        where: isElevated
-          ? {
-              assignmentId: id,
-              status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] },
-            }
-          : {
-              assignmentId: id,
-              inspectorId: actor.userId,
-              status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] },
-            },
+        where: { assignmentId: id },
         orderBy: { revision: 'desc' },
         include: {
           answers: true,
@@ -160,8 +147,31 @@ export class PrismaInspectionStore {
         },
       });
 
+      if (existing) {
+        // If this report belongs to the assignment and was reassigned to the current inspector,
+        // synchronize inspectorId on the active draft so the assigned inspector has full ownership
+        if (existing.inspectorId !== actor.userId && ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'].includes(existing.status)) {
+          const updated = await tx.inspectionReport.update({
+            where: { id: existing.id },
+            data: { inspectorId: actor.userId },
+            include: {
+              answers: true,
+              defects: true,
+              media: true,
+            },
+          });
+          return updated;
+        }
+        return existing;
+      }
+
+      // 2. If no report exists yet, ensure the assignment is in a startable status
+      if (!['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'].includes(assignment.status)) {
+        throw new HttpError(409, 'INSPECTION_NOT_STARTABLE');
+      }
+
       const template = currentTemplate();
-      const report = existing || await tx.inspectionReport.create({
+      const report = await tx.inspectionReport.create({
         data: {
           requestId: assignment.request.id,
           assignmentId: id,
@@ -209,7 +219,15 @@ export class PrismaInspectionStore {
     checkRole(actor, inspectorRoles);
     const isElevated = actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN');
     const report = await this.db.inspectionReport.findFirst({
-      where: isElevated ? { id } : { id, inspectorId: actor.userId },
+      where: isElevated
+        ? { id }
+        : {
+            id,
+            OR: [
+              { inspectorId: actor.userId },
+              { assignment: { inspectorId: actor.userId } },
+            ],
+          },
       include: {
         answers: true,
         defects: true,
@@ -247,7 +265,14 @@ export class PrismaInspectionStore {
     const report = await this.db.inspectionReport.findFirst({
       where: isElevated
         ? { id, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } }
-        : { id, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
+        : {
+            id,
+            status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] },
+            OR: [
+              { inspectorId: actor.userId },
+              { assignment: { inspectorId: actor.userId } },
+            ],
+          },
     });
 
     if (!report) throw new HttpError(409, 'INSPECTION_REPORT_NOT_EDITABLE');
@@ -323,7 +348,14 @@ export class PrismaInspectionStore {
     const report = await this.db.inspectionReport.findFirst({
       where: isElevated
         ? { id, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } }
-        : { id, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
+        : {
+            id,
+            status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] },
+            OR: [
+              { inspectorId: actor.userId },
+              { assignment: { inspectorId: actor.userId } },
+            ],
+          },
       include: {
         answers: true,
         defects: true,
@@ -413,7 +445,14 @@ export class PrismaInspectionStore {
     const report = await this.db.inspectionReport.findFirst({
       where: isElevated
         ? { id: reportId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } }
-        : { id: reportId, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
+        : {
+            id: reportId,
+            status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] },
+            OR: [
+              { inspectorId: actor.userId },
+              { assignment: { inspectorId: actor.userId } },
+            ],
+          },
     });
     if (!report) throw new HttpError(409, 'INSPECTION_REPORT_NOT_EDITABLE');
 
@@ -439,7 +478,14 @@ export class PrismaInspectionStore {
     const report = await this.db.inspectionReport.findFirst({
       where: isElevated
         ? { id: reportId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } }
-        : { id: reportId, inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } },
+        : {
+            id: reportId,
+            status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] },
+            OR: [
+              { inspectorId: actor.userId },
+              { assignment: { inspectorId: actor.userId } },
+            ],
+          },
     });
     if (!report) throw new HttpError(409, 'INSPECTION_REPORT_NOT_EDITABLE');
 

@@ -831,6 +831,8 @@ export function InspectorScreen() {
 
   // --- WORKSPACE VIEW (Active Inspection) ---
   if (activeJob && report) {
+    const isReadOnly = ['SUBMITTED', 'APPROVED', 'REJECTED'].includes(report.status);
+
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
         {/* Workspace Top Bar */}
@@ -846,10 +848,25 @@ export function InspectorScreen() {
               {activeJob.request.lead.manufacturingYear} {activeJob.request.lead.make} {activeJob.request.lead.model}
             </Text>
           </View>
-          <Pressable style={styles.btnSmallYellow} onPress={() => void saveDraft()} disabled={busy}>
-            <Text style={styles.btnSmallYellowText}>{busy ? '…' : 'Save Draft'}</Text>
-          </Pressable>
+          {isReadOnly ? (
+            <View style={{ paddingHorizontal: space.sm, paddingVertical: 4, backgroundColor: color.card, borderRadius: radius.sm, borderWidth: 1, borderColor: color.border }}>
+              <Text style={{ color: color.yellow, fontSize: 11, fontWeight: '700' }}>{report.status}</Text>
+            </View>
+          ) : (
+            <Pressable style={styles.btnSmallYellow} onPress={() => void saveDraft()} disabled={busy}>
+              <Text style={styles.btnSmallYellowText}>{busy ? '…' : 'Save Draft'}</Text>
+            </Pressable>
+          )}
         </View>
+
+        {isReadOnly && (
+          <View style={{ backgroundColor: color.raised, paddingVertical: space.xs, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: space.sm, borderBottomWidth: 1, borderColor: color.border }}>
+            <CheckCircle2 size={16} color={color.yellow} />
+            <Text style={{ color: color.white, fontSize: 12, fontWeight: '600', flex: 1 }}>
+              Report {report.status} · Read-only audit view
+            </Text>
+          </View>
+        )}
 
         {/* Tab Navigation Strip */}
         <View style={styles.tabsContainer}>
@@ -1383,25 +1400,35 @@ export function InspectorScreen() {
                 </Text>
               </Pressable>
 
-              <View style={{ gap: space.md, marginTop: space.lg }}>
-                <Pressable
-                  style={[styles.btnPrimary, { backgroundColor: color.raised, borderColor: color.border }]}
-                  onPress={() => void saveDraft()}
-                  disabled={busy}
-                >
-                  <Text style={[styles.btnPrimaryText, { color: color.yellow }]}>
-                    {busy ? 'Saving...' : 'Save Local / Cloud Draft'}
+              {isReadOnly ? (
+                <View style={{ backgroundColor: color.raised, padding: space.md, borderRadius: radius.md, alignItems: 'center', marginTop: space.lg, borderWidth: 1, borderColor: color.border }}>
+                  <CheckCircle2 size={24} color={color.yellow} style={{ marginBottom: space.xs }} />
+                  <Text style={{ color: color.white, fontWeight: '700', fontSize: 15 }}>Evaluation Sealed</Text>
+                  <Text style={{ color: color.muted, fontSize: 13, textAlign: 'center', marginTop: 4 }}>
+                    This report has been submitted to Independent Quality Review and is locked against further modifications.
                   </Text>
-                </Pressable>
+                </View>
+              ) : (
+                <View style={{ gap: space.md, marginTop: space.lg }}>
+                  <Pressable
+                    style={[styles.btnPrimary, { backgroundColor: color.raised, borderColor: color.border }]}
+                    onPress={() => void saveDraft()}
+                    disabled={busy}
+                  >
+                    <Text style={[styles.btnPrimaryText, { color: color.yellow }]}>
+                      {busy ? 'Saving...' : 'Save Local / Cloud Draft'}
+                    </Text>
+                  </Pressable>
 
-                <Pressable
-                  style={[styles.btnPrimary, (!declaration || !regNumber.trim() || !odometerKm.trim()) && { opacity: 0.5 }]}
-                  onPress={() => void submitReport()}
-                  disabled={busy || !declaration || !regNumber.trim() || !odometerKm.trim()}
-                >
-                  <Text style={styles.btnPrimaryText}>Submit for Independent Review</Text>
-                </Pressable>
-              </View>
+                  <Pressable
+                    style={[styles.btnPrimary, (!declaration || !regNumber.trim() || !odometerKm.trim()) && { opacity: 0.5 }]}
+                    onPress={() => void submitReport()}
+                    disabled={busy || !declaration || !regNumber.trim() || !odometerKm.trim()}
+                  >
+                    <Text style={styles.btnPrimaryText}>Submit for Independent Review</Text>
+                  </Pressable>
+                </View>
+              )}
             </View>
           )}
         </ScrollView>
