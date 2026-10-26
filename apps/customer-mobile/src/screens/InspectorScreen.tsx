@@ -45,7 +45,7 @@ import {
 } from 'lucide-react-native';
 import { BrandLogo } from '../components/BrandLogo';
 import { useAuth } from '../auth/AuthProvider';
-import { api } from '../api';
+import { api, resolveRequestUrl } from '../api';
 import { color, radius, space } from '../theme';
 import {
   cachedJobsKey,
@@ -110,6 +110,12 @@ type Report = {
   answers: Array<{ itemKey: string; status: string; value?: unknown; notes?: string }>;
   defects: Array<{ category: string; severity: string; description: string; location?: string }>;
   media?: Array<{ id: string; logicalMediaId: string; storageKey: string; mimeType: string; capturedAt?: string }>;
+  parentReport?: {
+    id: string;
+    revision: number;
+    status: string;
+    reviewDecision?: { decision: string; reason?: string | null; createdAt: string };
+  };
 };
 
 type ChecklistSection = {
@@ -436,12 +442,13 @@ export function InspectorScreen() {
           );
           const slotId = slot ? slot.id : standardPhotoSlots[0]?.id || 'front_full';
           if (!photoMap[slotId]) photoMap[slotId] = [];
+          const imageUri = m.storageKey?.startsWith('http')
+            ? m.storageKey
+            : resolveRequestUrl(`/api/v2/inspector/reports/${activeReport.id}/media/${m.id}/content`);
           photoMap[slotId].push({
             id: m.logicalMediaId || m.id,
             slotId,
-            uri: m.storageKey?.startsWith('http')
-              ? m.storageKey
-              : `/api/v2/inspector/reports/${activeReport.id}/media/${m.id}/content`,
+            uri: imageUri,
             time: m.capturedAt || new Date().toISOString(),
             uploaded: true,
           });
@@ -865,6 +872,16 @@ export function InspectorScreen() {
             <Text style={{ color: color.white, fontSize: 12, fontWeight: '600', flex: 1 }}>
               Report {report.status} · Read-only audit view
             </Text>
+          </View>
+        )}
+
+        {report.parentReport?.reviewDecision?.reason && (
+          <View style={{ backgroundColor: 'rgba(234, 179, 8, 0.12)', borderBottomWidth: 1, borderColor: 'rgba(234, 179, 8, 0.35)', paddingVertical: space.sm, paddingHorizontal: space.md, flexDirection: 'row', alignItems: 'flex-start', gap: space.sm }}>
+            <Info size={16} color={color.yellow} style={{ marginTop: 2 }} />
+            <View style={{ flex: 1, minWidth: 0 }}>
+              <Text style={{ color: color.yellow, fontSize: 12, fontWeight: '700' }}>Reviewer Correction Instructions</Text>
+              <Text style={{ color: color.white, fontSize: 12, marginTop: 2 }}>{report.parentReport.reviewDecision.reason}</Text>
+            </View>
           </View>
         )}
 

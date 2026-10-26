@@ -144,10 +144,41 @@ export class PrismaInspectionStore {
           answers: true,
           defects: true,
           media: true,
+          parentReport: {
+            select: {
+              id: true,
+              revision: true,
+              status: true,
+              reviewDecision: { select: { decision: true, reason: true, createdAt: true } },
+            },
+          },
         },
       });
 
       if (existing) {
+        // If this is a rework revision whose media has not been copied from parent, copy now
+        if (existing.media.length === 0 && existing.parentReportId) {
+          const parentMedia = await tx.inspectionMedia.findMany({
+            where: { reportId: existing.parentReportId },
+          });
+          if (parentMedia.length > 0) {
+            await tx.inspectionMedia.createMany({
+              data: parentMedia.map(m => ({
+                reportId: existing.id,
+                logicalMediaId: m.logicalMediaId,
+                storageKey: m.storageKey,
+                mimeType: m.mimeType,
+                byteSize: m.byteSize,
+                checksumSha256: m.checksumSha256,
+                capturedAt: m.capturedAt,
+              })),
+            });
+            existing.media = await tx.inspectionMedia.findMany({
+              where: { reportId: existing.id },
+            });
+          }
+        }
+
         // If this report belongs to the assignment and was reassigned to the current inspector,
         // synchronize inspectorId on the active draft so the assigned inspector has full ownership
         if (existing.inspectorId !== actor.userId && ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'].includes(existing.status)) {
@@ -158,6 +189,14 @@ export class PrismaInspectionStore {
               answers: true,
               defects: true,
               media: true,
+              parentReport: {
+                select: {
+                  id: true,
+                  revision: true,
+                  status: true,
+                  reviewDecision: { select: { decision: true, reason: true, createdAt: true } },
+                },
+              },
             },
           });
           return updated;
@@ -937,6 +976,16 @@ export class PrismaInspectionStore {
                 severity: defect.severity,
                 description: defect.description,
                 location: defect.location,
+              })),
+            },
+            media: {
+              create: report.media.map(media => ({
+                logicalMediaId: media.logicalMediaId,
+                storageKey: media.storageKey,
+                mimeType: media.mimeType,
+                byteSize: media.byteSize,
+                checksumSha256: media.checksumSha256,
+                capturedAt: media.capturedAt,
               })),
             },
           },
