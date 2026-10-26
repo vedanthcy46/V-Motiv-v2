@@ -445,24 +445,32 @@ function App() {
         const res = await salesApi.allAcquisitionOffers(currentUser, { status: statusFilter || undefined });
         setAcquisitionOffers(res.items);
       } else if (page === 'inventory') {
-        const res = await salesApi.inventory(currentUser, { search });
-        setInventory(res.items);
+        const [invRes, custRes] = await Promise.all([
+          salesApi.inventory(currentUser, { search }),
+          salesApi.customers(currentUser, { limit: 100 }).catch(() => ({ items: [] })),
+        ]);
+        setInventory(invRes.items);
+        if (custRes?.items) setCustomers(custRes.items);
       } else if (page === 'testdrives') {
-        const [tdRes, invRes] = await Promise.all([
+        const [tdRes, invRes, custRes] = await Promise.all([
           salesApi.testDrives(currentUser, { search, status: statusFilter || undefined }),
           salesApi.inventory(currentUser, {}),
+          salesApi.customers(currentUser, { limit: 100 }).catch(() => ({ items: [] })),
         ]);
         setTestDrives(tdRes.items);
         setInventory(invRes.items);
+        if (custRes?.items) setCustomers(custRes.items);
       } else if (page === 'pipeline') {
-        const [quotesRes, reserveRes, invRes] = await Promise.all([
+        const [quotesRes, reserveRes, invRes, custRes] = await Promise.all([
           salesApi.quotations(currentUser, { search, status: statusFilter || undefined }),
           salesApi.reservations(currentUser, {}),
           salesApi.inventory(currentUser, {}),
+          salesApi.customers(currentUser, { limit: 100 }).catch(() => ({ items: [] })),
         ]);
         setQuotations(quotesRes.items);
         setReservations(reserveRes.items);
         setInventory(invRes.items);
+        if (custRes?.items) setCustomers(custRes.items);
       } else if (page === 'tasks') {
         const res = await salesApi.tasks(currentUser, { status: statusFilter || undefined });
         setTasks(res);
@@ -2787,6 +2795,542 @@ function CustomerProfileDrawer({
 }
 
 // ==========================================
+// SUBCOMPONENT: SEARCHABLE CUSTOMER INPUT
+// ==========================================
+function SearchableCustomerInput({
+  user,
+  value,
+  onChange,
+  customers = [],
+  required = true,
+  label = 'Customer ID (UUID) *',
+}: {
+  user: User | null;
+  value: string;
+  onChange: (id: string) => void;
+  customers?: Customer[];
+  required?: boolean;
+  label?: string;
+}) {
+  const [list, setList] = useState<Customer[]>(customers);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (customers.length > 0) {
+      setList(customers);
+    } else if (user) {
+      setLoading(true);
+      salesApi.customers(user, { limit: 100 })
+        .then(res => {
+          if (res?.items) setList(res.items);
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }
+  }, [customers, user]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!search.trim() || !user) return;
+    const timer = setTimeout(() => {
+      salesApi.customers(user, { search: search.trim() })
+        .then(res => {
+          if (res?.items && res.items.length > 0) {
+            setList(prev => {
+              const map = new Map(prev.map(c => [c.id, c]));
+              res.items.forEach(c => map.set(c.id, c));
+              return Array.from(map.values());
+            });
+          }
+        })
+        .catch(() => {});
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search, user]);
+
+  // If value is provided but not in list, fetch customer details
+  useEffect(() => {
+    if (value && user && !list.some(c => c.id === value)) {
+      salesApi.customer(user, value)
+        .then(c => {
+          if (c) {
+            setList(prev => prev.some(item => item.id === c.id) ? prev : [c, ...prev]);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [value, user, list]);
+
+  const selectedCustomer = list.find(c => c.id === value);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return list.slice(0, 10);
+    const q = search.toLowerCase();
+    return list.filter(c =>
+      (c.displayName && c.displayName.toLowerCase().includes(q)) ||
+      (c.email && c.email.toLowerCase().includes(q)) ||
+      (c.phone && c.phone.includes(q)) ||
+      (c.preferredCity && c.preferredCity.toLowerCase().includes(q)) ||
+      c.id.toLowerCase().includes(q)
+    ).slice(0, 15);
+  }, [list, search]);
+
+  const copyId = () => {
+    if (!value) return;
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="form-group full" style={{ marginBottom: '16px' }} ref={containerRef}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+        <label className="form-label" style={{ margin: 0, fontWeight: 600 }}>{label}</label>
+        {value && (
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
+            onClick={copyId}
+          >
+            {copied ? '✓ Copied' : 'Copy UUID'}
+          </button>
+        )}
+      </div>
+
+      {selectedCustomer ? (
+        <div style={{
+          padding: '10px 12px',
+          background: 'rgba(97, 217, 154, 0.08)',
+          border: '1px solid rgba(97, 217, 154, 0.3)',
+          borderRadius: 'var(--radius-sm)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '8px',
+        }}>
+          <div>
+            <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: '0.9rem' }}>
+              {selectedCustomer.displayName || 'Customer'}
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+              {selectedCustomer.email} {selectedCustomer.phone ? `· ${selectedCustomer.phone}` : ''} {selectedCustomer.preferredCity ? `· ${selectedCustomer.preferredCity}` : ''}
+            </div>
+            <div style={{ fontSize: '0.72rem', fontFamily: 'monospace', color: 'var(--blue)', marginTop: '2px' }}>
+              UUID: {selectedCustomer.id}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn-outline btn-sm"
+            style={{ fontSize: '11px', padding: '3px 8px' }}
+            onClick={() => {
+              onChange('');
+              setSearch('');
+              setIsOpen(true);
+            }}
+          >
+            Change
+          </button>
+        </div>
+      ) : null}
+
+      <div style={{ position: 'relative' }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          background: '#06172f',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-sm)',
+          padding: '0 8px',
+        }}>
+          <span style={{ color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', marginRight: '6px', flexShrink: 0 }}>
+            <Icons.Search size={16} />
+          </span>
+          <input
+            type="text"
+            className="form-input"
+            style={{ border: 'none', background: 'transparent', padding: '8px 0', minHeight: 'unset' }}
+            placeholder="Search customer by name, email, phone or UUID..."
+            value={search}
+            onChange={e => {
+              setSearch(e.target.value);
+              setIsOpen(true);
+            }}
+            onFocus={() => setIsOpen(true)}
+          />
+          {search && (
+            <button
+              type="button"
+              style={{ background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer', padding: '4px' }}
+              onClick={() => setSearch('')}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        {isOpen && (
+          <div style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            maxHeight: '220px',
+            overflowY: 'auto',
+            background: '#06172f',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+            zIndex: 100,
+          }}>
+            <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--muted)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between' }}>
+              <span>{loading ? 'Loading registered customers...' : `Registered Customers (${filtered.length})`}</span>
+              <button
+                type="button"
+                style={{ background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '11px' }}
+                onClick={() => setIsOpen(false)}
+              >
+                Close ✕
+              </button>
+            </div>
+            {filtered.map(c => (
+              <div
+                key={c.id}
+                style={{
+                  padding: '8px 10px',
+                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s',
+                  background: c.id === value ? 'rgba(247, 181, 3, 0.12)' : 'transparent',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+                onMouseLeave={e => (e.currentTarget.style.background = c.id === value ? 'rgba(247, 181, 3, 0.12)' : 'transparent')}
+                onClick={() => {
+                  onChange(c.id);
+                  setIsOpen(false);
+                  setSearch('');
+                }}
+              >
+                <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text)' }}>
+                  {c.displayName || 'Customer'}
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
+                  {c.email} {c.phone ? `· ${c.phone}` : ''} {c.preferredCity ? `· ${c.preferredCity}` : ''}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--blue)', fontFamily: 'monospace' }}>
+                  {c.id}
+                </div>
+              </div>
+            ))}
+            {!filtered.length && !loading && (
+              <div style={{ padding: '12px 10px', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
+                No registered customers found. You can enter or paste a direct UUID below.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: '8px' }}>
+        <input
+          required={required}
+          className="form-input font-mono"
+          style={{ fontSize: '0.8rem', padding: '6px 10px', minHeight: 'unset' }}
+          placeholder="Customer ID UUID (e.g. 11111111-1111-4111-8111-111111111111)"
+          value={value}
+          onChange={e => onChange(e.target.value.trim())}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: SEARCHABLE VEHICLE INPUT
+// ==========================================
+function SearchableVehicleInput({
+  user,
+  value,
+  onChange,
+  inventory = [],
+  required = true,
+  label = 'Vehicle Listing ID (UUID) *',
+}: {
+  user: User | null;
+  value: string;
+  onChange: (id: string) => void;
+  inventory?: InventoryItem[];
+  required?: boolean;
+  label?: string;
+}) {
+  const [list, setList] = useState<InventoryItem[]>(inventory);
+  const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [isOpen, setIsOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (inventory.length > 0) {
+      setList(inventory);
+    } else if (user) {
+      setLoading(true);
+      salesApi.inventory(user, {})
+        .then(res => {
+          if (res?.items) setList(res.items);
+        })
+        .catch(() => {})
+        .finally(() => setLoading(false));
+    }
+  }, [inventory, user]);
+
+  useEffect(() => {
+    function handleClickOutside(event: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+        setIsOpen(false);
+      }
+    }
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  useEffect(() => {
+    if (!search.trim() || !user) return;
+    const timer = setTimeout(() => {
+      salesApi.inventory(user, { search: search.trim() })
+        .then(res => {
+          if (res?.items && res.items.length > 0) {
+            setList(prev => {
+              const map = new Map(prev.map(i => [i.id, i]));
+              res.items.forEach(i => map.set(i.id, i));
+              return Array.from(map.values());
+            });
+          }
+        })
+        .catch(() => {});
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search, user]);
+
+  // If value is provided but not in list, try to fetch via inventory search
+  useEffect(() => {
+    if (value && user && !list.some(i => i.id === value)) {
+      salesApi.inventory(user, { search: value })
+        .then(res => {
+          const found = res?.items?.find(i => i.id === value);
+          if (found) {
+            setList(prev => prev.some(item => item.id === found.id) ? prev : [found, ...prev]);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [value, user, list]);
+
+  const selectedVehicle = list.find(i => i.id === value);
+
+  const filtered = useMemo(() => {
+    if (!search.trim()) return list.slice(0, 10);
+    const q = search.toLowerCase();
+    return list.filter(i =>
+      i.title.toLowerCase().includes(q) ||
+      (i.vehicle.city && i.vehicle.city.toLowerCase().includes(q)) ||
+      (i.vehicle.make && i.vehicle.make.toLowerCase().includes(q)) ||
+      (i.vehicle.model && i.vehicle.model.toLowerCase().includes(q)) ||
+      i.id.toLowerCase().includes(q)
+    ).slice(0, 15);
+  }, [list, search]);
+
+  const copyId = () => {
+    if (!value) return;
+    navigator.clipboard.writeText(value);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="form-group full" style={{ marginBottom: '16px' }} ref={containerRef}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '6px' }}>
+        <label className="form-label" style={{ margin: 0, fontWeight: 600 }}>{label}</label>
+        {value && (
+          <button
+            type="button"
+            className="btn-secondary btn-sm"
+            style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
+            onClick={copyId}
+          >
+            {copied ? '✓ Copied' : 'Copy UUID'}
+          </button>
+        )}
+      </div>
+
+      {selectedVehicle ? (
+        <div style={{
+          padding: '10px 12px',
+          background: 'rgba(147, 197, 253, 0.08)',
+          border: '1px solid rgba(147, 197, 253, 0.3)',
+          borderRadius: 'var(--radius-sm)',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '8px',
+        }}>
+          <div>
+            <div style={{ fontWeight: 600, color: 'var(--text)', fontSize: '0.9rem' }}>
+              {selectedVehicle.title}
+            </div>
+            <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+              {formatCurrency(selectedVehicle.pricePaise)} · {selectedVehicle.vehicle.city || 'No city'} · {selectedVehicle.vehicle.fuelType} · {selectedVehicle.status}
+            </div>
+            <div style={{ fontSize: '0.72rem', fontFamily: 'monospace', color: 'var(--blue)', marginTop: '2px' }}>
+              UUID: {selectedVehicle.id}
+            </div>
+          </div>
+          <button
+            type="button"
+            className="btn-outline btn-sm"
+            style={{ fontSize: '11px', padding: '3px 8px' }}
+            onClick={() => {
+              onChange('');
+              setSearch('');
+              setIsOpen(true);
+            }}
+          >
+            Change
+          </button>
+        </div>
+      ) : null}
+
+      <div style={{ position: 'relative' }}>
+        <div style={{
+          display: 'flex',
+          alignItems: 'center',
+          background: '#06172f',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--radius-sm)',
+          padding: '0 8px',
+        }}>
+          <span style={{ color: 'var(--muted)', display: 'inline-flex', alignItems: 'center', marginRight: '6px', flexShrink: 0 }}>
+            <Icons.Search size={16} />
+          </span>
+          <input
+            type="text"
+            className="form-input"
+            style={{ border: 'none', background: 'transparent', padding: '8px 0', minHeight: 'unset' }}
+            placeholder="Search available vehicle by make, model, city, price or UUID..."
+            value={search}
+            onChange={e => {
+              setSearch(e.target.value);
+              setIsOpen(true);
+            }}
+            onFocus={() => setIsOpen(true)}
+          />
+          {search && (
+            <button
+              type="button"
+              style={{ background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'padding', padding: '4px' }}
+              onClick={() => setSearch('')}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+
+        {isOpen && (
+          <div style={{
+            position: 'absolute',
+            top: 'calc(100% + 4px)',
+            left: 0,
+            right: 0,
+            maxHeight: '220px',
+            overflowY: 'auto',
+            background: '#06172f',
+            border: '1px solid var(--border)',
+            borderRadius: 'var(--radius-sm)',
+            boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+            zIndex: 100,
+          }}>
+            <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--muted)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between' }}>
+              <span>{loading ? 'Loading inventory...' : `Available Vehicles (${filtered.length})`}</span>
+              <button
+                type="button"
+                style={{ background: 'transparent', border: 'none', color: 'var(--muted)', cursor: 'pointer', fontSize: '11px' }}
+                onClick={() => setIsOpen(false)}
+              >
+                Close ✕
+              </button>
+            </div>
+            {filtered.map(i => (
+              <div
+                key={i.id}
+                style={{
+                  padding: '8px 10px',
+                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  cursor: 'pointer',
+                  transition: 'background 0.15s',
+                  background: i.id === value ? 'rgba(247, 181, 3, 0.12)' : 'transparent',
+                }}
+                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
+                onMouseLeave={e => (e.currentTarget.style.background = i.id === value ? 'rgba(247, 181, 3, 0.12)' : 'transparent')}
+                onClick={() => {
+                  onChange(i.id);
+                  setIsOpen(false);
+                  setSearch('');
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--text)' }}>
+                    {i.title}
+                  </div>
+                  <div style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--yellow)' }}>
+                    {formatCurrency(i.pricePaise)}
+                  </div>
+                </div>
+                <div style={{ fontSize: '0.78rem', color: 'var(--muted)' }}>
+                  {i.vehicle.manufacturingYear} · {i.vehicle.fuelType} · {i.vehicle.city || 'No city'} · Status: {i.status}
+                </div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--blue)', fontFamily: 'monospace' }}>
+                  {i.id}
+                </div>
+              </div>
+            ))}
+            {!filtered.length && !loading && (
+              <div style={{ padding: '12px 10px', textAlign: 'center', color: 'var(--muted)', fontSize: '0.85rem' }}>
+                No matching vehicle found in inventory. You can enter or paste a direct UUID below.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+
+      <div style={{ marginTop: '8px' }}>
+        <input
+          required={required}
+          className="form-input font-mono"
+          style={{ fontSize: '0.8rem', padding: '6px 10px', minHeight: 'unset' }}
+          placeholder="Vehicle Listing ID UUID (e.g. 11111111-1111-4111-8111-111111111111)"
+          value={value}
+          onChange={e => onChange(e.target.value.trim())}
+        />
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
 // SUBCOMPONENT: CREATE QUOTATION MODAL
 // ==========================================
 function CreateQuotationModal({
@@ -2808,8 +3352,6 @@ function CreateQuotationModal({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [copiedListing, setCopiedListing] = useState(false);
-  const [copiedCustomer, setCopiedCustomer] = useState(false);
   const [form, setForm] = useState({
     listingId: initialListingId || inventory[0]?.id || '',
     customerId: initialCustomerId || customers[0]?.id || '',
@@ -2858,84 +3400,20 @@ function CreateQuotationModal({
           <div className="modal-body">
             {error && <div className="error-banner">{error}</div>}
             <div className="form-grid">
-              {inventory.length > 0 && (
-                <div className="form-group full">
-                  <label className="form-label">Pick Available Vehicle from Inventory</label>
-                  <select
-                    className="form-select"
-                    value={inventory.some(i => i.id === form.listingId) ? form.listingId : ''}
-                    onChange={e => {
-                      if (e.target.value) setForm({ ...form, listingId: e.target.value });
-                    }}
-                  >
-                    <option value="">-- Choose from Inventory Stock ({inventory.length} vehicles) --</option>
-                    {inventory.map(i => (
-                      <option key={i.id} value={i.id}>
-                        {i.title} — {formatCurrency(i.pricePaise)} ({i.vehicle.city || 'No city'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="form-group full">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label">Vehicle Listing ID (UUID) *</label>
-                  {form.listingId && (
-                    <button
-                      type="button"
-                      className="btn-secondary btn-sm"
-                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(form.listingId);
-                        setCopiedListing(true);
-                        setTimeout(() => setCopiedListing(false), 2000);
-                      }}
-                    >
-                      {copiedListing ? '✓ Copied' : 'Copy'}
-                    </button>
-                  )}
-                </div>
-                <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
-              </div>
-              {customers.length > 0 && (
-                <div className="form-group full">
-                  <label className="form-label">Pick Registered Customer</label>
-                  <select
-                    className="form-select"
-                    value={customers.some(c => c.id === form.customerId) ? form.customerId : ''}
-                    onChange={e => {
-                      if (e.target.value) setForm({ ...form, customerId: e.target.value });
-                    }}
-                  >
-                    <option value="">-- Choose from Directory --</option>
-                    {customers.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.displayName || 'Customer'} — {c.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="form-group full">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label">Customer ID (UUID) *</label>
-                  {form.customerId && (
-                    <button
-                      type="button"
-                      className="btn-secondary btn-sm"
-                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(form.customerId);
-                        setCopiedCustomer(true);
-                        setTimeout(() => setCopiedCustomer(false), 2000);
-                      }}
-                    >
-                      {copiedCustomer ? '✓ Copied' : 'Copy'}
-                    </button>
-                  )}
-                </div>
-                <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
-              </div>
+              <SearchableVehicleInput
+                user={user}
+                value={form.listingId}
+                onChange={id => setForm(f => ({ ...f, listingId: id }))}
+                inventory={inventory}
+                required
+              />
+              <SearchableCustomerInput
+                user={user}
+                value={form.customerId}
+                onChange={id => setForm(f => ({ ...f, customerId: id }))}
+                customers={customers}
+                required
+              />
               <div className="form-group">
                 <label className="form-label">Add-on Charges (RTO / Ins) ₹</label>
                 <input className="form-input" value={form.chargesRupees} onChange={e => setForm({ ...form, chargesRupees: e.target.value })} />
@@ -3086,8 +3564,6 @@ function ScheduleTestDriveModal({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [copiedListing, setCopiedListing] = useState(false);
-  const [copiedCustomer, setCopiedCustomer] = useState(false);
   const [form, setForm] = useState({
     listingId: initialListingId || inventory[0]?.id || '',
     customerId: initialCustomerId || customers[0]?.id || '',
@@ -3133,84 +3609,20 @@ function ScheduleTestDriveModal({
           <div className="modal-body">
             {error && <div className="error-banner">{error}</div>}
             <div className="form-grid">
-              {inventory.length > 0 && (
-                <div className="form-group full">
-                  <label className="form-label">Pick Available Vehicle from Inventory</label>
-                  <select
-                    className="form-select"
-                    value={inventory.some(i => i.id === form.listingId) ? form.listingId : ''}
-                    onChange={e => {
-                      if (e.target.value) setForm({ ...form, listingId: e.target.value });
-                    }}
-                  >
-                    <option value="">-- Choose from Inventory Stock ({inventory.length} vehicles) --</option>
-                    {inventory.map(i => (
-                      <option key={i.id} value={i.id}>
-                        {i.title} — {formatCurrency(i.pricePaise)} ({i.vehicle.city || 'No city'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="form-group full">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label">Vehicle Listing ID (UUID) *</label>
-                  {form.listingId && (
-                    <button
-                      type="button"
-                      className="btn-secondary btn-sm"
-                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(form.listingId);
-                        setCopiedListing(true);
-                        setTimeout(() => setCopiedListing(false), 2000);
-                      }}
-                    >
-                      {copiedListing ? '✓ Copied' : 'Copy'}
-                    </button>
-                  )}
-                </div>
-                <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
-              </div>
-              {customers.length > 0 && (
-                <div className="form-group full">
-                  <label className="form-label">Pick Registered Customer</label>
-                  <select
-                    className="form-select"
-                    value={customers.some(c => c.id === form.customerId) ? form.customerId : ''}
-                    onChange={e => {
-                      if (e.target.value) setForm({ ...form, customerId: e.target.value });
-                    }}
-                  >
-                    <option value="">-- Choose from Directory --</option>
-                    {customers.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.displayName || 'Customer'} — {c.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="form-group full">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label">Customer ID (UUID) *</label>
-                  {form.customerId && (
-                    <button
-                      type="button"
-                      className="btn-secondary btn-sm"
-                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(form.customerId);
-                        setCopiedCustomer(true);
-                        setTimeout(() => setCopiedCustomer(false), 2000);
-                      }}
-                    >
-                      {copiedCustomer ? '✓ Copied' : 'Copy'}
-                    </button>
-                  )}
-                </div>
-                <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
-              </div>
+              <SearchableVehicleInput
+                user={user}
+                value={form.listingId}
+                onChange={id => setForm(f => ({ ...f, listingId: id }))}
+                inventory={inventory}
+                required
+              />
+              <SearchableCustomerInput
+                user={user}
+                value={form.customerId}
+                onChange={id => setForm(f => ({ ...f, customerId: id }))}
+                customers={customers}
+                required
+              />
               <div className="form-group">
                 <label className="form-label">Appointment Date *</label>
                 <input required type="date" className="form-input" value={form.requestedDate} onChange={e => setForm({ ...form, requestedDate: e.target.value })} />
@@ -3261,8 +3673,6 @@ function RequestReservationModal({
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
-  const [copiedListing, setCopiedListing] = useState(false);
-  const [copiedCustomer, setCopiedCustomer] = useState(false);
   const [form, setForm] = useState({
     listingId: initialListingId || inventory[0]?.id || '',
     customerId: initialCustomerId || customers[0]?.id || '',
@@ -3307,84 +3717,20 @@ function RequestReservationModal({
           <div className="modal-body">
             {error && <div className="error-banner">{error}</div>}
             <div className="form-grid">
-              {inventory.length > 0 && (
-                <div className="form-group full">
-                  <label className="form-label">Pick Available Vehicle from Inventory</label>
-                  <select
-                    className="form-select"
-                    value={inventory.some(i => i.id === form.listingId) ? form.listingId : ''}
-                    onChange={e => {
-                      if (e.target.value) setForm({ ...form, listingId: e.target.value });
-                    }}
-                  >
-                    <option value="">-- Choose from Inventory Stock ({inventory.length} vehicles) --</option>
-                    {inventory.map(i => (
-                      <option key={i.id} value={i.id}>
-                        {i.title} — {formatCurrency(i.pricePaise)} ({i.vehicle.city || 'No city'})
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="form-group full">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label">Vehicle Listing ID (UUID) *</label>
-                  {form.listingId && (
-                    <button
-                      type="button"
-                      className="btn-secondary btn-sm"
-                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(form.listingId);
-                        setCopiedListing(true);
-                        setTimeout(() => setCopiedListing(false), 2000);
-                      }}
-                    >
-                      {copiedListing ? '✓ Copied' : 'Copy'}
-                    </button>
-                  )}
-                </div>
-                <input required className="form-input font-mono" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })} />
-              </div>
-              {customers.length > 0 && (
-                <div className="form-group full">
-                  <label className="form-label">Pick Registered Customer</label>
-                  <select
-                    className="form-select"
-                    value={customers.some(c => c.id === form.customerId) ? form.customerId : ''}
-                    onChange={e => {
-                      if (e.target.value) setForm({ ...form, customerId: e.target.value });
-                    }}
-                  >
-                    <option value="">-- Choose from Directory --</option>
-                    {customers.map(c => (
-                      <option key={c.id} value={c.id}>
-                        {c.displayName || 'Customer'} — {c.email}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              <div className="form-group full">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <label className="form-label">Customer ID (UUID) *</label>
-                  {form.customerId && (
-                    <button
-                      type="button"
-                      className="btn-secondary btn-sm"
-                      style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
-                      onClick={() => {
-                        navigator.clipboard.writeText(form.customerId);
-                        setCopiedCustomer(true);
-                        setTimeout(() => setCopiedCustomer(false), 2000);
-                      }}
-                    >
-                      {copiedCustomer ? '✓ Copied' : 'Copy'}
-                    </button>
-                  )}
-                </div>
-                <input required className="form-input font-mono" value={form.customerId} onChange={e => setForm({ ...form, customerId: e.target.value })} />
-              </div>
+              <SearchableVehicleInput
+                user={user}
+                value={form.listingId}
+                onChange={id => setForm(f => ({ ...f, listingId: id }))}
+                inventory={inventory}
+                required
+              />
+              <SearchableCustomerInput
+                user={user}
+                value={form.customerId}
+                onChange={id => setForm(f => ({ ...f, customerId: id }))}
+                customers={customers}
+                required
+              />
               <div className="form-group">
                 <label className="form-label">Hold Window (Hours)</label>
                 <input type="number" className="form-input" value={form.hours} onChange={e => setForm({ ...form, hours: Number(e.target.value) })} />
@@ -3468,16 +3814,16 @@ function ReleaseReservationModal({
             {error && <div className="error-banner">{error}</div>}
 
             <div style={{
-              background: 'rgba(239, 68, 68, 0.08)',
-              border: '1px solid rgba(239, 68, 68, 0.25)',
+              background: 'rgba(239, 68, 68, 0.12)',
+              border: '1px solid rgba(239, 68, 68, 0.35)',
               borderRadius: '8px',
               padding: '14px',
               marginBottom: '16px'
             }}>
-              <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#b91c1c', marginBottom: '4px' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#f87171', marginBottom: '4px' }}>
                 Unreserve & Return to Available Stock
               </div>
-              <p style={{ margin: 0, fontSize: '0.85rem', color: '#4b5563' }}>
+              <p style={{ margin: 0, fontSize: '0.85rem', color: 'rgba(234, 240, 248, 0.85)' }}>
                 Releasing this reservation will mark it as <strong>RELEASED</strong> and restore the vehicle's status to <strong>PUBLISHED</strong>. It will be immediately available for new quotes, test drives, and bookings.
               </p>
             </div>
@@ -3490,7 +3836,12 @@ function ReleaseReservationModal({
                   className="form-input"
                   value={vehicleTitle}
                   disabled
-                  style={{ background: '#f3f4f6', fontWeight: 600 }}
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    color: 'var(--text, #eaf0f8)',
+                    border: '1px solid var(--border)',
+                    fontWeight: 600,
+                  }}
                 />
               </div>
 
@@ -3502,7 +3853,11 @@ function ReleaseReservationModal({
                     className="form-input"
                     value={customerName}
                     disabled
-                    style={{ background: '#f3f4f6' }}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      color: 'var(--text, #eaf0f8)',
+                      border: '1px solid var(--border)',
+                    }}
                   />
                 </div>
               )}
@@ -3515,7 +3870,11 @@ function ReleaseReservationModal({
                     className="form-input"
                     value={formatDate(expiresAt)}
                     disabled
-                    style={{ background: '#f3f4f6' }}
+                    style={{
+                      background: 'rgba(255, 255, 255, 0.05)',
+                      color: 'var(--text, #eaf0f8)',
+                      border: '1px solid var(--border)',
+                    }}
                   />
                 </div>
               )}
@@ -3569,7 +3928,6 @@ function CommunicationsView({
   const [error, setError] = useState('');
   const [customerId, setCustomerId] = useState(initialCustomerId || customers[0]?.id || '');
   const [template, setTemplate] = useState('ENQUIRY_ACK');
-  const [copied, setCopied] = useState(false);
 
   useEffect(() => {
     if (initialCustomerId) {
@@ -3578,13 +3936,6 @@ function CommunicationsView({
       setCustomerId(customers[0].id);
     }
   }, [initialCustomerId, customers]);
-
-  const copyId = () => {
-    if (!customerId) return;
-    navigator.clipboard.writeText(customerId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
 
   const templates = [
     { key: 'ENQUIRY_ACK', label: 'Enquiry Acknowledgment' },
@@ -3631,52 +3982,15 @@ function CommunicationsView({
           {status && <div className="badge badge-green" style={{ display: 'block', padding: '10px', marginBottom: '14px' }}>{status}</div>}
           {error && <div className="error-banner">{error}</div>}
 
-          {/* Quick Customer Picker Dropdown */}
-          {customers.length > 0 && (
-            <div className="form-group" style={{ marginBottom: '14px' }}>
-              <label className="form-label">Pick Registered Customer</label>
-              <select
-                className="form-select"
-                value={customers.some(c => c.id === customerId) ? customerId : ''}
-                onChange={e => {
-                  if (e.target.value) setCustomerId(e.target.value);
-                }}
-              >
-                <option value="">-- Choose from Customer Directory ({customers.length} registered) --</option>
-                {customers.map(c => (
-                  <option key={c.id} value={c.id}>
-                    {c.displayName || 'Customer'} — {c.email} {c.phone ? `(${c.phone})` : ''}
-                  </option>
-                ))}
-              </select>
-            </div>
-          )}
-
-          <div className="form-group" style={{ marginBottom: '14px' }}>
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <label className="form-label">Customer ID (UUID) *</label>
-              {customerId && (
-                <button
-                  type="button"
-                  className="btn-secondary btn-sm"
-                  style={{ padding: '2px 8px', fontSize: '11px', minHeight: 'unset' }}
-                  onClick={copyId}
-                >
-                  {copied ? '✓ Copied' : 'Copy'}
-                </button>
-              )}
-            </div>
-            <input
-              required
-              className="form-input font-mono"
-              placeholder="e.g. 123e4567-e89b-12d3-a456-426614174000"
-              value={customerId}
-              onChange={e => setCustomerId(e.target.value)}
-            />
-            <span className="caption text-muted" style={{ display: 'block', marginTop: '6px', fontSize: '12px' }}>
-              Tip: You can select a customer from the dropdown above, or copy their UUID from <strong>Customers CRM</strong>, <strong>Customer 360 Profile</strong>, or <strong>Buyer Leads</strong>.
-            </span>
-          </div>
+          {/* Searchable Customer Input */}
+          <SearchableCustomerInput
+            user={user}
+            value={customerId}
+            onChange={id => setCustomerId(id)}
+            customers={customers}
+            required
+            label="Target Customer (Search by name, email, phone or UUID) *"
+          />
 
           <div className="form-group" style={{ marginBottom: '18px' }}>
             <label className="form-label">Approved Template *</label>
