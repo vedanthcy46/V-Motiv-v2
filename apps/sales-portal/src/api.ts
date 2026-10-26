@@ -65,12 +65,37 @@ export type Actor = {
 };
 
 export type DashboardData = {
-  sellerFunnel: Record<string, number>;
-  buyerFunnel: Record<string, number>;
+  pipeline?: {
+    submitted: number;
+    qualifying: number;
+    inspectionScheduled: number;
+    offerPending: number;
+    offered: number;
+    accepted: number;
+  };
+  buyerPipeline?: {
+    received: number;
+    inReview: number;
+    contacted: number;
+    closed: number;
+  };
+  workQueue?: {
+    tasksDueToday: number;
+    tasksOverdue: number;
+    upcomingTestDrives: number;
+    activeReservations: number;
+    eligibleInventory: number;
+  };
+  sellerFunnel?: Record<string, number>;
+  buyerFunnel?: Record<string, number>;
   tasksDueToday: number;
+  tasksOverdue?: number;
   upcomingTestDrives: number;
   unassignedCount: number;
   openOffersCount: number;
+  pendingValuationsCount?: number;
+  pendingDiscountsCount?: number;
+  pendingReviewCount?: number;
   generatedAt: string;
 };
 
@@ -79,6 +104,7 @@ export type NotificationData = {
   overdueTasks: Array<{ id: string; type: string; details: string; dueAt: string; lead?: { referenceCode: string } }>;
   pendingTestDrives: Array<{ id: string; requestedDate: string; timeSlot: string; user: { displayName: string | null }; listing: { title: string } }>;
   pendingDiscounts?: Array<{ id: string; quotationId: string; vehicleTitle: string; customerName: string; requestedDiscountPaise: string; createdAt: string }>;
+  pendingOfferReviews?: Array<{ id: string; leadId: string; referenceCode: string; vehicleTitle: string; sellerName: string; city: string; recommendedPurchasePaise: string; createdAt: string }>;
   sentQuotations?: Array<{ id: string; quotationNumber: string; vehicleTitle: string; customerName: string; finalPricePaise: string; validUntil: string }>;
   totalUnread: number;
 };
@@ -300,12 +326,100 @@ export type Quotation = {
   discounts?: Array<{
     id: string;
     requestedDiscountPaise: string;
+    proposedPricePaise?: string;
     reason: string;
     status: string;
     decisionNotes: string | null;
-    reviewedAt: string | null;
+    decidedAt?: string | null;
+    reviewedAt?: string | null;
     reviewer?: { user: { displayName: string | null } } | null;
+    decidedBy?: { user: { displayName: string | null } } | null;
   }>;
+  latestDiscountRequest?: {
+    id: string;
+    requestedDiscountPaise: string;
+    proposedPricePaise: string;
+    reason: string;
+    status: string;
+    decisionNotes: string | null;
+    decidedAt: string | null;
+    decidedBy?: { displayName: string | null } | null;
+  } | null;
+};
+
+export type ReviewItem = {
+  id: string;
+  type: 'VALUATION_OFFER' | 'QUOTATION_DISCOUNT';
+  referenceId: string;
+  referenceCode: string;
+  title: string;
+  partyName: string;
+  amountPaise: string;
+  status: string;
+  decisionNotes?: string | null;
+  decidedBy?: string | null;
+  decidedAt: string;
+};
+
+export type ReviewRequestsData = {
+  pendingValuations: Array<{
+    id: string;
+    leadId: string;
+    referenceCode: string;
+    vehicleTitle: string;
+    sellerName: string;
+    sellerPhone: string;
+    recommendedPurchasePaise: string;
+    expectedResalePaise: string;
+    notes?: string | null;
+    status: string;
+    requestedBy: string;
+    createdAt: string;
+  }>;
+  pendingDiscounts: Array<{
+    id: string;
+    quotationId: string;
+    quotationNumber: string;
+    vehicleTitle: string;
+    customerName: string;
+    requestedDiscountPaise: string;
+    proposedPricePaise: string;
+    reason: string;
+    status: string;
+    requestedBy: string;
+    createdAt: string;
+  }>;
+  recentDecisions: ReviewItem[];
+};
+
+export type ValuationItem = {
+  id: string;
+  leadId: string;
+  version: number;
+  inspectionReportId: string;
+  expectedResalePaise: string;
+  refurbishmentPaise: string;
+  otherCostsPaise: string;
+  requiredMarginPaise: string;
+  recommendedPurchasePaise: string;
+  notes?: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  approvedAt?: string | null;
+  lead?: {
+    id: string;
+    referenceCode: string;
+    make: string;
+    model: string;
+    manufacturingYear: number;
+    city: string;
+    sellerName: string;
+    sellerPhone: string;
+    expectedPricePaise?: string | null;
+  };
+  createdBy?: { user: { displayName: string | null; email: string } } | null;
+  approvedBy?: { user: { displayName: string | null; email: string } } | null;
 };
 
 export type QuotationPage = {
@@ -488,15 +602,21 @@ export const salesApi = {
       requests: unknown[];
     }>(user, `/seller-leads/${leadId}/inspection-summary`),
 
-  // Offers
+  // Offers & Valuations
   allAcquisitionOffers: (user: User, params: { page?: number; limit?: number; status?: string } = {}) =>
     call<{ items: AcquisitionOfferItem[]; total: number; page: number; totalPages: number }>(user, `/acquisition-offers?${query(params)}`),
   getAcquisitionOffers: (user: User, leadId: string) =>
     call<Array<{ id: string; offerAmountPaise: string; status: string; validUntil: string; terms: string | null; createdAt: string }>>(user, `/seller-leads/${leadId}/offers`),
-  proposeAcquisitionOffer: (user: User, leadId: string, input: { offerAmountPaise: string; validUntil: string; terms?: string }) =>
-    call<{ id: string; status: string }>(user, `/seller-leads/${leadId}/offers`, { method: 'POST', body: JSON.stringify(input) }),
+  proposeAcquisitionOffer: (user: User, leadId: string, input: { valuationId?: string; offerAmountPaise: string; validUntil?: string; terms?: string; reason?: string }) =>
+    call<{ id: string; status: string; message?: string }>(user, `/seller-leads/${leadId}/offers`, { method: 'POST', body: JSON.stringify(input) }),
   recordOfferResponse: (user: User, leadId: string, offerId: string, input: { decision: 'ACCEPTED' | 'DECLINED'; declineReason?: string }) =>
     call<{ id: string; status: string }>(user, `/seller-leads/${leadId}/offers/${offerId}/decision`, { method: 'POST', body: JSON.stringify(input) }),
+  getValuations: (user: User, leadId: string) =>
+    call<ValuationItem[]>(user, `/seller-leads/${leadId}/valuations`),
+  allValuations: (user: User, params: { page?: number; limit?: number; status?: string } = {}) =>
+    call<{ items: ValuationItem[]; total: number; page: number; totalPages: number }>(user, `/valuations?${query(params)}`),
+  reviewRequests: (user: User) =>
+    call<ReviewRequestsData>(user, '/review-requests'),
 
   // Buyer Leads
   buyerLeads: (user: User, params: { page?: number; limit?: number; search?: string; status?: string } = {}) =>

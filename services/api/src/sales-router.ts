@@ -58,7 +58,7 @@ const interactionInput = z.object({
 const taskInput = z.object({
   type: z.enum(['CALL', 'EMAIL', 'MEETING', 'INSPECTION_COORDINATION', 'TEST_DRIVE_FOLLOW_UP', 'QUOTATION_FOLLOW_UP', 'DOCUMENT_FOLLOW_UP']),
   priority: z.enum(['LOW', 'NORMAL', 'HIGH', 'URGENT']).default('NORMAL'),
-  dueAt: z.string().datetime().transform(value => new Date(value)),
+  dueAt: z.string().datetime().transform(v => new Date(v)),
   details: z.string().trim().min(2).max(2_000),
   expectedOutcome: z.string().trim().min(2).max(500).optional(),
 }).strict();
@@ -89,11 +89,16 @@ const acquisitionOfferQuery = pagination.extend({
   status: z.enum(['OFFERED', 'ACCEPTED', 'DECLINED', 'EXPIRED']).optional(),
 }).strip();
 
+const valuationQuery = pagination.extend({
+  status: z.enum(['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'REJECTED', 'SUPERSEDED']).optional(),
+}).strip();
+
 const offerInput = z.object({
-  valuationId: uuid,
+  valuationId: uuid.optional(),
   offerAmountPaise: z.coerce.bigint().positive(),
-  validUntil: z.string().datetime().transform(value => new Date(value)),
+  validUntil: z.string().datetime().optional().transform(value => value ? new Date(value) : undefined),
   terms: z.string().trim().max(1000).optional(),
+  reason: z.string().trim().max(1000).optional(),
 }).strict();
 const valuationInput = z.object({ inspectionReportId: uuid, expectedResalePaise: z.coerce.bigint().positive(), refurbishmentPaise: z.coerce.bigint().min(0n).optional(), otherCostsPaise: z.coerce.bigint().min(0n).optional(), requiredMarginPaise: z.coerce.bigint().min(0n).optional(), recommendedPurchasePaise: z.coerce.bigint().positive(), notes: z.string().trim().max(2_000).optional() }).strict();
 const valuationDecisionInput = z.object({ version: z.number().int().positive(), decision: z.enum(['APPROVE', 'REJECT']), reason: z.string().trim().max(1_000).optional() }).strict();
@@ -122,7 +127,7 @@ const testDriveQuery = pagination.extend({
 const createTestDriveInput = z.object({
   listingId: uuid,
   customerId: uuid,
-  requestedDate: z.string().date().transform(v => new Date(`${v}T00:00:00.000Z`)),
+  requestedDate: z.string().date().optional().transform(v => v ? new Date(`${v}T00:00:00.000Z`) : undefined),
   timeSlot: z.string().trim().min(2).max(80),
   locationPreference: z.enum(['HUB', 'HOME']).optional(),
   serviceCity: z.string().trim().max(80).optional(),
@@ -147,7 +152,7 @@ const createQuotationInput = z.object({
   chargesPaise: z.coerce.bigint().min(0n).optional(),
   chargeBreakdown: z.record(z.string(), z.unknown()).optional(),
   discountPaise: z.coerce.bigint().min(0n).optional(),
-  validUntil: z.string().datetime().transform(v => new Date(v)),
+  validUntil: z.string().datetime().optional().transform(v => v ? new Date(v) : undefined),
   terms: z.string().trim().max(1000).optional(),
 }).strict();
 
@@ -170,7 +175,7 @@ const requestReservationInput = z.object({
   customerId: uuid,
   quotationId: uuid.optional(),
   enquiryId: uuid.optional(),
-  expiresAt: z.string().datetime().transform(v => new Date(v)),
+  expiresAt: z.string().datetime().optional().transform(v => v ? new Date(v) : undefined),
   notes: z.string().trim().max(500).optional(),
 }).strict();
 
@@ -227,6 +232,8 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   router.get('/seller-leads/:id/valuations', async (req, res) => res.json(await deps.store.valuations(res.locals.salesActor, uuid.parse(req.params.id))));
   router.post('/seller-leads/:id/valuations', async (req, res) => res.status(201).json(await deps.store.createValuation(res.locals.salesActor, uuid.parse(req.params.id), valuationInput.parse(req.body))));
   router.post('/seller-leads/:id/valuations/:valuationId/decision', async (req, res) => res.json(await deps.store.decideValuation(res.locals.salesActor, uuid.parse(req.params.id), uuid.parse(req.params.valuationId), valuationDecisionInput.parse(req.body))));
+  router.get('/valuations', async (req, res) => res.json(await deps.store.allValuations(res.locals.salesActor, valuationQuery.parse(req.query))));
+  router.get('/review-requests', async (_req, res) => res.json(await deps.store.reviewRequests(res.locals.salesActor)));
 
   // Acquisition offers
   router.get('/acquisition-offers', async (req, res) => res.json(await deps.store.acquisitionOffers(res.locals.salesActor, acquisitionOfferQuery.parse(req.query))));

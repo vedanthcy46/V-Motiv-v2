@@ -84,7 +84,7 @@ const handoverInput = z.object({
   branchId: uuid.optional(),
   status: z.enum(['SCHEDULED', 'RECEIVED', 'DISPUTED', 'REJECTED']),
   location: z.string().trim().min(3).max(500),
-  observedAt: z.string().datetime().transform(value => new Date(value)),
+  observedAt: z.string().datetime().optional().transform(value => value ? new Date(value) : new Date()),
   registrationNumber: z.string().trim().min(3).max(32).optional(),
   odometerKm: z.number().int().min(0).max(2_000_000).optional(),
   mainKeysReceived: z.number().int().min(0).max(10).optional(),

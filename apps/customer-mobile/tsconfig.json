@@ -6,5 +6,6 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vitest/globals"]
   },
-  "include": ["**/*.ts", "**/*.tsx"]
+  "include": ["**/*.ts", "**/*.tsx"],
+  "exclude": ["node_modules"]
 }

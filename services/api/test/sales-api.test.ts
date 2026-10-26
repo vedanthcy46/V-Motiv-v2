@@ -151,6 +151,11 @@ function setup(options: { actorError?: Error } = {}) {
       approvedInspection: null,
       requests: [],
     }),
+    valuations: vi.fn().mockResolvedValue([]),
+    allValuations: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, totalPages: 1 }),
+    reviewRequests: vi.fn().mockResolvedValue({ pendingValuations: [], pendingDiscounts: [], recentDecisions: [] }),
+    createValuation: vi.fn().mockResolvedValue({ id: 'val-1', status: 'PENDING_APPROVAL' }),
+    decideValuation: vi.fn().mockResolvedValue({ id: 'val-1', status: 'APPROVED' }),
     acquisitionOffers: vi.fn().mockResolvedValue({ items: [], total: 0, page: 1, totalPages: 1 }),
     getAcquisitionOffers: vi.fn().mockResolvedValue([]),
     proposeAcquisitionOffer: vi.fn().mockResolvedValue({
@@ -318,7 +323,6 @@ function setup(options: { actorError?: Error } = {}) {
     store: identity,
     webOrigin: 'http://localhost:3100',
     adminWebOrigin: 'http://localhost:3200',
-    salesWebOrigin: 'http://localhost:3300',
     sales,
   });
 

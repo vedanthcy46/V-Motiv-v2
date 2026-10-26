@@ -447,7 +447,7 @@ export class PrismaAdminStore implements AdminStore {
       if (request.requestType === 'PRIVILEGED_EMPLOYEE_INVITATION') requirePermission(actor, 'role.assign.privileged');
       else if (request.requestType === 'POLICY_VERSION') requirePermission(actor, 'policy.approve');
       else if (request.requestType === 'SENSITIVE_EXPORT_PROPOSAL') requirePermission(actor, 'export.sensitive.approve');
-      else if (request.requestType === 'DISCOUNT_REQUEST') requirePermission(actor, 'approval.decide');
+      else if (request.requestType === 'DISCOUNT_REQUEST' || request.requestType === 'OFFER_REQUEST' || request.requestType === 'ACQUISITION_VALUATION') requirePermission(actor, 'approval.decide');
       else throw new HttpError(400, 'APPROVAL_TYPE_NOT_SUPPORTED');
       if (request.requesterId === actor.userId && !actor.roles.includes('SUPER_ADMIN')) throw new HttpError(409, 'SELF_APPROVAL_DENIED');
       if (request.status !== 'PENDING' || request.decision) throw new HttpError(409, 'APPROVAL_NOT_PENDING');
@@ -470,6 +470,28 @@ export class PrismaAdminStore implements AdminStore {
             await tx.discountRequest.update({
               where: { id: discountId },
               data: { status: 'REJECTED', decisionNotes: input.reason, decidedById: actor.userId, decidedAt: new Date() },
+            });
+          }
+        }
+        if (request.requestType === 'OFFER_REQUEST' || request.requestType === 'ACQUISITION_VALUATION') {
+          const valuationId = (request.payload as any)?.valuationId;
+          const leadId = (request.payload as any)?.leadId;
+          if (valuationId) {
+            await tx.acquisitionValuation.update({
+              where: { id: valuationId },
+              data: {
+                status: 'REJECTED',
+                approvedById: actor.userId,
+                approvedAt: new Date(),
+                notes: input.reason ? `Rejection reason: ${input.reason}` : undefined,
+                version: { increment: 1 },
+              },
+            });
+          }
+          if (leadId) {
+            await tx.acquisitionLead.update({
+              where: { id: leadId },
+              data: { status: 'OFFER_PENDING' },
             });
           }
         }
@@ -511,6 +533,58 @@ export class PrismaAdminStore implements AdminStore {
         await tx.approvalRequest.update({ where: { id }, data: { status: 'APPROVED', executedAt: new Date() } });
         await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'DISCOUNT_REQUEST_APPROVED_AND_EXECUTED', entityType: 'BuyerQuotation', entityId: discountReq.quotationId, details: { discountRequestId: discountReq.id, amount: discountReq.requestedDiscountPaise.toString() } } });
         return { stale: false, value: { id, status: 'APPROVED', discountRequestId: discountReq.id } } as const;
+      }
+      if (request.requestType === 'OFFER_REQUEST' || request.requestType === 'ACQUISITION_VALUATION') {
+        const payload = request.payload as Record<string, any>;
+        const valuation = await tx.acquisitionValuation.findUnique({
+          where: { id: payload.valuationId },
+          include: { lead: true },
+        });
+        if (!valuation) {
+          await tx.approvalRequest.update({ where: { id }, data: { status: 'STALE' } });
+          return { stale: true, code: 'APPROVAL_STALE' } as const;
+        }
+
+        await tx.acquisitionValuation.update({
+          where: { id: valuation.id },
+          data: {
+            status: 'APPROVED',
+            approvedById: actor.userId,
+            approvedAt: new Date(),
+            version: { increment: 1 },
+          },
+        });
+
+        let offerId: string | undefined;
+        if (valuation.leadId) {
+          const latestOffer = await tx.acquisitionOffer.findFirst({
+            where: { leadId: valuation.leadId },
+            orderBy: { version: 'desc' },
+            select: { version: true },
+          });
+          const nextVersion = (latestOffer?.version || 0) + 1;
+          const offer = await tx.acquisitionOffer.create({
+            data: {
+              leadId: valuation.leadId,
+              valuationId: valuation.id,
+              offerAmountPaise: valuation.recommendedPurchasePaise,
+              validUntil: new Date(Date.now() + 7 * 86400000),
+              terms: payload.terms || 'Authorized purchase valuation approved by administration. Valid for 7 days.',
+              status: 'OFFERED',
+              version: nextVersion,
+            },
+          });
+          offerId = offer.id;
+          await tx.acquisitionLead.update({
+            where: { id: valuation.leadId },
+            data: { status: 'OFFERED' },
+          });
+        }
+
+        await tx.approvalDecision.create({ data: { requestId: id, actorId: actor.userId, decision: 'APPROVE', reason: input.reason, requestVersion: request.version } });
+        await tx.approvalRequest.update({ where: { id }, data: { status: 'APPROVED', executedAt: new Date() } });
+        await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'OFFER_REQUEST_APPROVED_AND_EXECUTED', entityType: 'AcquisitionValuation', entityId: valuation.id, details: { valuationId: valuation.id, amount: valuation.recommendedPurchasePaise.toString(), offerId } } });
+        return { stale: false, value: { id, status: 'APPROVED', valuationId: valuation.id, offerId } } as const;
       }
       if (request.requestType === 'SENSITIVE_EXPORT_PROPOSAL') {
         const exportJob = await tx.exportJob.findUnique({ where: { approvalRequestId: id } });

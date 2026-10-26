@@ -2452,7 +2452,7 @@ function SupportCaseDialog({ user, actor, supportCase, onClose, onDone }: { user
 function ApprovalsPage({ user, actor }: { user: User; actor: AdminActor }) {
   const [data, setData] = useState<ApprovalPage | null>(null); const [error, setError] = useState(''); const [page, setPage] = useState(1); const [status, setStatus] = useState('PENDING'); const [selected, setSelected] = useState<Approval | null>(null); const [reload, setReload] = useState(0);
   useEffect(() => { setError(''); adminApi.approvals(user, page, status || undefined).then(setData).catch(error => setError(errorMessage(error))); }, [user, page, status, reload]);
-  return <><PageHeader eyebrow="Independent review" title="Approval Centre" description="Privileged access changes are proposed by a maker and executed once only after an eligible independent decision."/><section className="panel filters" aria-label="Approval filters"><label>Status<select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}><option value="">All statuses</option><option>PENDING</option><option>APPROVED</option><option>REJECTED</option><option>EXPIRED</option><option>STALE</option></select></label></section>{error ? <ErrorState message={error} retry={() => setReload(value => value + 1)}/> : !data ? <TableSkeleton/> : <section className="panel table-panel"><div className="panel-heading"><div><h2>Approval inbox</h2><p>{data.total.toLocaleString()} visible request{data.total === 1 ? '' : 's'}</p></div></div>{data.items.length ? <div className="table-scroll"><table><thead><tr><th>Request</th><th>Requester</th><th>Created</th><th>Status</th><th><span className="sr-only">Review</span></th></tr></thead><tbody>{data.items.map(item => <tr key={item.id}><td><strong>{humanize(item.requestType)}</strong><span>{item.payload.vehicleTitle ? `${item.payload.vehicleTitle} (₹${(Number(item.payload.requestedDiscountPaise || 0) / 100).toLocaleString('en-IN')})` : (item.payload.fullName || item.payload.email || item.id)}</span></td><td>{item.requester.user.displayName || item.requester.user.email}<small>{item.requester.user.email}</small></td><td><time>{new Date(item.createdAt).toLocaleString()}</time><small>Expires {new Date(item.expiresAt).toLocaleString()}</small></td><td><StatusBadge value={item.status}/></td><td><button className="text-button" onClick={() => setSelected(item)}>{actor.permissions.includes('approval.decide') && item.status === 'PENDING' ? 'Review' : 'View'}</button></td></tr>)}</tbody></table></div> : <EmptyState title="No approval requests" text="There are no requests in this filter and within your branch scope."/>}<Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/></section>}{selected && <ApprovalDialog user={user} actor={actor} approval={selected} onClose={() => setSelected(null)} onDone={() => { setSelected(null); setReload(value => value + 1); }}/>}</>;
+  return <><PageHeader eyebrow="Independent review" title="Approval Centre" description="Privileged access changes are proposed by a maker and executed once only after an eligible independent decision."/><section className="panel filters" aria-label="Approval filters"><label>Status<select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}><option value="">All statuses</option><option>PENDING</option><option>APPROVED</option><option>REJECTED</option><option>EXPIRED</option><option>STALE</option></select></label></section>{error ? <ErrorState message={error} retry={() => setReload(value => value + 1)}/> : !data ? <TableSkeleton/> : <section className="panel table-panel"><div className="panel-heading"><div><h2>Approval inbox</h2><p>{data.total.toLocaleString()} visible request{data.total === 1 ? '' : 's'}</p></div></div>{data.items.length ? <div className="table-scroll"><table><thead><tr><th>Request</th><th>Requester</th><th>Created</th><th>Status</th><th><span className="sr-only">Review</span></th></tr></thead><tbody>{data.items.map(item => <tr key={item.id}><td><strong>{humanize(item.requestType)}</strong><span>{item.payload.vehicleTitle ? `${item.payload.vehicleTitle} (₹${(Number(item.payload.requestedDiscountPaise || item.payload.recommendedPurchasePaise || 0) / 100).toLocaleString('en-IN')})` : (item.payload.fullName || item.payload.email || item.id)}</span></td><td>{item.requester.user.displayName || item.requester.user.email}<small>{item.requester.user.email}</small></td><td><time>{new Date(item.createdAt).toLocaleString()}</time><small>Expires {new Date(item.expiresAt).toLocaleString()}</small></td><td><StatusBadge value={item.status}/></td><td><button className="text-button" onClick={() => setSelected(item)}>{actor.permissions.includes('approval.decide') && item.status === 'PENDING' ? 'Review' : 'View'}</button></td></tr>)}</tbody></table></div> : <EmptyState title="No approval requests" text="There are no requests in this filter and within your branch scope."/>}<Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/></section>}{selected && <ApprovalDialog user={user} actor={actor} approval={selected} onClose={() => setSelected(null)} onDone={() => { setSelected(null); setReload(value => value + 1); }}/>}</>;
 }
 
 function ApprovalDialog({ user, actor, approval, onClose, onDone }: { user: User; actor: AdminActor; approval: Approval; onClose: () => void; onDone: () => void }) {
@@ -2498,7 +2498,30 @@ function ApprovalDialog({ user, actor, approval, onClose, onDone }: { user: User
             <dt>Requester</dt>
             <dd>{approval.requester.user.displayName || approval.requester.user.email}<small>{approval.requester.user.email}</small></dd>
           </div>
-          {approval.requestType === 'DISCOUNT_REQUEST' ? (
+          {approval.requestType === 'OFFER_REQUEST' || approval.requestType === 'ACQUISITION_VALUATION' ? (
+            <>
+              <div>
+                <dt>Vehicle & Opportunity</dt>
+                <dd>{String(approval.payload.vehicleTitle || 'Vehicle')}<small>Ref: {String(approval.payload.referenceCode || 'N/A')} · {String(approval.payload.city || 'Hub')}</small></dd>
+              </div>
+              <div>
+                <dt>Seller Details</dt>
+                <dd>{String(approval.payload.sellerName || 'Seller')}<small>{String(approval.payload.sellerPhone || 'No phone')}</small></dd>
+              </div>
+              <div>
+                <dt>Proposed Purchase Price</dt>
+                <dd style={{ color: 'var(--color-primary, #f7b503)', fontWeight: 700, fontSize: '1.1rem' }}>
+                  ₹{(Number(approval.payload.recommendedPurchasePaise || 0) / 100).toLocaleString('en-IN')}
+                </dd>
+              </div>
+              <div>
+                <dt>Seller Ask / Expected Value</dt>
+                <dd style={{ fontWeight: 600 }}>
+                  ₹{(Number(approval.payload.expectedResalePaise || 0) / 100).toLocaleString('en-IN')}
+                </dd>
+              </div>
+            </>
+          ) : approval.requestType === 'DISCOUNT_REQUEST' ? (
             <>
               <div>
                 <dt>Vehicle</dt>

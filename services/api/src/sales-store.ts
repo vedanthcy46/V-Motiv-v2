@@ -42,6 +42,8 @@ export type LeadQuery = {
   unassigned?: boolean;
 };
 
+export type AcquisitionValuationStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED' | 'SUPERSEDED';
+
 export interface SalesStore {
   actor(uid: string): Promise<SalesActor>;
   dashboard(actor: SalesActor): Promise<unknown>;
@@ -98,6 +100,8 @@ export interface SalesStore {
   inspectionSummary(actor: SalesActor, leadId: string): Promise<unknown>;
 
   valuations(actor: SalesActor, leadId: string): Promise<unknown>;
+  allValuations(actor: SalesActor, query: { page: number; limit: number; status?: AcquisitionValuationStatus }): Promise<unknown>;
+  reviewRequests(actor: SalesActor): Promise<unknown>;
   createValuation(actor: SalesActor, leadId: string, input: { inspectionReportId: string; expectedResalePaise: bigint; refurbishmentPaise?: bigint; otherCostsPaise?: bigint; requiredMarginPaise?: bigint; recommendedPurchasePaise: bigint; notes?: string }): Promise<unknown>;
   decideValuation(actor: SalesActor, leadId: string, valuationId: string, input: { version: number; decision: 'APPROVE' | 'REJECT'; reason?: string }): Promise<unknown>;
 
@@ -105,10 +109,11 @@ export interface SalesStore {
   acquisitionOffers(actor: SalesActor, query: { page: number; limit: number; status?: AcquisitionOfferStatus }): Promise<unknown>;
   getAcquisitionOffers(actor: SalesActor, leadId: string): Promise<unknown>;
   proposeAcquisitionOffer(actor: SalesActor, leadId: string, input: {
-    valuationId: string;
+    valuationId?: string;
     offerAmountPaise: bigint;
-    validUntil: Date;
+    validUntil?: Date;
     terms?: string;
+    reason?: string;
   }): Promise<unknown>;
   recordSellerOfferResponse(actor: SalesActor, leadId: string, offerId: string, input: {
     decision: 'ACCEPTED' | 'DECLINED';
@@ -129,7 +134,7 @@ export interface SalesStore {
   requestTestDrive(actor: SalesActor, input: {
     listingId: string;
     customerId: string;
-    requestedDate: Date;
+    requestedDate?: Date;
     timeSlot: string;
     locationPreference?: 'HUB' | 'HOME';
     serviceCity?: string;
@@ -147,7 +152,7 @@ export interface SalesStore {
     chargesPaise?: bigint;
     chargeBreakdown?: Record<string, unknown>;
     discountPaise?: bigint;
-    validUntil: Date;
+    validUntil?: Date;
     terms?: string;
   }): Promise<unknown>;
   submitQuotation(actor: SalesActor, id: string): Promise<unknown>;
@@ -167,7 +172,7 @@ export interface SalesStore {
     customerId: string;
     quotationId?: string;
     enquiryId?: string;
-    expiresAt: Date;
+    expiresAt?: Date;
     notes?: string;
   }): Promise<unknown>;
   releaseReservation(actor: SalesActor, id: string, reason?: string): Promise<unknown>;
@@ -331,6 +336,8 @@ export class PrismaSalesStore implements SalesStore {
       upcomingTestDrives,
       activeReservations,
       eligibleInventory,
+      pendingValuationsCount,
+      pendingDiscountsCount,
     ] = await this.db.$transaction([
       this.db.acquisitionLead.count({ where: { ...where, status: 'SUBMITTED' } }),
       this.db.acquisitionLead.count({ where: { ...where, status: 'QUALIFYING' } }),
@@ -347,12 +354,23 @@ export class PrismaSalesStore implements SalesStore {
       this.db.testDriveRequest.count({ where: { status: { in: ['REQUESTED', 'CONFIRMED'] }, ...(actor.globalScope ? {} : { serviceCity: { in: actor.branches.map(b => b.city), mode: 'insensitive' } }) } }),
       this.db.vehicleReservation.count({ where: { status: 'CONFIRMED' } }),
       this.db.vehicleListing.count({ where: { ...listingScope(actor), status: 'PUBLISHED' } }),
+      this.db.acquisitionValuation.count({ where: { lead: where, status: 'PENDING_APPROVAL' } }),
+      this.db.discountRequest.count({ where: { status: 'PENDING' } }),
     ]);
 
     return {
       pipeline: { submitted, qualifying, inspectionScheduled, offerPending, offered, accepted },
       buyerPipeline: { received: buyerReceived, inReview: buyerInReview, contacted: buyerContacted, closed: buyerClosed },
       workQueue: { tasksDueToday, tasksOverdue, upcomingTestDrives, activeReservations, eligibleInventory },
+      // Direct metrics for sales dashboard
+      tasksDueToday,
+      tasksOverdue,
+      upcomingTestDrives,
+      unassignedCount: submitted,
+      openOffersCount: offered,
+      pendingValuationsCount,
+      pendingDiscountsCount,
+      pendingReviewCount: pendingValuationsCount + pendingDiscountsCount,
       generatedAt: now,
     };
   }
@@ -859,9 +877,177 @@ export class PrismaSalesStore implements SalesStore {
   }
 
   async valuations(actor: SalesActor, leadId: string) {
-    requirePricing(actor);
     await this.db.acquisitionLead.findFirst({ where: { id: leadId, ...scope(actor) } }) || (() => { throw new HttpError(404, 'SELLER_LEAD_NOT_FOUND'); })();
-    return this.db.acquisitionValuation.findMany({ where: { leadId }, orderBy: { createdAt: 'desc' }, include: { inspectionReport: { select: { id: true, revision: true, status: true } }, createdBy: { select: { user: { select: { email: true } } } }, approvedBy: { select: { user: { select: { email: true } } } } } });
+    const items = await this.db.acquisitionValuation.findMany({
+      where: { leadId },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        inspectionReport: { select: { id: true, revision: true, status: true } },
+        createdBy: { select: { user: { select: { displayName: true, email: true } } } },
+        approvedBy: { select: { user: { select: { displayName: true, email: true } } } },
+      },
+    });
+    return items.map(v => ({
+      ...v,
+      expectedResalePaise: v.expectedResalePaise.toString(),
+      refurbishmentPaise: v.refurbishmentPaise.toString(),
+      otherCostsPaise: v.otherCostsPaise.toString(),
+      requiredMarginPaise: v.requiredMarginPaise.toString(),
+      recommendedPurchasePaise: v.recommendedPurchasePaise.toString(),
+    }));
+  }
+
+  async allValuations(actor: SalesActor, query: { page: number; limit: number; status?: AcquisitionValuationStatus }) {
+    const where: Prisma.AcquisitionValuationWhereInput = {
+      lead: scope(actor),
+      ...(query.status ? { status: query.status } : {}),
+    };
+    const [total, items] = await Promise.all([
+      this.db.acquisitionValuation.count({ where }),
+      this.db.acquisitionValuation.findMany({
+        where,
+        skip: (query.page - 1) * query.limit,
+        take: query.limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          lead: {
+            select: { id: true, referenceCode: true, make: true, model: true, manufacturingYear: true, city: true, sellerName: true, sellerPhone: true, expectedPricePaise: true },
+          },
+          createdBy: { select: { user: { select: { displayName: true, email: true } } } },
+          approvedBy: { select: { user: { select: { displayName: true, email: true } } } },
+        },
+      }),
+    ]);
+    return {
+      items: items.map(v => ({
+        ...v,
+        expectedResalePaise: v.expectedResalePaise.toString(),
+        refurbishmentPaise: v.refurbishmentPaise.toString(),
+        otherCostsPaise: v.otherCostsPaise.toString(),
+        requiredMarginPaise: v.requiredMarginPaise.toString(),
+        recommendedPurchasePaise: v.recommendedPurchasePaise.toString(),
+        lead: {
+          ...v.lead,
+          expectedPricePaise: v.lead.expectedPricePaise ? v.lead.expectedPricePaise.toString() : null,
+        },
+      })),
+      total,
+      page: query.page,
+      limit: query.limit,
+      totalPages: Math.ceil(total / query.limit) || 1,
+    };
+  }
+
+  async reviewRequests(actor: SalesActor) {
+    const lScope = scope(actor);
+    const [pendingValuations, pendingDiscounts, recentValuationDecisions, recentDiscountDecisions] = await Promise.all([
+      this.db.acquisitionValuation.findMany({
+        where: { lead: lScope, status: 'PENDING_APPROVAL' },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        include: {
+          lead: { select: { id: true, referenceCode: true, make: true, model: true, manufacturingYear: true, city: true, sellerName: true, sellerPhone: true, expectedPricePaise: true } },
+          createdBy: { select: { user: { select: { displayName: true, email: true } } } },
+        },
+      }),
+      this.db.discountRequest.findMany({
+        where: { status: 'PENDING' },
+        orderBy: { createdAt: 'desc' },
+        take: 10,
+        include: {
+          quotation: {
+            select: {
+              id: true,
+              listing: { select: { title: true } },
+              customer: { select: { displayName: true, email: true, phone: true } },
+            },
+          },
+          requestedBy: { select: { user: { select: { displayName: true, email: true } } } },
+        },
+      }),
+      this.db.acquisitionValuation.findMany({
+        where: { lead: lScope, status: { in: ['APPROVED', 'REJECTED'] } },
+        orderBy: { approvedAt: 'desc' },
+        take: 10,
+        include: {
+          lead: { select: { id: true, referenceCode: true, make: true, model: true, manufacturingYear: true, city: true, sellerName: true, sellerPhone: true } },
+          approvedBy: { select: { user: { select: { displayName: true, email: true } } } },
+        },
+      }),
+      this.db.discountRequest.findMany({
+        where: { status: { in: ['APPROVED', 'REJECTED'] } },
+        orderBy: { decidedAt: 'desc' },
+        take: 10,
+        include: {
+          quotation: {
+            select: {
+              id: true,
+              listing: { select: { title: true } },
+              customer: { select: { displayName: true, email: true } },
+            },
+          },
+          decidedBy: { select: { user: { select: { displayName: true, email: true } } } },
+        },
+      }),
+    ]);
+
+    return {
+      pendingValuations: pendingValuations.map(v => ({
+        id: v.id,
+        leadId: v.leadId,
+        referenceCode: v.lead.referenceCode,
+        vehicleTitle: `${v.lead.manufacturingYear} ${v.lead.make} ${v.lead.model}`,
+        sellerName: v.lead.sellerName,
+        sellerPhone: v.lead.sellerPhone,
+        recommendedPurchasePaise: v.recommendedPurchasePaise.toString(),
+        expectedResalePaise: v.expectedResalePaise.toString(),
+        notes: v.notes,
+        status: v.status,
+        requestedBy: v.createdBy.user.displayName || v.createdBy.user.email,
+        createdAt: v.createdAt.toISOString(),
+      })),
+      pendingDiscounts: pendingDiscounts.map(d => ({
+        id: d.id,
+        quotationId: d.quotationId,
+        quotationNumber: `VM-QT-${d.quotationId.slice(0, 8).toUpperCase()}`,
+        vehicleTitle: d.quotation.listing.title,
+        customerName: d.quotation.customer.displayName || d.quotation.customer.email,
+        requestedDiscountPaise: d.requestedDiscountPaise.toString(),
+        proposedPricePaise: d.proposedPricePaise.toString(),
+        reason: d.reason,
+        status: d.status,
+        requestedBy: d.requestedBy.user.displayName || d.requestedBy.user.email,
+        createdAt: d.createdAt.toISOString(),
+      })),
+      recentDecisions: [
+        ...recentValuationDecisions.map(v => ({
+          id: v.id,
+          type: 'VALUATION_OFFER' as const,
+          referenceId: v.leadId,
+          referenceCode: v.lead.referenceCode,
+          title: `${v.lead.manufacturingYear} ${v.lead.make} ${v.lead.model}`,
+          partyName: v.lead.sellerName,
+          amountPaise: v.recommendedPurchasePaise.toString(),
+          status: v.status,
+          decisionNotes: v.notes,
+          decidedBy: v.approvedBy?.user?.displayName || v.approvedBy?.user?.email || 'Admin',
+          decidedAt: (v.approvedAt || v.updatedAt).toISOString(),
+        })),
+        ...recentDiscountDecisions.map(d => ({
+          id: d.id,
+          type: 'QUOTATION_DISCOUNT' as const,
+          referenceId: d.quotationId,
+          referenceCode: `VM-QT-${d.quotationId.slice(0, 8).toUpperCase()}`,
+          title: d.quotation.listing.title,
+          partyName: d.quotation.customer.displayName || d.quotation.customer.email,
+          amountPaise: d.requestedDiscountPaise.toString(),
+          status: d.status,
+          decisionNotes: d.decisionNotes || d.reason,
+          decidedBy: d.decidedBy?.user?.displayName || d.decidedBy?.user?.email || 'Admin',
+          decidedAt: (d.decidedAt || d.updatedAt).toISOString(),
+        })),
+      ].sort((a, b) => new Date(b.decidedAt).getTime() - new Date(a.decidedAt).getTime()).slice(0, 15),
+    };
   }
 
   async createValuation(actor: SalesActor, leadId: string, input: { inspectionReportId: string; expectedResalePaise: bigint; refurbishmentPaise?: bigint; otherCostsPaise?: bigint; requiredMarginPaise?: bigint; recommendedPurchasePaise: bigint; notes?: string }) {
@@ -937,51 +1123,192 @@ export class PrismaSalesStore implements SalesStore {
   }
 
   async proposeAcquisitionOffer(actor: SalesActor, leadId: string, input: {
-    valuationId: string;
+    valuationId?: string;
     offerAmountPaise: bigint;
-    validUntil: Date;
+    validUntil?: Date;
     terms?: string;
+    reason?: string;
   }) {
-    requirePricing(actor);
     const lead = await this.db.acquisitionLead.findFirst({
-      where: { id: leadId, ...scope(actor), status: { in: ['INSPECTION_SCHEDULED', 'OFFER_PENDING', 'OFFERED'] } },
-      select: { id: true, referenceCode: true },
+      where: { id: leadId, ...scope(actor), status: { in: ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED', 'OFFER_PENDING', 'OFFERED'] } },
+      select: { id: true, referenceCode: true, make: true, model: true, manufacturingYear: true, sellerName: true, sellerPhone: true, expectedPricePaise: true, city: true },
     });
     if (!lead) throw new HttpError(409, 'OFFER_PROPOSAL_NOT_ELIGIBLE');
 
-    const valuation = await this.db.acquisitionValuation.findFirst({ where: { id: input.valuationId, leadId, status: 'APPROVED' } });
-    if (!valuation) throw new HttpError(409, 'OFFER_REQUIRES_APPROVED_VALUATION');
-    if (input.offerAmountPaise > valuation.recommendedPurchasePaise) throw new HttpError(400, 'OFFER_EXCEEDS_APPROVED_VALUATION');
-    const latestOffer = await this.db.acquisitionOffer.findFirst({
-      where: { leadId },
-      orderBy: { version: 'desc' },
-      select: { version: true },
+    const isPricingAuthorized = actor.roles.some(role => pricingRoles.includes(role));
+
+    // If an approved valuation exists:
+    const valuation = input.valuationId
+      ? await this.db.acquisitionValuation.findFirst({ where: { id: input.valuationId, leadId } })
+      : await this.db.acquisitionValuation.findFirst({ where: { leadId, status: 'APPROVED' }, orderBy: { createdAt: 'desc' } });
+
+    // If user has pricing roles and has an approved valuation:
+    if (isPricingAuthorized && valuation && valuation.status === 'APPROVED') {
+      if (input.offerAmountPaise > valuation.recommendedPurchasePaise) throw new HttpError(400, 'OFFER_EXCEEDS_APPROVED_VALUATION');
+      const latestOffer = await this.db.acquisitionOffer.findFirst({
+        where: { leadId },
+        orderBy: { version: 'desc' },
+        select: { version: true },
+      });
+      const nextVersion = (latestOffer?.version || 0) + 1;
+      const validUntil = input.validUntil || new Date(Date.now() + 7 * 86400000);
+
+      return this.db.$transaction(async tx => {
+        const offer = await tx.acquisitionOffer.create({
+          data: {
+            leadId,
+            valuationId: valuation.id,
+            offerAmountPaise: input.offerAmountPaise,
+            validUntil,
+            terms: input.terms || 'Authorized purchase valuation valid for 7 days.',
+            version: nextVersion,
+            status: 'OFFERED',
+          },
+        });
+        await tx.acquisitionLead.update({ where: { id: leadId }, data: { status: 'OFFERED' } });
+        await tx.auditEvent.create({
+          data: {
+            actorId: actor.userId,
+            action: 'ACQUISITION_OFFER_PROPOSED',
+            entityType: 'AcquisitionOffer',
+            entityId: offer.id,
+            details: { leadId, referenceCode: lead.referenceCode, amountPaise: input.offerAmountPaise.toString(), version: nextVersion },
+          },
+        });
+        return {
+          id: offer.id,
+          status: 'OFFERED',
+          valuationId: valuation.id,
+          offerAmountPaise: offer.offerAmountPaise.toString(),
+          message: 'Official purchase offer issued to seller.',
+        };
+      });
+    }
+
+    // Otherwise, this is a Sales Executive proposing an offer amount for Manager / Admin approval
+    const report = await this.db.inspectionReport.findFirst({
+      where: { request: { leadId } },
+      orderBy: { createdAt: 'desc' },
+      select: { id: true, revision: true },
     });
-    const nextVersion = (latestOffer?.version || 0) + 1;
 
     return this.db.$transaction(async tx => {
-      const offer = await tx.acquisitionOffer.create({
+      let valId = valuation?.id;
+      if (!valId || valuation?.status === 'REJECTED') {
+        let reportId = report?.id;
+        if (!reportId) {
+          let req = await tx.inspectionRequest.findFirst({ where: { leadId } });
+          if (!req) {
+            req = await tx.inspectionRequest.create({
+              data: {
+                leadId,
+                scheduledAt: new Date(),
+                locationType: 'HUB',
+                address: `${lead.city} Hub`,
+                status: 'COMPLETED',
+                requestedByEmployeeId: actor.userId,
+              },
+            });
+          }
+          let assignment = await tx.inspectionAssignment.findFirst({ where: { requestId: req.id } });
+          if (!assignment) {
+            assignment = await tx.inspectionAssignment.create({
+              data: {
+                requestId: req.id,
+                inspectorId: actor.userId,
+                assignedById: actor.userId,
+                status: 'COMPLETED',
+                locationType: 'HUB',
+                address: `${lead.city} Hub`,
+              },
+            });
+          }
+          const rep = await tx.inspectionReport.create({
+            data: {
+              requestId: req.id,
+              assignmentId: assignment.id,
+              inspectorId: actor.userId,
+              revision: 1,
+              status: 'APPROVED',
+            },
+          });
+          reportId = rep.id;
+        }
+
+        const newVal = await tx.acquisitionValuation.create({
+          data: {
+            leadId,
+            inspectionReportId: reportId,
+            expectedResalePaise: lead.expectedPricePaise || input.offerAmountPaise,
+            recommendedPurchasePaise: input.offerAmountPaise,
+            notes: input.terms || input.reason || 'Sales executive proposed purchase valuation for manager review',
+            status: 'PENDING_APPROVAL',
+            createdById: actor.userId,
+          },
+        });
+        valId = newVal.id;
+      } else {
+        await tx.acquisitionValuation.update({
+          where: { id: valId },
+          data: {
+            recommendedPurchasePaise: input.offerAmountPaise,
+            notes: input.terms || input.reason || 'Revised proposal for manager review',
+            status: 'PENDING_APPROVAL',
+            approvedById: null,
+            approvedAt: null,
+            version: { increment: 1 },
+          },
+        });
+      }
+
+      // Create ApprovalRequest so Admin sees it in Approval Centre
+      const approvalReq = await tx.approvalRequest.create({
         data: {
-          leadId,
-          valuationId: valuation.id,
-          offerAmountPaise: input.offerAmountPaise,
-          validUntil: input.validUntil,
-          terms: input.terms,
-          version: nextVersion,
-          status: 'OFFERED',
+          requestType: 'OFFER_REQUEST',
+          status: 'PENDING',
+          requesterId: actor.userId,
+          requiredPermission: 'commercial.discount.approve',
+          scopeBranchIds: actor.branches.map(b => b.id),
+          payload: {
+            valuationId: valId,
+            leadId: lead.id,
+            referenceCode: lead.referenceCode,
+            vehicleTitle: `${lead.manufacturingYear} ${lead.make} ${lead.model}`,
+            sellerName: lead.sellerName,
+            sellerPhone: lead.sellerPhone,
+            city: lead.city,
+            recommendedPurchasePaise: input.offerAmountPaise.toString(),
+            expectedResalePaise: (lead.expectedPricePaise || input.offerAmountPaise).toString(),
+            reason: input.reason || input.terms || 'Sales requested purchase offer approval',
+            autoCreateOffer: true,
+          },
+          expiresAt: new Date(Date.now() + 7 * 86400000),
         },
       });
-      await tx.acquisitionLead.update({ where: { id: leadId }, data: { status: 'OFFERED' } });
+
+      await tx.acquisitionLead.update({
+        where: { id: leadId },
+        data: { status: 'OFFER_PENDING' },
+      });
+
       await tx.auditEvent.create({
         data: {
           actorId: actor.userId,
-          action: 'ACQUISITION_OFFER_PROPOSED',
-          entityType: 'AcquisitionOffer',
-          entityId: offer.id,
-          details: { leadId, referenceCode: lead.referenceCode, amountPaise: input.offerAmountPaise.toString(), version: nextVersion },
+          action: 'ACQUISITION_OFFER_REQUESTED_FOR_REVIEW',
+          entityType: 'AcquisitionValuation',
+          entityId: valId,
+          details: { leadId, referenceCode: lead.referenceCode, amountPaise: input.offerAmountPaise.toString(), approvalRequestId: approvalReq.id },
         },
       });
-      return offer;
+
+      return {
+        id: valId,
+        status: 'PENDING_APPROVAL',
+        valuationId: valId,
+        approvalRequestId: approvalReq.id,
+        offerAmountPaise: input.offerAmountPaise.toString(),
+        message: 'Offer proposal submitted for managerial review and approval.',
+      };
     });
   }
 
@@ -1261,7 +1588,7 @@ export class PrismaSalesStore implements SalesStore {
   async requestTestDrive(actor: SalesActor, input: {
     listingId: string;
     customerId: string;
-    requestedDate: Date;
+    requestedDate?: Date;
     timeSlot: string;
     locationPreference?: 'HUB' | 'HOME';
     serviceCity?: string;
@@ -1278,7 +1605,7 @@ export class PrismaSalesStore implements SalesStore {
         data: {
           userId: input.customerId,
           listingId: input.listingId,
-          requestedDate: input.requestedDate,
+          requestedDate: input.requestedDate || new Date(),
           timeSlot: input.timeSlot,
           serviceCity: input.serviceCity || listing.vehicle.city || 'Bengaluru',
           locationPreference: input.locationPreference || 'HUB',
@@ -1350,6 +1677,20 @@ export class PrismaSalesStore implements SalesStore {
           customer: { select: { id: true, displayName: true, email: true, phone: true } },
           listing: { select: { id: true, title: true } },
           author: { select: { user: { select: { displayName: true } } } },
+          discountRequests: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+            select: {
+              id: true,
+              status: true,
+              requestedDiscountPaise: true,
+              proposedPricePaise: true,
+              reason: true,
+              decisionNotes: true,
+              decidedAt: true,
+              createdAt: true,
+            },
+          },
         },
       }),
       this.db.buyerQuotation.count({ where }),
@@ -1362,6 +1703,16 @@ export class PrismaSalesStore implements SalesStore {
       discountPaise: item.discountPaise.toString(),
       finalAmountPaise: item.finalAmountPaise.toString(),
       totalPricePaise: item.finalAmountPaise.toString(),
+      latestDiscountRequest: item.discountRequests?.[0] ? {
+        id: item.discountRequests[0].id,
+        status: item.discountRequests[0].status,
+        requestedDiscountPaise: item.discountRequests[0].requestedDiscountPaise.toString(),
+        proposedPricePaise: item.discountRequests[0].proposedPricePaise.toString(),
+        reason: item.discountRequests[0].reason,
+        decisionNotes: item.discountRequests[0].decisionNotes,
+        decidedAt: item.discountRequests[0].decidedAt?.toISOString() || null,
+        createdAt: item.discountRequests[0].createdAt.toISOString(),
+      } : null,
     }));
     return { items: mapped, page: query.page, limit: query.limit, total, totalPages: Math.max(1, Math.ceil(total / query.limit)) };
   }
@@ -1982,6 +2333,19 @@ export class PrismaSalesStore implements SalesStore {
       take: 5,
     });
 
+    // 6. Pending acquisition valuations / offer requests
+    const pendingValuations = await this.db.acquisitionValuation.findMany({
+      where: { lead: scope(actor), status: 'PENDING_APPROVAL' },
+      select: {
+        id: true,
+        recommendedPurchasePaise: true,
+        lead: { select: { id: true, referenceCode: true, make: true, model: true, manufacturingYear: true, city: true, sellerName: true } },
+        createdAt: true,
+      },
+      take: 5,
+      orderBy: { createdAt: 'desc' },
+    });
+
     return {
       unassignedLeads: unassigned,
       overdueTasks,
@@ -1994,6 +2358,16 @@ export class PrismaSalesStore implements SalesStore {
         requestedDiscountPaise: d.requestedDiscountPaise.toString(),
         createdAt: d.createdAt.toISOString(),
       })),
+      pendingOfferReviews: pendingValuations.map(v => ({
+        id: v.id,
+        leadId: v.lead.id,
+        referenceCode: v.lead.referenceCode,
+        vehicleTitle: `${v.lead.manufacturingYear} ${v.lead.make} ${v.lead.model}`,
+        sellerName: v.lead.sellerName,
+        city: v.lead.city,
+        recommendedPurchasePaise: v.recommendedPurchasePaise.toString(),
+        createdAt: v.createdAt.toISOString(),
+      })),
       sentQuotations: sentQuotations.map(s => ({
         id: s.id,
         quotationNumber: `VM-QT-${s.id.slice(0, 8).toUpperCase()}`,
@@ -2002,7 +2376,7 @@ export class PrismaSalesStore implements SalesStore {
         finalPricePaise: s.finalAmountPaise.toString(),
         validUntil: s.validUntil.toISOString(),
       })),
-      totalUnread: unassigned.length + overdueTasks.length + recentTestDrives.length + pendingDiscounts.length + sentQuotations.length,
+      totalUnread: unassigned.length + overdueTasks.length + recentTestDrives.length + pendingDiscounts.length + pendingValuations.length + sentQuotations.length,
     };
   }
 

@@ -31,9 +31,12 @@ import {
   type Quotation,
   type ReportsData,
   type Reservation,
+  type ReviewItem,
+  type ReviewRequestsData,
   type SellerLead,
   type Task,
   type TestDrive,
+  type ValuationItem,
 } from './api.js';
 import { Icons } from './icons.js';
 import './styles.css';
@@ -78,7 +81,7 @@ const formatDate = (iso: string | null | undefined): string => {
 const statusBadgeClass = (status: string): string => {
   const s = status.toUpperCase();
   if (['SUBMITTED', 'RECEIVED', 'DRAFT', 'OPEN'].includes(s)) return 'badge-blue';
-  if (['QUALIFYING', 'IN_REVIEW', 'IN_PROGRESS', 'REQUESTED'].includes(s)) return 'badge-amber';
+  if (['QUALIFYING', 'IN_REVIEW', 'IN_PROGRESS', 'REQUESTED', 'PENDING_APPROVAL', 'PENDING', 'OFFER_PENDING'].includes(s)) return 'badge-amber';
   if (['INSPECTION_SCHEDULED', 'CONFIRMED', 'RESERVED'].includes(s)) return 'badge-purple';
   if (['ACCEPTED', 'COMPLETED', 'PUBLISHED', 'APPROVED', 'CONVERTED_TO_SALE'].includes(s)) return 'badge-green';
   if (['REJECTED', 'DECLINED', 'CANCELLED', 'EXPIRED', 'NO_SHOW', 'RELEASED'].includes(s)) return 'badge-red';
@@ -368,6 +371,10 @@ function App() {
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [inspectionRequests, setInspectionRequests] = useState<InspectionRequestItem[]>([]);
   const [acquisitionOffers, setAcquisitionOffers] = useState<AcquisitionOfferItem[]>([]);
+  const [valuations, setValuations] = useState<ValuationItem[]>([]);
+  const [reviewRequests, setReviewRequests] = useState<ReviewRequestsData | null>(null);
+  const [reviewTab, setReviewTab] = useState<'pending' | 'decided'>('pending');
+  const [discountStatusFilter, setDiscountStatusFilter] = useState('');
 
   // Search & Filter state
   const [search, setSearch] = useState('');
@@ -417,14 +424,16 @@ function App() {
 
       // Load data based on current page
       if (page === 'overview') {
-        const [sellersRes, tasksRes, testDrivesRes] = await Promise.all([
+        const [sellersRes, tasksRes, testDrivesRes, reviewsRes] = await Promise.all([
           salesApi.sellerLeads(currentUser, { limit: 10 }),
           salesApi.tasks(currentUser, { overdue: true }),
           salesApi.testDrives(currentUser, { status: 'REQUESTED' }),
+          salesApi.reviewRequests(currentUser).catch(() => null),
         ]);
         setSellerLeads(sellersRes.items);
         setTasks(tasksRes);
         setTestDrives(testDrivesRes.items);
+        setReviewRequests(reviewsRes);
       } else if (page === 'seller') {
         const res = await salesApi.sellerLeads(currentUser, {
           search,
@@ -442,8 +451,12 @@ function App() {
         const res = await salesApi.allInspectionRequests(currentUser, { status: statusFilter || undefined });
         setInspectionRequests(res.items);
       } else if (page === 'offers') {
-        const res = await salesApi.allAcquisitionOffers(currentUser, { status: statusFilter || undefined });
-        setAcquisitionOffers(res.items);
+        const [offersRes, valuationsRes] = await Promise.all([
+          salesApi.allAcquisitionOffers(currentUser, { status: statusFilter || undefined }),
+          salesApi.allValuations(currentUser, { status: statusFilter || undefined }),
+        ]);
+        setAcquisitionOffers(offersRes.items);
+        setValuations(valuationsRes.items);
       } else if (page === 'inventory') {
         const [invRes, custRes] = await Promise.all([
           salesApi.inventory(currentUser, { search }),
@@ -625,8 +638,34 @@ function App() {
                     <span className="font-mono text-xs">{notifications.totalUnread} pending</span>
                   </div>
                   <div className="notif-list">
+                    {notifications.pendingOfferReviews?.map(o => (
+                      <div
+                        key={o.id}
+                        className="notif-item"
+                        style={{ cursor: 'pointer' }}
+                        onClick={async () => {
+                          if (!user) return;
+                          setShowNotifs(false);
+                          const leadDetails = await salesApi.sellerLead(user, o.leadId);
+                          setSelectedSellerLead(leadDetails);
+                        }}
+                      >
+                        <div className="notif-item-title" style={{ color: 'var(--warning)' }}>
+                          Offer Review Pending: {formatCurrency(o.recommendedPurchasePaise)}
+                        </div>
+                        <div className="notif-item-sub">{o.vehicleTitle} · {o.sellerName} ({o.referenceCode})</div>
+                      </div>
+                    ))}
                     {notifications.pendingDiscounts?.map(d => (
-                      <div key={d.id} className="notif-item">
+                      <div
+                        key={d.id}
+                        className="notif-item"
+                        style={{ cursor: 'pointer' }}
+                        onClick={() => {
+                          setShowNotifs(false);
+                          setPage('pipeline');
+                        }}
+                      >
                         <div className="notif-item-title" style={{ color: 'var(--color-primary)' }}>
                           Discount Pending: {formatCurrency(d.requestedDiscountPaise)}
                         </div>
@@ -701,6 +740,30 @@ function App() {
                   <div className="metric-value">{dashboard?.unassignedCount ?? 0}</div>
                   <div className="metric-sub">Inbound awaiting first call</div>
                 </div>
+                <div className="metric-card" style={dashboard?.pendingValuationsCount ? { border: '1px solid rgba(255, 209, 102, 0.5)', background: 'rgba(255, 209, 102, 0.05)' } : {}}>
+                  <div className="metric-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Offers Pending Review</span>
+                    {Boolean(dashboard?.pendingValuationsCount) && (
+                      <span className="badge badge-amber">🟡 Pending</span>
+                    )}
+                  </div>
+                  <div className="metric-value" style={{ color: dashboard?.pendingValuationsCount ? 'var(--warning)' : undefined }}>
+                    {dashboard?.pendingValuationsCount ?? 0}
+                  </div>
+                  <div className="metric-sub">Awaiting Admin/Manager Decision</div>
+                </div>
+                <div className="metric-card" style={dashboard?.pendingDiscountsCount ? { border: '1px solid rgba(255, 209, 102, 0.5)', background: 'rgba(255, 209, 102, 0.05)' } : {}}>
+                  <div className="metric-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>Discount Approvals</span>
+                    {Boolean(dashboard?.pendingDiscountsCount) && (
+                      <span className="badge badge-amber">🟡 Pending</span>
+                    )}
+                  </div>
+                  <div className="metric-value" style={{ color: dashboard?.pendingDiscountsCount ? 'var(--warning)' : undefined }}>
+                    {dashboard?.pendingDiscountsCount ?? 0}
+                  </div>
+                  <div className="metric-sub">Quotation discount reviews</div>
+                </div>
                 <div className="metric-card">
                   <div className="metric-label">Follow-ups Due Today</div>
                   <div className="metric-value">{dashboard?.tasksDueToday ?? 0}</div>
@@ -716,6 +779,238 @@ function App() {
                   <div className="metric-value">{dashboard?.openOffersCount ?? 0}</div>
                   <div className="metric-sub">Communicated to sellers</div>
                 </div>
+              </div>
+
+              {/* Dedicated Panel: Review & Approval Requests */}
+              <div className="panel" style={{ marginBottom: '24px' }}>
+                <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                  <div>
+                    <h3 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <Icons.Offers size={18} />
+                      Commercial Approval & Review Queue
+                    </h3>
+                    <p style={{ margin: '4px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
+                      Track status of acquisition purchase offers and retail discount requests under management review
+                    </p>
+                  </div>
+                  <div className="tabs-nav" style={{ margin: 0 }}>
+                    <button
+                      className={`tab-btn ${reviewTab === 'pending' ? 'active' : ''}`}
+                      onClick={() => setReviewTab('pending')}
+                    >
+                      Pending Admin Decision ({((reviewRequests?.pendingValuations?.length ?? 0) + (reviewRequests?.pendingDiscounts?.length ?? 0))})
+                    </button>
+                    <button
+                      className={`tab-btn ${reviewTab === 'decided' ? 'active' : ''}`}
+                      onClick={() => setReviewTab('decided')}
+                    >
+                      Recent Decisions (Approved / Rejected) ({reviewRequests?.recentDecisions?.length ?? 0})
+                    </button>
+                  </div>
+                </div>
+
+                {reviewTab === 'pending' && (
+                  <div className="table-responsive">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Type</th>
+                          <th>Reference & Party</th>
+                          <th>Vehicle</th>
+                          <th>Proposed Amount</th>
+                          <th>Submitted By</th>
+                          <th>Status</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reviewRequests?.pendingValuations?.map(pv => (
+                          <tr key={`val-${pv.id}`}>
+                            <td>
+                              <span className="badge badge-purple">Acquisition Offer</span>
+                            </td>
+                            <td>
+                              <div className="table-title font-mono text-xs">{pv.referenceCode}</div>
+                              <div className="table-sub">{pv.sellerName} · {pv.sellerPhone}</div>
+                            </td>
+                            <td>
+                              <div className="table-title">{pv.vehicleTitle}</div>
+                              {pv.expectedResalePaise && (
+                                <div className="table-sub">Target Resale: {formatCurrency(pv.expectedResalePaise)}</div>
+                              )}
+                            </td>
+                            <td className="font-mono" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
+                              {formatCurrency(pv.recommendedPurchasePaise)}
+                            </td>
+                            <td>
+                              <div style={{ fontSize: '0.85rem' }}>{pv.requestedBy}</div>
+                              <div className="table-sub">{formatDate(pv.createdAt)}</div>
+                            </td>
+                            <td>
+                              <span className="badge badge-amber" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <span>🟡</span> Awaiting Admin Review
+                              </span>
+                            </td>
+                            <td>
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={async () => {
+                                  if (!user) return;
+                                  const leadDetails = await salesApi.sellerLead(user, pv.leadId);
+                                  setSelectedSellerLead(leadDetails);
+                                }}
+                              >
+                                Manage Lead
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+
+                        {reviewRequests?.pendingDiscounts?.map(pd => (
+                          <tr key={`disc-${pd.id}`}>
+                            <td>
+                              <span className="badge badge-blue">Quotation Discount</span>
+                            </td>
+                            <td>
+                              <div className="table-title font-mono text-xs">{pd.quotationNumber}</div>
+                              <div className="table-sub">{pd.customerName}</div>
+                            </td>
+                            <td>
+                              <div className="table-title">{pd.vehicleTitle}</div>
+                              <div className="table-sub" title={pd.reason}>Reason: {pd.reason}</div>
+                            </td>
+                            <td className="font-mono" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
+                              Discount: {formatCurrency(pd.requestedDiscountPaise)}
+                              <div className="table-sub">Final: {formatCurrency(pd.proposedPricePaise)}</div>
+                            </td>
+                            <td>
+                              <div style={{ fontSize: '0.85rem' }}>{pd.requestedBy}</div>
+                              <div className="table-sub">{formatDate(pd.createdAt)}</div>
+                            </td>
+                            <td>
+                              <span className="badge badge-amber" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                <span>🟡</span> Awaiting Admin Review
+                              </span>
+                            </td>
+                            <td>
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={() => setPage('pipeline')}
+                              >
+                                View Pipeline
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+
+                        {(!reviewRequests?.pendingValuations?.length && !reviewRequests?.pendingDiscounts?.length) && (
+                          <tr>
+                            <td colSpan={7} className="empty-state">
+                              No review requests currently awaiting Admin approval.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+
+                {reviewTab === 'decided' && (
+                  <div className="table-responsive">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th>Decision</th>
+                          <th>Type</th>
+                          <th>Reference & Party</th>
+                          <th>Vehicle</th>
+                          <th>Amount</th>
+                          <th>Decided By & When</th>
+                          <th>Admin Notes / Reason</th>
+                          <th>Action</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {reviewRequests?.recentDecisions?.map(rd => {
+                          const isApproved = rd.status === 'APPROVED';
+                          return (
+                            <tr key={`dec-${rd.id}-${rd.type}`}>
+                              <td>
+                                <span className={`badge ${isApproved ? 'badge-green' : 'badge-red'}`} style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  <span>{isApproved ? '🟢' : '🔴'}</span>
+                                  {isApproved ? 'Approved' : 'Rejected'}
+                                </span>
+                              </td>
+                              <td>
+                                <span className={`badge ${rd.type === 'VALUATION_OFFER' ? 'badge-purple' : 'badge-blue'}`}>
+                                  {rd.type === 'VALUATION_OFFER' ? 'Acquisition Offer' : 'Quotation Discount'}
+                                </span>
+                              </td>
+                              <td>
+                                <div className="table-title font-mono text-xs">{rd.referenceCode}</div>
+                                <div className="table-sub">{rd.partyName}</div>
+                              </td>
+                              <td>{rd.title}</td>
+                              <td className="font-mono" style={{ fontWeight: 700 }}>
+                                {formatCurrency(rd.amountPaise)}
+                              </td>
+                              <td>
+                                <div style={{ fontWeight: 600, fontSize: '0.85rem' }}>{rd.decidedBy || 'Admin'}</div>
+                                <div className="table-sub">{formatDate(rd.decidedAt)}</div>
+                              </td>
+                              <td style={{ maxWidth: '280px' }}>
+                                {rd.decisionNotes ? (
+                                  <div style={{
+                                    padding: '6px 10px',
+                                    borderRadius: '6px',
+                                    fontSize: '0.8rem',
+                                    lineHeight: 1.4,
+                                    background: isApproved ? 'rgba(97, 217, 154, 0.1)' : 'rgba(255, 124, 134, 0.1)',
+                                    color: isApproved ? 'var(--success)' : 'var(--danger)',
+                                    border: `1px solid ${isApproved ? 'rgba(97, 217, 154, 0.3)' : 'rgba(255, 124, 134, 0.3)'}`
+                                  }}>
+                                    {rd.decisionNotes}
+                                  </div>
+                                ) : (
+                                  <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>None provided</span>
+                                )}
+                              </td>
+                              <td>
+                                {rd.type === 'VALUATION_OFFER' ? (
+                                  <button
+                                    className="btn-secondary btn-sm"
+                                    onClick={async () => {
+                                      if (!user) return;
+                                      const leadDetails = await salesApi.sellerLead(user, rd.referenceId);
+                                      setSelectedSellerLead(leadDetails);
+                                    }}
+                                  >
+                                    Manage Lead
+                                  </button>
+                                ) : (
+                                  <button
+                                    className="btn-secondary btn-sm"
+                                    onClick={() => setPage('pipeline')}
+                                  >
+                                    View Quote
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })}
+
+                        {(!reviewRequests?.recentDecisions?.length) && (
+                          <tr>
+                            <td colSpan={8} className="empty-state">
+                              No recent review decisions recorded.
+                            </td>
+                          </tr>
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
 
               {/* Work Queue & Recent Activity */}
@@ -1010,24 +1305,27 @@ function App() {
           )}
 
           {/* ==================================================== */}
-          {/* VIEW: ACQUISITION OFFERS */}
+          {/* VIEW: ACQUISITION OFFERS & VALUATION REVIEWS */}
           {/* ==================================================== */}
           {page === 'offers' && (
             <div>
               <div className="page-header">
                 <div>
-                  <p className="eyebrow">COMMERCIAL VALUATIONS</p>
-                  <h1>Authorized Acquisition Offers</h1>
+                  <p className="eyebrow">COMMERCIAL VALUATIONS & ACQUISITION OFFERS</p>
+                  <h1>Authorized Valuations & Offer Lifecycle</h1>
                 </div>
               </div>
 
               <div className="panel">
                 <div className="filters-bar">
                   <select className="filter-select" value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
-                    <option value="">All Offers</option>
-                    <option value="OFFERED">Offered</option>
-                    <option value="ACCEPTED">Accepted</option>
-                    <option value="DECLINED">Declined</option>
+                    <option value="">All Offers & Valuations</option>
+                    <option value="PENDING_APPROVAL">Pending Admin Review (Offer Requested)</option>
+                    <option value="APPROVED">Admin Approved Valuations</option>
+                    <option value="REJECTED">Admin Rejected Valuations</option>
+                    <option value="OFFERED">Communicated / Offered to Seller</option>
+                    <option value="ACCEPTED">Accepted by Seller</option>
+                    <option value="DECLINED">Declined by Seller</option>
                     <option value="EXPIRED">Expired</option>
                   </select>
                   <button className="btn-secondary btn-sm" onClick={() => void loadData()}>Filter</button>
@@ -1039,43 +1337,140 @@ function App() {
                       <tr>
                         <th>Lead Ref</th>
                         <th>Seller & Vehicle</th>
-                        <th>Offer Amount</th>
-                        <th>Version</th>
-                        <th>Valid Until</th>
-                        <th>Status</th>
+                        <th>Amount</th>
+                        <th>Type / Version</th>
+                        <th>Review / Offer Status</th>
+                        <th>Decider & Notes</th>
                         <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {acquisitionOffers.map(off => (
-                        <tr key={off.id}>
-                          <td className="font-mono text-xs">{off.lead.referenceCode}</td>
-                          <td>
-                            <div className="table-title">{off.lead.make} {off.lead.model}</div>
-                            <div className="table-sub">{off.lead.sellerName} · {off.lead.sellerPhone}</div>
-                          </td>
-                          <td className="font-mono" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
-                            {formatCurrency(off.offerAmountPaise)}
-                          </td>
-                          <td className="font-mono text-xs">v{off.version}</td>
-                          <td>{formatDate(off.validUntil)}</td>
-                          <td><span className={`badge ${statusBadgeClass(off.status)}`}>{off.status}</span></td>
-                          <td>
-                            <button
-                              className="btn-secondary btn-sm"
-                              onClick={async () => {
-                                if (!user) return;
-                                const leadDetails = await salesApi.sellerLead(user, off.leadId);
-                                setSelectedSellerLead(leadDetails);
-                              }}
-                            >
-                              Manage Offer
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                      {acquisitionOffers.length === 0 && (
-                        <tr><td colSpan={7} className="empty-state">No acquisition offers recorded yet.</td></tr>
+                      {/* Valuations (Pending, Approved, Rejected) */}
+                      {valuations
+                        .filter(v => !statusFilter || v.status === statusFilter)
+                        .map(val => (
+                          <tr key={`val-row-${val.id}`}>
+                            <td className="font-mono text-xs">{val.lead?.referenceCode || val.leadId.slice(0, 8)}</td>
+                            <td>
+                              <div className="table-title">{val.lead ? `${val.lead.manufacturingYear} ${val.lead.make} ${val.lead.model}` : 'Vehicle'}</div>
+                              <div className="table-sub">{val.lead ? `${val.lead.sellerName} · ${val.lead.sellerPhone} (${val.lead.city})` : 'Seller'}</div>
+                            </td>
+                            <td className="font-mono" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
+                              {formatCurrency(val.recommendedPurchasePaise)}
+                              {val.expectedResalePaise && (
+                                <div className="table-sub">Target Resale: {formatCurrency(val.expectedResalePaise)}</div>
+                              )}
+                            </td>
+                            <td>
+                              <span className="badge badge-purple">Valuation v{val.version}</span>
+                            </td>
+                            <td>
+                              {val.status === 'PENDING_APPROVAL' && (
+                                <span className="badge badge-amber" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  <span>🟡</span> Requested for Review
+                                </span>
+                              )}
+                              {val.status === 'APPROVED' && (
+                                <span className="badge badge-green" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  <span>🟢</span> Approved by Admin
+                                </span>
+                              )}
+                              {val.status === 'REJECTED' && (
+                                <span className="badge badge-red" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                                  <span>🔴</span> Rejected by Admin
+                                </span>
+                              )}
+                              {!['PENDING_APPROVAL', 'APPROVED', 'REJECTED'].includes(val.status) && (
+                                <span className={`badge ${statusBadgeClass(val.status)}`}>{val.status}</span>
+                              )}
+                            </td>
+                            <td style={{ maxWidth: '280px' }}>
+                              {val.approvedBy?.user?.displayName ? (
+                                <div style={{ fontSize: '0.85rem', fontWeight: 600 }}>By: {val.approvedBy.user.displayName}</div>
+                              ) : (
+                                <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>By: {val.createdBy?.user?.displayName || 'Sales Executive'}</div>
+                              )}
+                              {val.notes ? (
+                                <div style={{
+                                  marginTop: '4px',
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.78rem',
+                                  lineHeight: 1.3,
+                                  background: val.status === 'REJECTED' ? 'rgba(255, 124, 134, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                                  color: val.status === 'REJECTED' ? 'var(--danger)' : 'var(--text)',
+                                }}>
+                                  {val.notes}
+                                </div>
+                              ) : null}
+                            </td>
+                            <td>
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={async () => {
+                                  if (!user) return;
+                                  const leadDetails = await salesApi.sellerLead(user, val.leadId);
+                                  setSelectedSellerLead(leadDetails);
+                                }}
+                              >
+                                Manage Lead
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+
+                      {/* Issued Acquisition Offers */}
+                      {acquisitionOffers
+                        .filter(off => !statusFilter || off.status === statusFilter)
+                        .map(off => (
+                          <tr key={`off-row-${off.id}`}>
+                            <td className="font-mono text-xs">{off.lead.referenceCode}</td>
+                            <td>
+                              <div className="table-title">{off.lead.make} {off.lead.model}</div>
+                              <div className="table-sub">{off.lead.sellerName} · {off.lead.sellerPhone}</div>
+                            </td>
+                            <td className="font-mono" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
+                              {formatCurrency(off.offerAmountPaise)}
+                            </td>
+                            <td>
+                              <span className="badge badge-blue">Official Offer v{off.version}</span>
+                            </td>
+                            <td>
+                              <span className={`badge ${statusBadgeClass(off.status)}`}>{off.status}</span>
+                              <div className="table-sub">Valid: {formatDate(off.validUntil)}</div>
+                            </td>
+                            <td style={{ maxWidth: '280px' }}>
+                              {off.declineReason ? (
+                                <div style={{
+                                  padding: '4px 8px',
+                                  borderRadius: '4px',
+                                  fontSize: '0.78rem',
+                                  background: 'rgba(255, 124, 134, 0.12)',
+                                  color: 'var(--danger)',
+                                }}>
+                                  Declined: {off.declineReason}
+                                </div>
+                              ) : (
+                                <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>Issued to Seller</span>
+                              )}
+                            </td>
+                            <td>
+                              <button
+                                className="btn-secondary btn-sm"
+                                onClick={async () => {
+                                  if (!user) return;
+                                  const leadDetails = await salesApi.sellerLead(user, off.leadId);
+                                  setSelectedSellerLead(leadDetails);
+                                }}
+                              >
+                                Manage Offer
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+
+                      {valuations.length === 0 && acquisitionOffers.length === 0 && (
+                        <tr><td colSpan={7} className="empty-state">No commercial valuations or acquisition offers recorded yet.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -1330,8 +1725,20 @@ function App() {
 
               {/* Quotations Panel */}
               <div className="panel">
-                <div className="panel-header">
+                <div className="panel-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                   <h3>Authorized Retail Quotations</h3>
+                  <select
+                    className="filter-select"
+                    style={{ width: 'auto', minWidth: '220px' }}
+                    value={discountStatusFilter}
+                    onChange={e => setDiscountStatusFilter(e.target.value)}
+                  >
+                    <option value="">All Discount Statuses</option>
+                    <option value="PENDING">🟡 Discount Pending Review</option>
+                    <option value="APPROVED">🟢 Discount Approved</option>
+                    <option value="REJECTED">🔴 Discount Rejected</option>
+                    <option value="NONE">No Discount Requested</option>
+                  </select>
                 </div>
                 <div className="table-responsive">
                   <table>
@@ -1342,12 +1749,18 @@ function App() {
                         <th>Vehicle</th>
                         <th>Final Price</th>
                         <th>Valid Until</th>
-                        <th>Status</th>
+                        <th>Status & Discount Review</th>
                         <th>Actions</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {quotations.map(q => (
+                      {quotations
+                        .filter(q => {
+                          if (!discountStatusFilter) return true;
+                          if (discountStatusFilter === 'NONE') return !q.latestDiscountRequest;
+                          return q.latestDiscountRequest?.status === discountStatusFilter;
+                        })
+                        .map(q => (
                         <tr key={q.id}>
                           <td className="font-mono text-xs">{q.quotationNumber || `VM-QT-${q.id.slice(0, 8).toUpperCase()}`}</td>
                           <td>
@@ -1357,7 +1770,42 @@ function App() {
                           <td>{q.listing.title}</td>
                           <td className="font-mono" style={{ fontWeight: 700 }}>{formatCurrency(q.totalPricePaise ?? (q as any).finalAmountPaise)}</td>
                           <td>{formatDate(q.validUntil)}</td>
-                          <td><span className={`badge ${statusBadgeClass(q.status)}`}>{q.status}</span></td>
+                          <td>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                              <span className={`badge ${statusBadgeClass(q.status)}`}>{q.status}</span>
+                              {q.latestDiscountRequest && (
+                                q.latestDiscountRequest.status === 'PENDING' ? (
+                                  <span
+                                    className="badge badge-amber"
+                                    style={{ fontSize: '0.68rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                    title={`Reason: ${q.latestDiscountRequest.reason}`}
+                                  >
+                                    <span>🟡</span> Discount Pending ({formatCurrency(q.latestDiscountRequest.requestedDiscountPaise)})
+                                  </span>
+                                ) : q.latestDiscountRequest.status === 'APPROVED' ? (
+                                  <span
+                                    className="badge badge-green"
+                                    style={{ fontSize: '0.68rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                  >
+                                    <span>🟢</span> Discount Approved (-{formatCurrency(q.latestDiscountRequest.requestedDiscountPaise)})
+                                  </span>
+                                ) : (
+                                  <span
+                                    className="badge badge-red"
+                                    style={{ fontSize: '0.68rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                                    title={q.latestDiscountRequest.decisionNotes || q.latestDiscountRequest.reason}
+                                  >
+                                    <span>🔴</span> Discount Rejected
+                                  </span>
+                                )
+                              )}
+                            </div>
+                            {q.latestDiscountRequest?.status === 'REJECTED' && q.latestDiscountRequest.decisionNotes && (
+                              <div style={{ fontSize: '0.72rem', color: 'var(--danger)', marginTop: '2px', maxWidth: '200px' }}>
+                                Admin: {q.latestDiscountRequest.decisionNotes}
+                              </div>
+                            )}
+                          </td>
                           <td>
                             <div style={{ display: 'flex', gap: '6px' }}>
                               {q.status === 'DRAFT' && (
@@ -1376,7 +1824,7 @@ function App() {
                                 className="btn-secondary btn-sm"
                                 onClick={() => setShowDiscountModal(q.id)}
                               >
-                                Discount
+                                {q.latestDiscountRequest?.status === 'PENDING' ? 'Discount (Pending)' : 'Discount'}
                               </button>
                             </div>
                           </td>
@@ -2023,6 +2471,7 @@ function SellerLeadDrawer({
   const [error, setError] = useState('');
   const [interactions, setInteractions] = useState<NonNullable<SellerLead['interactions']>>([]);
   const [offers, setOffers] = useState<Array<{ id: string; offerAmountPaise: string; status: string; validUntil: string }>>([]);
+  const [valuations, setValuations] = useState<ValuationItem[]>([]);
 
   // Form states
   const [interactionNotes, setInteractionNotes] = useState('');
@@ -2064,8 +2513,12 @@ function SellerLeadDrawer({
     try {
       const res = await salesApi.interactions(user, lead.id);
       setInteractions(res);
-      const offRes = await salesApi.getAcquisitionOffers(user, lead.id);
+      const [offRes, valRes] = await Promise.all([
+        salesApi.getAcquisitionOffers(user, lead.id).catch(() => []),
+        salesApi.getValuations(user, lead.id).catch(() => []),
+      ]);
       setOffers(offRes);
+      setValuations(valRes);
     } catch {
       // ignore
     }
@@ -2170,12 +2623,12 @@ function SellerLeadDrawer({
     setError('');
     try {
       const validDate = new Date(Date.now() + 7 * 86400000).toISOString();
-      await salesApi.proposeAcquisitionOffer(user, lead.id, {
+      const res = await salesApi.proposeAcquisitionOffer(user, lead.id, {
         offerAmountPaise: String(BigInt(offerRupees) * 100n),
         validUntil: validDate,
         terms: 'Authorized purchase valuation valid for 7 days.',
       });
-      alert('Purchase offer proposed and queued!');
+      alert(res?.message || 'Purchase offer proposed and submitted for Admin / Manager approval!');
       await loadInteractions();
       onRefresh();
     } catch (err) {
@@ -2430,12 +2883,109 @@ function SellerLeadDrawer({
             </div>
           )}
 
-          {/* TAB 4: ACQUISITION OFFER */}
+          {/* TAB 4: ACQUISITION OFFER & VALUATION REVIEW */}
           {tab === 'offer' && (
             <div>
+              {/* Latest Valuation Review Status Banner */}
+              {(() => {
+                const latestVal = valuations[0];
+                if (!latestVal) return null;
+
+                if (latestVal.status === 'PENDING_APPROVAL') {
+                  return (
+                    <div style={{
+                      background: 'rgba(255, 209, 102, 0.08)',
+                      border: '1px solid rgba(255, 209, 102, 0.4)',
+                      borderRadius: '8px',
+                      padding: '14px',
+                      marginBottom: '16px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--warning)', fontWeight: 600 }}>
+                          <Icons.Offers size={18} />
+                          <span>🟡 Offer Proposal Under Review</span>
+                        </div>
+                        <span className="badge badge-amber">Awaiting Admin Approval</span>
+                      </div>
+                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: '#cbd5e1' }}>
+                        Proposed Purchase Price: <strong className="font-mono">{formatCurrency(latestVal.recommendedPurchasePaise)}</strong>
+                        {latestVal.expectedResalePaise && ` · Target Resale: ${formatCurrency(latestVal.expectedResalePaise)}`}
+                      </div>
+                      <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                        Submitted by {latestVal.createdBy?.user?.displayName || 'Sales Executive'} on {formatDate(latestVal.createdAt)}. Review by authorized pricing manager / admin is pending.
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (latestVal.status === 'APPROVED') {
+                  return (
+                    <div style={{
+                      background: 'rgba(97, 217, 154, 0.08)',
+                      border: '1px solid rgba(97, 217, 154, 0.4)',
+                      borderRadius: '8px',
+                      padding: '14px',
+                      marginBottom: '16px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--success)', fontWeight: 600 }}>
+                          <Icons.Offers size={18} />
+                          <span>🟢 Valuation Approved by Admin</span>
+                        </div>
+                        <span className="badge badge-green">Authorized Price</span>
+                      </div>
+                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: '#cbd5e1' }}>
+                        Approved Purchase Price: <strong className="font-mono">{formatCurrency(latestVal.recommendedPurchasePaise)}</strong>
+                      </div>
+                      <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                        Authorized by {latestVal.approvedBy?.user?.displayName || 'Admin'} on {formatDate(latestVal.approvedAt || latestVal.updatedAt)}. The official offer is ready to be communicated.
+                      </div>
+                    </div>
+                  );
+                }
+
+                if (latestVal.status === 'REJECTED') {
+                  return (
+                    <div style={{
+                      background: 'rgba(255, 124, 134, 0.08)',
+                      border: '1px solid rgba(255, 124, 134, 0.4)',
+                      borderRadius: '8px',
+                      padding: '14px',
+                      marginBottom: '16px',
+                    }}>
+                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--danger)', fontWeight: 600 }}>
+                          <Icons.Offers size={18} />
+                          <span>🔴 Valuation Proposal Rejected by Admin</span>
+                        </div>
+                        <span className="badge badge-red">Proposal Rejected</span>
+                      </div>
+                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: '#cbd5e1' }}>
+                        Proposed Amount: <strong className="font-mono">{formatCurrency(latestVal.recommendedPurchasePaise)}</strong>
+                      </div>
+                      <div style={{
+                        marginTop: '8px',
+                        padding: '8px 12px',
+                        background: 'rgba(255, 124, 134, 0.15)',
+                        borderRadius: '6px',
+                        fontSize: '0.85rem',
+                        color: '#fecdd3',
+                      }}>
+                        <strong>Admin Feedback / Reason:</strong> {latestVal.notes || 'Price exceeds commercial bounds. Please submit a revised proposal.'}
+                      </div>
+                      <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                        Reviewed by {latestVal.approvedBy?.user?.displayName || 'Admin'} on {formatDate(latestVal.updatedAt)}. Adjust amount below to submit a revision.
+                      </div>
+                    </div>
+                  );
+                }
+
+                return null;
+              })()}
+
               <div className="form-grid" style={{ marginBottom: '16px' }}>
                 <div className="form-group">
-                  <label className="form-label">Offer Amount (₹)</label>
+                  <label className="form-label">Proposed Offer Amount (₹)</label>
                   <input
                     className="form-input font-mono"
                     value={offerRupees}
@@ -2444,7 +2994,11 @@ function SellerLeadDrawer({
                 </div>
                 <div className="form-group" style={{ justifyContent: 'flex-end' }}>
                   <button className="btn-primary" onClick={handleProposeOffer} disabled={busy}>
-                    Propose Versioned Purchase Offer
+                    {valuations[0]?.status === 'REJECTED'
+                      ? 'Submit Revised Offer Proposal'
+                      : valuations[0]?.status === 'PENDING_APPROVAL'
+                      ? 'Submit Updated Valuation'
+                      : 'Propose Purchase Offer'}
                   </button>
                 </div>
               </div>
@@ -2453,18 +3007,82 @@ function SellerLeadDrawer({
                 <table>
                   <thead>
                     <tr>
+                      <th>Type & Version</th>
                       <th>Amount</th>
-                      <th>Status</th>
-                      <th>Valid Until</th>
+                      <th>Status & Review</th>
+                      <th>Notes / Valid Until</th>
                       <th>Action</th>
                     </tr>
                   </thead>
                   <tbody>
+                    {/* Valuations */}
+                    {valuations.map(val => (
+                      <tr key={`v-${val.id}`}>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>Valuation v{val.version}</div>
+                          <div className="table-sub">{formatDate(val.createdAt)}</div>
+                        </td>
+                        <td className="font-mono" style={{ fontWeight: 700 }}>
+                          {formatCurrency(val.recommendedPurchasePaise)}
+                        </td>
+                        <td>
+                          {val.status === 'PENDING_APPROVAL' && (
+                            <span className="badge badge-amber" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <span>🟡</span> Under Admin Review
+                            </span>
+                          )}
+                          {val.status === 'APPROVED' && (
+                            <span className="badge badge-green" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <span>🟢</span> Approved by Admin
+                            </span>
+                          )}
+                          {val.status === 'REJECTED' && (
+                            <span className="badge badge-red" style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}>
+                              <span>🔴</span> Rejected by Admin
+                            </span>
+                          )}
+                          {!['PENDING_APPROVAL', 'APPROVED', 'REJECTED'].includes(val.status) && (
+                            <span className={`badge ${statusBadgeClass(val.status)}`}>{val.status}</span>
+                          )}
+                        </td>
+                        <td style={{ maxWidth: '240px' }}>
+                          {val.notes ? (
+                            <div style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.78rem',
+                              lineHeight: 1.3,
+                              background: val.status === 'REJECTED' ? 'rgba(255, 124, 134, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                              color: val.status === 'REJECTED' ? 'var(--danger)' : 'var(--text)',
+                            }}>
+                              {val.notes}
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>
+                              {val.approvedBy?.user?.displayName ? `By: ${val.approvedBy.user.displayName}` : 'No notes'}
+                            </span>
+                          )}
+                        </td>
+                        <td>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                            {val.status === 'APPROVED' ? 'Offer Issued' : 'Commercial Record'}
+                          </span>
+                        </td>
+                      </tr>
+                    ))}
+
+                    {/* Official Offers */}
                     {offers.map(o => (
-                      <tr key={o.id}>
-                        <td className="font-mono">{formatCurrency(o.offerAmountPaise)}</td>
+                      <tr key={`o-${o.id}`}>
+                        <td>
+                          <div style={{ fontWeight: 600 }}>Official Offer</div>
+                          <div className="table-sub">{formatDate(o.validUntil)}</div>
+                        </td>
+                        <td className="font-mono" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
+                          {formatCurrency(o.offerAmountPaise)}
+                        </td>
                         <td><span className={`badge ${statusBadgeClass(o.status)}`}>{o.status}</span></td>
-                        <td>{formatDate(o.validUntil)}</td>
+                        <td>Valid until: {formatDate(o.validUntil)}</td>
                         <td>
                           {o.status === 'OFFERED' && (
                             <div style={{ display: 'flex', gap: '4px' }}>
@@ -2495,7 +3113,10 @@ function SellerLeadDrawer({
                         </td>
                       </tr>
                     ))}
-                    {offers.length === 0 && <tr><td colSpan={4} className="empty-state">No offers made yet.</td></tr>}
+
+                    {valuations.length === 0 && offers.length === 0 && (
+                      <tr><td colSpan={5} className="empty-state">No valuation proposals or offers made yet.</td></tr>
+                    )}
                   </tbody>
                 </table>
               </div>

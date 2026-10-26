@@ -28,6 +28,14 @@ export type Approval = {
     discountRequestId?: string;
     quotationId?: string;
     vehicleTitle?: string;
+    referenceCode?: string;
+    city?: string;
+    sellerName?: string;
+    sellerPhone?: string;
+    recommendedPurchasePaise?: string;
+    expectedResalePaise?: string;
+    leadId?: string;
+    inspectionReportId?: string;
     customerName?: string;
     customerEmail?: string;
     customerPhone?: string | null;

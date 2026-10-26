@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { friendlyError, syncProfile } from './account-api';
+import { friendlyError, syncProfile } from './account-api.js';
 
 afterEach(() => { vi.useRealTimers(); vi.unstubAllGlobals(); });
 describe('account connection', () => {
