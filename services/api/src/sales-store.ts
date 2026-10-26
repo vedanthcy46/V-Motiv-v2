@@ -671,7 +671,7 @@ export class PrismaSalesStore implements SalesStore {
     const now = new Date();
     return this.db.salesTask.findMany({
       where: {
-        assignedEmployeeId: actor.userId,
+        ...(actor.globalScope ? {} : { assignedEmployeeId: actor.userId }),
         ...(query.leadId ? { leadId: query.leadId } : {}),
         ...(query.status ? { status: query.status } : { status: { in: ['OPEN', 'IN_PROGRESS'] } }),
         ...(query.overdue ? { dueAt: { lt: now } } : {}),
@@ -726,7 +726,7 @@ export class PrismaSalesStore implements SalesStore {
 
   async completeTask(actor: SalesActor, id: string, input: { actualOutcome: string }) {
     const task = await this.db.salesTask.findFirst({
-      where: { id, assignedEmployeeId: actor.userId, status: { in: ['OPEN', 'IN_PROGRESS'] } },
+      where: { id, ...(actor.globalScope ? {} : { assignedEmployeeId: actor.userId }), status: { in: ['OPEN', 'IN_PROGRESS'] } },
       select: { id: true, leadId: true },
     });
     if (!task) throw new HttpError(404, 'SALES_TASK_NOT_FOUND');

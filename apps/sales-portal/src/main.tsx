@@ -396,6 +396,7 @@ function App() {
   const [targetReleaseReservation, setTargetReleaseReservation] = useState<Reservation | { id: string; reservationNumber?: string; status: string; expiresAt: string; notes?: string | null; customer?: { id?: string; displayName?: string | null; email?: string } } | null>(null);
   const [showTestDriveModal, setShowTestDriveModal] = useState(false);
   const [showCompleteTaskModal, setShowCompleteTaskModal] = useState<string | null>(null);
+  const [showCreateTaskModal, setShowCreateTaskModal] = useState<{ open: boolean; leadId?: string }>({ open: false });
   const [showDiscountModal, setShowDiscountModal] = useState<string | null>(null); // quotationId
 
   // Auth subscriber
@@ -486,8 +487,12 @@ function App() {
         setInventory(invRes.items);
         if (custRes?.items) setCustomers(custRes.items);
       } else if (page === 'tasks') {
-        const res = await salesApi.tasks(currentUser, { status: statusFilter || undefined });
+        const [res, sellersRes] = await Promise.all([
+          salesApi.tasks(currentUser, { status: statusFilter || undefined }),
+          salesApi.sellerLeads(currentUser, { limit: 100 }).catch(() => ({ items: [] })),
+        ]);
         setTasks(res);
+        if (sellersRes?.items) setSellerLeads(sellersRes.items);
       } else if (page === 'customers' || page === 'communications') {
         const res = await salesApi.customers(currentUser, { search: page === 'customers' ? search : undefined });
         setCustomers(res.items);
@@ -1904,6 +1909,9 @@ function App() {
                   <p className="eyebrow">CRM WORK QUEUE</p>
                   <h1>Scheduled Tasks & Follow-ups</h1>
                 </div>
+                <button className="btn-primary" onClick={() => setShowCreateTaskModal({ open: true })}>
+                  <Icons.Tasks size={16} /> + Schedule Follow-up
+                </button>
               </div>
 
               <div className="panel">
@@ -1948,7 +1956,14 @@ function App() {
                         </tr>
                       ))}
                       {tasks.length === 0 && (
-                        <tr><td colSpan={7} className="empty-state">No scheduled follow-up tasks.</td></tr>
+                        <tr>
+                          <td colSpan={7} className="empty-state">
+                            <div style={{ marginBottom: '8px' }}>No scheduled follow-up tasks.</div>
+                            <button className="btn-primary btn-sm" onClick={() => setShowCreateTaskModal({ open: true })}>
+                              + Schedule Follow-up Task
+                            </button>
+                          </td>
+                        </tr>
                       )}
                     </tbody>
                   </table>
@@ -2245,6 +2260,22 @@ function App() {
       )}
 
       {/* ========================================== */}
+      {/* MODAL: SCHEDULE FOLLOW-UP TASK */}
+      {/* ========================================== */}
+      {showCreateTaskModal.open && (
+        <CreateTaskModal
+          user={user}
+          leads={sellerLeads}
+          defaultLeadId={showCreateTaskModal.leadId}
+          onClose={() => setShowCreateTaskModal({ open: false })}
+          onSuccess={() => {
+            setShowCreateTaskModal({ open: false });
+            void loadData();
+          }}
+        />
+      )}
+
+      {/* ========================================== */}
       {/* MODAL: SCHEDULE TEST DRIVE */}
       {/* ========================================== */}
       {showTestDriveModal && (
@@ -2484,6 +2515,13 @@ function SellerLeadDrawer({
   const [channel, setChannel] = useState('CALL');
   const [outcome, setOutcome] = useState('CONNECTED');
 
+  const [showScheduleTaskForm, setShowScheduleTaskForm] = useState(false);
+  const [taskType, setTaskType] = useState('CALL');
+  const [taskPriority, setTaskPriority] = useState('NORMAL');
+  const [taskDueAt, setTaskDueAt] = useState(() => new Date(Date.now() + 2 * 3600 * 1000).toISOString().slice(0, 16));
+  const [taskDetails, setTaskDetails] = useState('');
+  const [taskExpectedOutcome, setTaskExpectedOutcome] = useState('');
+
   const [offerRupees, setOfferRupees] = useState('550000');
   const [inspectionDate, setInspectionDate] = useState(
     lead.inspectionDate ? new Date(lead.inspectionDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
@@ -2589,6 +2627,30 @@ function SellerLeadDrawer({
       await loadInteractions();
     } catch (err) {
       setError(err instanceof ApiError ? err.code : 'Failed to log interaction');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCreateTask = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      await salesApi.createTask(user, lead.id, {
+        type: taskType,
+        priority: taskPriority,
+        dueAt: new Date(taskDueAt).toISOString(),
+        details: taskDetails,
+        expectedOutcome: taskExpectedOutcome || undefined,
+      });
+      setShowScheduleTaskForm(false);
+      setTaskDetails('');
+      onRefresh();
+      alert('Follow-up task scheduled successfully! Visible in Tasks & Follow-ups queue.');
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to schedule task');
     } finally {
       setBusy(false);
     }
@@ -2760,10 +2822,82 @@ function SellerLeadDrawer({
                     />
                   </div>
                 </div>
-                <button type="submit" className="btn-primary btn-sm" style={{ marginTop: '8px' }} disabled={busy}>
-                  Log Interaction
-                </button>
+                <div style={{ display: 'flex', gap: '8px', marginTop: '8px' }}>
+                  <button type="submit" className="btn-primary btn-sm" disabled={busy}>
+                    Log Interaction
+                  </button>
+                  <button
+                    type="button"
+                    className="btn-outline btn-sm"
+                    onClick={() => setShowScheduleTaskForm(!showScheduleTaskForm)}
+                  >
+                    {showScheduleTaskForm ? 'Cancel Task' : '+ Schedule Follow-up Task'}
+                  </button>
+                </div>
               </form>
+
+              {showScheduleTaskForm && (
+                <form onSubmit={handleCreateTask} style={{ marginBottom: '16px', padding: '14px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--color-border)', borderRadius: '8px' }}>
+                  <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '8px', color: 'var(--color-primary)' }}>
+                    Schedule Next CRM Follow-up for this Opportunity
+                  </div>
+                  <div className="form-grid">
+                    <div className="form-group">
+                      <label className="form-label">Task Type *</label>
+                      <select className="form-select" value={taskType} onChange={e => setTaskType(e.target.value)}>
+                        <option value="CALL">Phone Call</option>
+                        <option value="INSPECTION_COORDINATION">Inspection Coordination</option>
+                        <option value="QUOTATION_FOLLOW_UP">Offer / Quotation Discussion</option>
+                        <option value="DOCUMENT_FOLLOW_UP">Document / RC Verification</option>
+                        <option value="TEST_DRIVE_FOLLOW_UP">Test Drive Follow-up</option>
+                        <option value="MEETING">In-person Meeting</option>
+                        <option value="EMAIL">Email Follow-up</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Priority</label>
+                      <select className="form-select" value={taskPriority} onChange={e => setTaskPriority(e.target.value)}>
+                        <option value="LOW">Low</option>
+                        <option value="NORMAL">Normal</option>
+                        <option value="HIGH">High</option>
+                        <option value="URGENT">Urgent</option>
+                      </select>
+                    </div>
+                    <div className="form-group">
+                      <label className="form-label">Due Date & Time *</label>
+                      <input
+                        type="datetime-local"
+                        className="form-input"
+                        value={taskDueAt}
+                        onChange={e => setTaskDueAt(e.target.value)}
+                        required
+                      />
+                    </div>
+                    <div className="form-group full">
+                      <label className="form-label">Task Details / Instructions *</label>
+                      <input
+                        required
+                        className="form-input"
+                        placeholder="e.g. Call seller to finalize valuation offer and schedule vehicle handover..."
+                        value={taskDetails}
+                        onChange={e => setTaskDetails(e.target.value)}
+                      />
+                    </div>
+                    <div className="form-group full">
+                      <label className="form-label">Expected Outcome (Optional)</label>
+                      <input
+                        className="form-input"
+                        placeholder="e.g. Offer accepted, deposit collection agreed"
+                        value={taskExpectedOutcome}
+                        onChange={e => setTaskExpectedOutcome(e.target.value)}
+                      />
+                    </div>
+                  </div>
+                  <button type="submit" className="btn-primary btn-sm" style={{ marginTop: '10px' }} disabled={busy}>
+                    {busy ? 'Scheduling...' : 'Save Follow-up Task'}
+                  </button>
+                </form>
+              )}
 
               <div className="timeline">
                 {interactions.map(item => (
@@ -4101,6 +4235,156 @@ function RequestDiscountModal({ user, quotationId, onClose, onSuccess }: { user:
           <div className="modal-footer">
             <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
             <button type="submit" className="btn-primary" disabled={busy}>Submit Request</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ==========================================
+// SUBCOMPONENT: CREATE TASK MODAL
+// ==========================================
+function CreateTaskModal({
+  user,
+  leads = [],
+  defaultLeadId,
+  onClose,
+  onSuccess,
+}: {
+  user: User | null;
+  leads: SellerLead[];
+  defaultLeadId?: string;
+  onClose: () => void;
+  onSuccess: () => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [leadId, setLeadId] = useState(defaultLeadId || (leads[0]?.id || ''));
+  const [type, setType] = useState('CALL');
+  const [priority, setPriority] = useState('NORMAL');
+  const [dueAt, setDueAt] = useState(() => {
+    const d = new Date(Date.now() + 2 * 3600 * 1000);
+    return d.toISOString().slice(0, 16);
+  });
+  const [details, setDetails] = useState('');
+  const [expectedOutcome, setExpectedOutcome] = useState('');
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !leadId) {
+      setError('Please select an active seller opportunity.');
+      return;
+    }
+    setBusy(true);
+    setError('');
+    try {
+      await salesApi.createTask(user, leadId, {
+        type,
+        priority,
+        dueAt: new Date(dueAt).toISOString(),
+        details,
+        expectedOutcome: expectedOutcome || undefined,
+      });
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to schedule task');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog">
+        <div className="modal-header">
+          <h3>Schedule CRM Follow-up Task</h3>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body">
+            {error && <div className="error-banner">{error}</div>}
+
+            <div className="form-group">
+              <label className="form-label">Related Seller Opportunity *</label>
+              {leads.length > 0 ? (
+                <select className="form-select" value={leadId} onChange={e => setLeadId(e.target.value)} required>
+                  {leads.map(l => (
+                    <option key={l.id} value={l.id}>
+                      [{l.referenceCode}] {l.make} {l.model} — {l.sellerName} ({l.city})
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <div style={{ color: 'var(--color-destructive)', fontSize: '0.85rem' }}>
+                  No active seller leads found. Claim or create an acquisition opportunity first.
+                </div>
+              )}
+            </div>
+
+            <div className="form-grid">
+              <div className="form-group">
+                <label className="form-label">Task Type *</label>
+                <select className="form-select" value={type} onChange={e => setType(e.target.value)}>
+                  <option value="CALL">Phone Call</option>
+                  <option value="INSPECTION_COORDINATION">Inspection Coordination</option>
+                  <option value="QUOTATION_FOLLOW_UP">Offer / Quotation Discussion</option>
+                  <option value="DOCUMENT_FOLLOW_UP">Document / RC Verification</option>
+                  <option value="TEST_DRIVE_FOLLOW_UP">Test Drive Follow-up</option>
+                  <option value="MEETING">In-person Meeting</option>
+                  <option value="EMAIL">Email Follow-up</option>
+                </select>
+              </div>
+
+              <div className="form-group">
+                <label className="form-label">Priority</label>
+                <select className="form-select" value={priority} onChange={e => setPriority(e.target.value)}>
+                  <option value="LOW">Low</option>
+                  <option value="NORMAL">Normal</option>
+                  <option value="HIGH">High</option>
+                  <option value="URGENT">Urgent</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Due Date & Time *</label>
+              <input
+                type="datetime-local"
+                className="form-input"
+                value={dueAt}
+                onChange={e => setDueAt(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Task Details / Instructions *</label>
+              <textarea
+                required
+                className="form-textarea"
+                placeholder="e.g. Call seller to confirm doorstep inspection time slot and address..."
+                value={details}
+                onChange={e => setDetails(e.target.value)}
+              />
+            </div>
+
+            <div className="form-group">
+              <label className="form-label">Expected Outcome (Optional)</label>
+              <input
+                type="text"
+                className="form-input"
+                placeholder="e.g. Confirmed inspection appointment for tomorrow"
+                value={expectedOutcome}
+                onChange={e => setExpectedOutcome(e.target.value)}
+              />
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={busy || !leads.length}>
+              {busy ? 'Scheduling...' : 'Schedule Task'}
+            </button>
           </div>
         </form>
       </div>
