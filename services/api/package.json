@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "postinstall": "prisma generate",
     "dev": "tsx watch --env-file-if-exists=.env src/dev.ts",
     "build": "tsc",
     "typecheck": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json",
