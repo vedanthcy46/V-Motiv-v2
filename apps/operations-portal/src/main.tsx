@@ -61,6 +61,42 @@ type TabKey =
   | 'deliveries'
   | 'team';
 
+// ============================================================================
+// RESILIENT BROWSER FETCH RECOVERY
+// Fixes third-party browser extensions (e.g. 200.js interceptors) that crash on M_ID
+// ============================================================================
+if (typeof window !== 'undefined' && typeof window.fetch === 'function') {
+  const originalFetch = window.fetch;
+  window.fetch = async function (input: RequestInfo | URL, init?: RequestInit) {
+    try {
+      return await originalFetch.apply(this, [input, init] as any);
+    } catch (err: any) {
+      if (
+        err instanceof TypeError &&
+        (String(err?.message).includes('M_ID') || String(err?.stack).includes('200.js'))
+      ) {
+        try {
+          const iframe = document.createElement('iframe');
+          iframe.style.display = 'none';
+          document.documentElement.appendChild(iframe);
+          const cleanFetch = iframe.contentWindow?.fetch;
+          if (cleanFetch) {
+            const res = await cleanFetch.apply(window, [input, init] as any);
+            setTimeout(() => {
+              try { iframe.remove(); } catch { /* ignore */ }
+            }, 1000);
+            return res;
+          }
+          iframe.remove();
+        } catch {
+          // ignore fallback error
+        }
+      }
+      throw err;
+    }
+  };
+}
+
 function formatRupees(paise?: string | number | null): string {
   if (paise === undefined || paise === null) return '—';
   const val = typeof paise === 'string' ? BigInt(paise) : BigInt(Math.round(Number(paise)));
@@ -405,6 +441,7 @@ export const App: FC = () => {
   const [qcDecision, setQcDecision] = useState<'PASS' | 'REWORK_REQUIRED' | 'FAIL'>('PASS');
 
   const [studioModal, setStudioModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
+  const [studioFilter, setStudioFilter] = useState<'ALL' | 'PREPARATION' | 'READY' | 'LISTED'>('ALL');
   const [studioTitle, setStudioTitle] = useState('');
   const [studioColor, setStudioColor] = useState('');
   const [studioSummary, setStudioSummary] = useState('');
@@ -441,12 +478,12 @@ export const App: FC = () => {
     setError(null);
     try {
       const [m, r, ins, c, inv, td] = await Promise.all([
-        api.dashboard(u).catch(() => null),
-        api.inspectionRequests(u).catch(() => []),
-        api.inspectors(u).catch(() => []),
-        api.acquisitions(u).catch(() => []),
-        api.inventory(u).catch(() => []),
-        api.testDrives(u).catch(() => ({ items: [] })),
+        api.dashboard(u).catch(e => { console.warn('[Ops] Dashboard fetch:', e); return null; }),
+        api.inspectionRequests(u).catch(e => { console.warn('[Ops] Requests fetch:', e); return []; }),
+        api.inspectors(u).catch(e => { console.warn('[Ops] Inspectors fetch:', e); return []; }),
+        api.acquisitions(u).catch(e => { console.warn('[Ops] Acquisitions fetch:', e); return []; }),
+        api.inventory(u).catch(e => { console.warn('[Ops] Inventory fetch:', e); return []; }),
+        api.testDrives(u).catch(e => { console.warn('[Ops] TestDrives fetch:', e); return { items: [] }; }),
       ]);
       setMetrics(m);
       setRequests(r);
@@ -1936,57 +1973,138 @@ export const App: FC = () => {
         {/* ======================================================== */}
         {activeTab === 'studio' ? (
           <div>
-            <div className="action-bar">
+            <div className="action-bar" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1.5rem' }}>
               <div className="section-heading">
                 <h2>Listing Studio & Photography</h2>
                 <p>Curate photos, highlights, verified tags, and vehicle specifications for marketplace publication.</p>
               </div>
-              <button className="btn-secondary" onClick={() => void loadAllData()} disabled={loading}>
-                <IconRefresh />
-              </button>
+              <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                <div style={{ display: 'flex', gap: '0.25rem', background: 'var(--surface-2)', padding: '0.25rem', borderRadius: 'var(--radius-sm)', border: '1px solid var(--border)' }}>
+                  <button
+                    className={`btn-sm ${studioFilter === 'ALL' ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => setStudioFilter('ALL')}
+                    style={{ border: 'none' }}
+                  >
+                    All Studio Units ({inventory.filter(s => ['LISTING_PREPARATION', 'LISTING_READY', 'QC_PENDING', 'RECEIVED', 'REFURBISHMENT_PENDING', 'LISTED'].includes(s.status)).length})
+                  </button>
+                  <button
+                    className={`btn-sm ${studioFilter === 'PREPARATION' ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => setStudioFilter('PREPARATION')}
+                    style={{ border: 'none' }}
+                  >
+                    Preparation Required ({inventory.filter(s => ['LISTING_PREPARATION', 'QC_PENDING', 'RECEIVED', 'REFURBISHMENT_PENDING'].includes(s.status)).length})
+                  </button>
+                  <button
+                    className={`btn-sm ${studioFilter === 'READY' ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => setStudioFilter('READY')}
+                    style={{ border: 'none' }}
+                  >
+                    Listing Ready ({inventory.filter(s => s.status === 'LISTING_READY').length})
+                  </button>
+                  <button
+                    className={`btn-sm ${studioFilter === 'LISTED' ? 'btn-primary' : 'btn-outline'}`}
+                    onClick={() => setStudioFilter('LISTED')}
+                    style={{ border: 'none' }}
+                  >
+                    Live Catalog ({inventory.filter(s => s.status === 'LISTED').length})
+                  </button>
+                </div>
+                <button className="btn-secondary" onClick={() => void loadAllData()} disabled={loading} title="Refresh studio inventory">
+                  <IconRefresh />
+                </button>
+              </div>
             </div>
 
             <div className="detail-grid">
-              {inventory
-                .filter(s => ['LISTING_PREPARATION', 'LISTING_READY', 'QC_PENDING', 'RECEIVED'].includes(s.status))
-                .map(s => (
-                  <article className="detail-card" key={s.id}>
-                    <div className="card-header">
-                      <div>
-                        <strong className="card-title">{s.manufacturingYear} {s.make} {s.model} {s.variant || ''}</strong>
-                        <div className="card-subtitle">Stock: {s.stockCode} · Plate: {s.registrationNumber || 'Pending'}</div>
-                      </div>
-                      <span className={`badge ${s.status === 'LISTING_READY' ? 'badge-success' : 'badge-info'}`}>
-                        {s.status.replace(/_/g, ' ')}
-                      </span>
-                    </div>
+              {(() => {
+                const filteredStudioUnits = inventory.filter(s => {
+                  if (studioFilter === 'PREPARATION') {
+                    return ['LISTING_PREPARATION', 'QC_PENDING', 'RECEIVED', 'REFURBISHMENT_PENDING'].includes(s.status);
+                  }
+                  if (studioFilter === 'READY') {
+                    return s.status === 'LISTING_READY';
+                  }
+                  if (studioFilter === 'LISTED') {
+                    return s.status === 'LISTED';
+                  }
+                  return ['LISTING_PREPARATION', 'LISTING_READY', 'QC_PENDING', 'RECEIVED', 'REFURBISHMENT_PENDING', 'LISTED'].includes(s.status);
+                });
 
-                    <div className="card-body">
-                      <div><strong>Listing Title:</strong> {s.vehicle?.listing?.title || 'Draft not yet created'}</div>
-                      <div><strong>Color:</strong> {s.vehicle?.color || 'Not recorded'}</div>
-                      <div><strong>Condition:</strong> {s.vehicle?.conditionSummary || 'Inspection verified'}</div>
-                      <div>
-                        <strong>Curated Photos:</strong> {s.vehicle?.listing?.media?.length || 0} photos attached
+                if (filteredStudioUnits.length === 0) {
+                  return (
+                    <div className="empty-state" style={{ gridColumn: '1 / -1', padding: '3.5rem 1.5rem', textAlign: 'center' }}>
+                      <div style={{ display: 'inline-flex', padding: '1rem', background: 'var(--surface-2)', borderRadius: '50%', marginBottom: '1rem', color: 'var(--yellow)' }}>
+                        <IconStudio style={{ width: 36, height: 36 }} />
+                      </div>
+                      <h3 style={{ fontSize: '1.2rem', marginBottom: '0.5rem', color: 'var(--text)' }}>No Vehicle Units in Studio</h3>
+                      <p style={{ maxWidth: '520px', margin: '0 auto 1.5rem', color: 'var(--muted)', fontSize: '0.9rem', lineHeight: 1.5 }}>
+                        Vehicle stock units inwarded from seller acquisitions or passed by Quality Control (QC) flow into this Listing Studio. Here, photographers and listing managers attach high-res 360° photos, curate headline titles, and verify condition tags before publishing.
+                      </p>
+                      <div style={{ display: 'flex', gap: '0.75rem', justifyContent: 'center' }}>
+                        <button className="btn-secondary" onClick={() => setActiveTab('inventory')}>
+                          <IconInventory /> View All Inventory ({inventory.length})
+                        </button>
+                        <button className="btn-outline" onClick={() => setActiveTab('handover')}>
+                          <IconHandover /> Check Vehicle Handover
+                        </button>
                       </div>
                     </div>
+                  );
+                }
 
-                    <div className="card-footer">
-                      <button
-                        className="btn-gold"
-                        style={{ fontSize: '0.8rem' }}
-                        onClick={() => {
-                          setStudioModal({ open: true, stockItem: s });
-                          setStudioTitle(s.vehicle?.listing?.title || `${s.manufacturingYear} ${s.make} ${s.model} ${s.variant || ''}`.trim());
-                          setStudioColor(s.vehicle?.color || '');
-                          setStudioSummary(s.vehicle?.conditionSummary || '');
-                          setStudioPhotos((s.vehicle?.listing?.media || []).map(m => m.url).join('\n'));
-                        }}
-                      >
-                        <IconStudio /> {s.vehicle?.listing ? 'Edit Studio Details' : 'Prepare Listing'}
-                      </button>
-                    </div>
-                  </article>
-                ))}
+                return filteredStudioUnits.map(s => {
+                  const mediaList = s.vehicle?.listing?.media || [];
+                  const heroPhoto = mediaList[0]?.url;
+
+                  return (
+                    <article className="detail-card" key={s.id}>
+                      {heroPhoto ? (
+                        <div style={{ height: '140px', overflow: 'hidden', borderTopLeftRadius: 'var(--radius-md)', borderTopRightRadius: 'var(--radius-md)', background: '#020b18', position: 'relative' }}>
+                          <img src={heroPhoto} alt={s.model} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                          <span style={{ position: 'absolute', bottom: '8px', right: '8px', background: 'rgba(2, 11, 24, 0.85)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', color: 'var(--text)', border: '1px solid var(--border)' }}>
+                            {mediaList.length} photo{mediaList.length === 1 ? '' : 's'}
+                          </span>
+                        </div>
+                      ) : null}
+
+                      <div className="card-header">
+                        <div>
+                          <strong className="card-title">{s.manufacturingYear} {s.make} {s.model} {s.variant || ''}</strong>
+                          <div className="card-subtitle">Stock: {s.stockCode} · Plate: {s.registrationNumber || 'Pending'}</div>
+                        </div>
+                        <span className={`badge ${s.status === 'LISTING_READY' ? 'badge-success' : s.status === 'LISTED' ? 'badge-info' : 'badge-warning'}`}>
+                          {s.status.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+
+                      <div className="card-body">
+                        <div><strong>Public Title:</strong> {s.vehicle?.listing?.title || 'Draft not yet created'}</div>
+                        <div><strong>Color:</strong> {s.vehicle?.color || 'Not recorded'}</div>
+                        <div><strong>Condition Summary:</strong> {s.vehicle?.conditionSummary || 'Inspection verified'}</div>
+                        <div>
+                          <strong>Studio Media:</strong> {mediaList.length ? `${mediaList.length} curated images ready` : 'No photos attached yet'}
+                        </div>
+                      </div>
+
+                      <div className="card-footer">
+                        <button
+                          className="btn-gold"
+                          style={{ fontSize: '0.8rem' }}
+                          onClick={() => {
+                            setStudioModal({ open: true, stockItem: s });
+                            setStudioTitle(s.vehicle?.listing?.title || `${s.manufacturingYear} ${s.make} ${s.model} ${s.variant || ''}`.trim());
+                            setStudioColor(s.vehicle?.color || '');
+                            setStudioSummary(s.vehicle?.conditionSummary || '');
+                            setStudioPhotos((s.vehicle?.listing?.media || []).map(m => m.url).join('\n'));
+                          }}
+                        >
+                          <IconStudio /> {s.vehicle?.listing ? 'Edit Studio Specs & Photos' : 'Prepare Listing'}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                });
+              })()}
             </div>
           </div>
         ) : null}

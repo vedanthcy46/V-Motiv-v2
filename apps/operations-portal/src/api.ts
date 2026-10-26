@@ -24,7 +24,7 @@ export class ApiError extends Error {
 
 async function call<T>(user: User, path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const token = await user.getIdToken(!retry);
-  const response = await fetch(`${base}${path}`, {
+  const requestInit: RequestInit = {
     ...init,
     headers: {
       'Content-Type': 'application/json',
@@ -32,7 +32,34 @@ async function call<T>(user: User, path: string, init: RequestInit = {}, retry =
       ...init.headers,
     },
     signal: init.signal ?? AbortSignal.timeout(20_000),
-  });
+  };
+
+  let response: Response;
+  try {
+    response = await fetch(`${base}${path}`, requestInit);
+  } catch (err: any) {
+    // If a browser extension (e.g. 200.js / M_ID) monkey-patched fetch and threw an error
+    if (
+      err instanceof TypeError &&
+      (String(err?.message).includes('M_ID') || String(err?.stack).includes('200.js'))
+    ) {
+      const iframe = document.createElement('iframe');
+      iframe.style.display = 'none';
+      document.body.appendChild(iframe);
+      const cleanFetch = iframe.contentWindow?.fetch;
+      if (cleanFetch) {
+        response = await cleanFetch(`${base}${path}`, requestInit);
+        setTimeout(() => {
+          try { iframe.remove(); } catch { /* ignore */ }
+        }, 1000);
+      } else {
+        iframe.remove();
+        throw err;
+      }
+    } else {
+      throw err;
+    }
+  }
 
   if (response.status === 401 && retry) {
     await user.getIdToken(true);
