@@ -68,6 +68,56 @@ const cancelInput = z.object({
   reason: z.string().trim().min(3).max(500),
 }).strict();
 
+const acquisitionDocumentInput = z.object({
+  documentType: z.string().trim().min(2).max(80).regex(/^[A-Z0-9_]+$/),
+  status: z.enum(['REQUESTED', 'RECEIVED', 'UNDER_REVIEW', 'VERIFIED', 'REJECTED', 'EXPIRED', 'MISMATCH', 'WAIVED_BY_AUTHORIZED_POLICY']),
+  notes: z.string().trim().max(2_000).optional(),
+  expectedVersion: z.number().int().positive().optional(),
+}).strict();
+const settlementInput = z.object({
+  status: z.enum(['READY_FOR_PAYMENT', 'PAYMENT_PENDING', 'PAYMENT_VERIFIED', 'PAYMENT_FAILED', 'CANCELLED']),
+  transactionReference: z.string().trim().min(3).max(200).optional(),
+  notes: z.string().trim().max(2_000).optional(),
+  expectedVersion: z.number().int().positive().optional(),
+}).strict();
+const handoverInput = z.object({
+  branchId: uuid.optional(),
+  status: z.enum(['SCHEDULED', 'RECEIVED', 'DISPUTED', 'REJECTED']),
+  location: z.string().trim().min(3).max(500),
+  observedAt: z.string().datetime().transform(value => new Date(value)),
+  registrationNumber: z.string().trim().min(3).max(32).optional(),
+  odometerKm: z.number().int().min(0).max(2_000_000).optional(),
+  mainKeysReceived: z.number().int().min(0).max(10).optional(),
+  spareKeysReceived: z.number().int().min(0).max(10).optional(),
+  documentsReceived: z.boolean().optional(),
+  accessoriesNotes: z.string().trim().max(2_000).optional(),
+  conditionNotes: z.string().trim().max(2_000).optional(),
+  exceptionNotes: z.string().trim().max(2_000).optional(),
+  expectedVersion: z.number().int().positive().optional(),
+}).strict();
+const completeAcquisitionInput = z.object({
+  expectedVersion: z.number().int().positive(),
+  completionNotes: z.string().trim().max(2_000).optional(),
+}).strict();
+const stockInwardInput = z.object({
+  branchId: uuid.optional(),
+  physicalLocation: z.string().trim().min(3).max(500),
+  notes: z.string().trim().max(2_000).optional(),
+}).strict();
+const workOrderInput = z.object({
+  category: z.string().trim().min(2).max(80),
+  requiredAction: z.string().trim().min(5).max(2_000),
+  assignedProvider: z.string().trim().max(160).optional(),
+  estimatedCostPaise: z.number().int().positive().max(10_000_000_000).optional(),
+  notes: z.string().trim().max(2_000).optional(),
+}).strict();
+const submitCostInput = z.object({ expectedVersion: z.number().int().positive(), estimatedCostPaise: z.number().int().positive().max(10_000_000_000), reason: z.string().trim().min(5).max(2_000) }).strict();
+const costDecisionInput = z.object({ expectedVersion: z.number().int().positive(), decision: z.enum(['APPROVE', 'REJECT']), reason: z.string().trim().min(5).max(2_000) }).strict();
+const startWorkOrderInput = z.object({ expectedVersion: z.number().int().positive() }).strict();
+const completeWorkOrderInput = z.object({ expectedVersion: z.number().int().positive(), actualCostPaise: z.number().int().min(0).max(10_000_000_000).optional(), notes: z.string().trim().max(2_000).optional() }).strict();
+const startQualityControlInput = z.object({ workOrderId: uuid.optional(), findings: z.string().trim().max(4_000).optional(), evidenceNotes: z.string().trim().max(4_000).optional() }).strict();
+const qualityControlDecisionInput = z.object({ expectedVersion: z.number().int().positive(), decision: z.enum(['PASS', 'REWORK_REQUIRED', 'FAIL']), findings: z.string().trim().max(4_000).optional(), evidenceNotes: z.string().trim().max(4_000).optional() }).strict();
+
 const decisionInput = z.object({
   decision: z.enum(['APPROVE', 'REQUEST_CORRECTION', 'REJECT']),
   reason: z.string().trim().max(2_000).optional(),
@@ -267,6 +317,82 @@ export function createInspectionReviewRouter(deps: { verify: VerifyToken; store:
 export function createOperationsInspectionRouter(deps: { verify: VerifyToken; store: PrismaInspectionStore }) {
   const router = secured(deps.store, deps.verify);
 
+  router.get('/dashboard', async (_req, res, next) => {
+    try { res.json(await deps.store.operationsDashboard(res.locals.inspectionActor)); }
+    catch (e) { next(e); }
+  });
+
+  router.get('/acquisitions', async (_req, res, next) => {
+    try { res.json(await deps.store.acquisitionCases(res.locals.inspectionActor)); }
+    catch (e) { next(e); }
+  });
+
+  router.post('/acquisitions/:id/documents', async (req, res, next) => {
+    try { res.json(await deps.store.updateAcquisitionDocument(res.locals.inspectionActor, uuid.parse(req.params.id), acquisitionDocumentInput.parse(req.body))); }
+    catch (e) { next(e); }
+  });
+
+  router.post('/acquisitions/:id/handover', async (req, res, next) => {
+    try { res.json(await deps.store.recordVehicleHandover(res.locals.inspectionActor, uuid.parse(req.params.id), handoverInput.parse(req.body))); }
+    catch (e) { next(e); }
+  });
+
+  router.post('/acquisitions/:id/complete', async (req, res, next) => {
+    try { res.json(await deps.store.completeAcquisition(res.locals.inspectionActor, uuid.parse(req.params.id), completeAcquisitionInput.parse(req.body))); }
+    catch (e) { next(e); }
+  });
+
+  router.post('/acquisitions/:id/stock-inward', async (req, res, next) => {
+    try { res.status(201).json(await deps.store.stockInward(res.locals.inspectionActor, uuid.parse(req.params.id), stockInwardInput.parse(req.body))); }
+    catch (e) { next(e); }
+  });
+
+  router.get('/inventory', async (_req, res, next) => {
+    try { res.json(await deps.store.stockUnits(res.locals.inspectionActor)); }
+    catch (e) { next(e); }
+  });
+
+  router.post('/inventory/:id/work-orders', async (req, res, next) => {
+    try {
+      const body = workOrderInput.parse(req.body);
+      res.status(201).json(await deps.store.createWorkOrder(res.locals.inspectionActor, uuid.parse(req.params.id), { ...body, estimatedCostPaise: body.estimatedCostPaise === undefined ? undefined : BigInt(body.estimatedCostPaise) }));
+    } catch (e) { next(e); }
+  });
+
+  router.post('/work-orders/:id/cost-approval', async (req, res, next) => {
+    try {
+      const body = submitCostInput.parse(req.body);
+      res.json(await deps.store.submitWorkOrderCost(res.locals.inspectionActor, uuid.parse(req.params.id), { ...body, estimatedCostPaise: BigInt(body.estimatedCostPaise) }));
+    } catch (e) { next(e); }
+  });
+
+  router.post('/work-orders/:id/cost-decision', async (req, res, next) => {
+    try { res.json(await deps.store.decideWorkOrderCost(res.locals.inspectionActor, uuid.parse(req.params.id), costDecisionInput.parse(req.body))); }
+    catch (e) { next(e); }
+  });
+
+  router.post('/work-orders/:id/start', async (req, res, next) => {
+    try { res.json(await deps.store.startWorkOrder(res.locals.inspectionActor, uuid.parse(req.params.id), startWorkOrderInput.parse(req.body).expectedVersion)); }
+    catch (e) { next(e); }
+  });
+
+  router.post('/work-orders/:id/complete', async (req, res, next) => {
+    try {
+      const body = completeWorkOrderInput.parse(req.body);
+      res.json(await deps.store.completeWorkOrder(res.locals.inspectionActor, uuid.parse(req.params.id), { ...body, actualCostPaise: body.actualCostPaise === undefined ? undefined : BigInt(body.actualCostPaise) }));
+    } catch (e) { next(e); }
+  });
+
+  router.post('/inventory/:id/qc', async (req, res, next) => {
+    try { res.status(201).json(await deps.store.startQualityControl(res.locals.inspectionActor, uuid.parse(req.params.id), startQualityControlInput.parse(req.body))); }
+    catch (e) { next(e); }
+  });
+
+  router.post('/quality-control/:id/decision', async (req, res, next) => {
+    try { res.json(await deps.store.decideQualityControl(res.locals.inspectionActor, uuid.parse(req.params.id), qualityControlDecisionInput.parse(req.body))); }
+    catch (e) { next(e); }
+  });
+
   router.get('/inspection-requests', async (_req, res, next) => {
     try {
       res.json(await deps.store.operationRequests(res.locals.inspectionActor));
@@ -308,5 +434,14 @@ export function createOperationsInspectionRouter(deps: { verify: VerifyToken; st
     }
   });
 
+  return router;
+}
+
+export function createFinanceAcquisitionRouter(deps: { verify: VerifyToken; store: PrismaInspectionStore }) {
+  const router = secured(deps.store, deps.verify);
+  router.post('/acquisitions/:id/settlement', async (req, res, next) => {
+    try { res.json(await deps.store.updateAcquisitionSettlement(res.locals.inspectionActor, uuid.parse(req.params.id), settlementInput.parse(req.body))); }
+    catch (e) { next(e); }
+  });
   return router;
 }

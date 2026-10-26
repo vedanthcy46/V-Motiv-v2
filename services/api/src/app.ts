@@ -29,7 +29,7 @@ import type { AdminStore } from './admin-store.js';
 import { createAdminRouter } from './admin-router.js';
 import { createSalesRouter } from './sales-router.js';
 import type { SalesStore } from './sales-store.js';
-import { createInspectorRouter, createInspectionReviewRouter, createOperationsInspectionRouter } from './inspection-router.js';
+import { createFinanceAcquisitionRouter, createInspectorRouter, createInspectionReviewRouter, createOperationsInspectionRouter } from './inspection-router.js';
 import type { PrismaInspectionStore } from './inspection-store.js';
 
 const uuid = z.string().uuid();
@@ -122,6 +122,7 @@ export function createApp(deps: {
         normalizedOrigin === 'https://www.vmotiv.in' ||
         normalizedOrigin === 'https://admin.vmotiv.in' ||
         normalizedOrigin === 'https://sales.vmotiv.in' ||
+        normalizedOrigin === 'https://review.vmotiv.in' ||
         normalizedOrigin === 'https://ops.vmotiv.in' ||
         normalizedOrigin === 'https://api.vmotiv.in' ||
         normalizedOrigin === 'https://vmotiv-admin.vercel.app' ||
@@ -179,6 +180,7 @@ export function createApp(deps: {
     app.use('/api/v2/inspector', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createInspectorRouter({ verify: deps.verify, store: deps.inspection }));
     app.use('/api/v2/inspection-review', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createInspectionReviewRouter({ verify: deps.verify, store: deps.inspection }));
     app.use('/api/v2/operations', rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false }), createOperationsInspectionRouter({ verify: deps.verify, store: deps.inspection }));
+    app.use('/api/v2/finance', rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }), createFinanceAcquisitionRouter({ verify: deps.verify, store: deps.inspection }));
   }
   // Published inventory is deliberately public. Every account-linked mutation remains below authentication.
   if (deps.customer) {

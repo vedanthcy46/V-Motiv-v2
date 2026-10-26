@@ -251,8 +251,32 @@ export class PrismaCustomerStore implements CustomerStore {
         where: { id: offer.leadId },
         data: { status: 'ACCEPTED' },
       });
+      const acquisitionCase = await tx.acquisitionCase.create({
+        data: {
+          leadId: offer.leadId,
+          offerId: offer.id,
+          sellerAcceptedByUserId: user.id,
+          acceptedAt: new Date(),
+          documents: { create: [
+            { documentType: 'SELLER_IDENTITY', status: 'REQUESTED' },
+            { documentType: 'VEHICLE_REGISTRATION', status: 'REQUESTED' },
+            { documentType: 'SELLER_AUTHORITY', status: 'REQUESTED' },
+            { documentType: 'LIEN_OR_HYPOTHECATION', status: 'REQUESTED' },
+            { documentType: 'PURCHASE_AGREEMENT', status: 'REQUESTED' },
+          ] },
+        },
+      });
       await tx.auditEvent.create({
-        data: { actorId: user.id, action: 'ACQUISITION_OFFER_ACCEPTED', entityId: offerId },
+        data: {
+          actorId: user.id,
+          action: 'ACQUISITION_OFFER_ACCEPTED',
+          entityType: 'AcquisitionOffer',
+          entityId: offerId,
+          details: { acquisitionCaseId: acquisitionCase.id, source: 'CUSTOMER_SELF_SERVICE' },
+        },
+      });
+      await tx.auditEvent.create({
+        data: { actorId: user.id, action: 'ACQUISITION_CASE_CREATED', entityType: 'AcquisitionCase', entityId: acquisitionCase.id, details: { leadId: offer.leadId, offerId: offer.id } },
       });
       await tx.emailOutbox.create({
         data: {

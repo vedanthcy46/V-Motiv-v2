@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { ensureAdminCatalog } from '../src/admin-catalog.js';
 import { PrismaInspectionStore } from '../src/inspection-store.js';
+import { templateFor } from '../src/inspection-template.js';
 
 const url = process.env.V2_TEST_DATABASE_URL;
 if (url && (!url.startsWith('postgresql://') || new URL(url).hostname !== '127.0.0.1' || new URL(url).pathname !== '/vmotiv_v2_test')) throw new Error('Inspection integration tests require isolated vmotiv_v2_test.');
@@ -27,7 +28,8 @@ describe.skipIf(!url)('Inspection lifecycle with real PostgreSQL', () => {
     expect(rescheduled).toMatchObject({ status: 'RESCHEDULED' });
     expect((await store.assignments(inspector) as Array<{ id: string }>).map(item => item.id)).toContain(assignment.id);
     const report = await store.start(inspector, assignment.id) as { id: string; recordVersion: number };
-    const draft = await store.saveDraft(inspector, report.id, { recordVersion: report.recordVersion, identity: { registrationNumber: 'KA01AB1234', odometerKm: 40125 }, answers: [{ itemKey: 'identity.registration', status: 'PASS', value: 'KA01AB1234' }], defects: [{ category: 'EXTERIOR', severity: 'MINOR', description: 'Light scratch on rear bumper.' }] }) as { recordVersion: number };
+    const template = templateFor('vehicle-standard', 2)!;
+    const draft = await store.saveDraft(inspector, report.id, { recordVersion: report.recordVersion, identity: { registrationNumber: 'KA01AB1234', odometerKm: 40125 }, answers: template.items.filter(item => item.required && (!item.applicableFuel || item.applicableFuel.includes('PETROL'))).map(item => ({ itemKey: item.key, status: 'PASS' as const, value: item.key === 'identity.registration' ? 'KA01AB1234' : undefined })), defects: [{ category: 'EXTERIOR', severity: 'MINOR', description: 'Light scratch on rear bumper.' }] }) as { recordVersion: number };
     await expect(store.decide(inspector, report.id, { decision: 'APPROVE' })).rejects.toMatchObject({ status: 403 });
     await store.submit(inspector, report.id, draft.recordVersion);
     expect((await store.reviewQueue(reviewer) as Array<{ id: string }>).map(item => item.id)).toContain(report.id);
