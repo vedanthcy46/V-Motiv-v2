@@ -940,7 +940,7 @@ export class PrismaInspectionStore {
 
   async stockUnits(actor: InspectionActor) {
     checkRole(actor, operationsRoles);
-    return this.db.vehicleStockUnit.findMany({
+    const units = await this.db.vehicleStockUnit.findMany({
       where: actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role)) ? {} : { branchId: { in: actor.branchIds } },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -983,6 +983,31 @@ export class PrismaInspectionStore {
           },
         },
       },
+    });
+
+    const soldUnitIds = units.filter(u => u.status === 'SOLD').map(u => u.id);
+    const deliveryEvents = soldUnitIds.length > 0
+      ? await this.db.auditEvent.findMany({
+          where: { entityType: 'VehicleStockUnit', entityId: { in: soldUnitIds }, action: 'VEHICLE_DELIVERED_TO_BUYER' },
+          orderBy: { createdAt: 'desc' },
+          include: { actor: { select: { displayName: true, email: true } } },
+        })
+      : [];
+    const deliveryMap = new Map(deliveryEvents.map(e => [e.entityId, e]));
+
+    return units.map(u => {
+      const deliveryEvent = deliveryMap.get(u.id);
+      const deliveryRecord = deliveryEvent ? {
+        buyerName: (deliveryEvent.details as any)?.buyerName || 'N/A',
+        buyerPhone: (deliveryEvent.details as any)?.buyerPhone || 'N/A',
+        odometerKm: (deliveryEvent.details as any)?.odometerKm ?? u.odometerKm,
+        deliveredAt: deliveryEvent.createdAt,
+        deliveredBy: deliveryEvent.actor?.displayName || deliveryEvent.actor?.email || 'Operations Staff',
+      } : null;
+      return {
+        ...u,
+        deliveryRecord,
+      };
     });
   }
 
@@ -1277,7 +1302,7 @@ export class PrismaInspectionStore {
         data: {
           status: 'SOLD',
           odometerKm: input.odometerKm || stock.odometerKm,
-          notes: input.deliveryNotes ? `${stock.notes || ''}\n[DELIVERY]: ${input.deliveryNotes}`.trim() : stock.notes,
+          notes: `[DELIVERY to ${input.buyerName} (${input.buyerPhone})]${input.deliveryNotes ? `: ${input.deliveryNotes}` : ''}${stock.notes ? `\n\n${stock.notes}` : ''}`.trim(),
           version: { increment: 1 },
         },
       });

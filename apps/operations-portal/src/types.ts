@@ -187,6 +187,13 @@ export type VehicleStockUnit = {
   version: number;
   createdAt: string;
   updatedAt: string;
+  deliveryRecord?: {
+    buyerName: string;
+    buyerPhone: string;
+    odometerKm: number;
+    deliveredAt: string;
+    deliveredBy: string;
+  } | null;
   workOrders?: RefurbishmentWorkOrder[];
   qualityControlReports?: QualityControlReport[];
   vehicle?: {

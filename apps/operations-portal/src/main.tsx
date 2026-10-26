@@ -454,6 +454,7 @@ export const App: FC = () => {
   const [publishRetailPrice, setPublishRetailPrice] = useState<string>('');
 
   const [deliveryModal, setDeliveryModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
+  const [viewBuyerModal, setViewBuyerModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
   const [buyerName, setBuyerName] = useState('');
   const [buyerPhone, setBuyerPhone] = useState('');
   const [deliveryNotes, setDeliveryNotes] = useState('');
@@ -1863,6 +1864,18 @@ export const App: FC = () => {
                                 Handover to Buyer
                               </button>
                             ) : null}
+
+                            {s.status === 'SOLD' ? (
+                              <button
+                                className="btn-secondary"
+                                style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem', borderColor: 'rgba(196, 181, 253, 0.4)', color: 'var(--purple)' }}
+                                onClick={() => {
+                                  setViewBuyerModal({ open: true, stockItem: s });
+                                }}
+                              >
+                                Buyer Details
+                              </button>
+                            ) : null}
                           </div>
                         </td>
                       </tr>
@@ -3044,6 +3057,87 @@ export const App: FC = () => {
                 <button type="submit" className="btn-gold" disabled={loading}>Complete Buyer Delivery</button>
               </div>
             </form>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ======================================================== */}
+      {/* MODAL: VIEW BUYER DETAILS (SOLD VEHICLE)                  */}
+      {/* ======================================================== */}
+      {viewBuyerModal.open && viewBuyerModal.stockItem ? (
+        <div className="modal-overlay">
+          <div className="modal-dialog">
+            <div className="modal-header">
+              <h3>Buyer & Handover Information</h3>
+              <button className="btn-close" onClick={() => setViewBuyerModal({ open: false })}>✕</button>
+            </div>
+            <div className="modal-body">
+              <div>
+                <strong>{viewBuyerModal.stockItem.make} {viewBuyerModal.stockItem.model} ({viewBuyerModal.stockItem.stockCode})</strong>
+                <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                  Registration: {viewBuyerModal.stockItem.registrationNumber || 'N/A'} · Odometer: {viewBuyerModal.stockItem.odometerKm.toLocaleString()} km
+                </div>
+              </div>
+
+              <div style={{ padding: '0.9rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '0.65rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Lifecycle Status:</span>
+                  <span className="badge badge-purple">SOLD & DELIVERED</span>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Buyer Full Name:</span>
+                  <strong style={{ color: 'var(--yellow)', fontSize: '0.95rem' }}>
+                    {viewBuyerModal.stockItem.deliveryRecord?.buyerName ||
+                     (viewBuyerModal.stockItem.notes?.match(/\[DELIVERY to ([^(\]]+)/)?.[1]?.trim()) ||
+                     'Verified Customer'}
+                  </strong>
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Buyer Phone Number:</span>
+                  <strong style={{ color: 'var(--text)' }}>
+                    {viewBuyerModal.stockItem.deliveryRecord?.buyerPhone ||
+                     (viewBuyerModal.stockItem.notes?.match(/\(([+0-9\s]+)\)\]/)?.[1]?.trim()) ||
+                     'Recorded in Audit Log'}
+                  </strong>
+                </div>
+
+                {viewBuyerModal.stockItem.deliveryRecord?.deliveredAt ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Delivery Date:</span>
+                    <span style={{ color: 'var(--text)', fontSize: '0.85rem' }}>
+                      {formatDate(viewBuyerModal.stockItem.deliveryRecord.deliveredAt)}
+                    </span>
+                  </div>
+                ) : null}
+
+                {viewBuyerModal.stockItem.deliveryRecord?.deliveredBy ? (
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Handover Handled By:</span>
+                    <span style={{ color: 'var(--text)', fontSize: '0.85rem' }}>
+                      {viewBuyerModal.stockItem.deliveryRecord.deliveredBy}
+                    </span>
+                  </div>
+                ) : null}
+              </div>
+
+              {viewBuyerModal.stockItem.notes ? (
+                <div className="form-group">
+                  <label>Handover & Delivery Notes</label>
+                  <div style={{ padding: '0.75rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.82rem', whiteSpace: 'pre-wrap', color: 'var(--text)' }}>
+                    {viewBuyerModal.stockItem.notes}
+                  </div>
+                </div>
+              ) : null}
+
+              <div style={{ padding: '0.65rem 0.85rem', background: 'rgba(97, 217, 154, 0.08)', border: '1px solid rgba(97, 217, 154, 0.3)', borderRadius: '6px', fontSize: '0.78rem', color: 'var(--success)' }}>
+                ✓ Physical handover finalized and registered in immutable AuditEvent compliance log.
+              </div>
+            </div>
+            <div className="modal-footer">
+              <button type="button" className="btn-secondary" onClick={() => setViewBuyerModal({ open: false })}>Close</button>
+            </div>
           </div>
         </div>
       ) : null}
