@@ -77,7 +77,7 @@ const employeePortalOrigins = {
   sales: config.SALES_WEB_ORIGIN || 'http://localhost:3300',
   inspectionReview: config.INSPECTION_REVIEW_WEB_ORIGIN || 'http://localhost:3400',
   operations: config.OPERATIONS_WEB_ORIGIN || 'http://localhost:3500',
-  inspector: config.INSPECTOR_PORTAL_ORIGIN || 'http://localhost:3500',
+  inspector: config.INSPECTOR_MOBILE_DEEP_LINK || 'vmotiv://inspector',
 };
 const app = createApp({
   verify: (token, revoked) => getAuth(firebase).verifyIdToken(token, revoked),

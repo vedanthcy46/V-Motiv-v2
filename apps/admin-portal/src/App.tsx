@@ -2620,7 +2620,76 @@ function ApprovalDialog({ user, actor, approval, onClose, onDone }: { user: User
 function AuditPageView({ user }: { user: User }) { const [data, setData] = useState<AuditPage | null>(null); const [error, setError] = useState(''); const [page, setPage] = useState(1); useEffect(() => { adminApi.audit(user, page).then(setData).catch(error => setError(errorMessage(error))); }, [user, page]); return <><PageHeader eyebrow="Append-only history" title="Audit" description="Authorization-filtered security and governance events. Audit records cannot be edited from this portal."/>{error ? <ErrorState message={error}/> : !data ? <TableSkeleton/> : <section className="panel table-panel">{data.items.length ? <div className="table-scroll"><table><thead><tr><th>Time</th><th>Action</th><th>Target</th><th>Outcome</th></tr></thead><tbody>{data.items.map(event => <tr key={event.id}><td><time>{new Date(event.createdAt).toLocaleString()}</time></td><td><strong>{humanize(event.action)}</strong></td><td><span>{event.entityType}</span><small>{event.entityId}</small></td><td><StatusBadge value={event.outcome}/></td></tr>)}</tbody></table></div> : <EmptyState title="No audit events" text="No events are visible within your authorized scope."/>}<Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/></section>}</>; }
 function SystemHealthPanel({ user }: { user: User }) { const [data, setData] = useState<SystemHealth | null>(null); const [error, setError] = useState(''); useEffect(() => { adminApi.systemHealth(user).then(setData).catch(error => setError(errorMessage(error))); }, [user]); return <section className="panel"><div className="panel-heading"><div><h2>System health</h2><p>Safe operational diagnostics; no credentials or recipient data.</p></div></div>{error ? <ErrorState message={error}/> : !data ? <TableSkeleton/> : <><ul className="event-list">{data.services.map(service => <li key={service.key}><div><strong>{humanize(service.key)}</strong><span>{service.detail}</span></div><StatusBadge value={service.status}/></li>)}</ul><p className="helper">Outbox: {Object.entries(data.emailOutbox).map(([state, count]) => `${humanize(state)} ${count}`).join(' · ') || 'No queued messages'}</p></>}</section>; }
 function PoliciesPanel({ user, actor }: { user: User; actor: AdminActor }) { const [items, setItems] = useState<PolicyVersion[] | null>(null); const [error, setError] = useState(''); const [open, setOpen] = useState(false); const [reload, setReload] = useState(0); useEffect(() => { adminApi.policies(user).then(setItems).catch(error => setError(errorMessage(error))); }, [user, reload]); const canPropose = actor.permissions.includes('policy.propose'); return <section className="panel"><div className="panel-heading"><div><h2>Policy versions</h2><p>Versioned governance records. Changes need independent approval before activation.</p></div>{canPropose && <button className="button primary" onClick={() => setOpen(true)}>Propose policy</button>}</div>{error ? <ErrorState message={error} retry={() => setReload(value => value + 1)}/> : !items ? <TableSkeleton/> : items.length ? <ul className="event-list">{items.map(policy => <li key={policy.id}><div><strong>{policy.title} · v{policy.version}</strong><span>{policy.key} · {policy.createdBy.displayName || policy.createdBy.email}</span></div><StatusBadge value={policy.status}/></li>)}</ul> : <EmptyState title="No policy versions" text="Propose the first policy version for independent approval."/>}{open && <PolicyProposalDialog user={user} onClose={() => setOpen(false)} onDone={() => { setOpen(false); setReload(value => value + 1); }}/>}</section>; }
-function PolicyProposalDialog({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: () => void }) { const ref = useRef<HTMLDialogElement>(null); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); useEffect(() => { ref.current?.showModal(); }, []); async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); setBusy(true); setError(''); try { const content = JSON.parse(String(form.get('content'))); if (!content || Array.isArray(content) || typeof content !== 'object') throw new Error('Policy content must be a JSON object.'); const effectiveAt = String(form.get('effectiveAt') || ''); await adminApi.proposePolicy(user, { key: String(form.get('key')).trim(), title: String(form.get('title')).trim(), content, effectiveAt: effectiveAt ? new Date(effectiveAt).toISOString() : undefined, reason: String(form.get('reason')).trim() }); onDone(); } catch (error) { setError(error instanceof Error ? error.message : errorMessage(error)); setBusy(false); } } return <dialog ref={ref} onCancel={onClose} className="dialog compact"><form onSubmit={submit}><header><div><p className="eyebrow">Governance change</p><h2>Propose policy version</h2></div><button type="button" className="icon-button" aria-label="Close policy form" onClick={onClose}><Icon name="close"/></button></header>{error && <div className="alert error" role="alert">{error}</div>}<label>Policy key <span aria-hidden="true">*</span><input name="key" required minLength={2} maxLength={80} pattern="[a-z0-9._-]+" placeholder="quotation-discount"/></label><label>Title <span aria-hidden="true">*</span><input name="title" required minLength={3} maxLength={160}/></label><label>Policy content (JSON object) <span aria-hidden="true">*</span><textarea name="content" required defaultValue={'{\n  "summary": ""\n}'}/></label><label>Effective at (optional)<input name="effectiveAt" type="datetime-local"/></label><label>Reason for change <span aria-hidden="true">*</span><textarea name="reason" required minLength={8} maxLength={500}/></label><footer><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Submitting…' : 'Submit for approval'}</button></footer></form></dialog>; }
+const policyTemplates = {
+  'quotation-discount': {
+    label: 'Quotation discount controls',
+    title: 'Quotation Discount Policy',
+    description: 'Requires an independent approval before a retail quotation receives a discount.',
+    content: { summary: 'Retail quotation discount controls.', maximumDiscountPercent: 5, maximumDiscountRupees: 50000, requiresApproval: true, approvalPermission: 'commercial.discount.approve', appliesTo: ['retail-quotation'] },
+  },
+  'test-drive-service': {
+    label: 'Test-drive service standard',
+    title: 'Test Drive Service Standard',
+    description: 'Sets the service expectation for customer test-drive requests.',
+    content: { summary: 'Test-drive service standard.', confirmationTargetHours: 4, cancellationWindowHours: 2, appliesTo: ['test-drive'] },
+  },
+  'customer-communication': {
+    label: 'Customer communications',
+    title: 'Customer Communication Standard',
+    description: 'Defines approved customer-update expectations and ownership.',
+    content: { summary: 'Customer communication standard.', requiresApprovedTemplate: true, responseTargetHours: 24, appliesTo: ['email', 'support-case'] },
+  },
+} as const;
+
+type PolicyTemplateKey = keyof typeof policyTemplates;
+
+function PolicyProposalDialog({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [templateKey, setTemplateKey] = useState<PolicyTemplateKey>('quotation-discount');
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const template = policyTemplates[templateKey];
+
+  useEffect(() => { ref.current?.showModal(); }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
+    setBusy(true);
+    setError('');
+    try {
+      const content = JSON.parse(String(form.get('content')));
+      if (!content || Array.isArray(content) || typeof content !== 'object') throw new Error('Policy rules must be a JSON object.');
+      const effectiveAt = String(form.get('effectiveAt') || '');
+      await adminApi.proposePolicy(user, {
+        key: templateKey,
+        title: String(form.get('title')).trim(),
+        content,
+        effectiveAt: effectiveAt ? new Date(effectiveAt).toISOString() : undefined,
+        reason: String(form.get('reason')).trim(),
+      });
+      onDone();
+    } catch (error) {
+      setError(error instanceof Error ? error.message : errorMessage(error));
+      setBusy(false);
+    }
+  }
+
+  return <dialog ref={ref} onCancel={onClose} className="dialog compact"><form onSubmit={submit}>
+    <header><div><p className="eyebrow">Governance change</p><h2>Propose policy version</h2></div><button type="button" className="icon-button" aria-label="Close policy form" onClick={onClose}><Icon name="close"/></button></header>
+    {error && <div className="alert error" role="alert">{error}</div>}
+    <label>What do you want to govern? <span aria-hidden="true">*</span>
+      <select value={templateKey} onChange={event => setTemplateKey(event.target.value as PolicyTemplateKey)}>{Object.entries(policyTemplates).map(([key, item]) => <option key={key} value={key}>{item.label}</option>)}</select>
+    </label>
+    <p className="helper">{template.description} The system key is set automatically: <strong>{templateKey}</strong>.</p>
+    <label>Policy title <span aria-hidden="true">*</span><input name="title" required minLength={3} maxLength={160} defaultValue={template.title} key={templateKey}/></label>
+    <label>Policy rules <span aria-hidden="true">*</span><textarea name="content" required key={templateKey} defaultValue={JSON.stringify(template.content, null, 2)}/></label>
+    <p className="helper">The rules are prefilled. You only need to change a number if your approved business rule differs; do not remove the approval requirement for quotation discounts.</p>
+    <label>Effective at (optional)<input name="effectiveAt" type="datetime-local"/></label>
+    <label>Reason for change <span aria-hidden="true">*</span><textarea name="reason" required minLength={8} maxLength={500} placeholder="Why is this policy required now?"/></label>
+    <footer><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Submitting…' : 'Submit for approval'}</button></footer>
+  </form></dialog>;
+}
 function StatusBadge({ value }: { value: string }) { const tone = ['ACTIVE', 'COMPLIANT', 'SUCCEEDED', 'ACCEPTED'].includes(value) ? 'success' : ['SUSPENDED', 'REQUIRED', 'PENDING'].includes(value) ? 'warning' : ['DEACTIVATED', 'FAILED', 'RECOVERY_REQUIRED'].includes(value) ? 'danger' : 'neutral'; return <span className={`status ${tone}`}><span aria-hidden="true"/>{humanize(value)}</span>; }
 function Pagination({ page, limit, total, onPage }: { page: number; limit: number; total: number; onPage: (page: number) => void }) { const pages = Math.max(1, Math.ceil(total / limit)); return <div className="pagination"><span>Page {page} of {pages}</span><div><button className="button secondary" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</button><button className="button secondary" disabled={page >= pages} onClick={() => onPage(page + 1)}>Next</button></div></div>; }
 function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><strong>{title}</strong><p>{text}</p></div>; }

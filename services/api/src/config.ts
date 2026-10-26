@@ -10,7 +10,7 @@ export function readConfig(env: NodeJS.ProcessEnv) {
     SALES_WEB_ORIGIN: z.url().optional(),
     INSPECTION_REVIEW_WEB_ORIGIN: z.url().optional(),
     OPERATIONS_WEB_ORIGIN: z.url().optional(),
-    INSPECTOR_PORTAL_ORIGIN: z.url().optional(),
+    INSPECTOR_MOBILE_DEEP_LINK: z.string().url().optional(),
     FIREBASE_PROJECT_ID: z.string().trim().min(1),
     RESEND_API_KEY: z.string().optional(),
     EMAIL_FROM: z.string().optional(),
@@ -34,10 +34,15 @@ export function readConfig(env: NodeJS.ProcessEnv) {
     ['SALES_WEB_ORIGIN', config.SALES_WEB_ORIGIN],
     ['INSPECTION_REVIEW_WEB_ORIGIN', config.INSPECTION_REVIEW_WEB_ORIGIN],
     ['OPERATIONS_WEB_ORIGIN', config.OPERATIONS_WEB_ORIGIN],
-    ['INSPECTOR_PORTAL_ORIGIN', config.INSPECTOR_PORTAL_ORIGIN],
   ] as const;
   for (const [name, value] of optionalOrigins) {
     if (value && new URL(value).origin !== value) throw new Error(`${name} must be an exact origin.`);
+  }
+  if (config.INSPECTOR_MOBILE_DEEP_LINK) {
+    const inspectorLink = new URL(config.INSPECTOR_MOBILE_DEEP_LINK);
+    if (!inspectorLink.protocol || inspectorLink.protocol === 'http:' || inspectorLink.protocol === 'https:') {
+      throw new Error('INSPECTOR_MOBILE_DEEP_LINK must use the registered mobile-app URL scheme.');
+    }
   }
   const adminOrigin = config.ADMIN_WEB_ORIGIN ? new URL(config.ADMIN_WEB_ORIGIN) : undefined;
   const loopbackOrigin = ['localhost', '127.0.0.1', '[::1]'].includes(origin.hostname);

@@ -23,7 +23,7 @@ Node 22.12+ LTS or Node 24 LTS is recommended.
 4. Configure a dedicated development Firebase project, Google sign-in, project ID and Application Default Credentials. See docs/AUTHENTICATION.md.
 5. Run npm run db:deploy.
 6. Create apps/customer-web/.env.local from its .env.example and enter the Firebase public app configuration.
-7. To run staff portals locally, set `ADMIN_WEB_ORIGIN=http://localhost:3200`, `SALES_WEB_ORIGIN=http://localhost:3300`, `INSPECTION_REVIEW_WEB_ORIGIN=http://localhost:3400`, and `OPERATIONS_WEB_ORIGIN=http://localhost:3500` in the API environment. These origins route accepted employee invitations to the appropriate workspace.
+7. To run staff portals locally, set `ADMIN_WEB_ORIGIN=http://localhost:3200`, `SALES_WEB_ORIGIN=http://localhost:3300`, `INSPECTION_REVIEW_WEB_ORIGIN=http://localhost:3400`, and `OPERATIONS_WEB_ORIGIN=http://localhost:3500` in the API environment. Set `INSPECTOR_MOBILE_DEEP_LINK=vmotiv://inspector` (or the registered inspector app scheme). These values route accepted employee invitations to the appropriate workspace or mobile app.
 8. To run Sales locally, create `apps/sales-portal/.env.local` from its example and start it with `npm run dev:sales`.
 9. Start `npm run dev:api`, `npm run dev:web`, and optionally `npm run dev:admin` or `npm run dev:sales` in separate terminals.
 10. Open customer web at http://localhost:3100, Admin at http://localhost:3200, or Sales at http://localhost:3300.
