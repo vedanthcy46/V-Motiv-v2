@@ -6,10 +6,13 @@ export class AccountError extends Error {
   constructor(readonly code: string, readonly status?: number) { super(code); }
 }
 
-const API_BASE = (((import.meta as any).env?.VITE_API_BASE as string | undefined) || '/api/v1')
+const configuredApiBase = (((import.meta as any).env?.VITE_API_BASE as string | undefined) || '/api/v1')
   .replace('https://vmotiv.in', 'https://api.vmotiv.in')
   .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
   .replace(/\/$/, '');
+const API_BASE = configuredApiBase.endsWith('/api/v1') ? configuredApiBase
+  : configuredApiBase.endsWith('/api/v2') ? `${configuredApiBase.slice(0, -'/api/v2'.length)}/api/v1`
+    : `${configuredApiBase}/api/v1`;
 
 export async function syncProfile(user: Pick<User, 'getIdToken'>, signal: AbortSignal, timeoutMs = 15_000): Promise<Profile> {
   // Cover token restoration, the API request, and response parsing with one deadline.

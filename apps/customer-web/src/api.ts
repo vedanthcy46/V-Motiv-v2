@@ -11,10 +11,16 @@ import type {
 } from './types';
 import { friendlyError } from './account-api';
 
-const API_BASE = (import.meta.env.VITE_API_BASE || '/api/v1')
-  .replace('https://vmotiv.in', 'https://api.vmotiv.in')
-  .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
-  .replace(/\/$/, '');
+function publicApiBase() {
+  const configured = (import.meta.env.VITE_API_BASE || '/api/v1')
+    .replace('https://vmotiv.in', 'https://api.vmotiv.in')
+    .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
+    .replace(/\/$/, '');
+  if (configured.endsWith('/api/v1')) return configured;
+  if (configured.endsWith('/api/v2')) return `${configured.slice(0, -'/api/v2'.length)}/api/v1`;
+  return `${configured}/api/v1`;
+}
+const API_BASE = publicApiBase();
 
 export function formatInrPaise(paise: string | number): string {
   const amount = typeof paise === 'string' ? parseInt(paise, 10) : paise;
