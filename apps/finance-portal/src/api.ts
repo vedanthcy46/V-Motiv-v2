@@ -222,6 +222,7 @@ export interface ExpenseClaim {
   invoiceNumber?: string | null;
   amountPaise: string;
   status: string;
+  version?: number;
   paymentMethod?: string | null;
   bankReference?: string | null;
   evidenceUri?: string | null;
@@ -420,7 +421,7 @@ export const financeApi = {
   // Buyer Collections
   obligations: (u: User) => call<BuyerPaymentObligation[]>(u, '/buyer-obligations'),
   createObligation: (u: User, body: {
-    buyerUserId: string;
+    buyerUserId?: string;
     buyerName: string;
     buyerEmail?: string;
     buyerPhone?: string;
@@ -524,12 +525,12 @@ export const financeApi = {
     method: 'POST',
     body: JSON.stringify(body),
   }),
-  decideExpense: (u: User, expenseId: string, body: { decision: 'APPROVE' | 'REJECT'; reason: string }) =>
+  decideExpense: (u: User, expenseId: string, body: { decision: 'APPROVE' | 'REJECT'; reason?: string; version?: number }) =>
     call<ExpenseClaim>(u, `/expenses/${expenseId}/decision`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
-  payExpense: (u: User, expenseId: string, body: { paymentMethod: string; bankReference: string; companyBankAccountId?: string }) =>
+  payExpense: (u: User, expenseId: string, body: { paymentMethod: string; bankReference: string; companyBankAccountId?: string; version?: number }) =>
     call<ExpenseClaim>(u, `/expenses/${expenseId}/pay`, {
       method: 'POST',
       body: JSON.stringify(body),

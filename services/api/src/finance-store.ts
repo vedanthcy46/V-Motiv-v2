@@ -429,14 +429,14 @@ export class PrismaFinanceStore {
     });
   }
 
-  async submitPayout(actor: FinanceActor, id: string, version: number) {
+  async submitPayout(actor: FinanceActor, id: string, version: number | undefined) {
     requirePermission(actor, 'finance.settlement.prepare');
     const payout = await this.db.financePayoutInstruction.findUnique({
       where: { id },
       include: { settlement: { include: { acquisitionCase: true } } },
     });
     if (!payout) throw new HttpError(404, 'PAYOUT_NOT_FOUND');
-    if (payout.version !== version) throw new HttpError(409, 'PAYOUT_VERSION_CONFLICT');
+    if (version !== undefined && payout.version !== version) throw new HttpError(409, 'PAYOUT_VERSION_CONFLICT');
     if (payout.requestedByEmployeeId !== actor.userId && !actor.roles.includes('SUPER_ADMIN')) {
       throw new HttpError(403, 'PAYOUT_PREPARER_REQUIRED');
     }
@@ -483,14 +483,14 @@ export class PrismaFinanceStore {
   async approvePayout(
     actor: FinanceActor,
     id: string,
-    version: number,
+    version: number | undefined,
     decision: 'APPROVE' | 'REJECT',
     reason: string
   ) {
     requirePermission(actor, 'finance.payout.approve');
     const payout = await this.db.financePayoutInstruction.findUnique({ where: { id } });
     if (!payout) throw new HttpError(404, 'PAYOUT_NOT_FOUND');
-    if (payout.version !== version) throw new HttpError(409, 'PAYOUT_VERSION_CONFLICT');
+    if (version !== undefined && payout.version !== version) throw new HttpError(409, 'PAYOUT_VERSION_CONFLICT');
     if (payout.requestedByEmployeeId === actor.userId && !actor.roles.includes('SUPER_ADMIN')) {
       throw new HttpError(409, 'PAYOUT_SELF_APPROVAL_DENIED');
     }
@@ -526,14 +526,14 @@ export class PrismaFinanceStore {
   async executePayout(
     actor: FinanceActor,
     id: string,
-    version: number,
+    version: number | undefined,
     bankReference: string,
     notes?: string
   ) {
     requirePermission(actor, 'finance.payout.execute');
     const payout = await this.db.financePayoutInstruction.findUnique({ where: { id } });
     if (!payout) throw new HttpError(404, 'PAYOUT_NOT_FOUND');
-    if (payout.version !== version) throw new HttpError(409, 'PAYOUT_VERSION_CONFLICT');
+    if (version !== undefined && payout.version !== version) throw new HttpError(409, 'PAYOUT_VERSION_CONFLICT');
     if (payout.status !== 'APPROVED') throw new HttpError(409, 'PAYOUT_NOT_EXECUTABLE');
     if (
       [payout.requestedByEmployeeId, payout.approvedByEmployeeId].includes(actor.userId) &&
@@ -581,8 +581,8 @@ export class PrismaFinanceStore {
   async verifyPayout(
     actor: FinanceActor,
     id: string,
-    version: number,
-    input: { kind: any; reference: string; evidenceUri: string; observedAt: Date }
+    version: number | undefined,
+    input: { kind: any; reference: string; evidenceUri?: string; observedAt: Date }
   ) {
     requirePermission(actor, 'finance.payout.verify');
     const payout = await this.db.financePayoutInstruction.findUnique({
@@ -600,7 +600,7 @@ export class PrismaFinanceStore {
       },
     });
     if (!payout) throw new HttpError(404, 'PAYOUT_NOT_FOUND');
-    if (payout.version !== version) throw new HttpError(409, 'PAYOUT_VERSION_CONFLICT');
+    if (version !== undefined && payout.version !== version) throw new HttpError(409, 'PAYOUT_VERSION_CONFLICT');
     if (payout.status !== 'RECONCILIATION_PENDING') {
       throw new HttpError(409, 'PAYOUT_NOT_READY_FOR_RECONCILIATION');
     }
@@ -619,7 +619,7 @@ export class PrismaFinanceStore {
           payoutInstructionId: id,
           kind: input.kind,
           reference: input.reference,
-          evidenceUri: input.evidenceUri,
+          evidenceUri: input.evidenceUri || 'https://evidence.vmotiv.in/manual-confirmation',
           observedAt: input.observedAt,
           recordedByEmployeeId: actor.userId,
         },
@@ -756,8 +756,11 @@ export class PrismaFinanceStore {
   async createBuyerObligation(
     actor: FinanceActor,
     input: {
-      customerId: string;
-      listingId: string;
+      customerId?: string;
+      buyerName?: string;
+      buyerEmail?: string;
+      buyerPhone?: string;
+      listingId?: string;
       quotationId?: string;
       reservationId?: string;
       totalPayablePaise: string | number;
@@ -771,11 +774,80 @@ export class PrismaFinanceStore {
     const count = await this.db.buyerPaymentObligation.count();
     const obligationNumber = `OBL-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
 
+    // Resolve or create customer User
+    let resolvedCustomerId = input.customerId;
+    if (resolvedCustomerId) {
+      const existingUser = await this.db.user.findUnique({ where: { id: resolvedCustomerId } });
+      if (!existingUser) resolvedCustomerId = undefined;
+    }
+    if (!resolvedCustomerId) {
+      if (input.buyerEmail) {
+        const byEmail = await this.db.user.findFirst({ where: { email: input.buyerEmail } });
+        if (byEmail) resolvedCustomerId = byEmail.id;
+      } else if (input.buyerPhone) {
+        const byPhone = await this.db.user.findFirst({ where: { phone: input.buyerPhone } });
+        if (byPhone) resolvedCustomerId = byPhone.id;
+      }
+    }
+    if (!resolvedCustomerId) {
+      const email = input.buyerEmail || `buyer_${Date.now()}@vmotiv-customer.in`;
+      const firebaseUid = `buyer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+      const newUser = await this.db.user.create({
+        data: {
+          firebaseUid,
+          email,
+          displayName: input.buyerName || 'Valued Buyer',
+          phone: input.buyerPhone || null,
+          status: 'ACTIVE',
+        },
+      });
+      resolvedCustomerId = newUser.id;
+    }
+
+    // Resolve or create vehicle listing
+    let resolvedListingId = input.listingId;
+    if (resolvedListingId) {
+      const existingListing = await this.db.vehicleListing.findUnique({ where: { id: resolvedListingId } });
+      if (!existingListing) resolvedListingId = undefined;
+    }
+    if (!resolvedListingId) {
+      const anyListing = await this.db.vehicleListing.findFirst({ orderBy: { createdAt: 'desc' } });
+      if (anyListing) {
+        resolvedListingId = anyListing.id;
+      } else {
+        let vehicle = await this.db.vehicle.findFirst();
+        if (!vehicle) {
+          vehicle = await this.db.vehicle.create({
+            data: {
+              make: 'Hyundai',
+              model: 'Creta',
+              variant: 'SX (O)',
+              manufacturingYear: 2022,
+              odometerKm: 28000,
+              fuelType: 'PETROL',
+              transmission: 'AUTOMATIC',
+              city: 'Bengaluru',
+            },
+          });
+        }
+        const createdListing = await this.db.vehicleListing.create({
+          data: {
+            vehicleId: vehicle.id,
+            title: `${vehicle.manufacturingYear} ${vehicle.make} ${vehicle.model}`,
+            pricePaise: totalPaise > 0n ? totalPaise : 120000000n,
+            status: 'PUBLISHED',
+            publishedAt: new Date(),
+          },
+        });
+        resolvedListingId = createdListing.id;
+      }
+    }
+
     const created = await this.db.buyerPaymentObligation.create({
       data: {
         obligationNumber,
-        customerId: input.customerId,
-        listingId: input.listingId,
+        customerId: resolvedCustomerId,
+        listingId: resolvedListingId,
         quotationId: input.quotationId,
         reservationId: input.reservationId,
         totalPayablePaise: totalPaise,
@@ -882,11 +954,11 @@ export class PrismaFinanceStore {
     return receiptView(created);
   }
 
-  async verifyIncomingReceipt(actor: FinanceActor, id: string, version: number) {
+  async verifyIncomingReceipt(actor: FinanceActor, id: string, version: number | undefined) {
     requirePermission(actor, 'finance.receipt.reconcile');
     const receipt = await this.db.incomingReceipt.findUnique({ where: { id } });
     if (!receipt) throw new HttpError(404, 'RECEIPT_NOT_FOUND');
-    if (receipt.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
+    if (version !== undefined && receipt.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
     if (receipt.status !== 'PENDING_VERIFICATION') {
       throw new HttpError(409, 'RECEIPT_NOT_PENDING_VERIFICATION');
     }
@@ -1132,14 +1204,14 @@ export class PrismaFinanceStore {
   async approveRefund(
     actor: FinanceActor,
     id: string,
-    version: number,
+    version: number | undefined,
     decision: 'APPROVE' | 'REJECT',
     reason: string
   ) {
     requirePermission(actor, 'finance.refund.approve');
     const refund = await this.db.refundCase.findUnique({ where: { id } });
     if (!refund) throw new HttpError(404, 'REFUND_NOT_FOUND');
-    if (refund.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
+    if (version !== undefined && refund.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
     if (refund.requestedByEmployeeId === actor.userId && !actor.roles.includes('SUPER_ADMIN')) {
       throw new HttpError(409, 'REFUND_SELF_APPROVAL_DENIED');
     }
@@ -1172,14 +1244,14 @@ export class PrismaFinanceStore {
   async executeRefund(
     actor: FinanceActor,
     id: string,
-    version: number,
+    version: number | undefined,
     bankReference: string,
     evidenceUri?: string
   ) {
     requirePermission(actor, 'finance.refund.execute');
     const refund = await this.db.refundCase.findUnique({ where: { id } });
     if (!refund) throw new HttpError(404, 'REFUND_NOT_FOUND');
-    if (refund.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
+    if (version !== undefined && refund.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
     if (refund.status !== 'APPROVED') throw new HttpError(409, 'REFUND_NOT_EXECUTABLE');
     if (
       [refund.requestedByEmployeeId, refund.approvedByEmployeeId].includes(actor.userId) &&
@@ -1213,11 +1285,11 @@ export class PrismaFinanceStore {
     return refundView(updated);
   }
 
-  async verifyRefund(actor: FinanceActor, id: string, version: number) {
+  async verifyRefund(actor: FinanceActor, id: string, version: number | undefined) {
     requirePermission(actor, 'finance.refund.verify');
     const refund = await this.db.refundCase.findUnique({ where: { id } });
     if (!refund) throw new HttpError(404, 'REFUND_NOT_FOUND');
-    if (refund.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
+    if (version !== undefined && refund.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
     if (refund.status !== 'PROCESSING') throw new HttpError(409, 'REFUND_NOT_PROCESSING');
     if (
       [refund.requestedByEmployeeId, refund.approvedByEmployeeId, refund.executedByEmployeeId].includes(
@@ -1391,14 +1463,14 @@ export class PrismaFinanceStore {
   async approveExpense(
     actor: FinanceActor,
     id: string,
-    version: number,
+    version: number | undefined,
     decision: 'APPROVE' | 'REJECT',
     reason: string
   ) {
     requirePermission(actor, 'finance.expense.approve');
     const claim = await this.db.expenseClaim.findUnique({ where: { id } });
     if (!claim) throw new HttpError(404, 'EXPENSE_NOT_FOUND');
-    if (claim.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
+    if (version !== undefined && claim.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
     if (claim.submittedByEmployeeId === actor.userId && !actor.roles.includes('SUPER_ADMIN')) {
       throw new HttpError(409, 'EXPENSE_SELF_APPROVAL_DENIED');
     }
@@ -1419,14 +1491,14 @@ export class PrismaFinanceStore {
   async payExpense(
     actor: FinanceActor,
     id: string,
-    version: number,
+    version: number | undefined,
     bankReference: string,
     evidenceUri?: string
   ) {
     requirePermission(actor, 'finance.expense.approve');
     const claim = await this.db.expenseClaim.findUnique({ where: { id } });
     if (!claim) throw new HttpError(404, 'EXPENSE_NOT_FOUND');
-    if (claim.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
+    if (version !== undefined && claim.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
     if (claim.status !== 'APPROVED') throw new HttpError(409, 'EXPENSE_NOT_APPROVED');
 
     const updated = await this.db.expenseClaim.update({

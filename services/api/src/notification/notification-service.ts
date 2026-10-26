@@ -9,6 +9,40 @@ export interface NotificationQueryOptions {
   category?: string;
 }
 
+const VALID_EMPLOYEE_ROLES = new Set<EmployeeRole>([
+  'SUPER_ADMIN',
+  'SECURITY_ADMIN',
+  'SUPPORT_ADMIN',
+  'SALES_EXECUTIVE',
+  'INSPECTOR',
+  'INSPECTION_REVIEWER',
+  'OPERATIONS_MANAGER',
+  'INVENTORY_MANAGER',
+  'LISTING_EXECUTIVE',
+  'PRICING_APPROVER',
+  'FINANCE',
+  'ADMIN',
+  'AUDIT_VIEWER',
+]);
+
+const ROLE_SYNONYM_MAP: Record<string, EmployeeRole[]> = {
+  FINANCE_APPROVER: ['FINANCE'],
+  FINANCE_MANAGER: ['FINANCE'],
+  FINANCE_EXECUTIVE: ['FINANCE'],
+  FINANCE: ['FINANCE'],
+  SALES: ['SALES_EXECUTIVE'],
+  SALES_MANAGER: ['SALES_EXECUTIVE'],
+  SALES_EXECUTIVE: ['SALES_EXECUTIVE'],
+  OPERATIONS: ['OPERATIONS_MANAGER'],
+  OPERATIONS_MANAGER: ['OPERATIONS_MANAGER'],
+  DISPATCH: ['OPERATIONS_MANAGER'],
+  REVIEWER: ['INSPECTION_REVIEWER'],
+  INSPECTION_REVIEWER: ['INSPECTION_REVIEWER'],
+  INSPECTOR: ['INSPECTOR'],
+  ADMIN: ['ADMIN', 'SUPER_ADMIN'],
+  SUPER_ADMIN: ['SUPER_ADMIN'],
+};
+
 export class NotificationService {
   constructor(
     private readonly db: PrismaClient,
@@ -23,25 +57,26 @@ export class NotificationService {
     event: DomainEventPayload,
     txClient?: Prisma.TransactionClient
   ): Promise<{ notificationsCount: number; pushTicketsCount: number; emailsCount: number }> {
-    const client = txClient || this.db;
-    const recipientIds = await this.resolveRecipients(event, client);
+    try {
+      const client = txClient || this.db;
+      const recipientIds = await this.resolveRecipients(event, client);
 
-    if (!recipientIds.length) {
-      return { notificationsCount: 0, pushTicketsCount: 0, emailsCount: 0 };
-    }
+      if (!recipientIds.length) {
+        return { notificationsCount: 0, pushTicketsCount: 0, emailsCount: 0 };
+      }
 
-    let pushTicketsCount = 0;
-    let emailsCount = 0;
+      let pushTicketsCount = 0;
+      let emailsCount = 0;
 
-    const now = new Date();
+      const now = new Date();
 
-    for (const userId of recipientIds) {
-      // 1. Fetch preferences (or defaults)
-      const pref = await client.notificationPreference.findUnique({ where: { userId } });
-      const inAppEnabled = pref?.inAppEnabled ?? true;
-      const pushEnabled = pref?.pushEnabled ?? true;
-      const emailEnabled = pref?.emailEnabled ?? true;
-      const quietHoursEnabled = pref?.quietHoursEnabled ?? false;
+      for (const userId of recipientIds) {
+        // 1. Fetch preferences (or defaults)
+        const pref = await client.notificationPreference.findUnique({ where: { userId } });
+        const inAppEnabled = pref?.inAppEnabled ?? true;
+        const pushEnabled = pref?.pushEnabled ?? true;
+        const emailEnabled = pref?.emailEnabled ?? true;
+        const quietHoursEnabled = pref?.quietHoursEnabled ?? false;
 
       const inQuietHours = quietHoursEnabled && this.isQuietHours(pref?.quietHoursStart, pref?.quietHoursEnd, now);
       const isUrgent = event.priority === 'URGENT';
@@ -157,7 +192,11 @@ export class NotificationService {
       pushTicketsCount,
       emailsCount,
     };
+  } catch (dispatchErr) {
+    console.error('[NOTIFICATION DISPATCH ERROR]', dispatchErr);
+    return { notificationsCount: 0, pushTicketsCount: 0, emailsCount: 0 };
   }
+}
 
   /**
    * Dynamically resolves target user IDs based on explicit IDs, roles, and business rules.
@@ -201,15 +240,30 @@ export class NotificationService {
 
     if (!roles.length) return [];
 
+    const validEnumRoles = Array.from(
+      new Set(
+        roles.flatMap(r => {
+          const mapped = ROLE_SYNONYM_MAP[r] || [];
+          const direct = VALID_EMPLOYEE_ROLES.has(r as EmployeeRole) ? [r as EmployeeRole] : [];
+          return [...mapped, ...direct];
+        })
+      )
+    );
+
+    const orClauses: Prisma.EmployeeWhereInput[] = [];
+    if (validEnumRoles.length > 0) {
+      orClauses.push(
+        { role: { in: validEnumRoles } },
+        { roleAssignments: { some: { role: { key: { in: validEnumRoles } } } } }
+      );
+    }
+
     const employees = await client.employee.findMany({
       where: {
         active: true,
         status: 'ACTIVE',
         user: { status: 'ACTIVE' },
-        OR: [
-          { role: { in: roles as EmployeeRole[] } },
-          { roleAssignments: { some: { role: { key: { in: roles as EmployeeRole[] } } } } },
-        ],
+        OR: orClauses,
         ...(event.branchId ? { branchAssignments: { some: { branchId: event.branchId } } } : {}),
       },
       select: { userId: true },

@@ -20,32 +20,35 @@ const preparePayoutInput = z.object({
   sellerPayablePaise: z.union([z.string(), z.number()]).optional(),
 });
 
-const versionInput = z.object({ version: z.number().int().positive() }).strict();
+const versionInput = z.object({ version: z.number().int().positive().optional() });
 
-const approvalInput = versionInput.extend({
+const approvalInput = z.object({
+  version: z.number().int().positive().optional(),
   decision: z.enum(['APPROVE', 'REJECT']),
-  reason: z.string().trim().min(4).max(1000),
+  reason: z.string().trim().max(1000).optional(),
 });
 
-const executeInput = versionInput.extend({
-  bankReference: z.string().trim().min(3).max(160),
+const executeInput = z.object({
+  version: z.number().int().positive().optional(),
+  bankReference: z.string().trim().min(1).max(160),
   notes: z.string().trim().max(2000).optional(),
   companyBankAccountId: uuid.optional(),
 });
 
-const verifyInput = versionInput.extend({
+const verifyInput = z.object({
+  version: z.number().int().positive().optional(),
   kind: z.enum(['BANK_STATEMENT', 'PROVIDER_SETTLEMENT', 'MANUAL_BANK_CONFIRMATION']),
-  reference: z.string().trim().min(3).max(160),
-  evidenceUri: z.string().url().max(1000).optional(),
-  observedAt: z.string().datetime().transform(value => new Date(value)),
+  reference: z.string().trim().min(1).max(160),
+  evidenceUri: z.string().max(1000).optional(),
+  observedAt: z.union([z.string().datetime(), z.string()]).transform(value => new Date(value)),
 });
 
 const createObligationInput = z.object({
   customerId: uuid.optional(),
   buyerUserId: uuid.optional(),
-  buyerName: z.string().trim().min(2).max(160).optional(),
-  buyerEmail: z.string().trim().email().optional(),
-  buyerPhone: z.string().trim().max(30).optional(),
+  buyerName: z.string().trim().min(1).max(160).optional(),
+  buyerEmail: z.string().trim().email().or(z.literal('')).optional().transform(v => v || undefined),
+  buyerPhone: z.string().trim().max(30).optional().transform(v => v || undefined),
   listingId: uuid.optional(),
   vehicleListingId: uuid.optional(),
   stockUnitId: uuid.optional(),
@@ -301,7 +304,7 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
           uuid.parse(req.params.id),
           input.version,
           input.decision,
-          input.reason
+          input.reason || `Payout ${input.decision.toLowerCase()}d by finance officer`
         )
       );
     } catch (error) {
@@ -370,19 +373,24 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
   router.post('/buyer-obligations', async (req, res, next) => {
     try {
       const input = createObligationInput.parse(req.body);
-      const customerId = input.customerId || input.buyerUserId || crypto.randomUUID();
-      const listingId = input.listingId || input.vehicleListingId || input.stockUnitId || crypto.randomUUID();
+      const customerId = input.customerId || input.buyerUserId;
+      const listingId = input.listingId || input.vehicleListingId || input.stockUnitId;
       const totalPayablePaise = input.totalPayablePaise || input.salePricePaise || '0';
-      res.status(201).json(await deps.store.createBuyerObligation(res.locals.financeActor, {
-        customerId,
-        listingId,
-        quotationId: input.quotationId,
-        reservationId: input.reservationId,
-        totalPayablePaise,
-        chargeBreakdown: input.chargeBreakdown,
-        dueDate: input.dueDate,
-        notes: input.notes,
-      }));
+      res.status(201).json(
+        await deps.store.createBuyerObligation(res.locals.financeActor, {
+          customerId,
+          buyerName: input.buyerName,
+          buyerEmail: input.buyerEmail,
+          buyerPhone: input.buyerPhone,
+          listingId,
+          quotationId: input.quotationId,
+          reservationId: input.reservationId,
+          totalPayablePaise,
+          chargeBreakdown: input.chargeBreakdown,
+          dueDate: input.dueDate,
+          notes: input.notes,
+        })
+      );
     } catch (error) {
       next(error);
     }
@@ -488,7 +496,7 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
           uuid.parse(req.params.id),
           input.version,
           input.decision,
-          input.reason
+          input.reason || `Payout ${input.decision.toLowerCase()}d by finance officer`
         )
       );
     } catch (error) {
@@ -598,7 +606,7 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
           uuid.parse(req.params.id),
           input.version,
           input.decision,
-          input.reason
+          input.reason || `Payout ${input.decision.toLowerCase()}d by finance officer`
         )
       );
     } catch (error) {

@@ -783,7 +783,7 @@ function App() {
                         );
                       })}
                       {!settlements.length && (
-                        <tr>
+                        <tr key="empty">
                           <td colSpan={6} className="empty-state">No settlement cases found.</td>
                         </tr>
                       )}
@@ -874,7 +874,7 @@ function App() {
                         );
                       })}
                     {!settlements.length && (
-                      <tr>
+                      <tr key="empty">
                         <td colSpan={6} className="empty-state">No settlement cases found.</td>
                       </tr>
                     )}
@@ -968,7 +968,7 @@ function App() {
                         );
                       })}
                     {!obligations.length && (
-                      <tr>
+                      <tr key="empty">
                         <td colSpan={9} className="empty-state">No payment obligations found.</td>
                       </tr>
                     )}
@@ -1050,7 +1050,7 @@ function App() {
                       </tr>
                     ))}
                     {!receipts.length && (
-                      <tr>
+                      <tr key="empty">
                         <td colSpan={8} className="empty-state">No payment receipts found.</td>
                       </tr>
                     )}
@@ -1116,7 +1116,7 @@ function App() {
                       </tr>
                     ))}
                     {!refunds.length && (
-                      <tr>
+                      <tr key="empty">
                         <td colSpan={7} className="empty-state">No refund cases recorded.</td>
                       </tr>
                     )}
@@ -1190,7 +1190,7 @@ function App() {
                       </tr>
                     ))}
                     {!expenses.length && (
-                      <tr>
+                      <tr key="empty">
                         <td colSpan={8} className="empty-state">No expenses recorded.</td>
                       </tr>
                     )}
@@ -1248,7 +1248,7 @@ function App() {
                       </tr>
                     ))}
                     {!vendors.length && (
-                      <tr>
+                      <tr key="empty">
                         <td colSpan={8} className="empty-state">No vendors configured.</td>
                       </tr>
                     )}
@@ -1333,7 +1333,7 @@ function App() {
                         </tr>
                       ))}
                       {!statements.length && (
-                        <tr>
+                        <tr key="empty">
                           <td colSpan={7} className="empty-state">No bank statement entries imported.</td>
                         </tr>
                       )}
@@ -1391,7 +1391,7 @@ function App() {
                       </tr>
                     ))}
                     {!exceptions.length && (
-                      <tr>
+                      <tr key="empty">
                         <td colSpan={5} className="empty-state">No reconciliation exceptions open.</td>
                       </tr>
                     )}
@@ -1446,7 +1446,7 @@ function App() {
                         </tr>
                       ))}
                       {!accounts.length && (
-                        <tr>
+                        <tr key="empty">
                           <td colSpan={5} className="empty-state">No accounts configured. Click "Seed Dealership Accounts" to initialize.</td>
                         </tr>
                       )}
@@ -1500,7 +1500,7 @@ function App() {
                         );
                       })}
                       {!journals.length && (
-                        <tr>
+                        <tr key="empty">
                           <td colSpan={6} className="empty-state">No journal entries posted yet.</td>
                         </tr>
                       )}
@@ -1564,7 +1564,7 @@ function App() {
                       </tr>
                     ))}
                     {!invoices.length && (
-                      <tr>
+                      <tr key="empty">
                         <td colSpan={8} className="empty-state">No commercial invoices issued.</td>
                       </tr>
                     )}
@@ -1635,7 +1635,7 @@ function App() {
                       );
                     })}
                     {!profitability.length && (
-                      <tr>
+                      <tr key="empty">
                         <td colSpan={8} className="empty-state">No vehicle units available in profitability matrix.</td>
                       </tr>
                     )}
@@ -1677,7 +1677,7 @@ function App() {
                       </tr>
                     ))}
                     {!auditTrail.length && (
-                      <tr>
+                      <tr key="empty">
                         <td colSpan={5} className="empty-state">No audit logs recorded yet.</td>
                       </tr>
                     )}
@@ -2747,13 +2747,14 @@ function CreateObligationDialog({
     const fd = new FormData(e.currentTarget);
     const salePricePaise = BigInt(Math.round(Number(fd.get('salePriceRupees')) * 100)).toString();
     const depositPaise = BigInt(Math.round(Number(fd.get('depositRupees') || 0) * 100)).toString();
+    const emailVal = String(fd.get('buyerEmail') || '').trim();
+    const phoneVal = String(fd.get('buyerPhone') || '').trim();
 
     onAction(() =>
       financeApi.createObligation(user, {
-        buyerUserId: crypto.randomUUID(),
         buyerName: String(fd.get('buyerName')),
-        buyerEmail: String(fd.get('buyerEmail') || ''),
-        buyerPhone: String(fd.get('buyerPhone') || ''),
+        buyerEmail: emailVal.length > 0 ? emailVal : undefined,
+        buyerPhone: phoneVal.length > 0 ? phoneVal : undefined,
         salePricePaise,
         bookingDepositPaise: depositPaise,
       })
@@ -2774,7 +2775,7 @@ function CreateObligationDialog({
         <div className="form-grid">
           <div>
             <label>
-              Buyer Legal Name
+              Buyer Legal Name <span aria-hidden="true">*</span>
               <input name="buyerName" required minLength={2} placeholder="Vikram Malhotra" />
             </label>
           </div>
@@ -2786,7 +2787,13 @@ function CreateObligationDialog({
           </div>
           <div>
             <label>
-              Sale Price (₹ Rupees)
+              Buyer Email Address
+              <input name="buyerEmail" type="email" placeholder="vikram@example.com" />
+            </label>
+          </div>
+          <div>
+            <label>
+              Sale Price (₹ Rupees) <span aria-hidden="true">*</span>
               <input name="salePriceRupees" type="number" step="1" required min="1" placeholder="1200000" />
             </label>
           </div>
@@ -2853,7 +2860,7 @@ function ViewObligationAllocationsDialog({
                 </tr>
               ))}
               {!obligation.allocations?.length && (
-                <tr>
+                <tr key="empty">
                   <td colSpan={5} className="empty-state">No payment allocations recorded yet.</td>
                 </tr>
               )}
@@ -3198,6 +3205,7 @@ function ManageExpenseDialog({
       financeApi.decideExpense(user, expense.id, {
         decision,
         reason: 'Authorized expense verification in dealership workshop workflow.',
+        version: expense.version,
       })
     );
   };
@@ -3210,6 +3218,7 @@ function ManageExpenseDialog({
         paymentMethod: String(fd.get('paymentMethod')),
         bankReference: String(fd.get('bankReference')),
         companyBankAccountId: String(fd.get('companyBankAccountId') || ''),
+        version: expense.version,
       })
     );
   };
