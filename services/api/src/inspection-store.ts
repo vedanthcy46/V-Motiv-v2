@@ -791,10 +791,11 @@ export class PrismaInspectionStore {
 
   async reviewQueue(actor: InspectionActor) {
     checkRole(actor, reviewerRoles);
+    const isSuperAdmin = actor.roles.includes('SUPER_ADMIN');
     return this.db.inspectionReport.findMany({
       where: {
         status: { in: ['SUBMITTED', 'UNDER_REVIEW'] },
-        inspectorId: { not: actor.userId }, // Self-review cannot appear in queue
+        ...(isSuperAdmin ? {} : { inspectorId: { not: actor.userId } }),
         ...this.reviewScope(actor),
       },
       orderBy: { submittedAt: 'asc' },
@@ -829,10 +830,11 @@ export class PrismaInspectionStore {
 
   async reviewReport(actor: InspectionActor, id: string) {
     checkRole(actor, reviewerRoles);
+    const isSuperAdmin = actor.roles.includes('SUPER_ADMIN');
     const report = await this.db.inspectionReport.findFirst({
       where: {
         id,
-        inspectorId: { not: actor.userId }, // Inspector cannot inspect own report
+        ...(isSuperAdmin ? {} : { inspectorId: { not: actor.userId } }),
         ...this.reviewScope(actor),
       },
       include: {
@@ -878,8 +880,8 @@ export class PrismaInspectionStore {
 
     if (!report) throw new HttpError(409, 'INSPECTION_REPORT_NOT_REVIEWABLE');
 
-    // Strict boundary: Self-approval forbidden
-    if (report.inspectorId === actor.userId) {
+    // Strict boundary: Self-approval forbidden unless SUPER_ADMIN override
+    if (report.inspectorId === actor.userId && !actor.roles.includes('SUPER_ADMIN')) {
       throw new HttpError(403, 'INSPECTION_SELF_APPROVAL_DENIED');
     }
 
