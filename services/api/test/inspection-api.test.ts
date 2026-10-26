@@ -191,6 +191,33 @@ function setupApp(activeActor: InspectionActor, overrides: Partial<PrismaInspect
       id: 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa',
       status: 'CANCELLED',
     }),
+    operationsDashboard: vi.fn().mockResolvedValue({
+      unassigned: 1,
+      scheduled: 2,
+      inProgress: 3,
+      completed: 4,
+      acquisitions: { documentationRequired: 1, settlementReady: 1, handoverReady: 0, completed: 5, onHold: 0 },
+      stock: { received: 2, refurbishmentPending: 1, inRefurbishment: 1, qcPending: 1, listingPreparation: 1, listingReady: 1, listed: 3, reserved: 1, sold: 10 },
+      refurbishment: { pendingCostApprovals: 1 },
+      recentEvents: [],
+      generatedAt: new Date().toISOString(),
+    }),
+    prepareListing: vi.fn().mockResolvedValue({
+      stockId: '88888888-8888-4888-8888-888888888888',
+      vehicleId: 'vvvvvvvv-vvvv-4vvv-8vvv-vvvvvvvvvvvv',
+      listingId: 'llllllll-llll-4lll-8lll-llllllllllll',
+      status: 'LISTING_READY',
+    }),
+    publishListing: vi.fn().mockResolvedValue({
+      id: 'llllllll-llll-4lll-8lll-llllllllllll',
+      title: '2022 Hyundai Creta SX',
+      status: 'PUBLISHED',
+      pricePaise: 125000000n,
+    }),
+    deliverVehicle: vi.fn().mockResolvedValue({
+      stockId: '88888888-8888-4888-8888-888888888888',
+      status: 'SOLD',
+    }),
     ...overrides,
   } as unknown as PrismaInspectionStore;
 
@@ -407,5 +434,44 @@ describe('Operations scheduling & assignment APIs', () => {
       });
     expect(resCancel.status).toBe(200);
     expect(store.cancel).toHaveBeenCalledTimes(1);
+
+    const resDash = await request(app)
+      .get('/api/v2/operations/dashboard')
+      .set('Authorization', 'Bearer ops-token');
+    expect(resDash.status).toBe(200);
+    expect(resDash.body.unassigned).toBe(1);
+    expect(resDash.body.acquisitions.completed).toBe(5);
+
+    const resPrepare = await request(app)
+      .post('/api/v2/operations/inventory/88888888-8888-4888-8888-888888888888/prepare-listing')
+      .set('Authorization', 'Bearer ops-token')
+      .send({
+        title: '2022 Hyundai Creta SX',
+        color: 'Polar White',
+        expectedVersion: 1,
+      });
+    expect(resPrepare.status).toBe(200);
+    expect(store.prepareListing).toHaveBeenCalledTimes(1);
+
+    const resPublish = await request(app)
+      .post('/api/v2/operations/inventory/88888888-8888-4888-8888-888888888888/publish-listing')
+      .set('Authorization', 'Bearer ops-token')
+      .send({
+        retailPricePaise: 125000000,
+        expectedVersion: 2,
+      });
+    expect(resPublish.status).toBe(200);
+    expect(store.publishListing).toHaveBeenCalledTimes(1);
+
+    const resDeliver = await request(app)
+      .post('/api/v2/operations/inventory/88888888-8888-4888-8888-888888888888/deliver')
+      .set('Authorization', 'Bearer ops-token')
+      .send({
+        buyerName: 'Anand Sharma',
+        buyerPhone: '+919876543210',
+        expectedVersion: 3,
+      });
+    expect(resDeliver.status).toBe(200);
+    expect(store.deliverVehicle).toHaveBeenCalledTimes(1);
   });
 });

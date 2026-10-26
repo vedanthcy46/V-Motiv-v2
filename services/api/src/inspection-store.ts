@@ -24,6 +24,8 @@ const financeRoles = ['FINANCE', 'ADMIN', 'SUPER_ADMIN'];
 const costApproverRoles = ['PRICING_APPROVER', 'ADMIN', 'SUPER_ADMIN'];
 const qcRoles = ['INSPECTION_REVIEWER', 'ADMIN', 'SUPER_ADMIN'];
 const reviewerRoles = ['INSPECTION_REVIEWER', 'ADMIN', 'SUPER_ADMIN'];
+const listingRoles = ['LISTING_EXECUTIVE', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
+const publishRoles = ['PRICING_APPROVER', 'LISTING_EXECUTIVE', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const documentTerminalStatuses = ['VERIFIED', 'WAIVED_BY_AUTHORIZED_POLICY'];
 const documentTransitions: Record<string, string[]> = {
   NOT_REQUESTED: ['REQUESTED'],
@@ -668,13 +670,106 @@ export class PrismaInspectionStore {
   async operationsDashboard(actor: InspectionActor) {
     checkRole(actor, operationsRoles);
     const requestScope = actor.roles.includes('SUPER_ADMIN') ? {} : { branchId: { in: actor.branchIds } };
-    const [unassigned, scheduled, inProgress, completed] = await this.db.$transaction([
+    const stockScope = actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role)) ? {} : { branchId: { in: actor.branchIds } };
+
+    const [
+      unassigned,
+      scheduled,
+      inProgress,
+      completed,
+      docRequired,
+      settlementReady,
+      handoverReady,
+      acqCompleted,
+      acqOnHold,
+      stkReceived,
+      stkRefurbPending,
+      stkInRefurb,
+      stkQcPending,
+      stkListingPrep,
+      stkListingReady,
+      stkListed,
+      stkReserved,
+      stkSold,
+      pendingCostApprovals,
+      recentEvents,
+    ] = await this.db.$transaction([
       this.db.inspectionRequest.count({ where: { ...requestScope, assignment: null, status: 'REQUESTED' } }),
       this.db.inspectionRequest.count({ where: { ...requestScope, status: 'SCHEDULED' } }),
       this.db.inspectionRequest.count({ where: { ...requestScope, status: 'IN_PROGRESS' } }),
       this.db.inspectionRequest.count({ where: { ...requestScope, status: 'COMPLETED' } }),
+      this.db.acquisitionCase.count({ where: { status: 'DOCUMENTATION_REQUIRED' } }),
+      this.db.acquisitionCase.count({ where: { status: 'SETTLEMENT_READY' } }),
+      this.db.acquisitionCase.count({ where: { status: 'HANDOVER_READY' } }),
+      this.db.acquisitionCase.count({ where: { status: 'COMPLETED' } }),
+      this.db.acquisitionCase.count({ where: { status: 'ON_HOLD' } }),
+      this.db.vehicleStockUnit.count({ where: { ...stockScope, status: 'RECEIVED' } }),
+      this.db.vehicleStockUnit.count({ where: { ...stockScope, status: 'REFURBISHMENT_PENDING' } }),
+      this.db.vehicleStockUnit.count({ where: { ...stockScope, status: 'IN_REFURBISHMENT' } }),
+      this.db.vehicleStockUnit.count({ where: { ...stockScope, status: 'QC_PENDING' } }),
+      this.db.vehicleStockUnit.count({ where: { ...stockScope, status: 'LISTING_PREPARATION' } }),
+      this.db.vehicleStockUnit.count({ where: { ...stockScope, status: 'LISTING_READY' } }),
+      this.db.vehicleStockUnit.count({ where: { ...stockScope, status: 'LISTED' } }),
+      this.db.vehicleStockUnit.count({ where: { ...stockScope, status: 'RESERVED' } }),
+      this.db.vehicleStockUnit.count({ where: { ...stockScope, status: 'SOLD' } }),
+      this.db.refurbishmentCostApproval.count({ where: { status: 'PENDING' } }),
+      this.db.auditEvent.findMany({
+        where: {
+          action: {
+            in: [
+              'INSPECTION_ASSIGNED', 'INSPECTION_RESCHEDULED', 'INSPECTION_COMPLETED',
+              'ACQUISITION_CASE_CREATED', 'ACQUISITION_DOCUMENT_STATUS_UPDATED',
+              'ACQUISITION_SETTLEMENT_STATUS_UPDATED', 'VEHICLE_HANDOVER_RECORDED',
+              'ACQUISITION_COMPLETED', 'VEHICLE_STOCK_INWARD_CREATED',
+              'REFURBISHMENT_WORK_ORDER_CREATED', 'REFURBISHMENT_COST_APPROVAL_DECIDED',
+              'REFURBISHMENT_WORK_ORDER_COMPLETED', 'QUALITY_CONTROL_DECIDED',
+              'VEHICLE_LISTING_PREPARED', 'VEHICLE_LISTING_PUBLISHED', 'VEHICLE_DELIVERED_TO_BUYER',
+            ],
+          },
+        },
+        orderBy: { createdAt: 'desc' },
+        take: 12,
+        select: {
+          id: true,
+          action: true,
+          entityType: true,
+          entityId: true,
+          details: true,
+          createdAt: true,
+          actor: { select: { email: true, displayName: true } },
+        },
+      }),
     ]);
-    return { unassigned, scheduled, inProgress, completed, generatedAt: new Date().toISOString() };
+
+    return {
+      unassigned,
+      scheduled,
+      inProgress,
+      completed,
+      acquisitions: {
+        documentationRequired: docRequired,
+        settlementReady,
+        handoverReady,
+        completed: acqCompleted,
+        onHold: acqOnHold,
+      },
+      stock: {
+        received: stkReceived,
+        refurbishmentPending: stkRefurbPending,
+        inRefurbishment: stkInRefurb,
+        qcPending: stkQcPending,
+        listingPreparation: stkListingPrep,
+        listingReady: stkListingReady,
+        listed: stkListed,
+        reserved: stkReserved,
+        sold: stkSold,
+      },
+      refurbishment: {
+        pendingCostApprovals,
+      },
+      recentEvents,
+      generatedAt: new Date().toISOString(),
+    };
   }
 
   private acquisitionCaseScope(actor: InspectionActor, id?: string): Prisma.AcquisitionCaseWhereInput {
@@ -692,11 +787,12 @@ export class PrismaInspectionStore {
       where: this.acquisitionCaseScope(actor),
       orderBy: { createdAt: 'desc' },
       include: {
-        lead: { select: { id: true, referenceCode: true, sellerName: true, city: true, make: true, model: true, manufacturingYear: true, registrationNumber: true } },
+        lead: { select: { id: true, referenceCode: true, sellerName: true, sellerPhone: true, city: true, make: true, model: true, variant: true, manufacturingYear: true, registrationNumber: true } },
         offer: { select: { id: true, offerAmountPaise: true, validUntil: true, acceptedAt: true, version: true } },
         documents: { orderBy: { documentType: 'asc' } },
         settlement: true,
         handover: true,
+        stockUnit: true,
       },
     });
   }
@@ -847,7 +943,46 @@ export class PrismaInspectionStore {
     return this.db.vehicleStockUnit.findMany({
       where: actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role)) ? {} : { branchId: { in: actor.branchIds } },
       orderBy: { createdAt: 'desc' },
-      select: { id: true, stockCode: true, status: true, physicalLocation: true, registrationNumber: true, make: true, model: true, variant: true, manufacturingYear: true, fuelType: true, transmission: true, odometerKm: true, branchId: true, createdAt: true, updatedAt: true },
+      include: {
+        workOrders: {
+          include: {
+            costApproval: true,
+          },
+          orderBy: { createdAt: 'desc' },
+        },
+        qualityControlReports: {
+          orderBy: { createdAt: 'desc' },
+        },
+        vehicle: {
+          include: {
+            listing: {
+              include: {
+                media: {
+                  orderBy: { displayOrder: 'asc' },
+                },
+              },
+            },
+          },
+        },
+        acquisitionCase: {
+          select: {
+            id: true,
+            caseReference: true,
+            status: true,
+            settlementStatus: true,
+            custodyStatus: true,
+            lead: {
+              select: {
+                id: true,
+                referenceCode: true,
+                sellerName: true,
+                sellerPhone: true,
+                city: true,
+              },
+            },
+          },
+        },
+      },
     });
   }
 
@@ -957,6 +1092,214 @@ export class PrismaInspectionStore {
       await tx.vehicleStockUnit.update({ where: { id: report.stockUnitId }, data: { status: status === 'PASSED' ? 'LISTING_PREPARATION' : status === 'REWORK_REQUIRED' ? 'REFURBISHMENT_PENDING' : 'ON_HOLD', version: { increment: 1 } } });
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'QUALITY_CONTROL_DECIDED', entityType: 'QualityControlReport', entityId: reportId, details: { stockUnitId: report.stockUnitId, decision: input.decision } } });
       return updated;
+    });
+  }
+
+  async prepareListing(actor: InspectionActor, stockId: string, input: {
+    title: string;
+    features?: string[];
+    color?: string;
+    conditionSummary?: string;
+    inspectionSummary?: string;
+    verifiedTags?: string[];
+    mediaUrls?: string[];
+    expectedVersion: number;
+  }) {
+    checkRole(actor, listingRoles);
+    const stock = await this.db.vehicleStockUnit.findFirst({
+      where: this.stockScope(actor, stockId),
+      include: { vehicle: true },
+    });
+    if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
+    if (stock.version !== input.expectedVersion) throw new HttpError(409, 'STOCK_VERSION_CONFLICT');
+    if (!['LISTING_PREPARATION', 'LISTING_READY', 'QC_PENDING', 'RECEIVED', 'REFURBISHMENT_PENDING'].includes(stock.status)) {
+      throw new HttpError(409, 'STOCK_NOT_IN_LISTING_PREPARATION');
+    }
+
+    return this.db.$transaction(async tx => {
+      let vehicleId = stock.vehicleId;
+      if (!vehicleId) {
+        const createdVehicle = await tx.vehicle.create({
+          data: {
+            make: stock.make,
+            model: stock.model,
+            variant: stock.variant || '',
+            manufacturingYear: stock.manufacturingYear,
+            fuelType: stock.fuelType,
+            transmission: stock.transmission,
+            odometerKm: stock.odometerKm,
+            color: input.color,
+            conditionSummary: input.conditionSummary,
+            inspectionSummary: input.inspectionSummary,
+            features: input.features || [],
+            verifiedTags: input.verifiedTags || ['V MOTIV Certified', '150-Point Inspected'],
+          },
+        });
+        vehicleId = createdVehicle.id;
+        await tx.vehicleStockUnit.update({
+          where: { id: stockId },
+          data: { vehicleId, status: 'LISTING_READY', version: { increment: 1 } },
+        });
+      } else {
+        await tx.vehicle.update({
+          where: { id: vehicleId },
+          data: {
+            color: input.color,
+            conditionSummary: input.conditionSummary,
+            inspectionSummary: input.inspectionSummary,
+            features: input.features || [],
+            verifiedTags: input.verifiedTags || undefined,
+          },
+        });
+        await tx.vehicleStockUnit.update({
+          where: { id: stockId },
+          data: { status: 'LISTING_READY', version: { increment: 1 } },
+        });
+      }
+
+      const listing = await tx.vehicleListing.upsert({
+        where: { vehicleId },
+        create: {
+          vehicleId,
+          title: input.title,
+          pricePaise: 0n,
+          status: 'DRAFT',
+          media: input.mediaUrls && input.mediaUrls.length > 0 ? {
+            create: input.mediaUrls.map((url, idx) => ({ url, mediaType: 'IMAGE', displayOrder: idx })),
+          } : undefined,
+        },
+        update: {
+          title: input.title,
+          ...(input.mediaUrls && input.mediaUrls.length > 0 ? {
+            media: {
+              deleteMany: {},
+              create: input.mediaUrls.map((url, idx) => ({ url, mediaType: 'IMAGE', displayOrder: idx })),
+            },
+          } : {}),
+        },
+      });
+
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'VEHICLE_LISTING_PREPARED',
+          entityType: 'VehicleStockUnit',
+          entityId: stockId,
+          details: { vehicleId, listingId: listing.id, title: input.title },
+        },
+      });
+
+      return { stockId, vehicleId, listingId: listing.id, status: 'LISTING_READY' };
+    });
+  }
+
+  async publishListing(actor: InspectionActor, stockId: string, input: {
+    retailPricePaise: bigint;
+    expectedVersion: number;
+    title?: string;
+  }) {
+    checkRole(actor, publishRoles);
+    const stock = await this.db.vehicleStockUnit.findFirst({
+      where: this.stockScope(actor, stockId),
+      include: {
+        vehicle: { include: { listing: { include: { media: true } } } },
+        workOrders: true,
+        qualityControlReports: true,
+      },
+    });
+    if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
+    if (stock.version !== input.expectedVersion) throw new HttpError(409, 'STOCK_VERSION_CONFLICT');
+    if (input.retailPricePaise <= 0n) throw new HttpError(400, 'INVALID_RETAIL_PRICE');
+
+    const hasUnfinishedWorkOrders = stock.workOrders.some(wo => !['COMPLETED', 'CANCELLED'].includes(wo.status));
+    if (hasUnfinishedWorkOrders) throw new HttpError(409, 'WORK_ORDERS_NOT_COMPLETED');
+    const hasPassedQC = stock.qualityControlReports.some(qc => qc.status === 'PASSED');
+    if (stock.workOrders.length > 0 && !hasPassedQC) throw new HttpError(409, 'QC_REPORT_NOT_PASSED');
+    if (!stock.vehicleId || !stock.vehicle) throw new HttpError(409, 'VEHICLE_DETAILS_NOT_PREPARED');
+
+    return this.db.$transaction(async tx => {
+      const listingTitle = input.title || stock.vehicle!.listing?.title || `${stock.manufacturingYear} ${stock.make} ${stock.model} ${stock.variant || ''}`.trim();
+      const listing = await tx.vehicleListing.upsert({
+        where: { vehicleId: stock.vehicleId! },
+        create: {
+          vehicleId: stock.vehicleId!,
+          title: listingTitle,
+          pricePaise: input.retailPricePaise,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+        },
+        update: {
+          title: listingTitle,
+          pricePaise: input.retailPricePaise,
+          status: 'PUBLISHED',
+          publishedAt: new Date(),
+        },
+      });
+
+      await tx.vehicleStockUnit.update({
+        where: { id: stockId },
+        data: { status: 'LISTED', version: { increment: 1 } },
+      });
+
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'VEHICLE_LISTING_PUBLISHED',
+          entityType: 'VehicleListing',
+          entityId: listing.id,
+          details: { stockCode: stock.stockCode, pricePaise: input.retailPricePaise.toString() },
+        },
+      });
+
+      return listing;
+    });
+  }
+
+  async deliverVehicle(actor: InspectionActor, stockId: string, input: {
+    buyerName: string;
+    buyerPhone: string;
+    odometerKm?: number;
+    deliveryNotes?: string;
+    expectedVersion: number;
+  }) {
+    checkRole(actor, operationsRoles);
+    const stock = await this.db.vehicleStockUnit.findFirst({
+      where: this.stockScope(actor, stockId),
+      include: { vehicle: { include: { listing: true } } },
+    });
+    if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
+    if (stock.version !== input.expectedVersion) throw new HttpError(409, 'STOCK_VERSION_CONFLICT');
+    if (!['LISTED', 'RESERVED'].includes(stock.status)) throw new HttpError(409, 'STOCK_NOT_READY_FOR_DELIVERY');
+
+    return this.db.$transaction(async tx => {
+      await tx.vehicleStockUnit.update({
+        where: { id: stockId },
+        data: {
+          status: 'SOLD',
+          odometerKm: input.odometerKm || stock.odometerKm,
+          notes: input.deliveryNotes ? `${stock.notes || ''}\n[DELIVERY]: ${input.deliveryNotes}`.trim() : stock.notes,
+          version: { increment: 1 },
+        },
+      });
+
+      if (stock.vehicle?.listing) {
+        await tx.vehicleListing.update({
+          where: { id: stock.vehicle.listing.id },
+          data: { status: 'SOLD' },
+        });
+      }
+
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'VEHICLE_DELIVERED_TO_BUYER',
+          entityType: 'VehicleStockUnit',
+          entityId: stockId,
+          details: { buyerName: input.buyerName, buyerPhone: input.buyerPhone, odometerKm: input.odometerKm },
+        },
+      });
+
+      return { stockId, status: 'SOLD' };
     });
   }
 

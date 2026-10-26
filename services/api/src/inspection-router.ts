@@ -118,6 +118,31 @@ const completeWorkOrderInput = z.object({ expectedVersion: z.number().int().posi
 const startQualityControlInput = z.object({ workOrderId: uuid.optional(), findings: z.string().trim().max(4_000).optional(), evidenceNotes: z.string().trim().max(4_000).optional() }).strict();
 const qualityControlDecisionInput = z.object({ expectedVersion: z.number().int().positive(), decision: z.enum(['PASS', 'REWORK_REQUIRED', 'FAIL']), findings: z.string().trim().max(4_000).optional(), evidenceNotes: z.string().trim().max(4_000).optional() }).strict();
 
+const prepareListingInput = z.object({
+  title: z.string().trim().min(3).max(200),
+  features: z.array(z.string().trim()).optional(),
+  color: z.string().trim().optional(),
+  conditionSummary: z.string().trim().max(2_000).optional(),
+  inspectionSummary: z.string().trim().max(2_000).optional(),
+  verifiedTags: z.array(z.string().trim()).optional(),
+  mediaUrls: z.array(z.string().trim().min(5)).optional(),
+  expectedVersion: z.number().int().positive(),
+}).strict();
+
+const publishListingInput = z.object({
+  retailPricePaise: z.coerce.bigint().positive(),
+  expectedVersion: z.number().int().positive(),
+  title: z.string().trim().max(200).optional(),
+}).strict();
+
+const deliverVehicleInput = z.object({
+  buyerName: z.string().trim().min(2).max(100),
+  buyerPhone: z.string().trim().min(7).max(20),
+  odometerKm: z.number().int().min(0).optional(),
+  deliveryNotes: z.string().trim().max(2_000).optional(),
+  expectedVersion: z.number().int().positive(),
+}).strict();
+
 const decisionInput = z.object({
   decision: z.enum(['APPROVE', 'REQUEST_CORRECTION', 'REJECT']),
   reason: z.string().trim().max(2_000).optional(),
@@ -391,6 +416,24 @@ export function createOperationsInspectionRouter(deps: { verify: VerifyToken; st
   router.post('/quality-control/:id/decision', async (req, res, next) => {
     try { res.json(await deps.store.decideQualityControl(res.locals.inspectionActor, uuid.parse(req.params.id), qualityControlDecisionInput.parse(req.body))); }
     catch (e) { next(e); }
+  });
+
+  router.post('/inventory/:id/prepare-listing', async (req, res, next) => {
+    try {
+      res.json(await deps.store.prepareListing(res.locals.inspectionActor, uuid.parse(req.params.id), prepareListingInput.parse(req.body)));
+    } catch (e) { next(e); }
+  });
+
+  router.post('/inventory/:id/publish-listing', async (req, res, next) => {
+    try {
+      res.json(await deps.store.publishListing(res.locals.inspectionActor, uuid.parse(req.params.id), publishListingInput.parse(req.body)));
+    } catch (e) { next(e); }
+  });
+
+  router.post('/inventory/:id/deliver', async (req, res, next) => {
+    try {
+      res.json(await deps.store.deliverVehicle(res.locals.inspectionActor, uuid.parse(req.params.id), deliverVehicleInput.parse(req.body)));
+    } catch (e) { next(e); }
   });
 
   router.get('/inspection-requests', async (_req, res, next) => {
