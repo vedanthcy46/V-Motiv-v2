@@ -22,6 +22,12 @@ export default async function handler(req: any, res: any) {
     // Keep details in the Vercel Function Log; returning internals to a browser
     // would disclose deployment and configuration information.
     console.error('VMOTIV_API_BOOT_FAILED', error);
-    return res.status(503).json({ code: 'API_STARTUP_FAILED' });
+    const message = error instanceof Error ? error.message : '';
+    const code = message.includes('DATABASE_URL') ? 'DATABASE_URL_INVALID_OR_MISSING'
+      : message.includes('WEB_ORIGIN') ? 'WEB_ORIGIN_INVALID_OR_MISSING'
+        : message.includes('FIREBASE_PROJECT_ID') ? 'FIREBASE_PROJECT_ID_MISSING'
+          : message.includes('EMAIL_') ? 'EMAIL_CONFIGURATION_INVALID'
+            : 'API_STARTUP_FAILED';
+    return res.status(503).json({ code });
   }
 }
