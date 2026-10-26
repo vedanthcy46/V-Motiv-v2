@@ -666,7 +666,11 @@ export const App: FC = () => {
       setSuccessMsg(`Cost approval ${decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'}`);
       await loadAllData();
     } catch (err) {
-      setError(err instanceof ApiError ? `Cost Decision Error: ${err.code}` : 'Decision failed');
+      if (err instanceof ApiError && err.code === 'COST_SELF_APPROVAL_DENIED') {
+        setError('Cost Decision Error: Self-approval is not permitted under the four-eyes segregation policy. A different employee with Pricing Approver, Admin, or Super Admin role must approve this estimate.');
+      } else {
+        setError(err instanceof ApiError ? `Cost Decision Error: ${err.code}` : 'Decision failed');
+      }
     } finally {
       setLoading(false);
     }
