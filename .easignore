@@ -1,0 +1,48 @@
+# EAS packages this monorepo from its repository root. Keep only source,
+# configuration and native project inputs; EAS installs dependencies itself.
+.git/
+node_modules/
+**/node_modules/
+.node_modules_previous/
+
+# Generated JavaScript, Expo and test output.
+dist/
+**/dist/
+dist-test/
+coverage/
+.expo/
+**/.expo/
+playwright-report/
+
+# Generated Android output and local machine state.
+**/android/.gradle/
+**/android/.kotlin/
+**/android/.idea/
+**/android/build/
+**/android/**/build/
+**/android/**/.cxx/
+**/android/local.properties
+**/android/**/*.iml
+**/android/**/*.hprof
+**/android/**/*.jsbundle
+**/android/app/src/main/java/inline/
+
+# Local tooling, databases, logs and secrets that never belong in a cloud build.
+.idea/
+**/.idea/
+.gradle-sockets/
+.postgres-data/
+.vercel-entry-check/
+storage/
+services/api/storage/
+*.log
+.env
+.env.*
+!.env.example
+*.pem
+*service-account*.json
+secrets/
+
+# Firebase Android configuration is a required EAS native-build input.
+!apps/customer-mobile/google-services.json
+!apps/customer-mobile/android/app/google-services.json
