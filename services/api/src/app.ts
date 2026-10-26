@@ -1,6 +1,7 @@
 import express, { type ErrorRequestHandler } from 'express';
 import cors from 'cors';
 import fs from 'node:fs';
+import os from 'node:os';
 import crypto from 'node:crypto';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -329,8 +330,12 @@ export function createApp(deps: {
       // Local storage fallback when Cloudinary is not configured
       const ext = input.mimeType.split('/')[1] || 'bin';
       const filename = `${input.filename || 'upload'}-${Date.now()}.${ext}`;
-      const localDir = path.resolve(process.cwd(), 'storage/uploads');
-      if (!fs.existsSync(localDir)) fs.mkdirSync(localDir, { recursive: true });
+      const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+      const storageBase = isServerless ? os.tmpdir() : process.cwd();
+      const localDir = path.resolve(storageBase, 'storage/uploads');
+      if (!fs.existsSync(localDir)) {
+        try { fs.mkdirSync(localDir, { recursive: true }); } catch {}
+      }
       await fs.promises.writeFile(path.resolve(localDir, filename), buffer);
       const checksumSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
       res.status(201).json({

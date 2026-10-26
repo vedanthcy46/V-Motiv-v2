@@ -96,7 +96,7 @@ export default async function handler(req: any, res: any) {
         : message.includes('FIREBASE_PROJECT_ID') ? 'FIREBASE_PROJECT_ID_MISSING'
           : message.includes('EMAIL_') ? 'EMAIL_CONFIGURATION_INVALID'
             : diagnostic.includes('/config.') ? 'API_CONFIGURATION_INVALID'
-              : diagnostic.includes('@prisma/client') || diagnostic.includes('Prisma') ? 'PRISMA_RUNTIME_STARTUP_FAILED'
+              : diagnostic.includes('@prisma/client') || diagnostic.includes('PrismaClient') ? 'PRISMA_RUNTIME_STARTUP_FAILED'
                 : diagnostic.includes('firebase-admin') || diagnostic.includes('Firebase') ? 'FIREBASE_RUNTIME_STARTUP_FAILED'
                   : diagnostic.includes('Cannot find module') || diagnostic.includes('ERR_MODULE_NOT_FOUND') ? 'API_RUNTIME_DEPENDENCY_MISSING'
                     : 'API_STARTUP_FAILED';

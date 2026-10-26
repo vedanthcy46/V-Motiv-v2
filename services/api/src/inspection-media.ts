@@ -1,5 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import crypto from 'node:crypto';
 import { HttpError } from './errors.js';
 import { isCloudinaryConfigured, uploadToCloudinary } from './cloudinary.js';
@@ -53,11 +54,19 @@ export class InspectionMediaService {
   private baseDir: string;
 
   constructor(customDir?: string) {
+    const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
+    const defaultStorage = isServerless
+      ? path.resolve(os.tmpdir(), 'storage/inspection-media')
+      : path.resolve(process.cwd(), 'storage/inspection-media');
     this.baseDir = customDir
       ? path.resolve(customDir)
-      : path.resolve(process.cwd(), 'storage/inspection-media');
-    if (!fs.existsSync(this.baseDir)) {
-      fs.mkdirSync(this.baseDir, { recursive: true, mode: 0o700 });
+      : defaultStorage;
+    try {
+      if (!fs.existsSync(this.baseDir)) {
+        fs.mkdirSync(this.baseDir, { recursive: true, mode: 0o700 });
+      }
+    } catch (err) {
+      console.warn('[InspectionMediaService] Local media directory initialization bypassed:', err);
     }
   }
 
@@ -128,7 +137,11 @@ export class InspectionMediaService {
     if (destinationPath.startsWith(this.baseDir)) {
       const parentDir = path.dirname(destinationPath);
       if (!fs.existsSync(parentDir)) {
-        fs.mkdirSync(parentDir, { recursive: true, mode: 0o700 });
+        try {
+          fs.mkdirSync(parentDir, { recursive: true, mode: 0o700 });
+        } catch (dirErr) {
+          console.warn('[LOCAL_MEDIA_DIR_CREATE_WARNING]', dirErr);
+        }
       }
       try {
         await fs.promises.writeFile(destinationPath, buffer);
