@@ -1077,7 +1077,7 @@ export const App: FC = () => {
         ) : null}
 
         {successMsg ? (
-          <aside style={{ background: '#DCFCE7', color: '#166534', border: '1px solid #16A34A', padding: '0.75rem 1rem', borderRadius: '10px', marginBottom: '1.5rem', display: 'flex', justifyContent: 'space-between' }}>
+          <aside className="alert-success" role="status">
             <span>✓ {successMsg}</span>
             <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }} onClick={() => setSuccessMsg(null)}>
               ✕
@@ -1101,7 +1101,7 @@ export const App: FC = () => {
             </div>
 
             {/* Inspection Metrics */}
-            <h3 style={{ fontSize: '0.9rem', color: '#475569', textTransform: 'uppercase', marginBottom: '0.75rem', fontWeight: 700 }}>
+            <h3 style={{ fontSize: '0.9rem', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: '0.75rem', fontWeight: 700 }}>
               Physical Inspection Pipeline
             </h3>
             <div className="metrics-grid">
@@ -1128,7 +1128,7 @@ export const App: FC = () => {
             </div>
 
             {/* Acquisition & Inventory Pipeline */}
-            <h3 style={{ fontSize: '0.9rem', color: '#475569', textTransform: 'uppercase', marginBottom: '0.75rem', fontWeight: 700 }}>
+            <h3 style={{ fontSize: '0.9rem', color: 'var(--muted)', textTransform: 'uppercase', marginBottom: '0.75rem', fontWeight: 700 }}>
               Post-Inspection Operations & Inventory Funnel
             </h3>
             <div className="metrics-grid">
@@ -1175,7 +1175,7 @@ export const App: FC = () => {
                 </div>
                 <div className="card-body">
                   {metrics?.unassigned ? (
-                    <div className="checklist-item" style={{ borderLeft: '3px solid #D97706' }}>
+                    <div className="checklist-item" style={{ borderLeft: '3px solid var(--warning)' }}>
                       <div className="checklist-info">
                         <span className="checklist-title">{metrics.unassigned} Inspection Requests Unassigned</span>
                         <span className="checklist-meta">Assign qualified inspectors to maintain SLA</span>
@@ -1185,7 +1185,7 @@ export const App: FC = () => {
                   ) : null}
 
                   {metrics?.refurbishment?.pendingCostApprovals ? (
-                    <div className="checklist-item" style={{ borderLeft: '3px solid #F7B503' }}>
+                    <div className="checklist-item" style={{ borderLeft: '3px solid var(--yellow)' }}>
                       <div className="checklist-info">
                         <span className="checklist-title">{metrics.refurbishment.pendingCostApprovals} Cost Approvals Pending</span>
                         <span className="checklist-meta">Workshop repair estimates awaiting independent decision</span>
@@ -1195,7 +1195,7 @@ export const App: FC = () => {
                   ) : null}
 
                   {metrics?.stock?.qcPending ? (
-                    <div className="checklist-item" style={{ borderLeft: '3px solid #2563EB' }}>
+                    <div className="checklist-item" style={{ borderLeft: '3px solid var(--primary)' }}>
                       <div className="checklist-info">
                         <span className="checklist-title">{metrics.stock.qcPending} Vehicles Awaiting Independent QC</span>
                         <span className="checklist-meta">Completed workshop repairs ready for sign-off</span>
@@ -1205,7 +1205,7 @@ export const App: FC = () => {
                   ) : null}
 
                   {metrics?.stock?.listingReady ? (
-                    <div className="checklist-item" style={{ borderLeft: '3px solid #16A34A' }}>
+                    <div className="checklist-item" style={{ borderLeft: '3px solid var(--success)' }}>
                       <div className="checklist-info">
                         <span className="checklist-title">{metrics.stock.listingReady} Vehicles Ready for Retail Publication</span>
                         <span className="checklist-meta">Commercial readiness gates cleared</span>
@@ -1215,7 +1215,7 @@ export const App: FC = () => {
                   ) : null}
 
                   {!metrics?.unassigned && !metrics?.refurbishment?.pendingCostApprovals && !metrics?.stock?.qcPending ? (
-                    <p style={{ color: '#64748B', fontSize: '0.85rem' }}>No urgent operational bottlenecks at this moment.</p>
+                    <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>No urgent operational bottlenecks at this moment.</p>
                   ) : null}
                 </div>
               </div>
@@ -1235,7 +1235,7 @@ export const App: FC = () => {
                         <div className="timeline-dot" />
                         <div className="timeline-content">
                           <strong>{evt.action.replace(/_/g, ' ')}</strong>
-                          <div style={{ color: '#64748B', fontSize: '0.75rem' }}>
+                          <div style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>
                             {evt.actor?.displayName || evt.actor?.email || 'System'} · {evt.entityType} ({evt.entityId.slice(0, 8)}...)
                           </div>
                         </div>
@@ -1243,7 +1243,7 @@ export const App: FC = () => {
                       </div>
                     ))}
                     {!metrics?.recentEvents?.length ? (
-                      <p style={{ color: '#94A3B8', fontSize: '0.85rem' }}>No recent audit events recorded.</p>
+                      <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>No recent audit events recorded.</p>
                     ) : null}
                   </div>
                 </div>
@@ -1303,11 +1303,11 @@ export const App: FC = () => {
                       <tr key={r.id}>
                         <td>
                           <strong>{r.lead.referenceCode}</strong>
-                          <div style={{ fontSize: '0.8rem', color: '#64748B' }}>{r.lead.sellerName} · {r.lead.sellerPhone || 'No phone'}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{r.lead.sellerName} · {r.lead.sellerPhone || 'No phone'}</div>
                         </td>
                         <td>
                           <strong>{r.lead.make} {r.lead.model}</strong>
-                          <div style={{ fontSize: '0.8rem', color: '#64748B' }}>{r.lead.manufacturingYear} · {r.lead.fuelType || 'Petrol'} · {r.lead.odometerKm ? `${r.lead.odometerKm.toLocaleString()} km` : '—'}</div>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{r.lead.manufacturingYear} · {r.lead.fuelType || 'Petrol'} · {r.lead.odometerKm ? `${r.lead.odometerKm.toLocaleString()} km` : '—'}</div>
                         </td>
                         <td>{r.lead.city}</td>
                         <td>
@@ -1319,13 +1319,13 @@ export const App: FC = () => {
                           {r.assignment ? (
                             <div>
                               <strong>{r.assignment.inspector?.user.displayName || r.assignment.inspector?.user.email}</strong>
-                              <div style={{ fontSize: '0.75rem', color: '#64748B' }}>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
                                 <IconClock style={{ verticalAlign: 'middle', marginRight: '3px' }} />
                                 {formatDate(r.assignment.scheduledAt)} ({r.assignment.locationType})
                               </div>
                             </div>
                           ) : (
-                            <span style={{ color: '#D97706', fontSize: '0.8rem', fontWeight: 600 }}>Unassigned</span>
+                            <span style={{ color: 'var(--warning)', fontSize: '0.8rem', fontWeight: 600 }}>Unassigned</span>
                           )}
                         </td>
                         <td>
@@ -1442,10 +1442,10 @@ export const App: FC = () => {
                         <span className="card-subtitle">Case: {c.caseReference.slice(0, 13)} · Lead: {c.lead.referenceCode}</span>
                       </div>
                       <div style={{ textAlign: 'right' }}>
-                        <div style={{ fontSize: '1.1rem', fontWeight: 700, color: '#061A38' }}>
+                        <div style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--yellow)' }}>
                           {formatRupees(c.offer.offerAmountPaise)}
                         </div>
-                        <span style={{ fontSize: '0.75rem', color: '#64748B' }}>Agreed Purchase Price</span>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Agreed Purchase Price</span>
                       </div>
                     </div>
 
@@ -1478,7 +1478,7 @@ export const App: FC = () => {
                       </div>
 
                       {c.stockUnit ? (
-                        <div style={{ padding: '0.5rem', background: '#DCFCE7', borderRadius: '6px', fontSize: '0.8rem', color: '#166534', fontWeight: 600 }}>
+                        <div style={{ padding: '0.5rem', background: 'var(--success-bg)', border: '1px solid rgba(97, 217, 154, 0.3)', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--success)', fontWeight: 600 }}>
                           ✓ Inwarded to Stock: {c.stockUnit.stockCode} ({c.stockUnit.status})
                         </div>
                       ) : null}
@@ -1559,10 +1559,10 @@ export const App: FC = () => {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
               {cases.map(c => (
                 <article className="card-table" key={c.id}>
-                  <div style={{ padding: '1rem 1.25rem', background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <div className="card-table-header">
                     <div>
-                      <strong style={{ fontSize: '1rem', color: '#061A38' }}>{c.lead.make} {c.lead.model} ({c.lead.manufacturingYear})</strong>
-                      <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                      <strong>{c.lead.make} {c.lead.model} ({c.lead.manufacturingYear})</strong>
+                      <div className="card-table-subtitle">
                         Seller: {c.lead.sellerName} · Reg: {c.lead.registrationNumber || 'Not provided'} · Case: {c.caseReference.slice(0, 13)}
                       </div>
                     </div>
@@ -1662,7 +1662,17 @@ export const App: FC = () => {
 
                     <div className="card-body">
                       {/* Finance Settlement Barrier */}
-                      <div style={{ padding: '0.6rem', borderRadius: '6px', background: settlementDone ? '#DCFCE7' : '#FEF3C7', color: settlementDone ? '#166534' : '#B45309', fontSize: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      <div style={{
+                        padding: '0.6rem',
+                        borderRadius: '6px',
+                        background: settlementDone ? 'var(--success-bg)' : 'var(--warning-bg)',
+                        border: settlementDone ? '1px solid rgba(97, 217, 154, 0.3)' : '1px solid rgba(247, 181, 3, 0.3)',
+                        color: settlementDone ? 'var(--success)' : 'var(--warning)',
+                        fontSize: '0.8rem',
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: '0.4rem'
+                      }}>
                         <IconLock />
                         <span>Finance Payment Gate: <strong>{c.settlementStatus}</strong></span>
                       </div>
@@ -1681,7 +1691,7 @@ export const App: FC = () => {
                           ) : null}
                         </div>
                       ) : (
-                        <p style={{ color: '#64748B', fontSize: '0.85rem' }}>Physical vehicle custody has not yet been logged.</p>
+                        <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>Physical vehicle custody has not yet been logged.</p>
                       )}
                     </div>
 
@@ -1761,15 +1771,15 @@ export const App: FC = () => {
                       <tr key={s.id}>
                         <td>
                           <strong>{s.stockCode}</strong>
-                          <div style={{ fontSize: '0.75rem', color: '#64748B' }}>Inwarded: {formatDate(s.createdAt)}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Inwarded: {formatDate(s.createdAt)}</div>
                         </td>
                         <td>
                           <strong>{s.manufacturingYear} {s.make} {s.model} {s.variant || ''}</strong>
-                          <div style={{ fontSize: '0.75rem', color: '#64748B' }}>{s.fuelType} · {s.transmission}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{s.fuelType} · {s.transmission}</div>
                         </td>
                         <td>
                           <div>{s.registrationNumber || 'N/A'}</div>
-                          <div style={{ fontSize: '0.75rem', color: '#64748B' }}>{s.odometerKm.toLocaleString()} km</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{s.odometerKm.toLocaleString()} km</div>
                         </td>
                         <td>{s.physicalLocation}</td>
                         <td>{formatRupees(s.acquisitionCostPaise)}</td>
@@ -1888,10 +1898,10 @@ export const App: FC = () => {
                 .filter(s => s.workOrders && s.workOrders.length > 0)
                 .map(s => (
                   <article className="card-table" key={s.id}>
-                    <div style={{ padding: '1rem 1.25rem', background: '#F8FAFC', borderBottom: '1px solid #E2E8F0', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <div className="card-table-header">
                       <div>
-                        <strong style={{ fontSize: '1rem', color: '#061A38' }}>{s.manufacturingYear} {s.make} {s.model} ({s.stockCode})</strong>
-                        <div style={{ fontSize: '0.8rem', color: '#64748B' }}>Location: {s.physicalLocation} · Stock Status: {s.status}</div>
+                        <strong>{s.manufacturingYear} {s.make} {s.model} ({s.stockCode})</strong>
+                        <div className="card-table-subtitle">Location: {s.physicalLocation} · Stock Status: {s.status}</div>
                       </div>
                       <button
                         className="btn-secondary"
@@ -1919,12 +1929,12 @@ export const App: FC = () => {
                             <tr key={wo.id}>
                               <td>
                                 <strong>{wo.category}</strong>
-                                <div style={{ fontSize: '0.8rem', color: '#475569' }}>{wo.requiredAction}</div>
+                                <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{wo.requiredAction}</div>
                               </td>
                               <td>{wo.assignedProvider || 'Internal Workshop'}</td>
                               <td>
                                 <div>Est: {formatRupees(wo.estimatedCostPaise)}</div>
-                                {wo.actualCostPaise ? <div style={{ fontSize: '0.75rem', color: '#16A34A' }}>Act: {formatRupees(wo.actualCostPaise)}</div> : null}
+                                {wo.actualCostPaise ? <div style={{ fontSize: '0.75rem', color: 'var(--success)' }}>Act: {formatRupees(wo.actualCostPaise)}</div> : null}
                               </td>
                               <td>
                                 {wo.costApproval ? (
@@ -1932,10 +1942,10 @@ export const App: FC = () => {
                                     <span className={`badge ${wo.costApproval.status === 'APPROVED' ? 'badge-success' : wo.costApproval.status === 'REJECTED' ? 'badge-danger' : 'badge-warning'}`}>
                                       {wo.costApproval.status}
                                     </span>
-                                    {wo.costApproval.reason ? <div style={{ fontSize: '0.75rem', color: '#64748B' }}>{wo.costApproval.reason}</div> : null}
+                                    {wo.costApproval.reason ? <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{wo.costApproval.reason}</div> : null}
                                   </div>
                                 ) : (
-                                  <span style={{ color: '#94A3B8', fontSize: '0.8rem' }}>None</span>
+                                  <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>None</span>
                                 )}
                               </td>
                               <td>
@@ -2047,14 +2057,14 @@ export const App: FC = () => {
                       <div><strong>Completed Work Orders:</strong> {s.workOrders?.filter(w => w.status === 'COMPLETED').length || 0}</div>
 
                       {s.qualityControlReports?.map(qc => (
-                        <div key={qc.id} style={{ marginTop: '0.5rem', padding: '0.6rem', background: '#F8FAFC', border: '1px solid #E2E8F0', borderRadius: '6px' }}>
+                        <div key={qc.id} style={{ marginTop: '0.5rem', padding: '0.6rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '6px' }}>
                           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span className={`badge ${qc.status === 'PASSED' ? 'badge-success' : qc.status === 'REWORK_REQUIRED' ? 'badge-warning' : 'badge-danger'}`}>
                               QC {qc.status}
                             </span>
-                            <span style={{ fontSize: '0.75rem', color: '#64748B' }}>{formatDate(qc.reviewedAt || qc.createdAt)}</span>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{formatDate(qc.reviewedAt || qc.createdAt)}</span>
                           </div>
-                          {qc.findings ? <div style={{ fontSize: '0.8rem', marginTop: '0.35rem' }}>{qc.findings}</div> : null}
+                          {qc.findings ? <div style={{ fontSize: '0.8rem', marginTop: '0.35rem', color: 'var(--text)' }}>{qc.findings}</div> : null}
                         </div>
                       ))}
                     </div>
@@ -2069,7 +2079,7 @@ export const App: FC = () => {
                           <IconQC /> Record QC Verdict
                         </button>
                       ) : (
-                        <span style={{ fontSize: '0.8rem', color: '#16A34A', fontWeight: 600 }}>QC Signed Off</span>
+                        <span style={{ fontSize: '0.8rem', color: 'var(--success)', fontWeight: 600 }}>QC Signed Off</span>
                       )}
                     </div>
                   </article>
@@ -2175,7 +2185,7 @@ export const App: FC = () => {
                   return (
                     <article className="detail-card" key={s.id}>
                       {heroPhoto ? (
-                        <div style={{ height: '140px', overflow: 'hidden', borderTopLeftRadius: 'var(--radius-md)', borderTopRightRadius: 'var(--radius-md)', background: '#020b18', position: 'relative' }}>
+                        <div style={{ height: '140px', overflow: 'hidden', borderTopLeftRadius: 'var(--radius-md)', borderTopRightRadius: 'var(--radius-md)', background: 'var(--surface-2)', position: 'relative' }}>
                           <img src={heroPhoto} alt={s.model} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                           <span style={{ position: 'absolute', bottom: '8px', right: '8px', background: 'rgba(2, 11, 24, 0.85)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', color: 'var(--text)', border: '1px solid var(--border)' }}>
                             {mediaList.length} photo{mediaList.length === 1 ? '' : 's'}
@@ -2264,7 +2274,7 @@ export const App: FC = () => {
                         <div className="gate-indicator passed">✓ Studio Specifications & Photos Attached</div>
 
                         {isPublished ? (
-                          <div style={{ marginTop: '0.5rem', padding: '0.6rem', background: '#DCFCE7', borderRadius: '6px', color: '#166534', fontWeight: 600 }}>
+                          <div style={{ marginTop: '0.5rem', padding: '0.6rem', background: 'var(--success-bg)', border: '1px solid rgba(97, 217, 154, 0.3)', borderRadius: '6px', color: 'var(--success)', fontWeight: 600 }}>
                             ✓ Live in V MOTIV Catalog at {formatRupees(s.vehicle?.listing?.pricePaise)}
                           </div>
                         ) : null}
@@ -2283,7 +2293,7 @@ export const App: FC = () => {
                             <IconPublish /> Approve Price & Publish
                           </button>
                         ) : (
-                          <span style={{ color: '#16A34A', fontSize: '0.85rem', fontWeight: 600 }}>Live Marketplace Listing</span>
+                          <span style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: 600 }}>Live Marketplace Listing</span>
                         )}
                       </div>
                     </article>
@@ -2332,15 +2342,15 @@ export const App: FC = () => {
                       <tr key={td.id}>
                         <td>
                           <strong>{td.customer?.name || td.customer?.email}</strong>
-                          <div style={{ fontSize: '0.75rem', color: '#64748B' }}>{td.customer?.phone || td.customer?.email}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{td.customer?.phone || td.customer?.email}</div>
                         </td>
                         <td>
                           <strong>{td.listing?.title || 'Vehicle Listing'}</strong>
-                          <div style={{ fontSize: '0.75rem', color: '#64748B' }}>{formatRupees(td.listing?.pricePaise)}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{formatRupees(td.listing?.pricePaise)}</div>
                         </td>
                         <td>
                           <div>{td.requestedDate}</div>
-                          <div style={{ fontSize: '0.75rem', color: '#64748B' }}>{td.timeSlot}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{td.timeSlot}</div>
                         </td>
                         <td>{td.locationPreference}</td>
                         <td>
@@ -2382,7 +2392,7 @@ export const App: FC = () => {
                               Mark Completed
                             </button>
                           ) : (
-                            <span style={{ fontSize: '0.8rem', color: '#94A3B8' }}>Done</span>
+                            <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>Done</span>
                           )}
                         </td>
                       </tr>
@@ -2436,7 +2446,7 @@ export const App: FC = () => {
                       {ins.branches.map(b => (
                         <span key={b.id} className="badge badge-neutral">{b.name} ({b.city})</span>
                       ))}
-                      {!ins.branches.length ? <span style={{ color: '#94A3B8', fontSize: '0.8rem' }}>All Branches</span> : null}
+                      {!ins.branches.length ? <span style={{ color: 'var(--muted)', fontSize: '0.8rem' }}>All Branches</span> : null}
                     </div>
                   </div>
                 </article>
@@ -2467,7 +2477,7 @@ export const App: FC = () => {
               <div className="modal-body">
                 <div>
                   <strong>{assignModal.request.lead.make} {assignModal.request.lead.model}</strong>
-                  <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
                     Seller: {assignModal.request.lead.sellerName} · Ref: {assignModal.request.lead.referenceCode} · City: {assignModal.request.lead.city}
                   </div>
                 </div>
@@ -2596,7 +2606,7 @@ export const App: FC = () => {
               <div className="modal-body">
                 <div>
                   <strong>{handoverModal.caseItem.lead.make} {handoverModal.caseItem.lead.model}</strong>
-                  <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
                     Seller: {handoverModal.caseItem.lead.sellerName} · Agreed Price: {formatRupees(handoverModal.caseItem.offer.offerAmountPaise)}
                   </div>
                 </div>
@@ -2689,7 +2699,7 @@ export const App: FC = () => {
             </div>
             <form onSubmit={handleStockInwardSubmit}>
               <div className="modal-body">
-                <p style={{ fontSize: '0.85rem', color: '#475569' }}>
+                <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
                   Acquisition gates verified. Establishing canonical stock unit in V MOTIV inventory.
                 </p>
 
@@ -2737,7 +2747,7 @@ export const App: FC = () => {
               <div className="modal-body">
                 <div>
                   <strong>Stock: {workOrderModal.stockItem.stockCode}</strong>
-                  <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
                     {workOrderModal.stockItem.make} {workOrderModal.stockItem.model} ({workOrderModal.stockItem.registrationNumber || 'N/A'})
                   </div>
                 </div>
@@ -2788,7 +2798,7 @@ export const App: FC = () => {
                     onChange={e => setWoCost(e.target.value)}
                     required
                   />
-                  <small style={{ color: '#64748B' }}>Equivalent to {formatRupees(woCost)}</small>
+                  <small style={{ color: 'var(--muted)' }}>Equivalent to {formatRupees(woCost)}</small>
                 </div>
               </div>
               <div className="modal-footer">
@@ -2814,7 +2824,7 @@ export const App: FC = () => {
               <div className="modal-body">
                 <div>
                   <strong>Stock: {qcModal.stockItem.stockCode}</strong>
-                  <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
                     {qcModal.stockItem.make} {qcModal.stockItem.model} ({qcModal.stockItem.physicalLocation})
                   </div>
                 </div>
@@ -2905,7 +2915,7 @@ export const App: FC = () => {
                     onChange={e => setStudioPhotos(e.target.value)}
                     style={{ minHeight: '100px' }}
                   />
-                  <small style={{ color: '#64748B' }}>Front, rear, interior, odometer and engine photos.</small>
+                  <small style={{ color: 'var(--muted)' }}>Front, rear, interior, odometer and engine photos.</small>
                 </div>
               </div>
               <div className="modal-footer">
@@ -2931,7 +2941,7 @@ export const App: FC = () => {
               <div className="modal-body">
                 <div>
                   <strong>{publishModal.stockItem.vehicle?.listing?.title || `${publishModal.stockItem.manufacturingYear} ${publishModal.stockItem.make} ${publishModal.stockItem.model}`}</strong>
-                  <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
                     Stock Code: {publishModal.stockItem.stockCode} · Acquired Cost: {formatRupees(publishModal.stockItem.acquisitionCostPaise)}
                   </div>
                 </div>
@@ -2947,13 +2957,13 @@ export const App: FC = () => {
                     required
                   />
                   {publishRetailPrice ? (
-                    <small style={{ color: '#16A34A', fontWeight: 600 }}>
+                    <small style={{ color: 'var(--success)', fontWeight: 600 }}>
                       Formatted: {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(publishRetailPrice))}
                     </small>
                   ) : null}
                 </div>
 
-                <div style={{ padding: '0.75rem', background: '#F8FAFC', borderRadius: '8px', fontSize: '0.8rem', color: '#475569' }}>
+                <div style={{ padding: '0.75rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '0.8rem', color: 'var(--muted)' }}>
                   <strong>Commercial Readiness Checklist:</strong>
                   <ul style={{ paddingLeft: '1.25rem', marginTop: '0.35rem' }}>
                     <li>Stock inward confirmed</li>
@@ -2986,7 +2996,7 @@ export const App: FC = () => {
               <div className="modal-body">
                 <div>
                   <strong>{deliveryModal.stockItem.make} {deliveryModal.stockItem.model} ({deliveryModal.stockItem.stockCode})</strong>
-                  <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
                     Registration: {deliveryModal.stockItem.registrationNumber || 'N/A'} · Odometer: {deliveryModal.stockItem.odometerKm.toLocaleString()} km
                   </div>
                 </div>
