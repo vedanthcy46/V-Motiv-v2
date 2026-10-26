@@ -447,6 +447,7 @@ export class PrismaAdminStore implements AdminStore {
       if (request.requestType === 'PRIVILEGED_EMPLOYEE_INVITATION') requirePermission(actor, 'role.assign.privileged');
       else if (request.requestType === 'POLICY_VERSION') requirePermission(actor, 'policy.approve');
       else if (request.requestType === 'SENSITIVE_EXPORT_PROPOSAL') requirePermission(actor, 'export.sensitive.approve');
+      else if (request.requestType === 'DISCOUNT_REQUEST') requirePermission(actor, 'approval.decide');
       else throw new HttpError(400, 'APPROVAL_TYPE_NOT_SUPPORTED');
       if (request.requesterId === actor.userId && !actor.roles.includes('SUPER_ADMIN')) throw new HttpError(409, 'SELF_APPROVAL_DENIED');
       if (request.status !== 'PENDING' || request.decision) throw new HttpError(409, 'APPROVAL_NOT_PENDING');
@@ -463,8 +464,53 @@ export class PrismaAdminStore implements AdminStore {
         if (request.requestType === 'SENSITIVE_EXPORT_PROPOSAL') {
           await tx.exportJob.updateMany({ where: { approvalRequestId: id }, data: { status: 'REJECTED' } });
         }
+        if (request.requestType === 'DISCOUNT_REQUEST') {
+          const discountId = (request.payload as any)?.discountRequestId;
+          if (discountId) {
+            await tx.discountRequest.update({
+              where: { id: discountId },
+              data: { status: 'REJECTED', decisionNotes: input.reason, decidedById: actor.userId, decidedAt: new Date() },
+            });
+          }
+        }
         await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'APPROVAL_REJECTED', entityType: 'ApprovalRequest', entityId: id, details: { reason: input.reason } } });
         return { stale: false, value: { id, status: 'REJECTED' } } as const;
+      }
+      if (request.requestType === 'DISCOUNT_REQUEST') {
+        const payload = request.payload as Record<string, any>;
+        const discountReq = await tx.discountRequest.findUnique({
+          where: { id: payload.discountRequestId },
+          include: { quotation: true },
+        });
+        if (!discountReq) {
+          await tx.approvalRequest.update({ where: { id }, data: { status: 'STALE' } });
+          return { stale: true, code: 'APPROVAL_STALE' } as const;
+        }
+
+        await tx.discountRequest.update({
+          where: { id: discountReq.id },
+          data: {
+            status: 'APPROVED',
+            decisionNotes: input.reason,
+            decidedById: actor.userId,
+            decidedAt: new Date(),
+          },
+        });
+
+        const finalAmount = discountReq.quotation.basePricePaise + discountReq.quotation.chargesPaise - discountReq.requestedDiscountPaise;
+        await tx.buyerQuotation.update({
+          where: { id: discountReq.quotationId },
+          data: {
+            discountPaise: discountReq.requestedDiscountPaise,
+            finalAmountPaise: finalAmount,
+            status: 'APPROVED',
+          },
+        });
+
+        await tx.approvalDecision.create({ data: { requestId: id, actorId: actor.userId, decision: 'APPROVE', reason: input.reason, requestVersion: request.version } });
+        await tx.approvalRequest.update({ where: { id }, data: { status: 'APPROVED', executedAt: new Date() } });
+        await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'DISCOUNT_REQUEST_APPROVED_AND_EXECUTED', entityType: 'BuyerQuotation', entityId: discountReq.quotationId, details: { discountRequestId: discountReq.id, amount: discountReq.requestedDiscountPaise.toString() } } });
+        return { stale: false, value: { id, status: 'APPROVED', discountRequestId: discountReq.id } } as const;
       }
       if (request.requestType === 'SENSITIVE_EXPORT_PROPOSAL') {
         const exportJob = await tx.exportJob.findUnique({ where: { approvalRequestId: id } });

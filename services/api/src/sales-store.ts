@@ -1347,14 +1347,23 @@ export class PrismaSalesStore implements SalesStore {
           version: true,
           validUntil: true,
           createdAt: true,
-          customer: { select: { displayName: true, email: true } },
+          customer: { select: { id: true, displayName: true, email: true, phone: true } },
           listing: { select: { id: true, title: true } },
           author: { select: { user: { select: { displayName: true } } } },
         },
       }),
       this.db.buyerQuotation.count({ where }),
     ]);
-    return { items, page: query.page, limit: query.limit, total, totalPages: Math.max(1, Math.ceil(total / query.limit)) };
+    const mapped = items.map(item => ({
+      ...item,
+      quotationNumber: `VM-QT-${item.id.slice(0, 8).toUpperCase()}`,
+      basePricePaise: item.basePricePaise.toString(),
+      chargesPaise: item.chargesPaise.toString(),
+      discountPaise: item.discountPaise.toString(),
+      finalAmountPaise: item.finalAmountPaise.toString(),
+      totalPricePaise: item.finalAmountPaise.toString(),
+    }));
+    return { items: mapped, page: query.page, limit: query.limit, total, totalPages: Math.max(1, Math.ceil(total / query.limit)) };
   }
 
   async quotation(actor: SalesActor, id: string) {
@@ -1388,7 +1397,20 @@ export class PrismaSalesStore implements SalesStore {
       },
     });
     if (!q) throw new HttpError(404, 'QUOTATION_NOT_FOUND');
-    return q;
+    return {
+      ...q,
+      quotationNumber: `VM-QT-${q.id.slice(0, 8).toUpperCase()}`,
+      basePricePaise: q.basePricePaise.toString(),
+      chargesPaise: q.chargesPaise.toString(),
+      discountPaise: q.discountPaise.toString(),
+      finalAmountPaise: q.finalAmountPaise.toString(),
+      totalPricePaise: q.finalAmountPaise.toString(),
+      discountRequests: q.discountRequests.map(d => ({
+        ...d,
+        requestedDiscountPaise: d.requestedDiscountPaise.toString(),
+        proposedPricePaise: d.proposedPricePaise.toString(),
+      })),
+    };
   }
 
   async createQuotation(actor: SalesActor, input: {
@@ -1447,7 +1469,13 @@ export class PrismaSalesStore implements SalesStore {
   }
 
   async submitQuotation(actor: SalesActor, id: string) {
-    const q = await this.db.buyerQuotation.findUnique({ where: { id } });
+    const q = await this.db.buyerQuotation.findUnique({
+      where: { id },
+      include: {
+        customer: true,
+        listing: true,
+      },
+    });
     if (!q) throw new HttpError(404, 'QUOTATION_NOT_FOUND');
     if (q.status !== 'DRAFT') throw new HttpError(409, 'QUOTATION_ALREADY_SUBMITTED');
 
@@ -1456,13 +1484,31 @@ export class PrismaSalesStore implements SalesStore {
         where: { id },
         data: { status: 'SENT' },
       });
+
+      const quoteNumber = `VM-QT-${id.slice(0, 8).toUpperCase()}`;
+      const finalPriceFormatted = `₹${(Number(q.finalAmountPaise) / 100).toLocaleString('en-IN')}`;
+      const basePriceFormatted = `₹${(Number(q.basePricePaise) / 100).toLocaleString('en-IN')}`;
+      const chargesFormatted = `₹${(Number(q.chargesPaise) / 100).toLocaleString('en-IN')}`;
+      const discountFormatted = `₹${(Number(q.discountPaise) / 100).toLocaleString('en-IN')}`;
+
+      await tx.emailOutbox.create({
+        data: {
+          userId: q.customerId,
+          eventKey: `retail-quotation/${id}`,
+          recipient: q.customer.email,
+          templateVersion: 'retail-quotation-v1',
+          subject: `Official Vehicle Quotation [${quoteNumber}] — ${q.listing.title}`,
+          text: `Dear ${q.customer.displayName || 'Customer'},\n\nWe are pleased to present the official retail quotation for ${q.listing.title}.\n\nQuotation Details:\n  Quote Reference: ${quoteNumber}\n  Base Vehicle Price: ${basePriceFormatted}\n  Processing & Registration Charges: ${chargesFormatted}\n  Authorized Discount: ${discountFormatted}\n  Final On-Road Offer Price: ${finalPriceFormatted}\n  Validity: Until ${q.validUntil.toLocaleDateString('en-IN')}\n\nTerms & Inclusions:\n${q.terms || 'Standard 1-year warranty and transfer assistance included.'}\n\nYou can review, accept, or request further information directly in your V MOTIV app.\n\nWarm regards,\nV MOTIV Sales & Delivery Team`,
+        },
+      });
+
       await tx.auditEvent.create({
         data: {
           actorId: actor.userId,
           action: 'RETAIL_QUOTATION_SENT',
           entityType: 'BuyerQuotation',
           entityId: id,
-          details: { finalAmount: q.finalAmountPaise.toString() },
+          details: { finalAmount: q.finalAmountPaise.toString(), quoteNumber },
         },
       });
       return updated;
@@ -1473,7 +1519,10 @@ export class PrismaSalesStore implements SalesStore {
     requestedDiscountPaise: bigint;
     reason: string;
   }) {
-    const q = await this.db.buyerQuotation.findUnique({ where: { id: quotationId } });
+    const q = await this.db.buyerQuotation.findUnique({
+      where: { id: quotationId },
+      include: { listing: true, customer: true },
+    });
     if (!q) throw new HttpError(404, 'QUOTATION_NOT_FOUND');
     if (q.status !== 'DRAFT') throw new HttpError(409, 'DISCOUNT_ONLY_ON_DRAFT');
 
@@ -1491,6 +1540,29 @@ export class PrismaSalesStore implements SalesStore {
           status: 'PENDING',
         },
       });
+
+      await tx.approvalRequest.create({
+        data: {
+          requestType: 'DISCOUNT_REQUEST',
+          status: 'PENDING',
+          requesterId: actor.userId,
+          requiredPermission: 'commercial.discount.approve',
+          scopeBranchIds: actor.branches.map(b => b.id),
+          payload: {
+            discountRequestId: req.id,
+            quotationId,
+            vehicleTitle: q.listing.title,
+            customerName: q.customer.displayName || q.customer.email,
+            customerEmail: q.customer.email,
+            customerPhone: q.customer.phone,
+            requestedDiscountPaise: input.requestedDiscountPaise.toString(),
+            proposedPrice: proposedPrice.toString(),
+            reason: input.reason,
+          },
+          expiresAt: new Date(Date.now() + 7 * 24 * 3600 * 1000),
+        },
+      });
+
       await tx.auditEvent.create({
         data: {
           actorId: actor.userId,
@@ -1540,6 +1612,32 @@ export class PrismaSalesStore implements SalesStore {
         });
       }
 
+      // Keep linked ApprovalRequest record in sync if exists
+      const linkedApproval = await tx.approvalRequest.findFirst({
+        where: {
+          requestType: 'DISCOUNT_REQUEST',
+          payload: { path: ['discountRequestId'], equals: discountRequestId },
+        },
+      });
+      if (linkedApproval && linkedApproval.status === 'PENDING') {
+        await tx.approvalRequest.update({
+          where: { id: linkedApproval.id },
+          data: {
+            status: input.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+            executedAt: new Date(),
+          },
+        });
+        await tx.approvalDecision.create({
+          data: {
+            requestId: linkedApproval.id,
+            actorId: actor.userId,
+            decision: input.decision,
+            reason: input.decisionNotes || 'Decided via Sales Portal',
+            requestVersion: linkedApproval.version,
+          },
+        });
+      }
+
       await tx.auditEvent.create({
         data: {
           actorId: actor.userId,
@@ -1577,7 +1675,15 @@ export class PrismaSalesStore implements SalesStore {
       }),
       this.db.vehicleReservation.count({ where }),
     ]);
-    return { items, page: query.page, limit: query.limit, total, totalPages: Math.max(1, Math.ceil(total / query.limit)) };
+    const mapped = items.map(item => ({
+      ...item,
+      reservationNumber: `VM-RES-${item.id.slice(0, 8).toUpperCase()}`,
+      listing: {
+        ...item.listing,
+        pricePaise: item.listing.pricePaise.toString(),
+      },
+    }));
+    return { items: mapped, page: query.page, limit: query.limit, total, totalPages: Math.max(1, Math.ceil(total / query.limit)) };
   }
 
   async requestReservation(actor: SalesActor, input: {
@@ -1843,11 +1949,60 @@ export class PrismaSalesStore implements SalesStore {
       take: 5,
     });
 
+    // 4. Pending discount requests
+    const pendingDiscounts = await this.db.discountRequest.findMany({
+      where: { status: 'PENDING' },
+      include: {
+        quotation: {
+          select: {
+            id: true,
+            listing: { select: { title: true } },
+            customer: { select: { displayName: true, email: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+
+    // 5. Recent Sent quotations
+    const sentQuotations = await this.db.buyerQuotation.findMany({
+      where: {
+        status: 'SENT',
+        ...(actor.globalScope ? {} : { listing: { vehicle: { city: { in: actor.branches.map(b => b.city), mode: 'insensitive' } } } }),
+      },
+      select: {
+        id: true,
+        validUntil: true,
+        finalAmountPaise: true,
+        customer: { select: { displayName: true, email: true } },
+        listing: { select: { title: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+
     return {
       unassignedLeads: unassigned,
       overdueTasks,
       pendingTestDrives: recentTestDrives,
-      totalUnread: unassigned.length + overdueTasks.length + recentTestDrives.length,
+      pendingDiscounts: pendingDiscounts.map(d => ({
+        id: d.id,
+        quotationId: d.quotationId,
+        vehicleTitle: d.quotation.listing.title,
+        customerName: d.quotation.customer.displayName || d.quotation.customer.email,
+        requestedDiscountPaise: d.requestedDiscountPaise.toString(),
+        createdAt: d.createdAt.toISOString(),
+      })),
+      sentQuotations: sentQuotations.map(s => ({
+        id: s.id,
+        quotationNumber: `VM-QT-${s.id.slice(0, 8).toUpperCase()}`,
+        vehicleTitle: s.listing.title,
+        customerName: s.customer.displayName || s.customer.email,
+        finalPricePaise: s.finalAmountPaise.toString(),
+        validUntil: s.validUntil.toISOString(),
+      })),
+      totalUnread: unassigned.length + overdueTasks.length + recentTestDrives.length + pendingDiscounts.length + sentQuotations.length,
     };
   }
 

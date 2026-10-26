@@ -77,6 +77,12 @@ export function renderEmailHtml(event: EmailTemplateData): string {
     ctaTitle = 'Browse Verified Cars';
     ctaUrl = `${webOrigin}`;
     bannerSubtitle = 'Welcome to Total Certainty in Pre-Owned Cars';
+  } else if (templateVersion === 'retail-quotation-v1') {
+    badgeText = 'OFFICIAL QUOTATION';
+    badgeColor = '#2563EB';
+    ctaTitle = 'View & Accept Quotation';
+    ctaUrl = `${webOrigin}/account`;
+    bannerSubtitle = 'Authorized Retail Quotation';
   } else if (templateVersion === 'employee-invitation-v1') {
     badgeText = 'EMPLOYEE INVITATION';
     ctaTitle = 'Review invitation';

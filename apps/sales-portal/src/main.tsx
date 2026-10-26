@@ -617,6 +617,28 @@ function App() {
                     <span className="font-mono text-xs">{notifications.totalUnread} pending</span>
                   </div>
                   <div className="notif-list">
+                    {notifications.pendingDiscounts?.map(d => (
+                      <div key={d.id} className="notif-item">
+                        <div className="notif-item-title" style={{ color: 'var(--color-primary)' }}>
+                          Discount Pending: {formatCurrency(d.requestedDiscountPaise)}
+                        </div>
+                        <div className="notif-item-sub">{d.vehicleTitle} · {d.customerName}</div>
+                      </div>
+                    ))}
+                    {notifications.sentQuotations?.map(s => (
+                      <div key={s.id} className="notif-item">
+                        <div className="notif-item-title">
+                          Quote Sent: {s.quotationNumber}
+                        </div>
+                        <div className="notif-item-sub">{s.vehicleTitle} · {s.customerName} · {formatCurrency(s.finalPricePaise)}</div>
+                      </div>
+                    ))}
+                    {notifications.pendingTestDrives?.map(td => (
+                      <div key={td.id} className="notif-item">
+                        <div className="notif-item-title">Test Drive: {td.listing.title}</div>
+                        <div className="notif-item-sub">{td.user?.displayName || 'Customer'} · {td.requestedDate} ({td.timeSlot})</div>
+                      </div>
+                    ))}
                     {notifications.unassignedLeads.map(l => (
                       <div key={l.id} className="notif-item">
                         <div className="notif-item-title">Unassigned: {l.make} {l.model}</div>
@@ -1319,13 +1341,13 @@ function App() {
                     <tbody>
                       {quotations.map(q => (
                         <tr key={q.id}>
-                          <td className="font-mono text-xs">{q.quotationNumber}</td>
+                          <td className="font-mono text-xs">{q.quotationNumber || `VM-QT-${q.id.slice(0, 8).toUpperCase()}`}</td>
                           <td>
                             <div className="table-title">{q.customer.displayName || q.customer.email}</div>
-                            <div className="table-sub">{q.customer.phone || 'No phone'}</div>
+                            <div className="table-sub">{q.customer.phone || (q.customer.email ? q.customer.email : 'No phone')}</div>
                           </td>
                           <td>{q.listing.title}</td>
-                          <td className="font-mono" style={{ fontWeight: 700 }}>{formatCurrency(q.totalPricePaise)}</td>
+                          <td className="font-mono" style={{ fontWeight: 700 }}>{formatCurrency(q.totalPricePaise ?? (q as any).finalAmountPaise)}</td>
                           <td>{formatDate(q.validUntil)}</td>
                           <td><span className={`badge ${statusBadgeClass(q.status)}`}>{q.status}</span></td>
                           <td>
@@ -1380,7 +1402,7 @@ function App() {
                     <tbody>
                       {reservations.map(r => (
                         <tr key={r.id}>
-                          <td className="font-mono text-xs">{r.reservationNumber}</td>
+                          <td className="font-mono text-xs">{r.reservationNumber || `VM-RES-${r.id.slice(0, 8).toUpperCase()}`}</td>
                           <td>{r.customer.displayName || r.customer.email}</td>
                           <td>{r.listing.title}</td>
                           <td>{formatDate(r.expiresAt)}</td>

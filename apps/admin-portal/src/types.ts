@@ -18,7 +18,23 @@ export type EmployeePage = { page: number; limit: number; total: number; items: 
 export type AuditPage = { page: number; limit: number; total: number; items: Array<{ id: string; actorId: string | null; action: string; entityType: string; entityId: string; outcome: string; details: unknown; createdAt: string }> };
 export type Approval = {
   id: string; requestType: string; status: string; version: number; expiresAt: string; createdAt: string; executedAt?: string | null;
-  payload: { email?: string; fullName?: string; designation?: string; reason?: string; roleId?: string; branchIds?: string[] };
+  payload: {
+    email?: string;
+    fullName?: string;
+    designation?: string;
+    reason?: string;
+    roleId?: string;
+    branchIds?: string[];
+    discountRequestId?: string;
+    quotationId?: string;
+    vehicleTitle?: string;
+    customerName?: string;
+    customerEmail?: string;
+    customerPhone?: string | null;
+    requestedDiscountPaise?: string;
+    proposedPrice?: string;
+    [key: string]: unknown;
+  };
   requester: { user: { displayName: string | null; email: string } };
   decision?: { decision: string; reason: string; createdAt: string; actor: { user: { displayName: string | null; email: string } } } | null;
 };

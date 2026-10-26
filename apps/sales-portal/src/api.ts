@@ -78,6 +78,8 @@ export type NotificationData = {
   unassignedLeads: Array<{ id: string; referenceCode: string; make: string; model: string; city: string; createdAt: string }>;
   overdueTasks: Array<{ id: string; type: string; details: string; dueAt: string; lead?: { referenceCode: string } }>;
   pendingTestDrives: Array<{ id: string; requestedDate: string; timeSlot: string; user: { displayName: string | null }; listing: { title: string } }>;
+  pendingDiscounts?: Array<{ id: string; quotationId: string; vehicleTitle: string; customerName: string; requestedDiscountPaise: string; createdAt: string }>;
+  sentQuotations?: Array<{ id: string; quotationNumber: string; vehicleTitle: string; customerName: string; finalPricePaise: string; validUntil: string }>;
   totalUnread: number;
 };
 
