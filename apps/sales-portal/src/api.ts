@@ -648,10 +648,11 @@ export const salesApi = {
     enquiryId?: string;
     chargesPaise?: string;
     chargeBreakdown?: Record<string, number>;
-    discountPaise?: string;
     validUntil: string;
     terms?: string;
   }) => call<Quotation>(user, '/quotations', { method: 'POST', body: JSON.stringify(input) }),
+  updateQuotation: (user: User, id: string, input: { chargesPaise?: string; chargeBreakdown?: Record<string, number>; validUntil?: string; terms?: string }) =>
+    call<Quotation>(user, `/quotations/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
   submitQuotation: (user: User, id: string) =>
     call<Quotation>(user, `/quotations/${id}/submit`, { method: 'POST' }),
   requestDiscount: (user: User, quotationId: string, input: { requestedDiscountPaise: string; reason: string }) =>

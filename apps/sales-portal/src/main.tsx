@@ -389,6 +389,7 @@ function App() {
   const [targetListingId, setTargetListingId] = useState<string>('');
   const [showManualLeadModal, setShowManualLeadModal] = useState(false);
   const [showQuotationModal, setShowQuotationModal] = useState(false);
+  const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
   const [showReservationModal, setShowReservationModal] = useState(false);
   const [showReleaseModal, setShowReleaseModal] = useState(false);
   const [targetReleaseListing, setTargetReleaseListing] = useState<InventoryItem | null>(null);
@@ -1734,9 +1735,9 @@ function App() {
                     onChange={e => setDiscountStatusFilter(e.target.value)}
                   >
                     <option value="">All Discount Statuses</option>
-                    <option value="PENDING">🟡 Discount Pending Review</option>
-                    <option value="APPROVED">🟢 Discount Approved</option>
-                    <option value="REJECTED">🔴 Discount Rejected</option>
+                    <option value="PENDING">Discount pending review</option>
+                    <option value="APPROVED">Discount approved</option>
+                    <option value="REJECTED">Discount rejected</option>
                     <option value="NONE">No Discount Requested</option>
                   </select>
                 </div>
@@ -1780,14 +1781,14 @@ function App() {
                                     style={{ fontSize: '0.68rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                     title={`Reason: ${q.latestDiscountRequest.reason}`}
                                   >
-                                    <span>🟡</span> Discount Pending ({formatCurrency(q.latestDiscountRequest.requestedDiscountPaise)})
+                                    Discount pending ({formatCurrency(q.latestDiscountRequest.requestedDiscountPaise)})
                                   </span>
                                 ) : q.latestDiscountRequest.status === 'APPROVED' ? (
                                   <span
                                     className="badge badge-green"
                                     style={{ fontSize: '0.68rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                   >
-                                    <span>🟢</span> Discount Approved (-{formatCurrency(q.latestDiscountRequest.requestedDiscountPaise)})
+                                    Discount approved (-{formatCurrency(q.latestDiscountRequest.requestedDiscountPaise)})
                                   </span>
                                 ) : (
                                   <span
@@ -1795,7 +1796,7 @@ function App() {
                                     style={{ fontSize: '0.68rem', display: 'inline-flex', alignItems: 'center', gap: '4px' }}
                                     title={q.latestDiscountRequest.decisionNotes || q.latestDiscountRequest.reason}
                                   >
-                                    <span>🔴</span> Discount Rejected
+                                    Discount rejected
                                   </span>
                                 )
                               )}
@@ -1809,6 +1810,9 @@ function App() {
                           <td>
                             <div style={{ display: 'flex', gap: '6px' }}>
                               {q.status === 'DRAFT' && (
+                                <button className="btn-secondary btn-sm" onClick={() => { setEditingQuotation(q); setShowQuotationModal(true); }}>Edit</button>
+                              )}
+                              {(q.status === 'DRAFT' || q.status === 'APPROVED') && (
                                 <button
                                   className="btn-primary btn-sm"
                                   onClick={async () => {
@@ -1817,15 +1821,14 @@ function App() {
                                     void loadData();
                                   }}
                                 >
-                                  Submit
+                                  {q.status === 'APPROVED' ? 'Send' : 'Submit'}
                                 </button>
                               )}
-                              <button
-                                className="btn-secondary btn-sm"
-                                onClick={() => setShowDiscountModal(q.id)}
-                              >
-                                {q.latestDiscountRequest?.status === 'PENDING' ? 'Discount (Pending)' : 'Discount'}
-                              </button>
+                              {q.status === 'DRAFT' && q.latestDiscountRequest?.status !== 'PENDING' && (
+                                <button className="btn-secondary btn-sm" onClick={() => setShowDiscountModal(q.id)}>
+                                  {q.latestDiscountRequest?.status === 'REJECTED' ? 'Request revised discount' : 'Request discount'}
+                                </button>
+                              )}
                             </div>
                           </td>
                         </tr>
@@ -2194,13 +2197,16 @@ function App() {
           inventory={inventory}
           initialListingId={targetListingId}
           initialCustomerId={prefilledCustomerId}
+          draft={editingQuotation}
           onClose={() => {
             setShowQuotationModal(false);
+            setEditingQuotation(null);
             setTargetListingId('');
             setPrefilledCustomerId('');
           }}
           onSuccess={() => {
             setShowQuotationModal(false);
+            setEditingQuotation(null);
             setTargetListingId('');
             setPrefilledCustomerId('');
             void loadData();
@@ -3960,6 +3966,7 @@ function CreateQuotationModal({
   inventory = [],
   initialListingId = '',
   initialCustomerId = '',
+  draft = null,
   onClose,
   onSuccess,
 }: {
@@ -3968,18 +3975,18 @@ function CreateQuotationModal({
   inventory?: InventoryItem[];
   initialListingId?: string;
   initialCustomerId?: string;
+  draft?: Quotation | null;
   onClose: () => void;
   onSuccess: () => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
-    listingId: initialListingId || inventory[0]?.id || '',
-    customerId: initialCustomerId || customers[0]?.id || '',
-    chargesRupees: '15000',
-    discountRupees: '0',
-    validDays: 7,
-    terms: 'Valid with authorized V MOTIV quality inspection warranty.',
+    listingId: draft?.listing.id || initialListingId || inventory[0]?.id || '',
+    customerId: draft?.customer.id || initialCustomerId || customers[0]?.id || '',
+    chargesRupees: draft ? String(BigInt(draft.chargesPaise) / 100n) : '15000',
+    validDays: draft ? Math.max(1, Math.ceil((new Date(draft.validUntil).getTime() - Date.now()) / 86400000)) : 7,
+    terms: draft?.terms || 'Valid with authorized V MOTIV quality inspection warranty.',
   });
 
   useEffect(() => {
@@ -3994,14 +4001,9 @@ function CreateQuotationModal({
     setError('');
     try {
       const validUntil = new Date(Date.now() + form.validDays * 86400000).toISOString();
-      await salesApi.createQuotation(user, {
-        listingId: form.listingId,
-        customerId: form.customerId,
-        chargesPaise: String(BigInt(form.chargesRupees) * 100n),
-        discountPaise: String(BigInt(form.discountRupees) * 100n),
-        validUntil,
-        terms: form.terms,
-      });
+      const payload = { chargesPaise: String(BigInt(form.chargesRupees) * 100n), validUntil, terms: form.terms };
+      if (draft) await salesApi.updateQuotation(user, draft.id, payload);
+      else await salesApi.createQuotation(user, { listingId: form.listingId, customerId: form.customerId, ...payload });
       onSuccess();
     } catch (err) {
       setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to prepare quotation.');
@@ -4014,35 +4016,25 @@ function CreateQuotationModal({
     <div className="modal-overlay">
       <div className="modal-dialog">
         <div className="modal-header">
-          <h3>Prepare Retail Quotation</h3>
+          <h3>{draft ? 'Edit Draft Quotation' : 'Prepare Retail Quotation'}</h3>
           <button onClick={onClose}><Icons.Close size={18} /></button>
         </div>
         <form onSubmit={submit}>
           <div className="modal-body">
             {error && <div className="error-banner">{error}</div>}
             <div className="form-grid">
-              <SearchableVehicleInput
-                user={user}
-                value={form.listingId}
-                onChange={id => setForm(f => ({ ...f, listingId: id }))}
-                inventory={inventory}
-                required
-              />
-              <SearchableCustomerInput
-                user={user}
-                value={form.customerId}
-                onChange={id => setForm(f => ({ ...f, customerId: id }))}
-                customers={customers}
-                required
-              />
+              {draft ? <>
+                <div className="form-group"><label className="form-label">Vehicle</label><div className="form-input" aria-readonly="true">{draft.listing.title}</div></div>
+                <div className="form-group"><label className="form-label">Customer</label><div className="form-input" aria-readonly="true">{draft.customer.displayName || draft.customer.email}</div></div>
+              </> : <>
+                <SearchableVehicleInput user={user} value={form.listingId} onChange={id => setForm(f => ({ ...f, listingId: id }))} inventory={inventory} required />
+                <SearchableCustomerInput user={user} value={form.customerId} onChange={id => setForm(f => ({ ...f, customerId: id }))} customers={customers} required />
+              </>}
               <div className="form-group">
                 <label className="form-label">Add-on Charges (RTO / Ins) ₹</label>
                 <input className="form-input" value={form.chargesRupees} onChange={e => setForm({ ...form, chargesRupees: e.target.value })} />
               </div>
-              <div className="form-group">
-                <label className="form-label">Approved Discount ₹</label>
-                <input className="form-input" value={form.discountRupees} onChange={e => setForm({ ...form, discountRupees: e.target.value })} />
-              </div>
+              <p className="form-helper full">Discounts are not applied while preparing a quotation. Save this draft first, then request a separately approved commercial discount.</p>
               <div className="form-group full">
                 <label className="form-label">Terms and Notes</label>
                 <textarea className="form-textarea" value={form.terms} onChange={e => setForm({ ...form, terms: e.target.value })} />
@@ -4051,7 +4043,7 @@ function CreateQuotationModal({
           </div>
           <div className="modal-footer">
             <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
-            <button type="submit" className="btn-primary" disabled={busy}>Create Quotation</button>
+            <button type="submit" className="btn-primary" disabled={busy}>{busy ? 'Saving…' : draft ? 'Save Draft Changes' : 'Create Draft Quotation'}</button>
           </div>
         </form>
       </div>

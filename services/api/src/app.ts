@@ -81,6 +81,8 @@ export function createApp(deps: {
   webOrigin: string;
   customer?: CustomerStore;
   adminWebOrigin?: string;
+  employeePortalOrigins?: string[];
+  adminPortalDestinations?: { admin: string; sales: string; inspectionReview: string; operations: string; inspector: string };
   admin?: AdminStore;
   sales?: SalesStore;
   inspection?: PrismaInspectionStore;
@@ -100,6 +102,7 @@ export function createApp(deps: {
   const allowedOrigins = new Set([
     deps.webOrigin,
     deps.adminWebOrigin,
+    ...(deps.employeePortalOrigins || []),
     ...(localDevelopmentOrigin ? ['http://localhost:3100', 'http://127.0.0.1:3100', 'http://localhost:3200', 'http://127.0.0.1:3200', 'http://localhost:3300', 'http://127.0.0.1:3300', 'http://localhost:3400', 'http://127.0.0.1:3400', 'http://localhost:5173', 'http://127.0.0.1:5173'] : []),
   ].filter((origin): origin is string => Boolean(origin)));
   app.use(cors({
@@ -171,6 +174,13 @@ export function createApp(deps: {
       verify: deps.verify,
       store: deps.admin,
       adminWebOrigin: deps.adminWebOrigin,
+      employeePortalOrigins: deps.adminPortalDestinations || {
+        admin: deps.adminWebOrigin,
+        sales: deps.adminWebOrigin,
+        inspectionReview: deps.adminWebOrigin,
+        operations: deps.adminWebOrigin,
+        inspector: deps.adminWebOrigin,
+      },
       revokeTokens: deps.revokeTokens,
       drainEmails: deps.drainEmails,
     }));

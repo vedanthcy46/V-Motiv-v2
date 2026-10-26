@@ -1,3 +1,4 @@
+/// <reference types="vite/client" />
 import type { User } from 'firebase/auth';
 
 export type Profile = { id: string; displayName: string | null; email: string; marketingConsent: boolean; createdAt: string };
@@ -5,7 +6,7 @@ export class AccountError extends Error {
   constructor(readonly code: string, readonly status?: number) { super(code); }
 }
 
-const API_BASE = (import.meta.env.VITE_API_BASE || '/api/v1')
+const API_BASE = (((import.meta as any).env?.VITE_API_BASE as string | undefined) || '/api/v1')
   .replace('https://vmotiv.in', 'https://api.vmotiv.in')
   .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
   .replace(/\/$/, '');

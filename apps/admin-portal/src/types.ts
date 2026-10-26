@@ -6,6 +6,7 @@ export type Role = { id: string; key: string; name: string; description: string;
 export type AdminActor = {
   userId: string; firebaseUid: string; email: string; displayName: string | null; employeeCode: string | null;
   designation: string | null; status: string; mfaStatus: string; roles: string[]; permissions: string[]; branches: Branch[];
+  portalUrl?: string; portalLabel?: string;
 };
 export type Dashboard = {
   employees: { active: number; suspended: number; deactivated: number; invited: number };

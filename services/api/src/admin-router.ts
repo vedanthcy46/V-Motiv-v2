@@ -88,6 +88,27 @@ const exportCreateInput = z.object({
   reason: z.string().trim().min(8).max(500).optional(),
 }).strict();
 
+type EmployeePortalOrigins = {
+  admin: string;
+  sales: string;
+  inspectionReview: string;
+  operations: string;
+  inspector: string;
+};
+
+function employeePortalDestination(actor: AdminActor, origins: EmployeePortalOrigins) {
+  const role = actor.roles[0] || '';
+  const portal = role === 'SALES_EXECUTIVE' ? 'sales'
+    : role === 'INSPECTION_REVIEWER' ? 'inspectionReview'
+      : role === 'INSPECTOR' ? 'inspector'
+        : ['OPERATIONS_MANAGER', 'INVENTORY_MANAGER', 'LISTING_EXECUTIVE', 'PRICING_APPROVER', 'FINANCE'].includes(role) ? 'operations'
+          : 'admin';
+  const labels: Record<keyof EmployeePortalOrigins, string> = {
+    admin: 'Admin Control Centre', sales: 'Sales Workspace', inspectionReview: 'Inspection Review Workspace', operations: 'Operations Workspace', inspector: 'Inspector Workspace',
+  };
+  return { portalUrl: origins[portal], portalLabel: labels[portal] };
+}
+
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   try { return schema.parse(value); }
   catch (error) { if (error instanceof ZodError) throw new HttpError(400, 'INVALID_INPUT'); throw error; }
@@ -97,6 +118,7 @@ export function createAdminRouter(deps: {
   verify: VerifyToken;
   store: AdminStore;
   adminWebOrigin: string;
+  employeePortalOrigins: EmployeePortalOrigins;
   revokeTokens: (firebaseUid: string) => Promise<void>;
   drainEmails?: () => Promise<number>;
 }) {
@@ -106,7 +128,7 @@ export function createAdminRouter(deps: {
   router.post('/staff/invitations/accept', async (req, res) => {
     const body = parse(acceptInput, req.body);
     const actor = await deps.store.acceptInvitation(res.locals.identity as Identity, body.token);
-    res.status(201).json(actor);
+    res.status(201).json({ ...actor, ...employeePortalDestination(actor, deps.employeePortalOrigins) });
   });
 
   const requireAdmin: RequestHandler = async (_req, res, next) => {

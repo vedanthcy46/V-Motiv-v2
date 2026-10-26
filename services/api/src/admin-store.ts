@@ -832,7 +832,7 @@ export class PrismaAdminStore implements AdminStore {
           _count: { select: { testDriveRequests: true, purchaseEnquiries: true, wishlist: true } },
         },
       }),
-      this.db.vehicleListing.groupBy({
+      (this.db.vehicleListing as any).groupBy({
         by: ['status'],
         orderBy: { status: 'asc' },
         _count: { status: true },
@@ -941,7 +941,7 @@ export class PrismaAdminStore implements AdminStore {
         skip: (query.page - 1) * query.limit,
         take: query.limit,
       }),
-      this.db.emailOutbox.groupBy({
+      (this.db.emailOutbox as any).groupBy({
         by: ['state'],
         orderBy: { state: 'asc' },
         _count: { state: true },

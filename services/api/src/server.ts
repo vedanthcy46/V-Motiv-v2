@@ -72,10 +72,19 @@ if (config.EMAIL_DELIVERY_ENABLED === 'true' && config.RESEND_API_KEY && config.
 }
 
 const adminWebOrigin = config.ADMIN_WEB_ORIGIN || 'http://localhost:3200';
+const employeePortalOrigins = {
+  admin: adminWebOrigin,
+  sales: config.SALES_WEB_ORIGIN || 'http://localhost:3300',
+  inspectionReview: config.INSPECTION_REVIEW_WEB_ORIGIN || 'http://localhost:3400',
+  operations: config.OPERATIONS_WEB_ORIGIN || 'http://localhost:3500',
+  inspector: config.INSPECTOR_PORTAL_ORIGIN || 'http://localhost:3500',
+};
 const app = createApp({
   verify: (token, revoked) => getAuth(firebase).verifyIdToken(token, revoked),
   store: new PrismaIdentityStore(db), customer: new PrismaCustomerStore(db), webOrigin: config.WEB_ORIGIN,
   adminWebOrigin,
+  employeePortalOrigins: Object.values(employeePortalOrigins),
+  adminPortalDestinations: employeePortalOrigins,
   admin: new PrismaAdminStore(db),
   sales: new PrismaSalesStore(db),
   inspection: new PrismaInspectionStore(db),

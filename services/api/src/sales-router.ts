@@ -151,10 +151,15 @@ const createQuotationInput = z.object({
   enquiryId: uuid.optional(),
   chargesPaise: z.coerce.bigint().min(0n).optional(),
   chargeBreakdown: z.record(z.string(), z.unknown()).optional(),
-  discountPaise: z.coerce.bigint().min(0n).optional(),
   validUntil: z.string().datetime().optional().transform(v => v ? new Date(v) : undefined),
   terms: z.string().trim().max(1000).optional(),
 }).strict();
+const updateQuotationInput = z.object({
+  chargesPaise: z.coerce.bigint().min(0n).optional(),
+  chargeBreakdown: z.record(z.string(), z.unknown()).optional(),
+  validUntil: z.string().datetime().transform(v => new Date(v)).optional(),
+  terms: z.string().trim().max(1000).optional(),
+}).strict().refine(value => Object.keys(value).length > 0);
 
 const requestDiscountInput = z.object({
   requestedDiscountPaise: z.coerce.bigint().positive(),
@@ -259,6 +264,7 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   router.get('/quotations', async (req, res) => res.json(await deps.store.quotations(res.locals.salesActor, quotationQuery.parse(req.query))));
   router.get('/quotations/:id', async (req, res) => res.json(await deps.store.quotation(res.locals.salesActor, uuid.parse(req.params.id))));
   router.post('/quotations', async (req, res) => res.status(201).json(await deps.store.createQuotation(res.locals.salesActor, createQuotationInput.parse(req.body))));
+  router.patch('/quotations/:id', async (req, res) => res.json(await deps.store.updateQuotation(res.locals.salesActor, uuid.parse(req.params.id), updateQuotationInput.parse(req.body))));
   router.post('/quotations/:id/submit', async (req, res) => res.json(await deps.store.submitQuotation(res.locals.salesActor, uuid.parse(req.params.id))));
   router.post('/quotations/:id/discount-requests', async (req, res) => res.status(201).json(await deps.store.requestDiscount(res.locals.salesActor, uuid.parse(req.params.id), requestDiscountInput.parse(req.body))));
   router.post('/quotations/discount-requests/:id/decision', async (req, res) => res.json(await deps.store.decideDiscount(res.locals.salesActor, uuid.parse(req.params.id), decideDiscountInput.parse(req.body))));

@@ -151,10 +151,10 @@ export interface SalesStore {
     enquiryId?: string;
     chargesPaise?: bigint;
     chargeBreakdown?: Record<string, unknown>;
-    discountPaise?: bigint;
     validUntil?: Date;
     terms?: string;
   }): Promise<unknown>;
+  updateQuotation(actor: SalesActor, id: string, input: { chargesPaise?: bigint; chargeBreakdown?: Record<string, unknown>; validUntil?: Date; terms?: string }): Promise<unknown>;
   submitQuotation(actor: SalesActor, id: string): Promise<unknown>;
   requestDiscount(actor: SalesActor, quotationId: string, input: {
     requestedDiscountPaise: bigint;
@@ -1770,7 +1770,6 @@ export class PrismaSalesStore implements SalesStore {
     enquiryId?: string;
     chargesPaise?: bigint;
     chargeBreakdown?: Record<string, unknown>;
-    discountPaise?: bigint;
     validUntil: Date;
     terms?: string;
   }) {
@@ -1784,8 +1783,7 @@ export class PrismaSalesStore implements SalesStore {
     if (!customer) throw new HttpError(404, 'CUSTOMER_NOT_FOUND');
 
     const charges = input.chargesPaise || 0n;
-    const discount = input.discountPaise || 0n;
-    const finalAmount = listing.pricePaise + charges - discount;
+    const finalAmount = listing.pricePaise + charges;
     if (finalAmount <= 0n) throw new HttpError(400, 'INVALID_QUOTATION_AMOUNT');
 
     return this.db.$transaction(async tx => {
@@ -1798,7 +1796,7 @@ export class PrismaSalesStore implements SalesStore {
           basePricePaise: listing.pricePaise,
           chargesPaise: charges,
           chargeBreakdown: input.chargeBreakdown as Prisma.InputJsonValue,
-          discountPaise: discount,
+          discountPaise: 0n,
           finalAmountPaise: finalAmount,
           status: 'DRAFT',
           validUntil: input.validUntil,
@@ -1819,6 +1817,30 @@ export class PrismaSalesStore implements SalesStore {
     });
   }
 
+  async updateQuotation(actor: SalesActor, id: string, input: { chargesPaise?: bigint; chargeBreakdown?: Record<string, unknown>; validUntil?: Date; terms?: string }) {
+    const quotation = await this.db.buyerQuotation.findFirst({ where: { id, listing: listingScope(actor) } });
+    if (!quotation) throw new HttpError(404, 'QUOTATION_NOT_FOUND');
+    if (quotation.status !== 'DRAFT') throw new HttpError(409, 'ONLY_DRAFT_QUOTATIONS_CAN_BE_EDITED');
+    const charges = input.chargesPaise ?? quotation.chargesPaise;
+    const finalAmount = quotation.basePricePaise + charges;
+    return this.db.$transaction(async tx => {
+      const updated = await tx.buyerQuotation.update({
+        where: { id },
+        data: {
+          chargesPaise: charges,
+          chargeBreakdown: input.chargeBreakdown as Prisma.InputJsonValue | undefined,
+          validUntil: input.validUntil,
+          terms: input.terms,
+          discountPaise: 0n,
+          finalAmountPaise: finalAmount,
+          version: { increment: 1 },
+        },
+      });
+      await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'RETAIL_QUOTATION_DRAFT_UPDATED', entityType: 'BuyerQuotation', entityId: id, details: { finalAmount: finalAmount.toString() } } });
+      return updated;
+    });
+  }
+
   async submitQuotation(actor: SalesActor, id: string) {
     const q = await this.db.buyerQuotation.findUnique({
       where: { id },
@@ -1828,7 +1850,7 @@ export class PrismaSalesStore implements SalesStore {
       },
     });
     if (!q) throw new HttpError(404, 'QUOTATION_NOT_FOUND');
-    if (q.status !== 'DRAFT') throw new HttpError(409, 'QUOTATION_ALREADY_SUBMITTED');
+    if (!['DRAFT', 'APPROVED'].includes(q.status)) throw new HttpError(409, 'QUOTATION_NOT_SENDABLE');
 
     return this.db.$transaction(async tx => {
       const updated = await tx.buyerQuotation.update({
@@ -2244,13 +2266,13 @@ export class PrismaSalesStore implements SalesStore {
       offerCount,
       testDriveStats,
     ] = await this.db.$transaction([
-      this.db.acquisitionLead.groupBy({
+      (this.db.acquisitionLead as any).groupBy({
         by: ['status'],
         where,
         _count: { id: true },
         orderBy: { status: 'asc' },
       }),
-      this.db.purchaseEnquiry.groupBy({
+      (this.db.purchaseEnquiry as any).groupBy({
         by: ['status'],
         where: bWhere,
         _count: { id: true },
@@ -2258,7 +2280,7 @@ export class PrismaSalesStore implements SalesStore {
       }),
       this.db.inspectionRequest.count(),
       this.db.acquisitionOffer.count(),
-      this.db.testDriveRequest.groupBy({
+      (this.db.testDriveRequest as any).groupBy({
         by: ['status'],
         _count: { id: true },
         orderBy: { status: 'asc' },
@@ -2398,7 +2420,20 @@ export class PrismaSalesStore implements SalesStore {
     };
 
     const subject = subjectMap[input.template] || 'V MOTIV — Update on your vehicle enquiry';
-    const emailBody = `Hello ${customer.displayName || 'Customer'},\n\nThis is an authorized update regarding your V MOTIV request.\n\nTemplate: ${input.template}\n${JSON.stringify(input.variables || {}, null, 2)}\n\nBest regards,\nV MOTIV Sales Team`;
+    const messageMap: Record<string, string> = {
+      ENQUIRY_ACK: 'We have received your vehicle enquiry. A V MOTIV advisor will contact you with the next steps.',
+      ADDITIONAL_DETAILS_REQUESTED: 'Our team needs a few more details before we can progress your request. Your advisor will explain what is needed.',
+      INSPECTION_CONFIRMED: 'Your vehicle evaluation appointment has been scheduled. Please keep the vehicle and its available documents ready.',
+      OFFER_COMMUNICATED: 'Your official purchase offer is ready for review in V MOTIV. Please contact your advisor if you would like to discuss it.',
+      QUOTATION_SENT: 'Your official vehicle quotation is ready for review in V MOTIV. Please contact your advisor with any questions.',
+      TEST_DRIVE_CONFIRMED: 'Your test-drive appointment has been confirmed. We look forward to welcoming you.',
+    };
+    const details = Object.entries(input.variables || {})
+      .map(([key, value]) => [key.replace(/([A-Z])/g, ' $1').replace(/[_-]/g, ' ').trim(), value.trim()] as const)
+      .filter(([, value]) => value.length > 0)
+      .map(([key, value]) => `• ${key.charAt(0).toUpperCase()}${key.slice(1)}: ${value}`);
+    const detailBlock = details.length ? `\n\nDetails:\n${details.join('\n')}` : '';
+    const emailBody = `Hello ${customer.displayName || 'Customer'},\n\n${messageMap[input.template] || 'This is an authorized update regarding your V MOTIV request.'}${detailBlock}\n\nBest regards,\nV MOTIV Sales Team`;
 
     return this.db.$transaction(async tx => {
       const email = await tx.emailOutbox.create({

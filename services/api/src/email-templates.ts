@@ -86,7 +86,7 @@ export function renderEmailHtml(event: EmailTemplateData): string {
   } else if (templateVersion === 'employee-invitation-v1') {
     badgeText = 'EMPLOYEE INVITATION';
     ctaTitle = 'Review invitation';
-    const invitationUrl = text.match(/https:\/\/[^\s]+\/accept-invitation\?token=[A-Za-z0-9_%.-]+/)?.[0];
+    const invitationUrl = text.match(/https?:\/\/[^\s]+\/accept-invitation\?token=[A-Za-z0-9_%.-]+/)?.[0];
     ctaUrl = invitationUrl || webOrigin;
     bannerSubtitle = 'Secure Employee Onboarding';
   }
