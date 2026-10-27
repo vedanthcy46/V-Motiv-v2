@@ -6,6 +6,17 @@ import { join } from 'node:path';
 
 const require = createRequire(import.meta.url);
 const run = promisify(execFile);
+
+// Ensure a compatible JDK (Android Studio JBR 21 or standard JAVA_HOME) is used instead of bleeding-edge JDKs (e.g. Java 25)
+const defaultJbr = 'C:\\Program Files\\Android\\Android Studio\\jbr';
+if (!process.env.JAVA_HOME && existsSync(defaultJbr)) {
+  process.env.JAVA_HOME = defaultJbr;
+  process.env.PATH = `${join(defaultJbr, 'bin')};${process.env.PATH || ''}`;
+} else if (process.env.JAVA_HOME && existsSync(defaultJbr) && process.env.JAVA_HOME.includes('jdk-25')) {
+  process.env.JAVA_HOME = defaultJbr;
+  process.env.PATH = `${join(defaultJbr, 'bin')};${process.env.PATH || ''}`;
+}
+
 const args = process.argv.slice(2);
 const buildAndroid = args[0] === '--run-android';
 if (buildAndroid) args.shift();

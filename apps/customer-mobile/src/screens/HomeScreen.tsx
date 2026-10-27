@@ -1,899 +1,670 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Image,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
-  TouchableOpacity,
   View,
 } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { useFocusEffect } from '@react-navigation/native';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
-import {
-  ArrowRight,
-  Bell,
-  Bookmark,
-  Calendar,
-  CarFront,
-  CheckCircle2,
-  ChevronRight,
-  Clock,
-  Gauge,
-  Headphones,
-  MapPin,
-  ShieldCheck,
-  Sparkles,
-} from 'lucide-react-native';
+import { ArrowRight, Bell, CarFront, CalendarDays, Wrench, Recycle, Tag, Clock } from 'lucide-react-native';
 import { BrandLogo } from '../components/BrandLogo';
 import { NotificationsModal } from '../components/NotificationsModal';
+import { CustomerButton, customerColors as c } from '../components/customer-ui';
 import { customer } from '../services/customer';
+import { readSellDraft, sellDraftKey } from '../services/sell-draft';
 import {
   fetchUserNotifications,
   markAllNotificationsRead,
   markNotificationRead,
-  registerForPushNotificationsAsync,
   type InAppNotification,
 } from '../services/notifications';
 import { useAuth } from '../auth/AuthProvider';
-import { color, radius, space } from '../theme';
 import { formatPrice } from '../format';
 import type { Tabs } from '../navigation/types';
 import type { VehicleSummary } from '../types';
 
-type Props = BottomTabScreenProps<Tabs, 'Home'>;
+const SECONDARY_SERVICES = [
+  { title: 'Car Service', body: 'Maintenance & repairs', Icon: Wrench },
+  { title: 'Rent a Car', body: 'Short or long term', Icon: CalendarDays },
+  { title: 'Scrap a Car', body: 'Responsible disposal', Icon: Recycle },
+];
 
-export function HomeScreen({ navigation }: Props) {
-  const insets = useSafeAreaInsets();
-  const { state, profile, user } = useAuth();
-  const [featured, setFeatured] = useState<VehicleSummary[]>([]);
+export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
+  const { state, profile } = useAuth();
+  const [cars, setCars] = useState<VehicleSummary[]>([]);
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
+  const [error, setError] = useState('');
+  const [draft, setDraft] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
-  const [unreadCount, setUnreadCount] = useState(0);
+  const [unread, setUnread] = useState(0);
+  const root = navigation.getParent();
 
-  const loadNotifications = useCallback(async () => {
-    try {
-      const res = await fetchUserNotifications(30);
-      setNotifications(res.items);
-      setUnreadCount(res.unreadCount);
-    } catch {
-      // Keep existing notifications if network hiccup
-    }
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      let active = true;
+      setLoading(true);
+      setError('');
+      setNotifications([]);
+      setUnread(0);
+      setDraft(false);
 
-  const loadData = useCallback(async () => {
-    try {
-      const [res] = await Promise.all([
-        customer.inventory({ limit: 6, sort: 'newest' }),
-        loadNotifications(),
-      ]);
-      setFeatured(res.items);
-    } catch {
-      // Keep previous data if network hiccup
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
-    }
-  }, [loadNotifications]);
+      customer
+        .inventory({ limit: 4, sort: 'newest' })
+        .then((result) => {
+          if (active) setCars(result.items);
+        })
+        .catch(() => {
+          if (active) setError('Could not load cars. Pull down to refresh.');
+        })
+        .finally(() => {
+          if (active) setLoading(false);
+        });
 
-  useEffect(() => {
-    void loadData();
-    if (state === 'signed-in') {
-      void registerForPushNotificationsAsync('CUSTOMER');
-    }
-  }, [loadData, state]);
+      readSellDraft(sellDraftKey(profile?.id))
+        .then((value) => {
+          if (active) setDraft(Boolean(value));
+        })
+        .catch(() => {});
 
-  const onRefresh = useCallback(() => {
-    setRefreshing(true);
-    void loadData();
-    void loadNotifications();
-  }, [loadData, loadNotifications]);
-
-  const handleCustomerNotificationNavigation = useCallback(
-    async (n: InAppNotification) => {
-      try {
-        if (!n.read) {
-          void markNotificationRead(n.id);
-          setNotifications((prev) =>
-            prev.map((item) => (item.id === n.id ? { ...item, read: true } : item))
-          );
-          setUnreadCount((prev) => Math.max(0, prev - 1));
-        }
-      } catch (err) {
-        console.warn('[NOTIF_MARK_READ_ERROR]', err);
+      if (state === 'signed-in') {
+        fetchUserNotifications(30).then((result) => {
+          if (active) {
+            setNotifications(result.items);
+            setUnread(result.unreadCount);
+          }
+        });
       }
 
-      setNotificationsOpen(false);
-
-      const rootNav = (navigation.getParent() as any) || navigation;
-      const event = (n.eventType || '').toUpperCase();
-      const cat = (n.category || '').toUpperCase();
-      const entityId = n.entityId || (n.deepLink ? n.deepLink.split('/').pop() : undefined);
-
-      if (n.deepLink) {
-        if (n.deepLink.includes('/selling/') && entityId) {
-          rootNav.navigate('SellingRequestDetails', { leadId: entityId });
-          return;
-        }
-        if (n.deepLink.includes('/vehicles/') && entityId) {
-          rootNav.navigate('Vehicle', { listingId: entityId });
-          return;
-        }
-        if (n.deepLink.includes('/support/') && entityId) {
-          rootNav.navigate('SupportCaseDetails', { caseId: entityId });
-          return;
-        }
-      }
-
-      if (
-        cat.includes('OFFER') ||
-        event.includes('OFFER') ||
-        cat.includes('VALUATION') ||
-        cat.includes('INSPECTION') ||
-        cat.includes('SELLING') ||
-        event.includes('LEAD')
-      ) {
-        if (entityId) {
-          rootNav.navigate('SellingRequestDetails', { leadId: entityId });
-        } else {
-          navigation.navigate('Activity');
-        }
-        return;
-      }
-
-      if (
-        cat.includes('PURCHASE') ||
-        cat.includes('VEHICLE') ||
-        event.includes('PRICE') ||
-        event.includes('DROP')
-      ) {
-        if (entityId) {
-          rootNav.navigate('Vehicle', { listingId: entityId });
-        } else {
-          navigation.navigate('Explore');
-        }
-        return;
-      }
-
-      if (cat.includes('TEST_DRIVE') || event.includes('TEST_DRIVE')) {
-        navigation.navigate('Activity');
-        return;
-      }
-
-      if (cat.includes('SUPPORT') || event.includes('TICKET') || event.includes('CASE')) {
-        if (entityId) {
-          rootNav.navigate('SupportCaseDetails', { caseId: entityId });
-        } else {
-          rootNav.navigate('Support');
-        }
-        return;
-      }
-
-      navigation.navigate('Activity');
-    },
-    [navigation]
+      return () => {
+        active = false;
+      };
+    }, [profile?.id, state]),
   );
 
-  const cityName = profile?.preferredCity || user?.preferredCity || 'All Cities';
+  const refresh = async () => {
+    setLoading(true);
+    setError('');
+    try {
+      setCars((await customer.inventory({ limit: 4, sort: 'newest' })).items);
+    } catch {
+      setError('Could not load cars. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const comingSoon = (title: string) =>
+    Alert.alert(
+      `${title} — Coming Soon`,
+      'This service is being planned. Bookings are not yet available.\n\nYou can still buy or sell a car with V MOTIV today.',
+      [{ text: 'Got it' }],
+    );
+
+  const greeting = profile?.displayName
+    ? `Hi, ${profile.displayName.split(' ')[0]} 👋`
+    : 'Welcome to V MOTIV';
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Top Navbar with Official Brand Logo, City Selector, and Notification Bell */}
-      <View style={styles.topBar}>
-        <BrandLogo
-          variant="horizontal"
-          size={24}
-          showTagline={true}
-          taglineText="YOUR NEXT CHAPTER"
-        />
-
-        <View style={styles.topBarActions}>
-          <TouchableOpacity
+    <SafeAreaView style={s.safe} edges={['top', 'left', 'right']}>
+      <ScrollView
+        contentContainerStyle={s.scroll}
+        refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} />}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Top bar ── */}
+        <View style={s.topBar}>
+          <BrandLogo size={28} />
+          <Pressable
             accessibilityRole="button"
-            accessibilityLabel={`Change city. Currently selected: ${cityName}`}
-            style={styles.cityPill}
-            activeOpacity={0.75}
-            onPress={() => (navigation.getParent() as any)?.navigate('CitySelection')}
+            accessibilityLabel={`Notifications${unread > 0 ? `, ${unread} unread` : ''}`}
+            onPress={() =>
+              state === 'signed-in' ? setNotificationsOpen(true) : navigation.navigate('Account')
+            }
+            style={({ pressed }) => [s.bellBtn, pressed && { opacity: 0.6 }]}
           >
-            <MapPin size={13} color={color.yellow} />
-            <Text style={styles.cityText} numberOfLines={1}>
-              {cityName}
-            </Text>
-            <ChevronRight size={13} color={color.muted} />
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="Notifications"
-            style={styles.bellButton}
-            activeOpacity={0.75}
-            onPress={() => setNotificationsOpen(true)}
-          >
-            <Bell size={19} color={color.text} />
-            {unreadCount > 0 && (
-              <View style={styles.bellBadge}>
-                <Text style={styles.bellBadgeText}>
-                  {unreadCount > 9 ? '9+' : unreadCount}
-                </Text>
+            <Bell size={24} color="#FFFFFF" />
+            {unread > 0 && (
+              <View style={s.badge}>
+                <Text style={s.badgeText}>{unread > 9 ? '9+' : unread}</Text>
               </View>
             )}
-          </TouchableOpacity>
+          </Pressable>
         </View>
-      </View>
 
-      <ScrollView
-        contentContainerStyle={[
-          styles.content,
-          { paddingBottom: Math.max(insets.bottom, 20) + 84 },
-        ]}
-        showsVerticalScrollIndicator={false}
-        refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={onRefresh}
-            tintColor={color.yellow}
-            colors={[color.yellow]}
-          />
-        }
-      >
-        {/* Hero Card */}
-        <View style={styles.heroCard}>
-          <View style={styles.heroBadge}>
-            <Sparkles size={12} color={color.navy} />
-            <Text style={styles.heroBadgeText}>100% VERIFIED INVENTORY</Text>
-          </View>
-          <Text style={styles.heroTitle}>Buy or sell used cars with total certainty.</Text>
-          <Text style={styles.heroSubtitle}>
-            Every car undergoes our strict 180-point inspection. Fixed prices, transparent history, doorstep test drives, and direct buying offers.
+        {/* ── Greeting ── */}
+        <View style={s.greetSection}>
+          <Text style={s.greetText}>{greeting}</Text>
+          <Text accessibilityRole="header" style={s.greetTitle}>
+            What would you like to do?
           </Text>
-
-          <View style={styles.heroActions}>
-            <TouchableOpacity
-              style={styles.heroPrimaryBtn}
-              activeOpacity={0.85}
-              onPress={() => navigation.navigate('Explore')}
-            >
-              <CarFront size={16} color={color.navy} />
-              <Text style={styles.heroPrimaryBtnText}>Browse Cars</Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={styles.heroSecondaryBtn}
-              activeOpacity={0.8}
-              onPress={() => {
-                if (state !== 'signed-in') {
-                  navigation.navigate('Account');
-                } else {
-                  (navigation.getParent() as any)?.navigate('Sell');
-                }
-              }}
-            >
-              <Text style={styles.heroSecondaryBtnText}>Sell Your Car</Text>
-            </TouchableOpacity>
-          </View>
         </View>
 
-        {/* 3 Pillar Value Props */}
-        <View style={styles.propRow}>
-          <View style={styles.propCard}>
-            <View style={styles.propIconWrap}>
-              <ShieldCheck size={20} color={color.yellow} />
-            </View>
-            <Text style={styles.propTitle}>180-Pt Inspection</Text>
-            <Text style={styles.propDesc}>Every system checked and scored</Text>
-          </View>
-
-          <View style={styles.propCard}>
-            <View style={styles.propIconWrap}>
-              <CheckCircle2 size={20} color={color.yellow} />
-            </View>
-            <Text style={styles.propTitle}>Direct Offers</Text>
-            <Text style={styles.propDesc}>Fair algorithmic used car offers</Text>
-          </View>
-
-          <View style={styles.propCard}>
-            <View style={styles.propIconWrap}>
-              <Calendar size={20} color={color.yellow} />
-            </View>
-            <Text style={styles.propTitle}>Test Drive</Text>
-            <Text style={styles.propDesc}>Doorstep or at V Motiv Hub</Text>
-          </View>
-        </View>
-
-        {/* Featured Inventory Section */}
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionTitle}>Featured Arrivals</Text>
-            <Text style={styles.sectionSubtitle}>Recent certified vehicles ready for test drive</Text>
-          </View>
-          <TouchableOpacity
-            activeOpacity={0.7}
+        {/* ── Primary action cards ── */}
+        <View style={s.primaryRow}>
+          {/* Buy */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Buy a Car. Explore available cars, see prices and request a test drive."
             onPress={() => navigation.navigate('Explore')}
-            style={styles.viewAllBtn}
+            style={({ pressed }) => [s.primaryCard, s.buyCard, pressed && { opacity: 0.85 }]}
           >
-            <Text style={styles.viewAllText}>View All</Text>
-            <ChevronRight size={14} color={color.yellow} />
-          </TouchableOpacity>
+            <CarFront size={36} color={c.accent} accessibilityElementsHidden />
+            <Text style={[s.primaryCardTitle, { color: '#FFFFFF' }]}>Buy a Car</Text>
+            <Text style={[s.primaryCardBody, { color: '#B8C8E0' }]}>
+              Explore cars, see prices and request a test drive.
+            </Text>
+            <View style={s.primaryCardArrow}>
+              <ArrowRight size={20} color={c.accent} accessibilityElementsHidden />
+            </View>
+          </Pressable>
+
+          {/* Sell */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Sell a Car. Tell us about your car and save progress as you go."
+            onPress={() => root?.navigate('Sell')}
+            style={({ pressed }) => [s.primaryCard, s.sellCard, pressed && { opacity: 0.85 }]}
+          >
+            <Tag size={36} color={c.ink} accessibilityElementsHidden />
+            <Text style={[s.primaryCardTitle, { color: c.ink }]}>Sell a Car</Text>
+            <Text style={[s.primaryCardBody, { color: '#3A5070' }]}>
+              Tell us about your car. Save progress as you go.
+            </Text>
+            <View style={s.primaryCardArrow}>
+              <ArrowRight size={20} color={c.ink} accessibilityElementsHidden />
+            </View>
+          </Pressable>
         </View>
 
-        {loading ? (
-          <View style={styles.loaderWrap}>
-            <ActivityIndicator size="small" color={color.yellow} />
-            <Text style={styles.loaderText}>Loading verified cars…</Text>
+        {/* ── Draft resume ── */}
+        {draft && (
+          <View style={s.draftCard}>
+            <View style={s.draftLeft}>
+              <Clock size={20} color={c.accent} accessibilityElementsHidden />
+              <View style={{ flex: 1 }}>
+                <Text style={s.draftTitle}>Your sell form is saved</Text>
+                <Text style={s.draftBody}>Continue from where you left off.</Text>
+              </View>
+            </View>
+            <CustomerButton title="Resume" onPress={() => root?.navigate('Sell')} />
           </View>
-        ) : featured.length === 0 ? (
-          <View style={styles.emptyFeatured}>
-            <Text style={styles.emptyFeaturedTitle}>No vehicles published right now</Text>
-            <Text style={styles.emptyFeaturedDesc}>Pull down to refresh or check back shortly.</Text>
-          </View>
-        ) : (
-          <ScrollView
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.featuredCarousel}
-          >
-            {featured.map((item) => {
-              const image = item.media[0]?.url;
-              return (
-                <TouchableOpacity
-                  key={item.id}
-                  style={styles.featuredCard}
-                  activeOpacity={0.88}
-                  onPress={() =>
-                    (navigation.getParent() as any)?.navigate('Vehicle', { listingId: item.id })
-                  }
-                >
-                  <View style={styles.featuredImgWrap}>
-                    {image ? (
-                      <Image source={{ uri: image }} style={styles.featuredImg} resizeMode="cover" />
-                    ) : (
-                      <View style={[styles.featuredImg, styles.imagePlaceholder]}>
-                        <CarFront size={28} color={color.muted} />
-                        <Text style={styles.imagePlaceholderText}>Photos pending</Text>
-                      </View>
-                    )}
-                    <View style={styles.miniVerifiedBadge}>
-                      <Text style={styles.miniVerifiedText}>VERIFIED</Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.featuredInfo}>
-                    <Text style={styles.featuredTitle} numberOfLines={1}>
-                      {item.vehicle.make} {item.vehicle.model}
-                    </Text>
-                    <Text style={styles.featuredVariant} numberOfLines={1}>
-                      {item.vehicle.manufacturingYear} · {item.vehicle.variant || 'Standard'}
-                    </Text>
-
-                    <View style={styles.featuredSpecs}>
-                      <View style={styles.specItem}>
-                        <Gauge size={11} color={color.muted} />
-                        <Text style={styles.featuredSpecText}>
-                          {item.vehicle.odometerKm.toLocaleString('en-IN')} km
-                        </Text>
-                      </View>
-                      <Text style={styles.specDivider}>•</Text>
-                      <Text style={styles.featuredSpecText}>{item.vehicle.fuelType}</Text>
-                    </View>
-
-                    <Text style={styles.featuredPrice}>{formatPrice(item.pricePaise)}</Text>
-                  </View>
-                </TouchableOpacity>
-              );
-            })}
-          </ScrollView>
         )}
 
-        {/* Sell Car Hero Banner */}
-        <TouchableOpacity
-          style={styles.sellBanner}
-          activeOpacity={0.9}
-          onPress={() => {
-            if (state !== 'signed-in') {
-              navigation.navigate('Account');
-            } else {
-              (navigation.getParent() as any)?.navigate('Sell');
-            }
-          }}
-        >
-          <View style={styles.sellBannerContent}>
-            <View style={styles.sellBadge}>
-              <Text style={styles.sellBadgeText}>SELL WITH V MOTIV</Text>
-            </View>
-            <Text style={styles.sellBannerTitle}>Selling your car in India?</Text>
-            <Text style={styles.sellBannerSubtitle}>
-              Get a genuine, transparent offer with free doorstep evaluation. Zero haggling, instant paperwork.
-            </Text>
-            <View style={styles.sellLinkRow}>
-              <Text style={styles.sellLinkText}>Evaluate My Car Free</Text>
-              <ArrowRight size={14} color={color.navy} />
-            </View>
-          </View>
-        </TouchableOpacity>
-
-        {/* Quick Help & Tracking Cards */}
-        <View style={styles.quickGrid}>
-          <TouchableOpacity
-            style={styles.quickCard}
-            activeOpacity={0.8}
-            onPress={() => {
-              if (state !== 'signed-in') {
-                navigation.navigate('Account');
-              } else {
-                navigation.navigate('Activity');
-              }
-            }}
-          >
-            <View style={styles.quickIconWrap}>
-              <Clock size={18} color={color.yellow} />
-            </View>
-            <Text style={styles.quickTitle}>Track Enquiries</Text>
-            <Text style={styles.quickDesc}>Test drives, selling leads, and offers</Text>
-          </TouchableOpacity>
-
-          <TouchableOpacity
-            style={styles.quickCard}
-            activeOpacity={0.8}
-            onPress={() => {
-              if (state !== 'signed-in') {
-                navigation.navigate('Account');
-              } else {
-                (navigation.getParent() as any)?.navigate('Support');
-              }
-            }}
-          >
-            <View style={styles.quickIconWrap}>
-              <Headphones size={18} color={color.yellow} />
-            </View>
-            <Text style={styles.quickTitle}>Customer Support</Text>
-            <Text style={styles.quickDesc}>Live help, vehicle reports & questions</Text>
-          </TouchableOpacity>
+        {/* ── Secondary services ── */}
+        <View style={s.sectionHeader}>
+          <Text accessibilityRole="header" style={s.sectionTitle}>
+            More services
+          </Text>
+          <Text style={s.sectionMeta}>Coming soon</Text>
         </View>
+        <View style={s.secondaryRow}>
+          {SECONDARY_SERVICES.map(({ title, body, Icon }) => (
+            <Pressable
+              key={title}
+              accessibilityRole="button"
+              accessibilityLabel={`${title}. Coming soon.`}
+              onPress={() => comingSoon(title)}
+              style={({ pressed }) => [s.secondaryCard, pressed && { opacity: 0.75 }]}
+            >
+              <Icon size={26} color={c.secondary} accessibilityElementsHidden />
+              <Text style={s.secondaryCardTitle}>{title}</Text>
+              <Text style={s.secondaryCardBody}>{body}</Text>
+              <View style={s.comingSoonBadge}>
+                <Text style={s.comingSoonText}>SOON</Text>
+              </View>
+            </Pressable>
+          ))}
+        </View>
+
+        {/* ── My requests shortcut ── */}
+        <View style={s.card}>
+          <Text accessibilityRole="header" style={s.cardTitle}>
+            My Requests
+          </Text>
+          <Text style={s.cardBody}>
+            Follow your selling request, enquiries, offers and test drives in Activity.
+          </Text>
+          <CustomerButton
+            secondary
+            title={state === 'signed-in' ? 'Open Activity' : 'Sign in to view requests'}
+            onPress={() =>
+              navigation.navigate(state === 'signed-in' ? 'Activity' : 'Account')
+            }
+          />
+        </View>
+
+        {/* ── Recently listed ── */}
+        <View style={s.sectionHeader}>
+          <Text accessibilityRole="header" style={s.sectionTitle}>
+            Recently listed
+          </Text>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Explore all cars"
+            onPress={() => navigation.navigate('Explore')}
+          >
+            <Text style={s.sectionLink}>See all</Text>
+          </Pressable>
+        </View>
+
+        {loading && <ActivityIndicator accessibilityLabel="Loading cars" color={c.ink} style={{ marginVertical: 12 }} />}
+
+        {error ? (
+          <View style={s.card}>
+            <Text accessibilityRole="alert" style={s.cardBody}>
+              {error}
+            </Text>
+            <CustomerButton secondary title="Try again" onPress={() => void refresh()} />
+          </View>
+        ) : null}
+
+        {!loading && !error && cars.length === 0 && (
+          <Text style={s.emptyText}>No cars published right now. Check back soon.</Text>
+        )}
+
+        {cars.map((car) => (
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel={`View ${car.title}, priced at ${formatPrice(car.pricePaise)}`}
+            key={car.id}
+            onPress={() => root?.navigate('Vehicle', { listingId: car.id })}
+            style={({ pressed }) => [s.vehicleCard, pressed && { opacity: 0.82 }]}
+          >
+            {car.media[0]?.url ? (
+              <Image
+                source={{ uri: car.media[0].url }}
+                accessibilityLabel={car.title}
+                style={s.vehicleImage}
+              />
+            ) : (
+              <View style={s.vehicleImagePlaceholder}>
+                <CarFront size={40} color={c.secondary} accessibilityElementsHidden />
+                <Text style={s.vehicleImagePlaceholderText}>No photo</Text>
+              </View>
+            )}
+            <View style={s.vehicleInfo}>
+              <Text style={s.vehicleTitle}>
+                {car.vehicle.make} {car.vehicle.model}
+              </Text>
+              <Text style={s.vehicleMeta}>
+                {car.vehicle.manufacturingYear}
+                {car.vehicle.variant ? ` · ${car.vehicle.variant}` : ''}
+              </Text>
+              <Text style={s.vehicleSpec}>
+                {car.vehicle.odometerKm.toLocaleString('en-IN')} km · {car.vehicle.fuelType} ·{' '}
+                {car.vehicle.transmission}
+              </Text>
+              <Text style={s.vehiclePrice}>{formatPrice(car.pricePaise)}</Text>
+            </View>
+          </Pressable>
+        ))}
+
+        {!loading && cars.length > 0 && (
+          <CustomerButton
+            secondary
+            title="Explore all cars"
+            onPress={() => navigation.navigate('Explore')}
+          />
+        )}
+
+        {/* ── How selling works ── */}
+        <View style={s.card}>
+          <Text accessibilityRole="header" style={s.cardTitle}>
+            Selling, one step at a time
+          </Text>
+          <View style={s.howStep}>
+            <View style={s.howNum}><Text style={s.howNumText}>1</Text></View>
+            <Text style={s.howBody}>Tell us about your car — takes about 5 minutes.</Text>
+          </View>
+          <View style={s.howStep}>
+            <View style={s.howNum}><Text style={s.howNumText}>2</Text></View>
+            <Text style={s.howBody}>Our team reviews your request and schedules an inspection.</Text>
+          </View>
+          <View style={s.howStep}>
+            <View style={s.howNum}><Text style={s.howNumText}>3</Text></View>
+            <Text style={s.howBody}>Track inspection and offer updates live in Activity.</Text>
+          </View>
+          <CustomerButton title="Sell your car" onPress={() => root?.navigate('Sell')} />
+        </View>
+
+        {/* ── Support ── */}
+        <CustomerButton
+          secondary
+          title="Get help with your request"
+          onPress={() =>
+            state === 'signed-in' ? root?.navigate('Support') : navigation.navigate('Account')
+          }
+        />
       </ScrollView>
 
-      {/* Customer In-App Notifications Modal */}
       <NotificationsModal
         visible={notificationsOpen}
         onClose={() => setNotificationsOpen(false)}
         notifications={notifications}
-        unreadCount={unreadCount}
+        unreadCount={unread}
         onMarkAsRead={async (id) => {
-          await markNotificationRead(id);
-          setNotifications((prev) =>
-            prev.map((n) => (n.id === id ? { ...n, read: true } : n))
-          );
-          setUnreadCount((prev) => Math.max(0, prev - 1));
+          if (await markNotificationRead(id)) {
+            setNotifications((items) => items.map((n) => (n.id === id ? { ...n, read: true } : n)));
+            setUnread((n) => Math.max(0, n - 1));
+          }
         }}
         onMarkAllAsRead={async () => {
-          await markAllNotificationsRead();
-          setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
-          setUnreadCount(0);
+          if (await markAllNotificationsRead()) {
+            setNotifications((items) => items.map((n) => ({ ...n, read: true })));
+            setUnread(0);
+          }
         }}
-        onSelectNotification={handleCustomerNotificationNavigation}
+        onSelectNotification={async (n) => {
+          setNotificationsOpen(false);
+          const selling = /^vmotiv:\/\/selling\/([a-zA-Z0-9-]+)$/.exec(n.deepLink || '');
+          const vehicle = /^vmotiv:\/\/vehicles\/([a-zA-Z0-9-]+)$/.exec(n.deepLink || '');
+          if (selling) root?.navigate('SellingRequestDetails', { leadId: selling[1] });
+          else if (vehicle) root?.navigate('Vehicle', { listingId: vehicle[1] });
+          else navigation.navigate('Activity');
+        }}
         title="Notifications"
-        subtitle="Offers, inspections & status updates"
+        subtitle="Your request updates"
       />
-    </View>
+    </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
+const s = StyleSheet.create({
+  safe: {
     flex: 1,
-    backgroundColor: color.canvas,
+    backgroundColor: c.background,
   },
+  scroll: {
+    padding: 20,
+    gap: 20,
+    paddingBottom: 40,
+  },
+
+  /* top bar */
   topBar: {
+    backgroundColor: c.ink,
+    borderRadius: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-    backgroundColor: color.navy,
   },
-  topBarActions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  bellButton: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: color.surface,
+  bellBtn: {
+    minWidth: 44,
+    minHeight: 44,
     alignItems: 'center',
     justifyContent: 'center',
-    borderWidth: 1,
-    borderColor: color.border,
-    position: 'relative',
   },
-  bellBadge: {
+  badge: {
     position: 'absolute',
-    top: -2,
-    right: -2,
+    top: 4,
+    right: 4,
+    backgroundColor: c.accent,
+    borderRadius: 10,
     minWidth: 18,
     height: 18,
-    borderRadius: 9,
-    backgroundColor: '#ef4444',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingHorizontal: 3,
-    borderWidth: 1.5,
-    borderColor: color.navy,
+    paddingHorizontal: 4,
   },
-  bellBadgeText: {
-    color: '#ffffff',
-    fontSize: 9.5,
-    fontWeight: '800',
-  },
-  cityPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: color.surface,
-    borderRadius: radius.pill,
-    paddingHorizontal: 11,
-    paddingVertical: 6,
-    borderWidth: 1,
-    borderColor: color.border,
-    maxWidth: 150,
-  },
-  cityText: {
-    color: color.text,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  content: {
-    padding: space.lg,
-    gap: space.lg,
-    maxWidth: 720,
-    alignSelf: 'center',
-    width: '100%',
-  },
-  heroCard: {
-    backgroundColor: color.navy,
-    borderRadius: radius.lg,
-    padding: space.xl,
-    borderWidth: 1.2,
-    borderColor: color.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.25,
-    shadowRadius: 10,
-    elevation: 4,
-  },
-  heroBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: color.yellow,
-    paddingHorizontal: space.sm,
-    paddingVertical: 3.5,
-    borderRadius: radius.sm,
-    alignSelf: 'flex-start',
-    marginBottom: space.md,
-  },
-  heroBadgeText: {
-    color: color.navy,
-    fontSize: 9.5,
-    fontWeight: '900',
-    letterSpacing: 0.6,
-  },
-  heroTitle: {
-    color: color.white,
-    fontSize: 22,
-    fontWeight: '800',
-    lineHeight: 28,
-    letterSpacing: -0.3,
-  },
-  heroSubtitle: {
-    color: color.textSecondary,
-    fontSize: 13.5,
-    lineHeight: 20,
-    marginTop: space.xs,
-    marginBottom: space.lg,
-  },
-  heroActions: {
-    flexDirection: 'row',
-    gap: space.md,
-  },
-  heroPrimaryBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 7,
-    backgroundColor: color.yellow,
-    paddingVertical: 13,
-    borderRadius: radius.md,
-  },
-  heroPrimaryBtnText: {
-    color: color.navy,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  heroSecondaryBtn: {
-    flex: 1,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: color.raised,
-    borderWidth: 1,
-    borderColor: color.border,
-    paddingVertical: 13,
-    borderRadius: radius.md,
-  },
-  heroSecondaryBtnText: {
-    color: color.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  propRow: {
-    flexDirection: 'row',
-    gap: space.sm,
-  },
-  propCard: {
-    flex: 1,
-    backgroundColor: color.surface,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    alignItems: 'center',
-  },
-  propIconWrap: {
-    width: 36,
-    height: 36,
-    borderRadius: 18,
-    backgroundColor: color.raised,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 6,
-  },
-  propTitle: {
-    color: color.white,
-    fontSize: 11.5,
-    fontWeight: '700',
-    textAlign: 'center',
-  },
-  propDesc: {
-    color: color.muted,
+  badgeText: {
+    color: c.ink,
     fontSize: 10,
-    textAlign: 'center',
-    marginTop: 3,
-    lineHeight: 14,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-end',
-    marginTop: space.xs,
-  },
-  sectionTitle: {
-    color: color.white,
-    fontSize: 18,
     fontWeight: '800',
-    letterSpacing: -0.2,
   },
-  sectionSubtitle: {
-    color: color.muted,
-    fontSize: 12,
-    marginTop: 2,
+
+  /* greeting */
+  greetSection: {
+    gap: 6,
   },
-  viewAllBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 2,
-    paddingVertical: 4,
-  },
-  viewAllText: {
-    color: color.yellow,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  loaderWrap: {
-    paddingVertical: space.xl,
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.sm,
-  },
-  loaderText: {
-    color: color.muted,
-    fontSize: 13,
-  },
-  emptyFeatured: {
-    backgroundColor: color.surface,
-    padding: space.xl,
-    borderRadius: radius.lg,
-    borderWidth: 1,
-    borderColor: color.border,
-    alignItems: 'center',
-  },
-  emptyFeaturedTitle: {
-    color: color.text,
+  greetText: {
     fontSize: 15,
-    fontWeight: '700',
+    color: c.secondary,
+    fontWeight: '500',
   },
-  emptyFeaturedDesc: {
-    color: color.muted,
-    fontSize: 13,
-    marginTop: 4,
+  greetTitle: {
+    fontSize: 26,
+    lineHeight: 34,
+    fontWeight: '800',
+    color: c.ink,
   },
-  featuredCarousel: {
-    gap: space.md,
-    paddingRight: space.md,
+
+  /* primary cards */
+  primaryRow: {
+    flexDirection: 'row',
+    gap: 14,
   },
-  featuredCard: {
-    width: 228,
-    backgroundColor: color.surface,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    borderWidth: 1,
-    borderColor: color.border,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.15,
-    shadowRadius: 5,
-    elevation: 2,
-  },
-  featuredImgWrap: {
-    width: '100%',
-    height: 135,
-    backgroundColor: color.navy,
+  primaryCard: {
+    flex: 1,
+    borderRadius: 20,
+    padding: 20,
+    minHeight: 180,
+    gap: 8,
     position: 'relative',
   },
-  featuredImg: {
-    width: '100%',
-    height: '100%',
+  buyCard: {
+    backgroundColor: c.ink,
   },
-  imagePlaceholder: {
+  sellCard: {
+    backgroundColor: c.accent,
+  },
+  primaryCardTitle: {
+    fontSize: 19,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  primaryCardBody: {
+    fontSize: 13,
+    lineHeight: 18,
+    flex: 1,
+  },
+  primaryCardArrow: {
+    alignSelf: 'flex-end',
+    marginTop: 4,
+  },
+
+  /* draft */
+  draftCard: {
+    backgroundColor: c.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: c.accent,
+    padding: 16,
+    gap: 12,
+  },
+  draftLeft: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    flex: 1,
+  },
+  draftTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+    color: c.ink,
+  },
+  draftBody: {
+    fontSize: 14,
+    color: c.secondary,
+    marginTop: 2,
+  },
+
+  /* section header */
+  sectionHeader: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#092144',
-    gap: 4,
+    justifyContent: 'space-between',
   },
-  imagePlaceholderText: {
-    color: color.muted,
-    fontSize: 11,
+  sectionTitle: {
+    fontSize: 19,
+    fontWeight: '700',
+    color: c.ink,
+  },
+  sectionMeta: {
+    fontSize: 13,
+    color: c.secondary,
     fontWeight: '600',
   },
-  miniVerifiedBadge: {
-    position: 'absolute',
-    left: 8,
-    top: 8,
-    backgroundColor: 'rgba(2, 11, 24, 0.85)',
-    borderRadius: radius.pill,
-    paddingHorizontal: 7,
-    paddingVertical: 3,
-    borderWidth: 1,
-    borderColor: 'rgba(247, 181, 3, 0.5)',
+  sectionLink: {
+    fontSize: 14,
+    color: c.ink,
+    fontWeight: '700',
+    textDecorationLine: 'underline',
   },
-  miniVerifiedText: {
-    color: color.yellow,
+
+  /* secondary cards */
+  secondaryRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  secondaryCard: {
+    flex: 1,
+    backgroundColor: c.surface,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#D8DFE8',
+    padding: 14,
+    gap: 6,
+    minHeight: 120,
+    position: 'relative',
+  },
+  secondaryCardTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: c.ink,
+    marginTop: 4,
+  },
+  secondaryCardBody: {
+    fontSize: 11,
+    color: c.secondary,
+    lineHeight: 15,
+  },
+  comingSoonBadge: {
+    position: 'absolute',
+    top: 10,
+    right: 10,
+    backgroundColor: '#EBF0F7',
+    borderRadius: 6,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  comingSoonText: {
     fontSize: 9,
     fontWeight: '800',
+    color: c.secondary,
     letterSpacing: 0.5,
   },
-  featuredInfo: {
-    padding: space.md,
-    gap: 2,
-  },
-  featuredTitle: {
-    color: color.white,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  featuredVariant: {
-    color: color.muted,
-    fontSize: 12,
-  },
-  featuredSpecs: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    marginTop: 4,
-  },
-  specItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 3,
-  },
-  specDivider: {
-    color: color.muted,
-    fontSize: 10,
-  },
-  featuredSpecText: {
-    color: color.textSecondary,
-    fontSize: 11.5,
-  },
-  featuredPrice: {
-    color: color.yellow,
-    fontSize: 16.5,
-    fontWeight: '900',
-    marginTop: 6,
-  },
-  sellBanner: {
-    backgroundColor: '#122E58',
-    borderRadius: radius.lg,
-    padding: space.lg,
-    borderWidth: 1.2,
-    borderColor: 'rgba(247, 181, 3, 0.35)',
-  },
-  sellBannerContent: {
-    gap: 6,
-  },
-  sellBadge: {
-    backgroundColor: 'rgba(247, 181, 3, 0.15)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: radius.sm,
-    alignSelf: 'flex-start',
-  },
-  sellBadgeText: {
-    color: color.yellow,
-    fontSize: 9.5,
-    fontWeight: '900',
-    letterSpacing: 0.5,
-  },
-  sellBannerTitle: {
-    color: color.white,
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  sellBannerSubtitle: {
-    color: color.textSecondary,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  sellLinkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: color.yellow,
-    paddingVertical: 9,
-    paddingHorizontal: 14,
-    borderRadius: radius.md,
-    alignSelf: 'flex-start',
-    marginTop: 4,
-  },
-  sellLinkText: {
-    color: color.navy,
-    fontSize: 12.5,
-    fontWeight: '800',
-  },
-  quickGrid: {
-    flexDirection: 'row',
-    gap: space.md,
-  },
-  quickCard: {
-    flex: 1,
-    backgroundColor: color.surface,
-    borderRadius: radius.md,
-    padding: space.md,
+
+  /* shared card */
+  card: {
+    backgroundColor: c.surface,
+    borderRadius: 20,
     borderWidth: 1,
-    borderColor: color.border,
-    gap: 4,
+    borderColor: '#D8DFE8',
+    padding: 20,
+    gap: 12,
   },
-  quickIconWrap: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: color.raised,
+  cardTitle: {
+    fontSize: 19,
+    fontWeight: '700',
+    color: c.ink,
+  },
+  cardBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: c.secondary,
+  },
+
+  /* how selling works */
+  howStep: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 12,
+  },
+  howNum: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: c.accent,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: 4,
+    flexShrink: 0,
+    marginTop: 1,
   },
-  quickTitle: {
-    color: color.white,
-    fontSize: 13.5,
+  howNumText: {
+    fontSize: 13,
     fontWeight: '800',
+    color: c.ink,
   },
-  quickDesc: {
-    color: color.muted,
-    fontSize: 11,
-    lineHeight: 15,
+  howBody: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: c.secondary,
+    flex: 1,
+  },
+
+  /* vehicle cards */
+  vehicleCard: {
+    backgroundColor: c.surface,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#D8DFE8',
+    overflow: 'hidden',
+  },
+  vehicleImage: {
+    width: '100%',
+    aspectRatio: 16 / 9,
+  },
+  vehicleImagePlaceholder: {
+    minHeight: 140,
+    backgroundColor: '#EBF0F7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+  },
+  vehicleImagePlaceholderText: {
+    fontSize: 12,
+    color: c.secondary,
+  },
+  vehicleInfo: {
+    padding: 16,
+    gap: 4,
+  },
+  vehicleTitle: {
+    fontSize: 18,
+    fontWeight: '700',
+    color: c.ink,
+  },
+  vehicleMeta: {
+    fontSize: 14,
+    color: c.secondary,
+    fontWeight: '500',
+  },
+  vehicleSpec: {
+    fontSize: 13,
+    color: c.secondary,
+  },
+  vehiclePrice: {
+    fontSize: 18,
+    fontWeight: '800',
+    color: c.ink,
+    marginTop: 4,
+  },
+
+  /* empty */
+  emptyText: {
+    fontSize: 15,
+    color: c.secondary,
+    textAlign: 'center',
+    paddingVertical: 8,
   },
 });
