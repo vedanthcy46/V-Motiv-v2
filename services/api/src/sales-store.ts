@@ -68,6 +68,7 @@ export interface SalesStore {
   }): Promise<unknown>;
   updateSellerLeadStatus(actor: SalesActor, id: string, input: { status: AcquisitionLeadStatus; note?: string }): Promise<unknown>;
   claimSellerLead(actor: SalesActor, id: string): Promise<unknown>;
+  releaseSellerLead(actor: SalesActor, id: string): Promise<unknown>;
   assignSellerLead(actor: SalesActor, id: string, input: { employeeId: string; reason?: string }): Promise<unknown>;
   qualifySellerLead(actor: SalesActor, id: string, input: { qualified: boolean; reasonCode: string; notes?: string }): Promise<unknown>;
 
@@ -557,7 +558,33 @@ export class PrismaSalesStore implements SalesStore {
     });
   }
 
-  async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: string; reason?: string }) {
+    async releaseSellerLead(actor: SalesActor, id: string) {
+    const lead = await this.db.acquisitionLead.findFirst({ where: { id, ...scope(actor) }, select: { id: true, city: true, referenceCode: true } });
+    if (!lead) throw new HttpError(404, 'SELLER_LEAD_NOT_FOUND');
+    return this.db.$transaction(async tx => {
+      const active = await tx.sellerLeadAssignment.findFirst({ where: { leadId: id, releasedAt: null } });
+      if (!active) throw new HttpError(404, 'SELLER_LEAD_NOT_ASSIGNED');
+      if (!actor.globalScope && !actor.roles.includes('OPERATIONS_MANAGER') && active.employeeId !== actor.userId) {
+        throw new HttpError(403, 'PERMISSION_DENIED');
+      }
+      const updated = await tx.sellerLeadAssignment.update({
+        where: { id: active.id },
+        data: { releasedAt: new Date() },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'SELLER_LEAD_RELEASED',
+          entityType: 'AcquisitionLead',
+          entityId: id,
+          details: { referenceCode: lead.referenceCode, previousEmployeeId: active.employeeId },
+        },
+      });
+      return updated;
+    });
+  }
+
+async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: string; reason?: string }) {
     if (!actor.globalScope && !actor.roles.includes('OPERATIONS_MANAGER')) {
       throw new HttpError(403, 'PERMISSION_DENIED');
     }

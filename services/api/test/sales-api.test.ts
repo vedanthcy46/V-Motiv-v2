@@ -101,6 +101,10 @@ function setup(options: { actorError?: Error } = {}) {
       id: 'claim-1',
       leadId: '22222222-2222-4222-8222-222222222222',
     }),
+    releaseSellerLead: vi.fn().mockResolvedValue({
+      id: 'claim-1',
+      leadId: '22222222-2222-4222-8222-222222222222',
+    }),
     assignSellerLead: vi.fn().mockResolvedValue({ id: 'assign-1' }),
     qualifySellerLead: vi.fn().mockResolvedValue({
       id: '22222222-2222-4222-8222-222222222222',
