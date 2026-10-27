@@ -12,7 +12,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   AlertCircle,
@@ -47,6 +47,7 @@ const TIMELINE_STEPS = [
 
 export function SellingRequestDetailsScreen({ route, navigation }: Props) {
   const { leadId } = route.params;
+  const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
@@ -187,7 +188,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
   const isCancellable = ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'].includes(lead.status) && !isInspectionCompleted;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft size={22} color={colors.textPrimary} />
@@ -196,7 +197,15 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 48,
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Car Header */}
         <View style={styles.carHeaderCard}>
           <Text style={styles.carTitle}>

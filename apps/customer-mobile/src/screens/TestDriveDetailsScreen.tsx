@@ -4,6 +4,7 @@ import {
   Alert,
   Image,
   Linking,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -171,7 +172,7 @@ export function TestDriveDetailsScreen({ route, navigation }: Props) {
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: Math.max(insets.bottom, space.md) + 32 },
+          { paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 40 },
         ]}
         showsVerticalScrollIndicator={false}
       >

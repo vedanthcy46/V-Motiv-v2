@@ -3,13 +3,14 @@ import {
   Image,
   Linking,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   AlertCircle,
@@ -39,6 +40,7 @@ type TabKey = 'DEFECTS' | 'SYSTEMS' | 'DIAGNOSTICS';
 
 export function InspectionHighlightsScreen({ route, navigation }: Props) {
   const { inspectionSummary, conditionSummary, verifiedTags, features, reportUrl, inspectionDetails } = route.params;
+  const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
@@ -150,7 +152,15 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 40,
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Certification Score Card */}
         <View style={styles.scoreBanner}>
           <View style={styles.scoreHeaderRow}>
@@ -409,9 +419,23 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
               />
             )}
 
-            <View style={styles.photoModalFooter}>
+            <View
+              style={[
+                styles.photoModalFooter,
+                {
+                  paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + space.sm,
+                },
+              ]}
+            >
               <Text style={styles.photoModalDesc}>{selectedPhoto?.description}</Text>
               <Text style={styles.photoModalAction}>Action: {selectedPhoto?.actionTaken}</Text>
+              <TouchableOpacity
+                style={styles.photoModalDismissBtn}
+                activeOpacity={0.8}
+                onPress={() => setSelectedPhoto(null)}
+              >
+                <Text style={styles.photoModalDismissBtnText}>Close Preview</Text>
+              </TouchableOpacity>
             </View>
           </SafeAreaView>
         </View>
@@ -872,5 +896,19 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
     photoModalAction: {
       fontSize: 12,
       color: colors.brandAccent,
+    },
+    photoModalDismissBtn: {
+      backgroundColor: colors.brandAccent,
+      borderRadius: radius.md,
+      paddingVertical: 12,
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: space.sm,
+      minHeight: 46,
+    },
+    photoModalDismissBtnText: {
+      color: '#061A38',
+      fontWeight: '800',
+      fontSize: 14,
     },
   });

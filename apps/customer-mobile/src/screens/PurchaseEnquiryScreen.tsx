@@ -11,7 +11,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, CheckCircle, HelpCircle, Mail, MessageSquare, ShieldCheck, Sparkles } from 'lucide-react-native';
 import { customer } from '../services/customer';
@@ -31,6 +31,7 @@ const QUICK_TOPICS = [
 
 export function PurchaseEnquiryScreen({ route, navigation }: Props) {
   const { listingId, title } = route.params;
+  const insets = useSafeAreaInsets();
   const { user } = useAuth();
   const { colors, isDark } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
@@ -120,7 +121,12 @@ export function PurchaseEnquiryScreen({ route, navigation }: Props) {
 
         <ScrollView
           ref={scrollRef}
-          contentContainerStyle={styles.content}
+          contentContainerStyle={[
+            styles.content,
+            {
+              paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 40,
+            },
+          ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}

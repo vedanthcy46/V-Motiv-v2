@@ -4,13 +4,14 @@ import {
   Alert,
   Image,
   Linking,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   AlertCircle,
@@ -45,6 +46,7 @@ const TIMELINE_STEPS = [
 
 export function PurchaseEnquiryDetailsScreen({ route, navigation }: Props) {
   const { enquiryId } = route.params;
+  const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
@@ -151,7 +153,7 @@ export function PurchaseEnquiryDetailsScreen({ route, navigation }: Props) {
   const currentStepIdx = statusOrder[enquiry.status] ?? 0;
 
   return (
-    <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+    <SafeAreaView style={styles.container}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft size={22} color={colors.textPrimary} />
@@ -160,7 +162,15 @@ export function PurchaseEnquiryDetailsScreen({ route, navigation }: Props) {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={[
+          styles.content,
+          {
+            paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 48,
+          },
+        ]}
+        showsVerticalScrollIndicator={false}
+      >
         {/* Vehicle Header Card */}
         <View style={styles.carHeaderCard}>
           {thumbnail ? (
@@ -747,13 +757,19 @@ function createStyles(c: ThemeColors, isDark: boolean) {
       alignItems: 'center',
       justifyContent: 'center',
       gap: 6,
-      paddingVertical: 8,
+      minHeight: 44,
+      paddingVertical: 10,
+      paddingHorizontal: space.md,
+      borderRadius: radius.md,
+      backgroundColor: isDark ? 'rgba(239, 68, 68, 0.1)' : '#FEF2F2',
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(239, 68, 68, 0.3)' : '#FECACA',
       marginTop: space.xs,
     },
     withdrawText: {
       fontSize: 13,
-      fontWeight: '600',
-      color: '#FF7C86',
+      fontWeight: '700',
+      color: '#EF4444',
     },
   });
 }
