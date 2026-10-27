@@ -23,6 +23,7 @@ import type {
   DashboardMetrics,
   InspectionRequest,
   InspectorEmployee,
+  RefurbishmentWorkOrder,
   TestDrive,
   VehicleStockUnit,
 } from './types';
@@ -62,6 +63,13 @@ type TabKey =
   | 'publication'
   | 'deliveries'
   | 'team';
+
+function needsQualityControl(stock: VehicleStockUnit) {
+  const hasCompletedWorkOrder = stock.workOrders?.some(workOrder => workOrder.status === 'COMPLETED') ?? false;
+  const hasPassedQualityControl = stock.qualityControlReports?.some(report => report.status === 'PASSED') ?? false;
+  const canRecoverStaleWorkflow = !['LISTED', 'RESERVED', 'SOLD', 'RETIRED'].includes(stock.status);
+  return stock.status === 'QC_PENDING' || (canRecoverStaleWorkflow && hasCompletedWorkOrder && !hasPassedQualityControl);
+}
 
 // ============================================================================
 // RESILIENT BROWSER FETCH RECOVERY
@@ -453,6 +461,10 @@ export const App: FC = () => {
   const [publishModal, setPublishModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
   const [publishRetailPrice, setPublishRetailPrice] = useState<string>('');
 
+  // Edit & resubmit cost after rejection
+  const [editCostModal, setEditCostModal] = useState<{ open: boolean; wo?: RefurbishmentWorkOrder }>({ open: false });
+  const [editCostValue, setEditCostValue] = useState<string>('');
+
   const [deliveryModal, setDeliveryModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
   const [viewBuyerModal, setViewBuyerModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
   const [buyerName, setBuyerName] = useState('');
@@ -502,6 +514,12 @@ export const App: FC = () => {
     }
   };
 
+  useEffect(() => {
+    if (!user || activeTab !== 'dispatch') return;
+    const refresh = window.setInterval(() => void loadAllData(user), 30_000);
+    return () => window.clearInterval(refresh);
+  }, [user, activeTab]);
+
   // --- Handlers ---
   const handleAssignSubmit = async (e: FormEvent) => {
     e.preventDefault();
@@ -509,13 +527,32 @@ export const App: FC = () => {
     setLoading(true);
     setError(null);
     try {
-      await api.assignInspection(user, assignModal.request.id, {
-        inspectorId: assignInspectorId,
-        scheduledAt: assignDate ? new Date(assignDate).toISOString() : undefined,
-        locationType: assignLocationType,
-        address: assignAddress || undefined,
-      });
-      setSuccessMsg('Inspection assigned successfully');
+      const scheduledAt = assignDate ? new Date(assignDate).toISOString() : undefined;
+      if (assignModal.request.assignment) {
+        if (!scheduledAt) {
+          setError('A date and time are required to reschedule an inspection.');
+          return;
+        }
+        await api.rescheduleInspection(user, assignModal.request.id, {
+          scheduledAt,
+          locationType: assignLocationType,
+          address: assignAddress || undefined,
+          reason: assignModal.request.status === 'CANCELLED'
+            ? 'Appointment reopened and rescheduled through Operations Dispatch'
+            : 'Appointment rescheduled through Operations Dispatch',
+        });
+        setSuccessMsg(assignModal.request.status === 'CANCELLED'
+          ? 'Cancelled inspection reopened and rescheduled'
+          : 'Inspection rescheduled successfully');
+      } else {
+        await api.assignInspection(user, assignModal.request.id, {
+          inspectorId: assignInspectorId,
+          scheduledAt,
+          locationType: assignLocationType,
+          address: assignAddress || undefined,
+        });
+        setSuccessMsg('Inspection assigned successfully');
+      }
       setAssignModal({ open: false });
       await loadAllData();
     } catch (err) {
@@ -706,6 +743,40 @@ export const App: FC = () => {
       await loadAllData();
     } catch (err) {
       setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to complete work order');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /** Open the edit & resubmit modal for a cost-rejected work order */
+  const openEditCostModal = (wo: RefurbishmentWorkOrder) => {
+    setEditCostValue(String(Math.round(Number(wo.estimatedCostPaise || 0) / 100)));
+    setEditCostModal({ open: true, wo });
+  };
+
+  /** Submit an updated cost estimate for a previously-rejected work order */
+  const handleEditAndResubmitCost = async (e: FormEvent) => {
+    e.preventDefault();
+    const wo = editCostModal.wo;
+    if (!user || !wo) return;
+    const costPaise = Math.round(parseFloat(editCostValue) * 100);
+    if (isNaN(costPaise) || costPaise <= 0) {
+      setError('Please enter a valid cost amount in rupees.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await api.submitWorkOrderCost(user, wo.id, {
+        expectedVersion: wo.version,
+        estimatedCostPaise: costPaise,
+        reason: 'Revised cost estimate submitted for re-approval after previous rejection',
+      });
+      setSuccessMsg('Revised cost resubmitted for approval');
+      setEditCostModal({ open: false });
+      await loadAllData();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Resubmit Error: ${err.code}` : 'Failed to resubmit cost');
     } finally {
       setLoading(false);
     }
@@ -1342,6 +1413,8 @@ export const App: FC = () => {
                                 setAssignModal({ open: true, request: r });
                                 setAssignInspectorId(inspectors[0]?.userId || '');
                                 setAssignDate(new Date(Date.now() + 86400000).toISOString().slice(0, 16));
+                                setAssignLocationType((r.assignment?.locationType || r.locationType) as 'HUB' | 'HOME');
+                                setAssignAddress(r.assignment?.address || r.address || '');
                               }}
                             >
                               Assign Inspector
@@ -1355,6 +1428,8 @@ export const App: FC = () => {
                                   setAssignModal({ open: true, request: r });
                                   setAssignInspectorId(r.assignment?.inspectorId || inspectors[0]?.userId || '');
                                   setAssignDate(r.assignment?.scheduledAt ? new Date(r.assignment.scheduledAt).toISOString().slice(0, 16) : '');
+                                  setAssignLocationType((r.assignment?.locationType || r.locationType) as 'HUB' | 'HOME');
+                                  setAssignAddress(r.assignment?.address || r.address || '');
                                 }}
                               >
                                 Reschedule
@@ -1972,7 +2047,17 @@ export const App: FC = () => {
                               </td>
                               <td>
                                 <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
-                                  {wo.status === 'DRAFT' ? (
+                                  {wo.status === 'DRAFT' && wo.costApproval?.status === 'REJECTED' ? (
+                                    // Cost was rejected — show Edit & Resubmit
+                                    <button
+                                      className="btn-gold"
+                                      style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
+                                      onClick={() => openEditCostModal(wo)}
+                                    >
+                                      ✏️ Edit & Resubmit
+                                    </button>
+                                  ) : wo.status === 'DRAFT' ? (
+                                    // Fresh DRAFT — submit for first approval
                                     <button
                                       className="btn-secondary"
                                       style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
@@ -2056,7 +2141,7 @@ export const App: FC = () => {
 
             <div className="detail-grid">
               {inventory
-                .filter(s => s.status === 'QC_PENDING' || (s.qualityControlReports && s.qualityControlReports.length > 0))
+                .filter(s => needsQualityControl(s) || (s.qualityControlReports && s.qualityControlReports.length > 0))
                 .map(s => (
                   <article className="detail-card" key={s.id}>
                     <div className="card-header">
@@ -2087,7 +2172,7 @@ export const App: FC = () => {
                     </div>
 
                     <div className="card-footer">
-                      {s.status === 'QC_PENDING' ? (
+                      {needsQualityControl(s) ? (
                         <button
                           className="btn-gold"
                           style={{ fontSize: '0.8rem' }}
@@ -2101,7 +2186,7 @@ export const App: FC = () => {
                     </div>
                   </article>
                 ))}
-              {!inventory.some(s => s.status === 'QC_PENDING' || (s.qualityControlReports && s.qualityControlReports.length > 0)) ? (
+              {!inventory.some(s => needsQualityControl(s) || (s.qualityControlReports && s.qualityControlReports.length > 0)) ? (
                 <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
                   <h3>No vehicles awaiting QC sign-off</h3>
                   <p>Vehicles with completed refurbishment work orders will appear here automatically.</p>
@@ -2821,6 +2906,70 @@ export const App: FC = () => {
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setWorkOrderModal({ open: false })}>Cancel</button>
                 <button type="submit" className="btn-gold" disabled={loading}>Create Work Order</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ======================================================== */}
+      {/* MODAL: EDIT & RESUBMIT REJECTED COST                     */}
+      {/* ======================================================== */}
+      {editCostModal.open && editCostModal.wo ? (
+        <div className="modal-overlay">
+          <div className="modal-dialog">
+            <div className="modal-header">
+              <h3>Edit &amp; Resubmit Cost Estimate</h3>
+              <button className="btn-close" onClick={() => setEditCostModal({ open: false })}>✕</button>
+            </div>
+            <form onSubmit={handleEditAndResubmitCost}>
+              <div className="modal-body">
+                <div
+                  style={{
+                    background: 'rgba(220, 53, 69, 0.1)',
+                    border: '1px solid rgba(220, 53, 69, 0.4)',
+                    borderRadius: '6px',
+                    padding: '0.75rem',
+                    marginBottom: '1rem',
+                  }}
+                >
+                  <strong style={{ color: 'var(--danger)' }}>Previous Cost Rejected</strong>
+                  {editCostModal.wo.costApproval?.reason && (
+                    <p style={{ color: 'var(--muted)', fontSize: '0.85rem', margin: '4px 0 0' }}>
+                      Reason: {editCostModal.wo.costApproval.reason}
+                    </p>
+                  )}
+                </div>
+
+                <div style={{ marginBottom: '0.75rem', fontSize: '0.88rem', color: 'var(--muted)' }}>
+                  <strong style={{ color: 'var(--text)' }}>{editCostModal.wo.category}</strong>
+                  <div>{editCostModal.wo.requiredAction}</div>
+                  {editCostModal.wo.assignedProvider && <div>Provider: {editCostModal.wo.assignedProvider}</div>}
+                </div>
+
+                <div className="form-group">
+                  <label>Revised Estimated Cost (₹ Rupees)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    placeholder="e.g. 4500"
+                    value={editCostValue}
+                    onChange={e => setEditCostValue(e.target.value)}
+                    min="1"
+                    step="1"
+                    required
+                  />
+                  <small style={{ color: 'var(--muted)' }}>
+                    Previous estimate: {formatRupees(editCostModal.wo.estimatedCostPaise)}
+                    {editCostValue && !isNaN(Number(editCostValue)) && Number(editCostValue) > 0 && (
+                      <> &rarr; New: &#8377;{Number(editCostValue).toLocaleString('en-IN')}</>
+                    )}
+                  </small>
+                </div>
+              </div>
+              <div className="modal-footer">
+                <button type="button" className="btn-secondary" onClick={() => setEditCostModal({ open: false })}>Cancel</button>
+                <button type="submit" className="btn-gold" disabled={loading}>Resubmit for Approval</button>
               </div>
             </form>
           </div>

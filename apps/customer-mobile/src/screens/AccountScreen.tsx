@@ -11,14 +11,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import {
   Bell,
+  Bookmark,
+  Car,
   CheckCircle2,
   ChevronRight,
   Headphones,
   LogOut,
   MapPin,
+  Moon,
   RotateCcw,
   Shield,
-  Trash2,
+  Smartphone,
+  Sun,
   User,
 } from 'lucide-react-native';
 import { BrandLogo } from '../components/BrandLogo';
@@ -31,12 +35,14 @@ import {
 } from '../services/notifications';
 import { useAuth } from '../auth/AuthProvider';
 import { AuthScreen } from './AuthScreen';
-import { color, radius, space } from '../theme';
+import { useAppTheme, type ThemeMode, radius, space } from '../theme';
 
 export function AccountScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { state, profile, busy: authBusy, signOut, clearSessionData, isInspector, setActiveMode } = useAuth();
+  const { theme, mode, setMode, isDark } = useAppTheme();
+  const c = theme.colors;
 
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
@@ -123,102 +129,112 @@ export function AccountScreen() {
         return;
       }
 
-      if (cat.includes('TEST_DRIVE') || event.includes('TEST_DRIVE')) {
-        navigation.navigate('Tabs', { screen: 'Activity' });
-        return;
-      }
-
-      if (cat.includes('SUPPORT') || event.includes('TICKET') || event.includes('CASE')) {
-        if (entityId) {
-          navigation.navigate('SupportCaseDetails', { caseId: entityId });
-        } else {
-          navigation.navigate('Support');
-        }
-        return;
-      }
-
       navigation.navigate('Tabs', { screen: 'Activity' });
     },
     [navigation]
   );
 
-  if (state !== 'signed-in') {
-    return <AuthScreen />;
-  }
-
-  function handleSignOut() {
+  const handleSignOut = () => {
     Alert.alert(
-      'Sign Out',
-      'Are you sure you want to sign out of your V MOTIV account?',
+      'Sign Out of V MOTIV',
+      'Are you sure you want to sign out? Your saved searches, car shortlist and request updates will be accessible when you sign in again.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
           text: 'Sign Out',
           style: 'destructive',
           onPress: async () => {
-            await signOut();
+            try {
+              await signOut();
+            } catch (err: any) {
+              Alert.alert('Sign Out Failed', err.message || 'Could not complete sign out.');
+            }
           },
         },
       ]
     );
-  }
+  };
 
-  function handleClearData() {
+  const handleClearData = () => {
     Alert.alert(
-      'Clear App Data & Switch Account',
-      'This will erase all locally cached vehicle drafts, offline inspection data, and disconnect your Google session so you can log in with a different account or session. Do you wish to continue?',
+      'Clear Local Cache & Session',
+      'This will clear local car drafts, offline search cache and session tokens. Do you want to proceed?',
       [
         { text: 'Cancel', style: 'cancel' },
         {
-          text: 'Clear All Data & Sign Out',
+          text: 'Clear Data',
           style: 'destructive',
           onPress: async () => {
-            await clearSessionData();
+            try {
+              await clearSessionData();
+            } catch (err: any) {
+              Alert.alert('Clear Failed', err.message || 'Could not reset session data.');
+            }
           },
         },
       ]
     );
+  };
+
+  // Not signed-in view
+  if (state !== 'signed-in') {
+    return (
+      <View style={[styles.container, { backgroundColor: c.background }]}>
+        <View style={[styles.topBar, { paddingTop: insets.top + space.sm, backgroundColor: c.surface, borderBottomColor: c.border }]}>
+          <BrandLogo variant="horizontal" size={26} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
+          <View style={styles.verifiedAccountBadge}>
+            <User size={12} color={c.brandAccent} />
+            <Text style={[styles.verifiedAccountText, { color: c.brandAccent }]}>SIGN IN</Text>
+          </View>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
   }
 
-  const initials = profile?.displayName
-    ? profile.displayName
-        .split(' ')
-        .map((n) => n[0])
-        .slice(0, 2)
-        .join('')
-        .toUpperCase()
-    : 'VM';
+  const initials = (profile?.displayName || 'VM')
+    .split(' ')
+    .slice(0, 2)
+    .map((s) => s[0])
+    .join('')
+    .toUpperCase();
+
+  const themeOptions: { key: ThemeMode; label: string; desc: string; Icon: any }[] = [
+    { key: 'system', label: 'Match System', desc: 'Follows device appearance', Icon: Smartphone },
+    { key: 'light', label: 'Light Mode', desc: 'Clean white surfaces', Icon: Sun },
+    { key: 'dark', label: 'Dark Mode', desc: 'Deep navy background', Icon: Moon },
+  ];
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Top Bar with Brand Logo */}
-      <View style={styles.topBar}>
-        <BrandLogo variant="horizontal" size={24} showTagline={false} />
+    <View style={[styles.container, { backgroundColor: c.background }]}>
+      {/* Top Header */}
+      <View style={[styles.topBar, { paddingTop: insets.top + space.sm, backgroundColor: c.surface, borderBottomColor: c.border }]}>
+        <BrandLogo variant="horizontal" size={26} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
         <View style={styles.verifiedAccountBadge}>
-          <CheckCircle2 size={12} color={color.yellow} />
-          <Text style={styles.verifiedAccountText}>VERIFIED</Text>
+          <CheckCircle2 size={12} color={c.brandAccent} />
+          <Text style={[styles.verifiedAccountText, { color: c.brandAccent }]}>VERIFIED ACCOUNT</Text>
         </View>
       </View>
 
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: Math.max(insets.bottom, 20) + 80 },
+          { paddingBottom: Math.max(insets.bottom, 20) + 96 },
         ]}
         showsVerticalScrollIndicator={false}
       >
         {/* User Profile Card */}
-        <View style={styles.userCard}>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>{initials}</Text>
+        <View style={[styles.userCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+          <View style={[styles.avatar, { backgroundColor: c.surfaceSecondary, borderColor: c.brandAccent }]}>
+            <Text style={[styles.avatarText, { color: c.brandAccent }]}>{initials}</Text>
           </View>
           <View style={styles.userInfo}>
-            <Text style={styles.userName}>{profile?.displayName || 'V MOTIV Customer'}</Text>
-            <Text style={styles.userEmail}>{profile?.email}</Text>
+            <Text style={[styles.userName, { color: c.textPrimary }]}>{profile?.displayName || 'V MOTIV Customer'}</Text>
+            <Text style={[styles.userEmail, { color: c.textSecondary }]}>{profile?.email}</Text>
             {profile?.preferredCity ? (
-              <View style={styles.cityPill}>
-                <MapPin size={11} color={color.yellow} />
-                <Text style={styles.cityText}>{profile.preferredCity}</Text>
+              <View style={[styles.cityPill, { backgroundColor: c.surfaceSecondary }]}>
+                <MapPin size={11} color={c.brandAccent} />
+                <Text style={[styles.cityText, { color: c.brandAccent }]}>{profile.preferredCity}</Text>
               </View>
             ) : null}
           </View>
@@ -226,94 +242,153 @@ export function AccountScreen() {
 
         {/* Authorized Staff / Inspector Workspace Switcher */}
         {isInspector ? (
-          <View style={styles.inspectorStaffCard}>
+          <View style={[styles.inspectorStaffCard, { backgroundColor: c.surface, borderColor: c.brandAccent }]}>
             <View style={styles.inspectorStaffBadge}>
               <Text style={styles.inspectorStaffBadgeText}>AUTHORIZED FIELD INSPECTOR</Text>
             </View>
-            <Text style={styles.inspectorStaffTitle}>Vehicle Inspection Workspace</Text>
-            <Text style={styles.inspectorStaffSub}>
+            <Text style={[styles.inspectorStaffTitle, { color: c.textPrimary }]}>Vehicle Inspection Workspace</Text>
+            <Text style={[styles.inspectorStaffSub, { color: c.textSecondary }]}>
               You are signed in with evaluator privileges. Touch to access assigned jobs and inspection tools.
             </Text>
             <TouchableOpacity
-              style={styles.inspectorSwitchButton}
+              style={[styles.inspectorSwitchButton, { backgroundColor: c.brandAccent }]}
               activeOpacity={0.8}
               onPress={() => setActiveMode('inspector')}
             >
-              <Text style={styles.inspectorSwitchButtonText}>Open Inspector Workspace</Text>
-              <ChevronRight size={16} color={color.navy} />
+              <Text style={[styles.inspectorSwitchButtonText, { color: c.brandNavy }]}>Open Inspector Workspace</Text>
+              <ChevronRight size={16} color={c.brandNavy} />
             </TouchableOpacity>
           </View>
         ) : null}
 
+        {/* Section: Appearance & Display */}
+        <View style={styles.sectionWrap}>
+          <Text style={[styles.sectionHeader, { color: c.textMuted }]}>APPEARANCE & DISPLAY</Text>
+          <View style={[styles.menuGroup, { backgroundColor: c.surface, borderColor: c.border }]}>
+            {themeOptions.map((opt, idx) => {
+              const selected = mode === opt.key;
+              const isLast = idx === themeOptions.length - 1;
+              const OptionIcon = opt.Icon;
+              return (
+                <TouchableOpacity
+                  key={opt.key}
+                  style={[
+                    styles.menuItem,
+                    { borderBottomColor: c.divider },
+                    isLast && { borderBottomWidth: 0 },
+                    selected && { backgroundColor: c.selected },
+                  ]}
+                  activeOpacity={0.7}
+                  onPress={() => setMode(opt.key)}
+                  accessibilityRole="radio"
+                  accessibilityState={{ checked: selected }}
+                  accessibilityLabel={`${opt.label}. ${opt.desc}`}
+                >
+                  <View
+                    style={[
+                      styles.menuIcon,
+                      {
+                        backgroundColor: selected ? c.brandAccent : c.surfaceSecondary,
+                      },
+                    ]}
+                  >
+                    <OptionIcon size={18} color={selected ? c.brandNavy : c.textSecondary} />
+                  </View>
+                  <View style={styles.menuText}>
+                    <Text style={[styles.menuTitle, { color: c.textPrimary }]}>{opt.label}</Text>
+                    <Text style={[styles.menuDesc, { color: c.textSecondary }]}>{opt.desc}</Text>
+                  </View>
+                  {selected && <CheckCircle2 size={18} color={c.brandAccent} />}
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        </View>
+
         {/* Section: Account & Preferences */}
         <View style={styles.sectionWrap}>
-          <Text style={styles.sectionHeader}>ACCOUNT & PROFILE</Text>
-          <View style={styles.menuGroup}>
+          <Text style={[styles.sectionHeader, { color: c.textMuted }]}>ACCOUNT & PROFILE</Text>
+          <View style={[styles.menuGroup, { backgroundColor: c.surface, borderColor: c.border }]}>
             <TouchableOpacity
-              style={styles.menuItem}
+              style={[styles.menuItem, { borderBottomColor: c.divider }]}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('Wishlist')}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <Bookmark size={19} color={c.brandAccent} />
+              </View>
+              <View style={styles.menuText}>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Wishlist</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Shortlisted vehicles & saved searches</Text>
+              </View>
+              <ChevronRight size={16} color={c.textMuted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.menuItem, { borderBottomColor: c.divider }]}
               activeOpacity={0.7}
               onPress={() => navigation.navigate('ProfileEditor')}
             >
-              <View style={styles.menuIcon}>
-                <User size={19} color={color.yellow} />
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <User size={19} color={c.brandAccent} />
               </View>
               <View style={styles.menuText}>
-                <Text style={styles.menuTitle}>Personal Details</Text>
-                <Text style={styles.menuDesc}>Name, mobile contact number</Text>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Personal Details</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Name, mobile contact number</Text>
               </View>
-              <ChevronRight size={16} color={color.muted} />
+              <ChevronRight size={16} color={c.textMuted} />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.menuItem}
+              style={[styles.menuItem, { borderBottomColor: c.divider }]}
               activeOpacity={0.7}
               onPress={() => navigation.navigate('CitySelection')}
             >
-              <View style={styles.menuIcon}>
-                <MapPin size={19} color={color.yellow} />
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <MapPin size={19} color={c.brandAccent} />
               </View>
               <View style={styles.menuText}>
-                <Text style={styles.menuTitle}>Preferred City</Text>
-                <Text style={styles.menuDesc}>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Preferred City</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>
                   {profile?.preferredCity || 'Set your primary buying/selling city'}
                 </Text>
               </View>
-              <ChevronRight size={16} color={color.muted} />
+              <ChevronRight size={16} color={c.textMuted} />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.menuItem}
+              style={[styles.menuItem, { borderBottomColor: c.divider }]}
               activeOpacity={0.7}
               onPress={() => navigation.navigate('Addresses')}
             >
-              <View style={styles.menuIcon}>
-                <MapPin size={19} color={color.yellow} />
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <MapPin size={19} color={c.brandAccent} />
               </View>
               <View style={styles.menuText}>
-                <Text style={styles.menuTitle}>Saved Addresses</Text>
-                <Text style={styles.menuDesc}>Inspection & doorstep test drive locations</Text>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Saved Addresses</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Inspection & doorstep test drive locations</Text>
               </View>
-              <ChevronRight size={16} color={color.muted} />
+              <ChevronRight size={16} color={c.textMuted} />
             </TouchableOpacity>
 
             <TouchableOpacity
-              style={styles.menuItem}
+              style={[styles.menuItem, { borderBottomColor: c.divider }]}
               activeOpacity={0.7}
               onPress={() => setNotificationsOpen(true)}
             >
-              <View style={styles.menuIcon}>
-                <Bell size={19} color={color.yellow} />
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <Bell size={19} color={c.brandAccent} />
               </View>
               <View style={styles.menuText}>
-                <Text style={styles.menuTitle}>Notification Inbox</Text>
-                <Text style={styles.menuDesc}>Offers, inspection reports & status alerts</Text>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Notification Inbox</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Offers, inspection reports & status alerts</Text>
               </View>
               {unreadCount > 0 && (
                 <View style={styles.unreadBadgePill}>
                   <Text style={styles.unreadBadgePillText}>{unreadCount} new</Text>
                 </View>
               )}
-              <ChevronRight size={16} color={color.muted} />
+              <ChevronRight size={16} color={c.textMuted} />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -321,35 +396,35 @@ export function AccountScreen() {
               activeOpacity={0.7}
               onPress={() => navigation.navigate('MarketingPreferences')}
             >
-              <View style={styles.menuIcon}>
-                <Bell size={19} color={color.yellow} />
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <Bell size={19} color={c.brandAccent} />
               </View>
               <View style={styles.menuText}>
-                <Text style={styles.menuTitle}>Notification Preferences</Text>
-                <Text style={styles.menuDesc}>Inventory drops & offer updates</Text>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Notification Preferences</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Inventory drops & offer updates</Text>
               </View>
-              <ChevronRight size={16} color={color.muted} />
+              <ChevronRight size={16} color={c.textMuted} />
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Section: Support & Legal */}
         <View style={styles.sectionWrap}>
-          <Text style={styles.sectionHeader}>SUPPORT & PRIVACY</Text>
-          <View style={styles.menuGroup}>
+          <Text style={[styles.sectionHeader, { color: c.textMuted }]}>SUPPORT & PRIVACY</Text>
+          <View style={[styles.menuGroup, { backgroundColor: c.surface, borderColor: c.border }]}>
             <TouchableOpacity
-              style={styles.menuItem}
+              style={[styles.menuItem, { borderBottomColor: c.divider }]}
               activeOpacity={0.7}
               onPress={() => navigation.navigate('Support')}
             >
-              <View style={styles.menuIcon}>
-                <Headphones size={19} color={color.yellow} />
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <Headphones size={19} color={c.brandAccent} />
               </View>
               <View style={styles.menuText}>
-                <Text style={styles.menuTitle}>Help & Support Desk</Text>
-                <Text style={styles.menuDesc}>Report an issue or talk to our operations</Text>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Help & Support Desk</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Report an issue or talk to our operations</Text>
               </View>
-              <ChevronRight size={16} color={color.muted} />
+              <ChevronRight size={16} color={c.textMuted} />
             </TouchableOpacity>
 
             <TouchableOpacity
@@ -357,22 +432,22 @@ export function AccountScreen() {
               activeOpacity={0.7}
               onPress={() => navigation.navigate('PrivacySettings')}
             >
-              <View style={styles.menuIcon}>
-                <Shield size={19} color={color.yellow} />
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <Shield size={19} color={c.brandAccent} />
               </View>
               <View style={styles.menuText}>
-                <Text style={styles.menuTitle}>Privacy & Data Protection</Text>
-                <Text style={styles.menuDesc}>Customer data terms and export rights</Text>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Privacy & Data Protection</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Customer data terms and export rights</Text>
               </View>
-              <ChevronRight size={16} color={color.muted} />
+              <ChevronRight size={16} color={c.textMuted} />
             </TouchableOpacity>
           </View>
         </View>
 
         {/* Section: Session & Storage Management */}
         <View style={styles.sectionWrap}>
-          <Text style={styles.sectionHeader}>SESSION & STORAGE</Text>
-          <View style={styles.menuGroup}>
+          <Text style={[styles.sectionHeader, { color: c.textMuted }]}>SESSION & STORAGE</Text>
+          <View style={[styles.menuGroup, { backgroundColor: c.surface, borderColor: c.border }]}>
             <TouchableOpacity
               style={[styles.menuItem, { borderBottomWidth: 0 }]}
               activeOpacity={0.7}
@@ -383,12 +458,12 @@ export function AccountScreen() {
                 <RotateCcw size={19} color="#EF4444" />
               </View>
               <View style={styles.menuText}>
-                <Text style={[styles.menuTitle, { color: '#FCA5A5' }]}>Clear Data & Switch Account</Text>
-                <Text style={styles.menuDesc}>
+                <Text style={[styles.menuTitle, { color: '#EF4444' }]}>Clear Data & Switch Account</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>
                   Wipe device cache, drafts & disconnect Google session
                 </Text>
               </View>
-              <ChevronRight size={16} color={color.muted} />
+              <ChevronRight size={16} color={c.textMuted} />
             </TouchableOpacity>
           </View>
         </View>
@@ -407,7 +482,7 @@ export function AccountScreen() {
         {/* Brand Footer */}
         <View style={styles.footerWrap}>
           <BrandLogo variant="emblem" size={20} />
-          <Text style={styles.versionText}>
+          <Text style={[styles.versionText, { color: c.textMuted }]}>
             V MOTIV Customer App · Version 0.1.0 · India
           </Text>
         </View>
@@ -442,7 +517,6 @@ export function AccountScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: color.canvas,
   },
   topBar: {
     flexDirection: 'row',
@@ -450,9 +524,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: space.lg,
     paddingVertical: space.md,
-    backgroundColor: color.navy,
     borderBottomWidth: 1,
-    borderBottomColor: color.border,
   },
   verifiedAccountBadge: {
     flexDirection: 'row',
@@ -466,7 +538,6 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   verifiedAccountText: {
-    color: color.yellow,
     fontSize: 9.5,
     fontWeight: '800',
     letterSpacing: 0.5,
@@ -481,30 +552,21 @@ const styles = StyleSheet.create({
   userCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: color.surface,
     borderRadius: radius.lg,
     padding: space.lg,
     borderWidth: 1,
-    borderColor: color.border,
     gap: space.md,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 3,
+    elevation: 2,
   },
   avatar: {
     width: 54,
     height: 54,
     borderRadius: 27,
-    backgroundColor: color.raised,
     borderWidth: 2,
-    borderColor: color.yellow,
     alignItems: 'center',
     justifyContent: 'center',
   },
   avatarText: {
-    color: color.yellow,
     fontSize: 18,
     fontWeight: '900',
   },
@@ -513,19 +575,16 @@ const styles = StyleSheet.create({
     gap: 3,
   },
   userName: {
-    color: color.white,
     fontSize: 17,
     fontWeight: '800',
   },
   userEmail: {
-    color: color.textSecondary,
     fontSize: 13,
   },
   cityPill: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: color.input,
     paddingHorizontal: 8,
     paddingVertical: 3,
     borderRadius: radius.pill,
@@ -533,7 +592,6 @@ const styles = StyleSheet.create({
     marginTop: 4,
   },
   cityText: {
-    color: color.yellow,
     fontSize: 11,
     fontWeight: '700',
   },
@@ -541,17 +599,14 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   sectionHeader: {
-    color: color.muted,
     fontSize: 11,
     fontWeight: '800',
     letterSpacing: 1.2,
     paddingLeft: space.xs,
   },
   menuGroup: {
-    backgroundColor: color.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: color.border,
     overflow: 'hidden',
   },
   menuItem: {
@@ -559,14 +614,12 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: space.md,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.05)',
     gap: space.md,
   },
   menuIcon: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: color.raised,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -575,12 +628,10 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   menuTitle: {
-    color: color.white,
     fontSize: 14.5,
     fontWeight: '700',
   },
   menuDesc: {
-    color: color.muted,
     fontSize: 12,
   },
   signOutBtn: {
@@ -607,15 +658,12 @@ const styles = StyleSheet.create({
     paddingTop: space.sm,
   },
   versionText: {
-    color: color.muted,
     fontSize: 11.5,
     textAlign: 'center',
   },
   inspectorStaffCard: {
-    backgroundColor: color.surface,
     borderRadius: radius.lg,
     borderWidth: 1.5,
-    borderColor: color.yellow,
     padding: space.lg,
     gap: space.sm,
   },
@@ -623,30 +671,27 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     backgroundColor: 'rgba(247, 181, 3, 0.14)',
     borderWidth: 1,
-    borderColor: color.yellow,
+    borderColor: '#F7B503',
     borderRadius: radius.pill,
     paddingHorizontal: 8,
     paddingVertical: 3,
   },
   inspectorStaffBadgeText: {
-    color: color.yellow,
+    color: '#F7B503',
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 0.8,
   },
   inspectorStaffTitle: {
-    color: color.white,
     fontSize: 16,
     fontWeight: '800',
   },
   inspectorStaffSub: {
-    color: color.textSecondary,
     fontSize: 12.5,
     lineHeight: 18,
   },
   inspectorSwitchButton: {
     marginTop: space.xs,
-    backgroundColor: color.yellow,
     borderRadius: radius.md,
     paddingVertical: 12,
     paddingHorizontal: space.lg,
@@ -656,7 +701,6 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   inspectorSwitchButtonText: {
-    color: color.navy,
     fontSize: 13.5,
     fontWeight: '800',
   },

@@ -17,6 +17,42 @@ export type Profile = {
   } | null;
 };
 
+export type InspectionDefectItem = {
+  id: string;
+  title: string;
+  category: string;
+  location: string;
+  severity: 'MINOR' | 'MODERATE' | 'MAJOR';
+  repaired: boolean;
+  actionTaken: string;
+  description: string;
+  photoUrl: string;
+};
+
+export type InspectionSystemAudit = {
+  name: string;
+  pointsCount: number;
+  status: string;
+  highlights: string;
+  rating: string;
+};
+
+export type InspectionAuditDetails = {
+  certificationBadge: string;
+  certificationScore: string;
+  overallStatus: string;
+  totalChecksCount: number;
+  passedChecksCount: number;
+  imperfectionsCount: number;
+  inspectedDate: string;
+  leadInspector: string;
+  engineerSummary: string;
+  conditionSummary: string;
+  reportUrl: string | null;
+  systems: InspectionSystemAudit[];
+  defects: InspectionDefectItem[];
+};
+
 export type VehicleSummary = {
   id: string;
   title: string;
@@ -24,6 +60,15 @@ export type VehicleSummary = {
   currency: 'INR';
   publishedAt: string;
   isWishlisted: boolean;
+  status?: string;
+  isHeld?: boolean;
+  holdDetails?: {
+    isHeld: boolean;
+    status: string;
+    expiresAt: string | null;
+    message: string;
+  } | null;
+  inspectionDetails?: InspectionAuditDetails | null;
   vehicle: {
     id: string;
     make: string;
@@ -60,7 +105,27 @@ export type TestDrive = {
   locationPreference: 'HUB' | 'HOME';
   address: string | null;
   createdAt: string;
-  listing: Pick<VehicleSummary, 'id' | 'title' | 'pricePaise' | 'currency'>;
+  cancelledAt?: string | null;
+  listing: {
+    id: string;
+    title: string;
+    pricePaise: string;
+    currency: string;
+    status?: string;
+    vehicle?: {
+      make: string;
+      model: string;
+      variant?: string | null;
+      manufacturingYear: number;
+      fuelType: string;
+      transmission: string;
+      odometerKm: number;
+      color?: string | null;
+      city?: string | null;
+      verifiedTags?: string[];
+    };
+    media?: Array<{ id: string; url: string }>;
+  };
 };
 export type AcquisitionOffer = {
   id: string;
@@ -74,6 +139,18 @@ export type AcquisitionOffer = {
   acceptedAt: string | null;
   declinedAt: string | null;
   createdAt: string;
+};
+
+export type InspectionSummaryInfo = {
+  id: string;
+  status: 'REQUESTED' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+  assignmentStatus: string | null;
+  reportStatus: string | null;
+  scheduledAt: string | null;
+  completedAt: string | null;
+  locationType?: string | null;
+  address?: string | null;
+  isCompleted: boolean;
 };
 
 export type SellingRequest = {
@@ -107,8 +184,54 @@ export type SellingRequest = {
   cancelledAt: string | null;
   createdAt: string;
   offers: AcquisitionOffer[];
+  inspection?: InspectionSummaryInfo | null;
 };
-export type PurchaseEnquiry = { id: string; message: string | null; status: string; createdAt: string; listing: Pick<VehicleSummary, 'id' | 'title' | 'pricePaise' | 'currency'> };
+export type BuyerQuotationSummary = {
+  id: string;
+  status: 'DRAFT' | 'SHARED' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | string;
+  basePricePaise: string;
+  chargesPaise: string;
+  discountPaise: string;
+  finalAmountPaise: string;
+  validUntil: string;
+  terms: string | null;
+  createdAt: string;
+  authorName?: string;
+  authorEmail?: string | null;
+  authorPhone?: string | null;
+};
+export type PurchaseEnquiry = {
+  id: string;
+  message: string | null;
+  status: 'RECEIVED' | 'IN_REVIEW' | 'CONTACTED' | 'CLOSED' | string;
+  createdAt: string;
+  updatedAt?: string;
+  listing: {
+    id: string;
+    title: string;
+    pricePaise: string;
+    currency: string;
+    publishedAt?: string;
+    vehicle?: {
+      make: string;
+      model: string;
+      variant: string;
+      manufacturingYear: number;
+      fuelType: string;
+      transmission: string;
+      odometerKm: number;
+      color: string | null;
+      city: string | null;
+      verifiedTags?: string[];
+      conditionSummary?: string | null;
+      inspectionSummary?: string | null;
+      inspectionReportUrl?: string | null;
+    };
+    media?: Array<{ id: string; url: string }>;
+  };
+  quotations?: BuyerQuotationSummary[];
+  reservations?: Array<{ id: string; status: string; expiresAt: string; createdAt: string }>;
+};
 export type SupportCase = { id: string; referenceCode: string; subject: string; category: string; description: string; status: string; createdAt: string; updatedAt: string };
 export type SupportReply = { id: string; authorType: string; body: string; createdAt: string };
 export type SupportCaseDetail = SupportCase & { replies: SupportReply[] };

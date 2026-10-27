@@ -45,6 +45,8 @@ export type InspectionRequest = {
   branchId?: string | null;
   status: 'REQUESTED' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   scheduledAt?: string | null;
+  locationType: 'HUB' | 'HOME';
+  address?: string | null;
   createdAt: string;
   lead: {
     id: string;

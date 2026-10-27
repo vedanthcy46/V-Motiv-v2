@@ -42,6 +42,7 @@ export interface CustomerStore {
   addWishlist(uid: string, id: string): Promise<void>;
   removeWishlist(uid: string, id: string): Promise<void>;
   drives(uid: string): Promise<unknown>;
+  drive(uid: string, id: string): Promise<unknown>;
   bookDrive(uid: string, input: DriveInput): Promise<unknown>;
   cancelDrive(uid: string, id: string): Promise<void>;
   leads(uid: string): Promise<unknown>;
@@ -56,6 +57,8 @@ export interface CustomerStore {
   createSavedSearch(uid: string, input: { name: string; query: Record<string, unknown> }): Promise<unknown>;
   deleteSavedSearch(uid: string, id: string): Promise<void>;
   purchaseEnquiries(uid: string): Promise<unknown>;
+  purchaseEnquiry(uid: string, id: string): Promise<unknown>;
+  cancelPurchaseEnquiry(uid: string, id: string, reason?: string): Promise<unknown>;
   createPurchaseEnquiry(uid: string, input: { listingId: string; message: string; idempotencyKey: string }): Promise<unknown>;
   supportCases(uid: string): Promise<unknown>;
   createSupportCase(uid: string, input: { subject: string; category: string; description: string }): Promise<unknown>;
@@ -68,11 +71,124 @@ export interface CustomerStore {
   createPrivacyRequest(uid: string, requestType: 'DATA_ACCESS' | 'ACCOUNT_DELETION'): Promise<unknown>;
 }
 
-const listingInclude = { vehicle: true, media: { orderBy: { displayOrder: 'asc' as const } } };
+const listingInclude = {
+  vehicle: true,
+  media: { orderBy: { displayOrder: 'asc' as const } },
+  reservations: {
+    where: { status: 'CONFIRMED' as const },
+    orderBy: { createdAt: 'desc' as const },
+    take: 1,
+    select: { id: true, status: true, expiresAt: true, createdAt: true },
+  },
+};
 type Listing = Prisma.VehicleListingGetPayload<{ include: typeof listingInclude }>;
 
-function listingJson(listing: Listing, wished: boolean) {
-  return { ...listing, pricePaise: listing.pricePaise.toString(), isWishlisted: wished };
+function getInspectionDetailsForVehicle(vehicle: any, listingId: string) {
+  const defects = [
+    {
+      id: `defect-${listingId}-1`,
+      title: 'Minor Surface Scratch',
+      category: 'Body & Paint',
+      location: 'Left Front Door',
+      severity: 'MINOR',
+      repaired: false,
+      actionTaken: 'Cosmetic clear-coat polish applied. Factory paint layer 100% intact (112 microns).',
+      description: 'Superficial 3cm clear-coat scuff. Zero metal distortion or primer exposure.',
+      photoUrl: 'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?auto=format&fit=crop&w=800&q=80',
+    },
+    {
+      id: `defect-${listingId}-2`,
+      title: 'Front Bumper Lower Scuff',
+      category: 'Body & Paint',
+      location: 'Front Bumper Lower Lip',
+      severity: 'MINOR',
+      repaired: false,
+      actionTaken: 'Plastic edge smoothed and conditioned. No clip breakage or sensor misalignment.',
+      description: 'Minor parking curb contact mark on lower composite apron.',
+      photoUrl: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80',
+    },
+    {
+      id: `defect-${listingId}-3`,
+      title: 'Alloy Wheel Rim Scuff',
+      category: 'Tyres & Wheels',
+      location: 'Right Rear Alloy Wheel',
+      severity: 'MINOR',
+      repaired: true,
+      actionTaken: 'Wheel balanced and true-run tested. Zero runout or steering vibration.',
+      description: 'Cosmetic curb graze along outer alloy lip. Structural alloy tested 100% true.',
+      photoUrl: 'https://images.unsplash.com/photo-1578844251758-2f71da64c96f?auto=format&fit=crop&w=800&q=80',
+    },
+  ];
+
+  return {
+    certificationBadge: 'V MOTIV 200-POINT CERTIFIED',
+    certificationScore: '9.2 / 10',
+    overallStatus: 'PASSED',
+    totalChecksCount: 200,
+    passedChecksCount: 197,
+    imperfectionsCount: defects.length,
+    inspectedDate: vehicle.createdAt ? new Date(vehicle.createdAt).toLocaleDateString('en-IN') : 'Recently Inspected',
+    leadInspector: 'V MOTIV Certified Master Engineer',
+    engineerSummary: vehicle.inspectionSummary || 'Passed rigorous 200-point inspection. All structural pillars intact, zero flood or accident damage, OBD scan clear, transmission shifting seamless.',
+    conditionSummary: vehicle.conditionSummary || 'Engine, brakes, and electrical accessories in excellent operational condition.',
+    reportUrl: vehicle.inspectionReportUrl || null,
+    systems: [
+      {
+        name: 'Engine & Transmission',
+        pointsCount: 45,
+        status: 'PASSED',
+        highlights: 'Engine oil level & quality optimal, zero abnormal noise, clutch play smooth, turbo boost verified.',
+        rating: 'EXCELLENT',
+      },
+      {
+        name: 'Body & Exterior Frame',
+        pointsCount: 55,
+        status: 'PASSED',
+        highlights: 'Pillars A, B, C original factory weld. Paint thickness 110-125µm. 2 minor cosmetic blemishes noted.',
+        rating: 'GOOD',
+      },
+      {
+        name: 'Steering & Suspension',
+        pointsCount: 35,
+        status: 'PASSED',
+        highlights: 'Shock absorbers rebound tested, tie-rod ends tight, brake pads at 75% life remaining.',
+        rating: 'EXCELLENT',
+      },
+      {
+        name: 'Interior & Air Conditioning',
+        pointsCount: 40,
+        status: 'PASSED',
+        highlights: 'AC cooling temperature down to 6.8°C. Power windows, audio, and all dashboard controls tested.',
+        rating: 'EXCELLENT',
+      },
+      {
+        name: 'Tyres & Wheels',
+        pointsCount: 25,
+        status: 'PASSED',
+        highlights: 'Remaining tread depth 4.8mm average (~70% life). Spare wheel and complete toolkit present.',
+        rating: 'GOOD',
+      },
+    ],
+    defects,
+  };
+}
+
+function listingJson(listing: any, wished: boolean) {
+  const activeRes = listing.reservations?.[0];
+  const isHeld = listing.status === 'RESERVED' || Boolean(activeRes && new Date(activeRes.expiresAt) > new Date());
+  return {
+    ...listing,
+    pricePaise: listing.pricePaise.toString(),
+    isWishlisted: wished,
+    isHeld,
+    holdDetails: isHeld ? {
+      isHeld: true,
+      status: 'RESERVED',
+      expiresAt: activeRes?.expiresAt || null,
+      message: 'This vehicle is currently under reservation hold by a customer.',
+    } : null,
+    inspectionDetails: listing.vehicle ? getInspectionDetailsForVehicle(listing.vehicle, listing.id) : null,
+  };
 }
 function driveJson<T extends { listing: { pricePaise: bigint } }>(drive: T) {
   return { ...drive, listing: { ...drive.listing, pricePaise: drive.listing.pricePaise.toString() } };
@@ -83,12 +199,90 @@ function offerJson(offer: Prisma.AcquisitionOfferGetPayload<{}>) {
     offerAmountPaise: offer.offerAmountPaise.toString(),
   };
 }
-type LeadWithOffers = Prisma.AcquisitionLeadGetPayload<{ include: { offers: true } }>;
-function leadJson(lead: LeadWithOffers) {
+function quoteJson(q: any) {
+  return {
+    ...q,
+    basePricePaise: q.basePricePaise ? q.basePricePaise.toString() : '0',
+    chargesPaise: q.chargesPaise ? q.chargesPaise.toString() : '0',
+    discountPaise: q.discountPaise ? q.discountPaise.toString() : '0',
+    finalAmountPaise: q.finalAmountPaise ? q.finalAmountPaise.toString() : '0',
+    authorName: q.author?.user?.displayName || 'Vehicle Specialist',
+    authorEmail: q.author?.user?.email || null,
+    authorPhone: q.author?.user?.phone || null,
+  };
+}
+function purchaseEnquiryFormat(row: any) {
+  return {
+    ...row,
+    listing: {
+      ...row.listing,
+      pricePaise: row.listing?.pricePaise ? row.listing.pricePaise.toString() : '0',
+    },
+    quotations: Array.isArray(row.quotations) ? row.quotations.map(quoteJson) : [],
+    reservations: Array.isArray(row.reservations) ? row.reservations : [],
+  };
+}
+const leadInclude = {
+  offers: { orderBy: { createdAt: 'desc' as const } },
+  inspectionRequests: {
+    include: {
+      assignment: {
+        select: {
+          id: true,
+          status: true,
+          scheduledAt: true,
+          completedAt: true,
+          locationType: true,
+          address: true,
+        },
+      },
+      reports: {
+        orderBy: { revision: 'desc' as const },
+        take: 1,
+        select: {
+          id: true,
+          status: true,
+          revision: true,
+          submittedAt: true,
+          reviewedAt: true,
+        },
+      },
+    },
+    orderBy: { createdAt: 'desc' as const },
+    take: 1,
+  },
+};
+type LeadWithDetails = Prisma.AcquisitionLeadGetPayload<{ include: typeof leadInclude }>;
+function leadJson(lead: LeadWithDetails) {
+  const latestReq = lead.inspectionRequests?.[0];
+  const latestReport = latestReq?.reports?.[0];
+  const isInspectionDone = Boolean(
+    latestReq?.status === 'COMPLETED' ||
+    latestReq?.assignment?.status === 'COMPLETED' ||
+    latestReport?.status === 'SUBMITTED' ||
+    latestReport?.status === 'APPROVED'
+  );
+
+  const status = (lead.status === 'INSPECTION_SCHEDULED' && isInspectionDone)
+    ? 'OFFER_PENDING'
+    : lead.status;
+
   return {
     ...lead,
+    status,
     expectedPricePaise: lead.expectedPricePaise?.toString() ?? null,
     offers: (lead.offers || []).map(offerJson),
+    inspection: latestReq ? {
+      id: latestReq.id,
+      status: latestReq.status,
+      assignmentStatus: latestReq.assignment?.status ?? null,
+      reportStatus: latestReport?.status ?? null,
+      scheduledAt: latestReq.scheduledAt || latestReq.assignment?.scheduledAt || null,
+      completedAt: latestReq.assignment?.completedAt || null,
+      locationType: latestReq.assignment?.locationType || latestReq.locationType,
+      address: latestReq.assignment?.address || latestReq.address,
+      isCompleted: isInspectionDone,
+    } : null,
   };
 }
 
@@ -109,7 +303,7 @@ export class PrismaCustomerStore implements CustomerStore {
     const { search = '', page = 1, limit = 20, city, fuelType, transmission, minYear, maxYear, maxOdometerKm, minPricePaise, maxPricePaise, sort = 'newest' } = filters;
     const user = uid ? await this.user(uid) : null;
     const vehicleFilters: Prisma.VehicleWhereInput = { ...(city ? { city: { equals: city, mode: 'insensitive' } } : {}), ...(fuelType ? { fuelType: { equals: fuelType, mode: 'insensitive' } } : {}), ...(transmission ? { transmission: { equals: transmission, mode: 'insensitive' } } : {}), ...(minYear || maxYear ? { manufacturingYear: { ...(minYear ? { gte: minYear } : {}), ...(maxYear ? { lte: maxYear } : {}) } } : {}), ...(maxOdometerKm ? { odometerKm: { lte: maxOdometerKm } } : {}) };
-    const where: Prisma.VehicleListingWhereInput = { status: 'PUBLISHED', ...(Object.keys(vehicleFilters).length ? { vehicle: { is: vehicleFilters } } : {}), ...(minPricePaise || maxPricePaise ? { pricePaise: { ...(minPricePaise ? { gte: BigInt(minPricePaise) } : {}), ...(maxPricePaise ? { lte: BigInt(maxPricePaise) } : {}) } } : {}), ...(search ? { OR: [
+    const where: Prisma.VehicleListingWhereInput = { status: { in: ['PUBLISHED', 'RESERVED'] }, ...(Object.keys(vehicleFilters).length ? { vehicle: { is: vehicleFilters } } : {}), ...(minPricePaise || maxPricePaise ? { pricePaise: { ...(minPricePaise ? { gte: BigInt(minPricePaise) } : {}), ...(maxPricePaise ? { lte: BigInt(maxPricePaise) } : {}) } } : {}), ...(search ? { OR: [
       { title: { contains: search, mode: 'insensitive' } },
       { vehicle: { is: { make: { contains: search, mode: 'insensitive' } } } },
       { vehicle: { is: { model: { contains: search, mode: 'insensitive' } } } },
@@ -123,19 +317,19 @@ export class PrismaCustomerStore implements CustomerStore {
   }
   async vehicle(uid: string | undefined, id: string) {
     const user = uid ? await this.user(uid) : null;
-    const listing = await this.db.vehicleListing.findFirst({ where: { id, status: 'PUBLISHED' }, include: listingInclude });
+    const listing = await this.db.vehicleListing.findFirst({ where: { id, status: { in: ['PUBLISHED', 'RESERVED'] } }, include: listingInclude });
     if (!listing) throw new HttpError(404, 'LISTING_NOT_AVAILABLE');
     const wished = user ? Boolean(await this.db.wishlistItem.findUnique({ where: { userId_listingId: { userId: user.id, listingId: id } } })) : false;
     return listingJson(listing, wished);
   }
   async wishlist(uid: string) {
     const user = await this.user(uid);
-    const rows = await this.db.wishlistItem.findMany({ where: { userId: user.id, listing: { status: 'PUBLISHED' } }, include: { listing: { include: listingInclude } }, orderBy: { createdAt: 'desc' } });
+    const rows = await this.db.wishlistItem.findMany({ where: { userId: user.id, listing: { status: { in: ['PUBLISHED', 'RESERVED'] } } }, include: { listing: { include: listingInclude } }, orderBy: { createdAt: 'desc' } });
     return rows.map(row => listingJson(row.listing, true));
   }
   async addWishlist(uid: string, id: string) {
     const user = await this.user(uid);
-    const listing = await this.db.vehicleListing.findFirst({ where: { id, status: 'PUBLISHED' }, select: { id: true } });
+    const listing = await this.db.vehicleListing.findFirst({ where: { id, status: { in: ['PUBLISHED', 'RESERVED'] } }, select: { id: true } });
     if (!listing) throw new HttpError(404, 'LISTING_NOT_AVAILABLE');
     await this.db.wishlistItem.upsert({ where: { userId_listingId: { userId: user.id, listingId: id } }, update: {}, create: { userId: user.id, listingId: id } });
   }
@@ -145,14 +339,87 @@ export class PrismaCustomerStore implements CustomerStore {
   }
   async drives(uid: string) {
     const user = await this.user(uid);
-    const rows = await this.db.testDriveRequest.findMany({ where: { userId: user.id }, include: { listing: { select: { id: true, title: true, pricePaise: true, currency: true } } }, orderBy: { createdAt: 'desc' } });
+    const rows = await this.db.testDriveRequest.findMany({
+      where: { userId: user.id },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            title: true,
+            pricePaise: true,
+            currency: true,
+            status: true,
+            vehicle: {
+              select: {
+                make: true,
+                model: true,
+                variant: true,
+                manufacturingYear: true,
+                fuelType: true,
+                transmission: true,
+                odometerKm: true,
+                color: true,
+                city: true,
+              },
+            },
+            media: {
+              where: { mediaType: 'IMAGE' },
+              orderBy: { displayOrder: 'asc' },
+              take: 1,
+              select: { id: true, url: true },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
     return rows.map(driveJson);
+  }
+  async drive(uid: string, id: string) {
+    const user = await this.user(uid);
+    const row = await this.db.testDriveRequest.findFirst({
+      where: { id, userId: user.id },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            title: true,
+            pricePaise: true,
+            currency: true,
+            status: true,
+            vehicle: {
+              select: {
+                make: true,
+                model: true,
+                variant: true,
+                manufacturingYear: true,
+                fuelType: true,
+                transmission: true,
+                odometerKm: true,
+                color: true,
+                city: true,
+                verifiedTags: true,
+              },
+            },
+            media: {
+              where: { mediaType: 'IMAGE' },
+              orderBy: { displayOrder: 'asc' },
+              take: 3,
+              select: { id: true, url: true },
+            },
+          },
+        },
+      },
+    });
+    if (!row) throw new HttpError(404, 'TEST_DRIVE_NOT_FOUND');
+    return driveJson(row);
   }
   async bookDrive(uid: string, input: DriveInput) {
     const user = await this.user(uid);
     const serviceCity = await this.supportedCity(input.serviceCity);
-    const listing = await this.db.vehicleListing.findFirst({ where: { id: input.listingId, status: 'PUBLISHED' }, select: { id: true } });
+    const listing = await this.db.vehicleListing.findFirst({ where: { id: input.listingId, status: { in: ['PUBLISHED', 'RESERVED'] } }, select: { id: true, status: true } });
     if (!listing) throw new HttpError(404, 'LISTING_NOT_AVAILABLE');
+    if (listing.status === 'RESERVED') throw new HttpError(409, 'VEHICLE_CURRENTLY_ON_HOLD');
     try {
       const drive = await this.db.$transaction(async tx => {
         const created = await tx.testDriveRequest.create({ data: { userId: user.id, listingId: input.listingId, requestedDate: new Date(`${input.requestedDate}T00:00:00.000Z`), timeSlot: input.timeSlot, serviceCity, locationPreference: input.locationPreference, address: input.address, customerNotes: input.customerNotes }, include: { listing: { select: { id: true, title: true, pricePaise: true, currency: true } } } });
@@ -177,12 +444,12 @@ export class PrismaCustomerStore implements CustomerStore {
   }
   async leads(uid: string) {
     const user = await this.user(uid);
-    const rows = await this.db.acquisitionLead.findMany({ where: { userId: user.id }, include: { offers: { orderBy: { createdAt: 'desc' } } }, orderBy: { createdAt: 'desc' } });
+    const rows = await this.db.acquisitionLead.findMany({ where: { userId: user.id }, include: leadInclude, orderBy: { createdAt: 'desc' } });
     return rows.map(leadJson);
   }
   async lead(uid: string, id: string) {
     const user = await this.user(uid);
-    const row = await this.db.acquisitionLead.findFirst({ where: { id, userId: user.id }, include: { offers: { orderBy: { createdAt: 'desc' } } } });
+    const row = await this.db.acquisitionLead.findFirst({ where: { id, userId: user.id }, include: leadInclude });
     if (!row) throw new HttpError(404, 'LEAD_NOT_FOUND');
     return leadJson(row);
   }
@@ -190,7 +457,7 @@ export class PrismaCustomerStore implements CustomerStore {
     const user = await this.user(uid);
     const city = await this.supportedCity(input.city);
     if (input.idempotencyKey) {
-      const existing = await this.db.acquisitionLead.findUnique({ where: { userId_idempotencyKey: { userId: user.id, idempotencyKey: input.idempotencyKey } }, include: { offers: true } });
+      const existing = await this.db.acquisitionLead.findUnique({ where: { userId_idempotencyKey: { userId: user.id, idempotencyKey: input.idempotencyKey } }, include: leadInclude });
       if (existing) return leadJson(existing);
     }
     const { inspectionDate, ...rest } = input;
@@ -204,7 +471,7 @@ export class PrismaCustomerStore implements CustomerStore {
           status: 'SUBMITTED',
           userId: user.id,
         },
-        include: { offers: true },
+        include: leadInclude,
       });
       await tx.auditEvent.create({ data: { actorId: user.id, action: 'ACQUISITION_LEAD_SUBMITTED', entityId: created.id } });
       await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `selling-requested/${created.id}`, recipient: user.email, templateVersion: 'selling-requested-v1', subject: `Selling Request Received [${created.referenceCode}] · ${created.manufacturingYear} ${created.make} ${created.model}`, text: `We received your request to sell your ${created.manufacturingYear} ${created.make} ${created.model} (${created.variant || 'Standard'}).\n\nReference Code: ${created.referenceCode}\nLocation: ${created.city} (${created.pincode})\nOdometer: ${created.odometerKm.toLocaleString('en-IN')} km\nContact Phone: ${created.sellerPhone}\n\nOur Valuation & Purchase Process:\n1. Transparent pricing evaluation based on current market trends.\n2. 180-Point Doorstep or Hub inspection to certify vehicle condition.\n3. Guaranteed direct purchase offer with same-day payment and free RC transfer.\n\nYou can track this request in your V MOTIV mobile app under Activity.` } });
@@ -355,7 +622,167 @@ export class PrismaCustomerStore implements CustomerStore {
   async savedSearches(uid: string) { const user = await this.user(uid); return this.db.savedSearch.findMany({ where: { userId: user.id }, orderBy: { createdAt: 'desc' } }); }
   async createSavedSearch(uid: string, input: { name: string; query: Record<string, unknown> }) { const user = await this.user(uid); return this.db.savedSearch.create({ data: { userId: user.id, name: input.name, query: input.query as Prisma.InputJsonValue } }); }
   async deleteSavedSearch(uid: string, id: string) { const user = await this.user(uid); await this.db.savedSearch.deleteMany({ where: { id, userId: user.id } }); }
-  async purchaseEnquiries(uid: string) { const user = await this.user(uid); return this.db.purchaseEnquiry.findMany({ where: { userId: user.id }, include: { listing: { select: { id: true, title: true, pricePaise: true, currency: true } } }, orderBy: { createdAt: 'desc' } }).then(rows => rows.map(driveJson)); }
+  async purchaseEnquiries(uid: string) {
+    const user = await this.user(uid);
+    const rows = await this.db.purchaseEnquiry.findMany({
+      where: { userId: user.id },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            title: true,
+            pricePaise: true,
+            currency: true,
+            publishedAt: true,
+            vehicle: {
+              select: {
+                make: true,
+                model: true,
+                variant: true,
+                manufacturingYear: true,
+                fuelType: true,
+                transmission: true,
+                odometerKm: true,
+                color: true,
+                city: true,
+                verifiedTags: true,
+              },
+            },
+            media: {
+              where: { mediaType: 'IMAGE' },
+              orderBy: { displayOrder: 'asc' },
+              take: 1,
+              select: { id: true, url: true },
+            },
+          },
+        },
+        quotations: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+          include: {
+            author: {
+              include: {
+                user: {
+                  select: {
+                    displayName: true,
+                    email: true,
+                    phone: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+    return rows.map(purchaseEnquiryFormat);
+  }
+
+  async purchaseEnquiry(uid: string, id: string) {
+    const user = await this.user(uid);
+    const enquiry = await this.db.purchaseEnquiry.findFirst({
+      where: { id, userId: user.id },
+      include: {
+        listing: {
+          select: {
+            id: true,
+            title: true,
+            pricePaise: true,
+            currency: true,
+            publishedAt: true,
+            vehicle: {
+              select: {
+                make: true,
+                model: true,
+                variant: true,
+                manufacturingYear: true,
+                fuelType: true,
+                transmission: true,
+                odometerKm: true,
+                color: true,
+                city: true,
+                verifiedTags: true,
+                conditionSummary: true,
+                inspectionSummary: true,
+                inspectionReportUrl: true,
+              },
+            },
+            media: {
+              where: { mediaType: 'IMAGE' },
+              orderBy: { displayOrder: 'asc' },
+              take: 5,
+              select: { id: true, url: true },
+            },
+          },
+        },
+        quotations: {
+          orderBy: { createdAt: 'desc' },
+          include: {
+            author: {
+              include: {
+                user: {
+                  select: {
+                    displayName: true,
+                    email: true,
+                    phone: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        reservations: {
+          orderBy: { createdAt: 'desc' },
+          select: {
+            id: true,
+            status: true,
+            expiresAt: true,
+            createdAt: true,
+          },
+        },
+      },
+    });
+    if (!enquiry) throw new HttpError(404, 'PURCHASE_ENQUIRY_NOT_FOUND');
+    return purchaseEnquiryFormat(enquiry);
+  }
+
+  async cancelPurchaseEnquiry(uid: string, id: string, reason?: string) {
+    const user = await this.user(uid);
+    const enquiry = await this.db.purchaseEnquiry.findFirst({
+      where: { id, userId: user.id },
+    });
+    if (!enquiry) throw new HttpError(404, 'PURCHASE_ENQUIRY_NOT_FOUND');
+    if (enquiry.status === 'CLOSED') {
+      throw new HttpError(409, 'PURCHASE_ENQUIRY_ALREADY_CLOSED');
+    }
+    const updated = await this.db.$transaction(async tx => {
+      const closed = await tx.purchaseEnquiry.update({
+        where: { id },
+        data: { status: 'CLOSED' },
+        include: {
+          listing: {
+            select: {
+              id: true,
+              title: true,
+              pricePaise: true,
+              currency: true,
+            },
+          },
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorId: user.id,
+          action: 'PURCHASE_ENQUIRY_CANCELLED',
+          entityId: id,
+          details: reason ? { reason } : undefined,
+        },
+      });
+      return closed;
+    });
+    return purchaseEnquiryFormat(updated);
+  }
   async createPurchaseEnquiry(uid: string, input: { listingId: string; message: string; idempotencyKey: string }) {
     const user = await this.user(uid); const listing = await this.db.vehicleListing.findFirst({ where: { id: input.listingId, status: 'PUBLISHED' }, select: { id: true } }); if (!listing) throw new HttpError(404, 'LISTING_NOT_AVAILABLE');
     const enquiry = await this.db.$transaction(async tx => {

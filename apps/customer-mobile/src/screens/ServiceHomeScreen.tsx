@@ -1,0 +1,1422 @@
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation, useRoute } from '@react-navigation/native';
+import {
+  Activity,
+  AlertCircle,
+  AlertTriangle,
+  ArrowLeft,
+  Calendar,
+  Car,
+  Check,
+  CheckCircle,
+  ChevronRight,
+  CircleDot,
+  Clock,
+  Cpu,
+  Disc,
+  HelpCircle,
+  MapPin,
+  Plus,
+  Shield,
+  Truck,
+  Wind,
+  Wrench,
+  Zap,
+} from 'lucide-react-native';
+import { useAppTheme, radius, space } from '../theme';
+import { CarBrandLogo } from '../components/CarBrandLogo';
+import { useKeyboard } from '../components/KeyboardAwareFormScreen';
+import {
+  createCustomerVehicle,
+  createServiceRequest,
+  fetchCustomerVehicles,
+  fetchServiceCategories,
+  fetchServiceHubs,
+  fetchServiceTemplate,
+  fetchSlotAvailability,
+  type CustomerVehicle,
+  type ServiceHub,
+  type ServiceIssueCategory,
+  type ServiceIssueQuestion,
+  type ServiceIssueTemplate,
+  type SlotCapacity,
+} from '../services/service-api';
+
+const CATEGORY_ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
+  REGULAR_SERVICE: Wrench,
+  AC_SERVICE: Wind,
+  BATTERY_STARTING: Zap,
+  BRAKE_ISSUE: Disc,
+  TYRES_WHEELS: CircleDot,
+  NOISE_VIBRATION: Activity,
+  ENGINE_OVERHEATING: AlertTriangle,
+  ELECTRICAL_ISSUE: Cpu,
+  BODY_PAINT: Shield,
+  OTHER_PROBLEM: HelpCircle,
+};
+
+export function ServiceHomeScreen() {
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation<any>();
+  const route = useRoute<any>();
+  const preselectedVehicleId = route.params?.preselectedVehicleId as string | undefined;
+  const { theme, isDark } = useAppTheme();
+  const c = {
+    ...theme.colors,
+    text: theme.colors.textPrimary,
+    textMuted: theme.colors.textSecondary,
+    accent: theme.colors.brandAccent,
+  };
+
+  // Wizard Steps: 1: Car, 2: Issue, 3: Questions, 4: Fulfillment, 5: Slot, 6: Review
+  const [step, setStep] = useState<number>(1);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const scrollRef = useRef<ScrollView>(null);
+  const { isKeyboardVisible } = useKeyboard();
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }, [step]);
+
+  // Data
+  const [vehicles, setVehicles] = useState<CustomerVehicle[]>([]);
+  const [categories, setCategories] = useState<ServiceIssueCategory[]>([]);
+  const [hubs, setHubs] = useState<ServiceHub[]>([]);
+  const [slots, setSlots] = useState<SlotCapacity[]>([]);
+  const [loadingSlots, setLoadingSlots] = useState(false);
+
+  // Form Selections
+  const [selectedVehicle, setSelectedVehicle] = useState<CustomerVehicle | null>(null);
+  const [selectedCategory, setSelectedCategory] = useState<ServiceIssueCategory | null>(null);
+  const [template, setTemplate] = useState<ServiceIssueTemplate | null>(null);
+  const [answers, setAnswers] = useState<Record<string, any>>({});
+  const [customSymptoms, setCustomSymptoms] = useState('');
+  const [fulfillmentType, setFulfillmentType] = useState<'PICKUP_AND_RETURN' | 'SELF_DROP_AT_HUB'>('PICKUP_AND_RETURN');
+  const [selectedHub, setSelectedHub] = useState<ServiceHub | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>('');
+  const [selectedSlotTime, setSelectedSlotTime] = useState<string>('');
+  const [pickupAddress, setPickupAddress] = useState({
+    line1: '',
+    line2: '',
+    city: 'Chennai',
+    pincode: '600032',
+    instructions: '',
+  });
+
+  // Load initial data
+  const loadData = useCallback(async () => {
+    try {
+      const [vList, cList, hList] = await Promise.all([
+        fetchCustomerVehicles(),
+        fetchServiceCategories(),
+        fetchServiceHubs(),
+      ]);
+      setVehicles(vList);
+      setCategories(cList);
+      setHubs(hList);
+
+      if (vList.length > 0) {
+        if (preselectedVehicleId) {
+          const match = vList.find(v => v.id === preselectedVehicleId);
+          setSelectedVehicle(match || vList[0] || null);
+        } else {
+          const preferred = vList.find(v => v.isPreferred);
+          setSelectedVehicle(preferred || vList[0] || null);
+        }
+      }
+      if (hList.length > 0) {
+        setSelectedHub(hList[0] || null);
+      }
+
+      // Default date to tomorrow
+      const tomorrow = new Date(Date.now() + 24 * 60 * 60 * 1000);
+      const tomorrowStr = tomorrow.toISOString().slice(0, 10);
+      setSelectedDate(tomorrowStr);
+    } catch (err: any) {
+      console.warn('[SERVICE_HOME_INIT_ERROR]', err?.message || err);
+    } finally {
+      setLoading(false);
+    }
+  }, [preselectedVehicleId]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
+
+  // Load template when category is selected
+  const handleSelectCategory = async (cat: ServiceIssueCategory) => {
+    setSelectedCategory(cat);
+    setLoading(true);
+    try {
+      const t = await fetchServiceTemplate(cat.categoryKey);
+      setTemplate(t);
+      setStep(3); // Move to questions
+    } catch (err: any) {
+      Alert.alert('Error', 'Could not load service details. Please try again.');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Load slots when hub or date changes
+  useEffect(() => {
+    if (selectedHub && selectedDate) {
+      setLoadingSlots(true);
+      fetchSlotAvailability(selectedHub.id, selectedDate)
+        .then(res => {
+          setSlots(res);
+          const firstAvail = res.find(s => s.isAvailable);
+          if (firstAvail) setSelectedSlotTime(firstAvail.slotTime);
+        })
+        .catch(err => console.warn('[SLOTS_ERROR]', err))
+        .finally(() => setLoadingSlots(false));
+    }
+  }, [selectedHub, selectedDate]);
+
+  const handleAnswerChange = (questionId: string, value: any) => {
+    setAnswers(prev => ({ ...prev, [questionId]: value }));
+  };
+
+  const handleNextFromQuestions = () => {
+    if (!template) return;
+    // Check required questions
+    for (const q of template.questions) {
+      if (q.required && (answers[q.stableId] === undefined || answers[q.stableId] === '')) {
+        Alert.alert('Required Question', `Please answer: "${q.label}"`);
+        return;
+      }
+    }
+    setStep(4); // Move to fulfillment
+  };
+
+  const handleBookService = async () => {
+    if (!selectedVehicle || !selectedHub || !selectedCategory) return;
+    if (fulfillmentType === 'PICKUP_AND_RETURN' && (!pickupAddress.line1.trim() || !pickupAddress.pincode.trim())) {
+      Alert.alert('Address Required', 'Please provide your complete pickup address and pincode.');
+      return;
+    }
+    if (!selectedSlotTime) {
+      Alert.alert('Slot Required', 'Please select a preferred appointment time slot.');
+      return;
+    }
+
+    setSubmitting(true);
+    try {
+      const result = await createServiceRequest({
+        vehicleId: selectedVehicle.id,
+        hubId: selectedHub.id,
+        categoryKey: selectedCategory.categoryKey,
+        customerSymptoms: customSymptoms.trim() || selectedCategory.title,
+        questionAnswers: answers,
+        fulfillmentType,
+        scheduledDate: selectedDate,
+        scheduledTimeSlot: selectedSlotTime,
+        pickupAddress: fulfillmentType === 'PICKUP_AND_RETURN' ? pickupAddress : undefined,
+      });
+
+      Alert.alert(
+        'Service Booked!',
+        `Your request #${result.requestNumber} has been received. Our service advisor will coordinate shortly.`,
+        [
+          {
+            text: 'Track Request',
+            onPress: () => {
+              navigation.replace('ServiceRequestDetails', { requestId: result.id });
+            },
+          },
+        ]
+      );
+    } catch (err: any) {
+      Alert.alert('Booking Error', err?.message || 'Could not complete your service booking.');
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  const renderStep1Car = () => (
+    <View style={styles.stepContainer}>
+      <Text style={[styles.stepTitle, { color: c.text }]}>1. Select Your Vehicle</Text>
+      <Text style={[styles.stepSubtitle, { color: c.textMuted }]}>
+        Choose the vehicle you want to book for servicing.
+      </Text>
+
+      {vehicles.length === 0 ? (
+        <View style={[styles.noCarBox, { backgroundColor: c.surface, borderColor: c.border }]}>
+          <Car size={36} color={c.accent} />
+          <Text style={[styles.noCarTitle, { color: c.text }]}>No cars in your garage</Text>
+          <Text style={[styles.noCarText, { color: c.textMuted }]}>
+            Add your car now to proceed with booking your service.
+          </Text>
+          <TouchableOpacity
+            onPress={() => navigation.navigate('MyGarage')}
+            style={[styles.smallActionBtn, { backgroundColor: c.accent }]}
+          >
+            <Plus size={16} color="#061A38" />
+            <Text style={styles.smallActionBtnText}>Add Car to Garage</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.carListWrap}>
+          {vehicles.map(v => {
+            const isSelected = selectedVehicle?.id === v.id;
+            return (
+              <TouchableOpacity
+                key={v.id}
+                onPress={() => setSelectedVehicle(v)}
+                style={[
+                  styles.carSelectCard,
+                  {
+                    backgroundColor: isSelected ? (isDark ? '#162C4E' : '#FFF9E6') : c.surface,
+                    borderColor: isSelected ? c.accent : c.border,
+                  },
+                ]}
+              >
+                <View style={styles.carSelectLeft}>
+                  <CarBrandLogo brand={v.make} size={28} />
+                  <View>
+                    <Text style={[styles.carSelectTitle, { color: c.text }]}>
+                      {v.make} {v.model} ({v.year})
+                    </Text>
+                    <Text style={[styles.carSelectSub, { color: c.textMuted }]}>
+                      {v.registrationNumber || v.fuelType} · {v.odometerKm ? `${v.odometerKm.toLocaleString()} km` : 'No odo'}
+                    </Text>
+                  </View>
+                </View>
+                {isSelected && (
+                  <View style={[styles.checkCircle, { backgroundColor: c.accent }]}>
+                    <Check size={14} color="#061A38" strokeWidth={3} />
+                  </View>
+                )}
+              </TouchableOpacity>
+            );
+          })}
+        </View>
+      )}
+
+      {selectedVehicle && (
+        <TouchableOpacity
+          onPress={() => setStep(2)}
+          style={[styles.continueBtn, { backgroundColor: c.accent }]}
+        >
+          <Text style={styles.continueBtnText}>Next: What's the Issue?</Text>
+          <ChevronRight size={18} color="#061A38" />
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+
+  const renderStep2Category = () => (
+    <View style={styles.stepContainer}>
+      <Text style={[styles.stepTitle, { color: c.text }]}>2. What's wrong with your car?</Text>
+      <Text style={[styles.stepSubtitle, { color: c.textMuted }]}>
+        Select the symptom or maintenance package needed.
+      </Text>
+
+      <View style={styles.categoriesGrid}>
+        {categories.map(cat => {
+          const IconComponent = CATEGORY_ICON_MAP[cat.categoryKey] || Wrench;
+          return (
+            <TouchableOpacity
+              key={cat.categoryKey}
+              onPress={() => handleSelectCategory(cat)}
+              style={[
+                styles.categoryCard,
+                { backgroundColor: c.surface, borderColor: c.border },
+              ]}
+            >
+              <View style={[styles.catIconWrap, { backgroundColor: isDark ? '#142742' : '#EFF6FF' }]}>
+                <IconComponent size={24} color={c.accent} />
+              </View>
+              <View style={styles.catInfoWrap}>
+                <Text style={[styles.catTitle, { color: c.text }]}>{cat.title}</Text>
+                <Text style={[styles.catDesc, { color: c.textMuted }]} numberOfLines={2}>
+                  {cat.description}
+                </Text>
+
+                {cat.fixedPackageAvailable && cat.packagePricePaise && (
+                  <View style={[styles.pricePill, { backgroundColor: isDark ? '#1C3B24' : '#E8F5E9' }]}>
+                    <Text style={styles.pricePillText}>
+                      Fixed Package: ₹{(Number(cat.packagePricePaise) / 100).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
+                )}
+                {!cat.fixedPackageAvailable && (
+                  <View style={[styles.diagPill, { backgroundColor: isDark ? '#232D3F' : '#F1F5F9' }]}>
+                    <Text style={[styles.diagPillText, { color: c.textMuted }]}>
+                      Inspection & Free Estimate
+                    </Text>
+                  </View>
+                )}
+              </View>
+              <ChevronRight size={18} color={c.textMuted} />
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+    </View>
+  );
+
+  const renderStep3Questions = () => {
+    if (!template) return null;
+    return (
+      <View style={styles.stepContainer}>
+        <View style={styles.templateHeader}>
+          <Text style={[styles.stepTitle, { color: c.text }]}>{template.title}</Text>
+          <Text style={[styles.stepSubtitle, { color: c.textMuted }]}>
+            {template.description}
+          </Text>
+        </View>
+
+        {/* Package Features List if configured */}
+        {template.fixedPackageAvailable && template.packageFeatures && (
+          <View style={[styles.packageBox, { backgroundColor: isDark ? '#162C4E' : '#F8FAFC', borderColor: c.border }]}>
+            <Text style={[styles.packageBoxTitle, { color: c.text }]}>What’s Included:</Text>
+            {template.packageFeatures.map((feat, i) => (
+              <View key={i} style={styles.packageItemRow}>
+                <CheckCircle size={14} color="#10B981" />
+                <Text style={[styles.packageItemText, { color: c.text }]}>{feat}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* Dynamic Questions */}
+        <View style={styles.questionsList}>
+          {template.questions.map((q, idx) => (
+            <View key={q.stableId} style={[styles.questionCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+              <View style={styles.questionHeader}>
+                <Text style={[styles.questionNumber, { color: c.accent }]}>Q{idx + 1}</Text>
+                <Text style={[styles.questionLabel, { color: c.text }]}>
+                  {q.label} {q.required && '*'}
+                </Text>
+              </View>
+              {q.explanation && (
+                <Text style={[styles.questionExplanation, { color: c.textMuted }]}>
+                  {q.explanation}
+                </Text>
+              )}
+
+              {/* SINGLE_SELECT */}
+              {q.responseType === 'SINGLE_SELECT' && q.options && (
+                <View style={styles.optionsWrap}>
+                  {q.options.map(opt => {
+                    const isSelected = answers[q.stableId] === opt;
+                    return (
+                      <TouchableOpacity
+                        key={opt}
+                        onPress={() => handleAnswerChange(q.stableId, opt)}
+                        style={[
+                          styles.optionBtn,
+                          {
+                            backgroundColor: isSelected ? (isDark ? '#1C3B5E' : '#FFF9E6') : c.background,
+                            borderColor: isSelected ? c.accent : c.border,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.optionBtnText, { color: isSelected ? (isDark ? '#FFFFFF' : '#061A38') : c.text }]}>
+                          {opt}
+                        </Text>
+                        {isSelected && <Check size={14} color={c.accent} strokeWidth={3} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* MULTI_SELECT */}
+              {q.responseType === 'MULTI_SELECT' && q.options && (
+                <View style={styles.optionsWrap}>
+                  {q.options.map(opt => {
+                    const currentList: string[] = answers[q.stableId] || [];
+                    const isSelected = currentList.includes(opt);
+                    const toggle = () => {
+                      if (isSelected) {
+                        handleAnswerChange(q.stableId, currentList.filter(x => x !== opt));
+                      } else {
+                        handleAnswerChange(q.stableId, [...currentList, opt]);
+                      }
+                    };
+                    return (
+                      <TouchableOpacity
+                        key={opt}
+                        onPress={toggle}
+                        style={[
+                          styles.optionBtn,
+                          {
+                            backgroundColor: isSelected ? (isDark ? '#1C3B5E' : '#FFF9E6') : c.background,
+                            borderColor: isSelected ? c.accent : c.border,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.optionBtnText, { color: isSelected ? (isDark ? '#FFFFFF' : '#061A38') : c.text }]}>
+                          {opt}
+                        </Text>
+                        {isSelected && <Check size={14} color={c.accent} strokeWidth={3} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+
+              {/* NUMBER */}
+              {q.responseType === 'NUMBER' && (
+                <TextInput
+                  value={answers[q.stableId]?.toString() || ''}
+                  onChangeText={txt => handleAnswerChange(q.stableId, txt)}
+                  keyboardType="number-pad"
+                  placeholder="Enter value"
+                  placeholderTextColor={c.textMuted}
+                  style={[styles.input, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
+                />
+              )}
+
+              {/* TEXT */}
+              {q.responseType === 'TEXT' && (
+                <TextInput
+                  value={answers[q.stableId] || ''}
+                  onChangeText={txt => handleAnswerChange(q.stableId, txt)}
+                  placeholder="Type your notes or observations here..."
+                  placeholderTextColor={c.textMuted}
+                  multiline
+                  numberOfLines={3}
+                  style={[styles.textArea, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
+                />
+              )}
+
+              {/* BOOLEAN */}
+              {q.responseType === 'BOOLEAN' && (
+                <View style={styles.booleanRow}>
+                  {['Yes', 'No'].map(val => {
+                    const boolVal = val === 'Yes';
+                    const isSelected = answers[q.stableId] === boolVal;
+                    return (
+                      <TouchableOpacity
+                        key={val}
+                        onPress={() => handleAnswerChange(q.stableId, boolVal)}
+                        style={[
+                          styles.booleanBtn,
+                          {
+                            backgroundColor: isSelected ? c.accent : c.background,
+                            borderColor: isSelected ? c.accent : c.border,
+                          },
+                        ]}
+                      >
+                        <Text style={[styles.booleanBtnText, { color: isSelected ? '#061A38' : c.text }]}>
+                          {val}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          ))}
+
+          {/* Additional Custom Symptoms Box */}
+          <View style={[styles.questionCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <Text style={[styles.questionLabel, { color: c.text }]}>
+              Additional Notes or Specific Instructions
+            </Text>
+            <TextInput
+              value={customSymptoms}
+              onChangeText={setCustomSymptoms}
+              placeholder="e.g. Please also check the horn sound and windscreen wipers..."
+              placeholderTextColor={c.textMuted}
+              multiline
+              numberOfLines={3}
+              style={[styles.textArea, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
+            />
+          </View>
+        </View>
+
+        <TouchableOpacity
+          onPress={handleNextFromQuestions}
+          style={[styles.continueBtn, { backgroundColor: c.accent }]}
+        >
+          <Text style={styles.continueBtnText}>Next: Pickup or Hub Drop</Text>
+          <ChevronRight size={18} color="#061A38" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderStep4Fulfillment = () => (
+    <View style={styles.stepContainer}>
+      <Text style={[styles.stepTitle, { color: c.text }]}>4. How would you like to handover?</Text>
+      <Text style={[styles.stepSubtitle, { color: c.textMuted }]}>
+        Choose hassle-free doorstep pickup or drop off yourself at our service hub.
+      </Text>
+
+      {/* Option A: Pickup & Return */}
+      <TouchableOpacity
+        onPress={() => setFulfillmentType('PICKUP_AND_RETURN')}
+        style={[
+          styles.fulfillCard,
+          {
+            backgroundColor: fulfillmentType === 'PICKUP_AND_RETURN' ? (isDark ? '#162C4E' : '#FFF9E6') : c.surface,
+            borderColor: fulfillmentType === 'PICKUP_AND_RETURN' ? c.accent : c.border,
+          },
+        ]}
+      >
+        <View style={styles.fulfillHeader}>
+          <View style={[styles.fulfillIconCircle, { backgroundColor: isDark ? '#1E3A63' : '#EDF2F7' }]}>
+            <Truck size={22} color={c.accent} />
+          </View>
+          <View style={styles.fulfillTextWrap}>
+            <Text style={[styles.fulfillTitle, { color: c.text }]}>Doorstep Pickup & Return</Text>
+            <Text style={[styles.fulfillSubtitle, { color: c.textMuted }]}>
+              Our driver collects your vehicle from your home/office and returns it post-service.
+            </Text>
+          </View>
+        </View>
+        <View style={styles.fulfillFeeRow}>
+          <Text style={[styles.feeText, { color: c.text }]}>Logistics & Sanitization: ₹499</Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Option B: Self Drop at Hub */}
+      <TouchableOpacity
+        onPress={() => setFulfillmentType('SELF_DROP_AT_HUB')}
+        style={[
+          styles.fulfillCard,
+          {
+            backgroundColor: fulfillmentType === 'SELF_DROP_AT_HUB' ? (isDark ? '#162C4E' : '#FFF9E6') : c.surface,
+            borderColor: fulfillmentType === 'SELF_DROP_AT_HUB' ? c.accent : c.border,
+          },
+        ]}
+      >
+        <View style={styles.fulfillHeader}>
+          <View style={[styles.fulfillIconCircle, { backgroundColor: isDark ? '#1E3A63' : '#EDF2F7' }]}>
+            <MapPin size={22} color={c.accent} />
+          </View>
+          <View style={styles.fulfillTextWrap}>
+            <Text style={[styles.fulfillTitle, { color: c.text }]}>Self-Drop at Service Hub</Text>
+            <Text style={[styles.fulfillSubtitle, { color: c.textMuted }]}>
+              Drive in to your nearest authorized V MOTIV service center.
+            </Text>
+          </View>
+        </View>
+        <View style={styles.fulfillFeeRow}>
+          <Text style={[styles.freeFeeText, { color: '#10B981' }]}>FREE DROP-OFF</Text>
+        </View>
+      </TouchableOpacity>
+
+      {/* Address Form if Pickup */}
+      {fulfillmentType === 'PICKUP_AND_RETURN' && (
+        <View style={[styles.addressBox, { backgroundColor: c.surface, borderColor: c.border }]}>
+          <Text style={[styles.addressBoxTitle, { color: c.text }]}>Pickup Address</Text>
+          <TextInput
+            value={pickupAddress.line1}
+            onChangeText={txt => setPickupAddress(prev => ({ ...prev, line1: txt }))}
+            placeholder="House / Flat No., Building, Street *"
+            placeholderTextColor={c.textMuted}
+            style={[styles.input, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
+          />
+          <TextInput
+            value={pickupAddress.line2}
+            onChangeText={txt => setPickupAddress(prev => ({ ...prev, line2: txt }))}
+            placeholder="Locality / Landmark"
+            placeholderTextColor={c.textMuted}
+            style={[styles.input, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
+          />
+          <View style={styles.inputRow}>
+            <View style={styles.inputHalf}>
+              <TextInput
+                value={pickupAddress.city}
+                onChangeText={txt => setPickupAddress(prev => ({ ...prev, city: txt }))}
+                placeholder="City"
+                placeholderTextColor={c.textMuted}
+                style={[styles.input, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
+              />
+            </View>
+            <View style={styles.inputHalf}>
+              <TextInput
+                value={pickupAddress.pincode}
+                onChangeText={txt => setPickupAddress(prev => ({ ...prev, pincode: txt }))}
+                placeholder="Pincode *"
+                keyboardType="number-pad"
+                placeholderTextColor={c.textMuted}
+                style={[styles.input, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
+              />
+            </View>
+          </View>
+        </View>
+      )}
+
+      {/* Hub Selector */}
+      <View style={[styles.addressBox, { backgroundColor: c.surface, borderColor: c.border }]}>
+        <Text style={[styles.addressBoxTitle, { color: c.text }]}>Service Hub Location</Text>
+        {hubs.map(h => {
+          const isSelected = selectedHub?.id === h.id;
+          return (
+            <TouchableOpacity
+              key={h.id}
+              onPress={() => setSelectedHub(h)}
+              style={[
+                styles.hubOption,
+                {
+                  backgroundColor: isSelected ? (isDark ? '#1C3B5E' : '#FFF9E6') : c.background,
+                  borderColor: isSelected ? c.accent : c.border,
+                },
+              ]}
+            >
+              <View style={styles.hubOptionTextWrap}>
+                <Text style={[styles.hubOptionName, { color: c.text }]}>{h.name}</Text>
+                <Text style={[styles.hubOptionAddress, { color: c.textMuted }]}>{h.address}</Text>
+                <Text style={[styles.hubOptionHours, { color: c.textMuted }]}>Hours: {h.operatingHours}</Text>
+              </View>
+              {isSelected && <Check size={16} color={c.accent} strokeWidth={3} />}
+            </TouchableOpacity>
+          );
+        })}
+      </View>
+
+      <TouchableOpacity
+        onPress={() => setStep(5)}
+        style={[styles.continueBtn, { backgroundColor: c.accent }]}
+      >
+        <Text style={styles.continueBtnText}>Next: Schedule Appointment</Text>
+        <ChevronRight size={18} color="#061A38" />
+      </TouchableOpacity>
+    </View>
+  );
+
+  const renderStep5Schedule = () => {
+    // Generate next 6 dates
+    const dateOptions: Array<{ dateStr: string; label: string; day: string }> = [];
+    for (let i = 1; i <= 6; i++) {
+      const d = new Date(Date.now() + i * 24 * 60 * 60 * 1000);
+      const str = d.toISOString().slice(0, 10);
+      const dayName = d.toLocaleDateString('en-US', { weekday: 'short' });
+      const monthDay = d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+      dateOptions.push({ dateStr: str, label: monthDay, day: dayName });
+    }
+
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={[styles.stepTitle, { color: c.text }]}>5. Choose Date & Time</Text>
+        <Text style={[styles.stepSubtitle, { color: c.textMuted }]}>
+          Select your preferred appointment date and arrival time window.
+        </Text>
+
+        {/* Date Selector Row */}
+        <Text style={[styles.label, { color: c.text }]}>Select Date</Text>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroll}>
+          {dateOptions.map(opt => {
+            const isSelected = selectedDate === opt.dateStr;
+            return (
+              <TouchableOpacity
+                key={opt.dateStr}
+                onPress={() => setSelectedDate(opt.dateStr)}
+                style={[
+                  styles.datePill,
+                  {
+                    backgroundColor: isSelected ? c.accent : c.surface,
+                    borderColor: isSelected ? c.accent : c.border,
+                  },
+                ]}
+              >
+                <Text style={[styles.dateDay, { color: isSelected ? '#061A38' : c.textMuted }]}>
+                  {opt.day}
+                </Text>
+                <Text style={[styles.dateLabel, { color: isSelected ? '#061A38' : c.text }]}>
+                  {opt.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
+        </ScrollView>
+
+        {/* Time Slots */}
+        <Text style={[styles.label, { color: c.text, marginTop: space.lg }]}>
+          Available Time Slots
+        </Text>
+
+        {loadingSlots ? (
+          <ActivityIndicator size="small" color={c.accent} style={{ marginVertical: 20 }} />
+        ) : (
+          <View style={styles.slotsGrid}>
+            {slots.map(s => {
+              const isSelected = selectedSlotTime === s.slotTime;
+              const disabled = !s.isAvailable;
+              return (
+                <TouchableOpacity
+                  key={s.slotTime}
+                  disabled={disabled}
+                  onPress={() => setSelectedSlotTime(s.slotTime)}
+                  style={[
+                    styles.slotCard,
+                    {
+                      backgroundColor: isSelected ? (isDark ? '#1C3B5E' : '#FFF9E6') : c.surface,
+                      borderColor: isSelected ? c.accent : c.border,
+                      opacity: disabled ? 0.4 : 1,
+                    },
+                  ]}
+                >
+                  <Clock size={16} color={isSelected ? c.accent : c.textMuted} />
+                  <Text style={[styles.slotTimeText, { color: isSelected ? (isDark ? '#FFFFFF' : '#061A38') : c.text }]}>
+                    {s.slotTime}
+                  </Text>
+                  <Text style={[styles.slotCapText, { color: s.isAvailable ? '#10B981' : '#EF4444' }]}>
+                    {s.isAvailable ? `${s.availableCount} bays left` : 'Full'}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+        )}
+
+        <TouchableOpacity
+          onPress={() => setStep(6)}
+          style={[styles.continueBtn, { backgroundColor: c.accent, marginTop: space.xl }]}
+        >
+          <Text style={styles.continueBtnText}>Review & Confirm</Text>
+          <ChevronRight size={18} color="#061A38" />
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  const renderStep6Review = () => {
+    if (!selectedVehicle || !selectedCategory || !selectedHub) return null;
+    const isPackage = selectedCategory.fixedPackageAvailable && selectedCategory.packagePricePaise;
+    const packageAmount = isPackage ? Number(selectedCategory.packagePricePaise) / 100 : 0;
+    const pickupFee = fulfillmentType === 'PICKUP_AND_RETURN' ? 499 : 0;
+    const totalEst = packageAmount + pickupFee;
+
+    return (
+      <View style={styles.stepContainer}>
+        <Text style={[styles.stepTitle, { color: c.text }]}>6. Summary & Confirmation</Text>
+        <Text style={[styles.stepSubtitle, { color: c.textMuted }]}>
+          Review your appointment details before confirming.
+        </Text>
+
+        <View style={[styles.reviewCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+          {/* Vehicle */}
+          <View style={styles.reviewRow}>
+            <Text style={[styles.reviewLabel, { color: c.textMuted }]}>Vehicle</Text>
+            <Text style={[styles.reviewValue, { color: c.text }]}>
+              {selectedVehicle.make} {selectedVehicle.model} ({selectedVehicle.year})
+            </Text>
+          </View>
+
+          {/* Service Category */}
+          <View style={styles.reviewRow}>
+            <Text style={[styles.reviewLabel, { color: c.textMuted }]}>Service</Text>
+            <Text style={[styles.reviewValue, { color: c.text }]}>{selectedCategory.title}</Text>
+          </View>
+
+          {/* Fulfillment */}
+          <View style={styles.reviewRow}>
+            <Text style={[styles.reviewLabel, { color: c.textMuted }]}>Handover Mode</Text>
+            <Text style={[styles.reviewValue, { color: c.text }]}>
+              {fulfillmentType === 'PICKUP_AND_RETURN' ? 'Doorstep Pickup' : 'Self-Drop at Hub'}
+            </Text>
+          </View>
+
+          {/* Location / Hub */}
+          <View style={styles.reviewRow}>
+            <Text style={[styles.reviewLabel, { color: c.textMuted }]}>Hub</Text>
+            <Text style={[styles.reviewValue, { color: c.text }]}>{selectedHub.name}</Text>
+          </View>
+
+          {/* Slot */}
+          <View style={styles.reviewRow}>
+            <Text style={[styles.reviewLabel, { color: c.textMuted }]}>Appointment</Text>
+            <Text style={[styles.reviewValue, { color: c.text }]}>
+              {selectedDate} · {selectedSlotTime}
+            </Text>
+          </View>
+
+          {/* Pricing Breakdown */}
+          <View style={[styles.priceBreakdown, { borderTopColor: c.border }]}>
+            {isPackage ? (
+              <View style={styles.priceRow}>
+                <Text style={[styles.priceItemLabel, { color: c.text }]}>Service Package Fee</Text>
+                <Text style={[styles.priceItemVal, { color: c.text }]}>₹{packageAmount.toLocaleString('en-IN')}</Text>
+              </View>
+            ) : (
+              <View style={styles.priceRow}>
+                <Text style={[styles.priceItemLabel, { color: c.text }]}>Inspection & Diagnosis</Text>
+                <Text style={[styles.priceItemVal, { color: '#10B981' }]}>Included / Estimate Post-Check</Text>
+              </View>
+            )}
+
+            {fulfillmentType === 'PICKUP_AND_RETURN' && (
+              <View style={styles.priceRow}>
+                <Text style={[styles.priceItemLabel, { color: c.text }]}>Doorstep Pickup & Return</Text>
+                <Text style={[styles.priceItemVal, { color: c.text }]}>₹499</Text>
+              </View>
+            )}
+
+            {isPackage && (
+              <View style={[styles.totalRow, { borderTopColor: c.border }]}>
+                <Text style={[styles.totalLabel, { color: c.text }]}>Total Configured Price</Text>
+                <Text style={[styles.totalVal, { color: c.accent }]}>₹{totalEst.toLocaleString('en-IN')}</Text>
+              </View>
+            )}
+          </View>
+        </View>
+
+        <TouchableOpacity
+          onPress={handleBookService}
+          disabled={submitting}
+          style={[styles.confirmBtn, { backgroundColor: c.accent }]}
+        >
+          {submitting ? (
+            <ActivityIndicator size="small" color="#061A38" />
+          ) : (
+            <Text style={styles.confirmBtnText}>Confirm & Book Service</Text>
+          )}
+        </TouchableOpacity>
+      </View>
+    );
+  };
+
+  return (
+    <View style={[styles.container, { backgroundColor: c.background, paddingTop: insets.top }]}>
+      {/* Header */}
+      <View style={[styles.topBar, { borderBottomColor: c.border }]}>
+        <TouchableOpacity
+          onPress={() => {
+            if (step > 1) setStep(step - 1);
+            else navigation.goBack();
+          }}
+          style={[styles.iconBtn, { backgroundColor: c.surface }]}
+        >
+          <ArrowLeft size={20} color={c.text} />
+        </TouchableOpacity>
+        <Text style={[styles.topBarTitle, { color: c.text }]}>Book Car Service</Text>
+        <View style={styles.stepBadge}>
+          <Text style={[styles.stepBadgeText, { color: c.textMuted }]}>
+            Step {step} of 6
+          </Text>
+        </View>
+      </View>
+
+      <KeyboardAvoidingView
+        style={{ flex: 1 }}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
+      >
+        <ScrollView
+          ref={scrollRef}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingBottom: isKeyboardVisible ? 240 : 120 },
+          ]}
+          keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="on-drag"
+          showsVerticalScrollIndicator={false}
+          automaticallyAdjustKeyboardInsets={true}
+        >
+          {loading ? (
+            <View style={styles.loadingBox}>
+              <ActivityIndicator size="large" color={c.accent} />
+              <Text style={[styles.loadingText, { color: c.textMuted }]}>Loading service options...</Text>
+            </View>
+          ) : (
+            <>
+              {step === 1 && renderStep1Car()}
+              {step === 2 && renderStep2Category()}
+              {step === 3 && renderStep3Questions()}
+              {step === 4 && renderStep4Fulfillment()}
+              {step === 5 && renderStep5Schedule()}
+              {step === 6 && renderStep6Review()}
+            </>
+          )}
+        </ScrollView>
+      </KeyboardAvoidingView>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  iconBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  topBarTitle: {
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  stepBadge: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  stepBadgeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  scrollContent: {
+    padding: space.lg,
+    paddingBottom: 40,
+  },
+  loadingBox: {
+    paddingVertical: 60,
+    alignItems: 'center',
+    gap: 12,
+  },
+  loadingText: {
+    fontSize: 14,
+  },
+  stepContainer: {
+    gap: space.md,
+  },
+  stepTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+  },
+  stepSubtitle: {
+    fontSize: 14,
+    lineHeight: 20,
+  },
+  noCarBox: {
+    padding: 24,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: 12,
+    marginVertical: 12,
+  },
+  noCarTitle: {
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  noCarText: {
+    fontSize: 13,
+    textAlign: 'center',
+  },
+  smallActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: radius.pill,
+    marginTop: 4,
+  },
+  smallActionBtnText: {
+    color: '#061A38',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  carListWrap: {
+    gap: 10,
+    marginVertical: 8,
+  },
+  carSelectCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: space.md,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+  },
+  carSelectLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  carSelectTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  carSelectSub: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  checkCircle: {
+    width: 24,
+    height: 24,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  continueBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    height: 50,
+    borderRadius: radius.pill,
+    marginTop: space.lg,
+  },
+  continueBtnText: {
+    color: '#061A38',
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  categoriesGrid: {
+    gap: 12,
+    marginTop: 8,
+  },
+  categoryCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: space.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: 12,
+  },
+  catIconWrap: {
+    width: 48,
+    height: 48,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  catInfoWrap: {
+    flex: 1,
+    gap: 4,
+  },
+  catTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  catDesc: {
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  pricePill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    marginTop: 4,
+  },
+  pricePillText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#10B981',
+  },
+  diagPill: {
+    alignSelf: 'flex-start',
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+    marginTop: 4,
+  },
+  diagPillText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  templateHeader: {
+    gap: 4,
+  },
+  packageBox: {
+    padding: space.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 8,
+  },
+  packageBoxTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  packageItemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  packageItemText: {
+    fontSize: 13,
+  },
+  questionsList: {
+    gap: space.md,
+    marginTop: 8,
+  },
+  questionCard: {
+    padding: space.md,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 8,
+  },
+  questionHeader: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  questionNumber: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  questionLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    flex: 1,
+  },
+  questionExplanation: {
+    fontSize: 12,
+  },
+  optionsWrap: {
+    gap: 8,
+    marginTop: 4,
+  },
+  optionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  optionBtnText: {
+    fontSize: 13,
+    fontWeight: '500',
+    flex: 1,
+  },
+  booleanRow: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 6,
+  },
+  booleanBtn: {
+    flex: 1,
+    height: 40,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  booleanBtnText: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  input: {
+    height: 44,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    fontSize: 14,
+  },
+  textArea: {
+    minHeight: 70,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    fontSize: 14,
+    textAlignVertical: 'top',
+  },
+  fulfillCard: {
+    padding: space.md,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    gap: 8,
+  },
+  fulfillHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  fulfillIconCircle: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  fulfillTextWrap: {
+    flex: 1,
+  },
+  fulfillTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  fulfillSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+    lineHeight: 16,
+  },
+  fulfillFeeRow: {
+    alignSelf: 'flex-start',
+    paddingTop: 4,
+  },
+  feeText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  freeFeeText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  addressBox: {
+    padding: space.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: 10,
+  },
+  addressBoxTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  inputRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  inputHalf: {
+    flex: 1,
+  },
+  hubOption: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 10,
+  },
+  hubOptionTextWrap: {
+    flex: 1,
+    gap: 2,
+  },
+  hubOptionName: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  hubOptionAddress: {
+    fontSize: 12,
+  },
+  hubOptionHours: {
+    fontSize: 11,
+  },
+  label: {
+    fontSize: 13,
+    fontWeight: '600',
+    marginBottom: 6,
+  },
+  dateScroll: {
+    gap: 10,
+  },
+  datePill: {
+    paddingHorizontal: 16,
+    paddingVertical: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    minWidth: 80,
+  },
+  dateDay: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  dateLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  slotsGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+  },
+  slotCard: {
+    width: '48%',
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: 4,
+  },
+  slotTimeText: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  slotCapText: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  reviewCard: {
+    padding: space.md,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    gap: 12,
+  },
+  reviewRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  reviewLabel: {
+    fontSize: 13,
+  },
+  reviewValue: {
+    fontSize: 14,
+    fontWeight: '600',
+    maxWidth: '65%',
+    textAlign: 'right',
+  },
+  priceBreakdown: {
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 12,
+    gap: 8,
+  },
+  priceRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+  },
+  priceItemLabel: {
+    fontSize: 13,
+  },
+  priceItemVal: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  totalRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 8,
+    marginTop: 4,
+  },
+  totalLabel: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  totalVal: {
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  confirmBtn: {
+    height: 52,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: space.lg,
+  },
+  confirmBtnText: {
+    color: '#061A38',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+});

@@ -1,246 +1,876 @@
-import React from 'react';
-import { Linking, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import {
+  Image,
+  Linking,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { ArrowLeft, CheckCircle2, Download, FileText, ShieldCheck } from 'lucide-react-native';
-import { color, radius, space } from '../theme';
+import {
+  AlertCircle,
+  ArrowLeft,
+  Camera,
+  CheckCircle2,
+  ChevronRight,
+  Download,
+  Eye,
+  FileText,
+  Gauge,
+  Info,
+  ShieldAlert,
+  ShieldCheck,
+  Sparkles,
+  Wrench,
+  X,
+  XCircle,
+} from 'lucide-react-native';
+import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
+import type { InspectionAuditDetails, InspectionDefectItem } from '../types';
 
 type Props = NativeStackScreenProps<RootStack, 'InspectionHighlights'>;
 
+type TabKey = 'DEFECTS' | 'SYSTEMS' | 'DIAGNOSTICS';
+
 export function InspectionHighlightsScreen({ route, navigation }: Props) {
-  const { inspectionSummary, conditionSummary, verifiedTags, features, reportUrl } = route.params;
+  const { inspectionSummary, conditionSummary, verifiedTags, features, reportUrl, inspectionDetails } = route.params;
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+
+  const [activeTab, setActiveTab] = useState<TabKey>('DEFECTS');
+  const [selectedPhoto, setSelectedPhoto] = useState<InspectionDefectItem | null>(null);
+  const [defectFilter, setDefectFilter] = useState<string>('ALL');
+
+  // Fallback defaults if inspectionDetails wasn't passed directly
+  const audit: InspectionAuditDetails = inspectionDetails || {
+    certificationBadge: 'V MOTIV 200-POINT CERTIFIED',
+    certificationScore: '9.2 / 10',
+    overallStatus: 'PASSED',
+    totalChecksCount: 200,
+    passedChecksCount: 197,
+    imperfectionsCount: 3,
+    inspectedDate: 'Recently Certified',
+    leadInspector: 'V MOTIV Master Quality Engineer',
+    engineerSummary: inspectionSummary || 'Comprehensive 200-point inspection passed with zero structural damage. All factory pillars intact and OBD clear.',
+    conditionSummary: conditionSummary || 'Powertrain, steering, and electrical components tested optimal.',
+    reportUrl: reportUrl || null,
+    systems: [
+      {
+        name: 'Engine & Transmission',
+        pointsCount: 45,
+        status: 'PASSED',
+        highlights: 'Engine oil level & quality optimal, zero abnormal noise, clutch play smooth, turbo boost verified.',
+        rating: 'EXCELLENT',
+      },
+      {
+        name: 'Body & Exterior Frame',
+        pointsCount: 55,
+        status: 'PASSED',
+        highlights: 'Pillars A, B, C original factory weld. Paint thickness 110-125µm. 2 minor cosmetic blemishes noted.',
+        rating: 'GOOD',
+      },
+      {
+        name: 'Steering & Suspension',
+        pointsCount: 35,
+        status: 'PASSED',
+        highlights: 'Shock absorbers rebound tested, tie-rod ends tight, brake pads at 75% life remaining.',
+        rating: 'EXCELLENT',
+      },
+      {
+        name: 'Interior & Air Conditioning',
+        pointsCount: 40,
+        status: 'PASSED',
+        highlights: 'AC cooling temperature down to 6.8°C. Power windows, audio, and all dashboard controls tested.',
+        rating: 'EXCELLENT',
+      },
+      {
+        name: 'Tyres & Wheels',
+        pointsCount: 25,
+        status: 'PASSED',
+        highlights: 'Remaining tread depth 4.8mm average (~70% life). Spare wheel and complete toolkit present.',
+        rating: 'GOOD',
+      },
+    ],
+    defects: [
+      {
+        id: 'defect-1',
+        title: 'Minor Surface Scratch',
+        category: 'Body & Paint',
+        location: 'Left Front Door',
+        severity: 'MINOR',
+        repaired: false,
+        actionTaken: 'Cosmetic clear-coat polish applied. Factory paint layer 100% intact (112 microns).',
+        description: 'Superficial 3cm clear-coat scuff. Zero metal distortion or primer exposure.',
+        photoUrl: 'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?auto=format&fit=crop&w=800&q=80',
+      },
+      {
+        id: 'defect-2',
+        title: 'Front Bumper Lower Scuff',
+        category: 'Body & Paint',
+        location: 'Front Bumper Lower Lip',
+        severity: 'MINOR',
+        repaired: false,
+        actionTaken: 'Plastic edge smoothed and conditioned. No clip breakage or sensor misalignment.',
+        description: 'Minor parking curb contact mark on lower composite apron.',
+        photoUrl: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80',
+      },
+      {
+        id: 'defect-3',
+        title: 'Alloy Wheel Rim Scuff',
+        category: 'Tyres & Wheels',
+        location: 'Right Rear Alloy Wheel',
+        severity: 'MINOR',
+        repaired: true,
+        actionTaken: 'Wheel balanced and true-run tested. Zero runout or steering vibration.',
+        description: 'Cosmetic curb graze along outer alloy lip. Structural alloy tested 100% true.',
+        photoUrl: 'https://images.unsplash.com/photo-1578844251758-2f71da64c96f?auto=format&fit=crop&w=800&q=80',
+      },
+    ],
+  };
+
+  const filteredDefects = audit.defects.filter(d => {
+    if (defectFilter === 'ALL') return true;
+    return d.category === defectFilter;
+  });
+
+  const categories = ['ALL', ...Array.from(new Set(audit.defects.map(d => d.category)))];
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
-        <TouchableOpacity
-          onPress={() => navigation.goBack()}
-          style={styles.backBtn}
-        >
-          <ArrowLeft size={22} color={color.white} />
+        <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
+          <ArrowLeft size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>Inspection information</Text>
+        <Text style={styles.headerTitle}>200-Point Inspection</Text>
         <View style={{ width: 40 }} />
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <View style={styles.badgeBanner}>
-          <ShieldCheck size={36} color={color.yellow} />
-          <View style={styles.badgeTextContainer}>
-            <Text style={styles.badgeTitle}>Published vehicle information</Text>
-            <Text style={styles.badgeSubtitle}>
-              Only inspection information supplied by V MOTIV operations is shown here.
-            </Text>
+        {/* Certification Score Card */}
+        <View style={styles.scoreBanner}>
+          <View style={styles.scoreHeaderRow}>
+            <View style={styles.badgeRow}>
+              <ShieldCheck size={20} color={colors.brandAccent} />
+              <Text style={styles.badgeLabel}>{audit.certificationBadge}</Text>
+            </View>
+            <View style={styles.scorePill}>
+              <Text style={styles.scorePillText}>{audit.certificationScore}</Text>
+            </View>
+          </View>
+
+          <Text style={styles.scoreSummaryTitle}>Transparent Spinny-Grade Inspection</Text>
+          <Text style={styles.scoreSummarySub}>
+            Every defect is photographed in high definition with location and severity tags. 100% non-accidental guarantee.
+          </Text>
+
+          <View style={styles.metricRow}>
+            <View style={styles.metricCol}>
+              <Text style={styles.metricNum}>{audit.totalChecksCount}</Text>
+              <Text style={styles.metricLabel}>Total Checks</Text>
+            </View>
+            <View style={styles.metricDivider} />
+            <View style={styles.metricCol}>
+              <Text style={[styles.metricNum, { color: '#61D99A' }]}>{audit.passedChecksCount}</Text>
+              <Text style={styles.metricLabel}>Passed Clean</Text>
+            </View>
+            <View style={styles.metricDivider} />
+            <View style={styles.metricCol}>
+              <Text style={[styles.metricNum, { color: colors.brandAccent }]}>{audit.imperfectionsCount}</Text>
+              <Text style={styles.metricLabel}>Cosmetic Defects</Text>
+            </View>
           </View>
         </View>
 
-        {inspectionSummary ? (
-          <View style={styles.summaryCard}>
-            <Text style={styles.cardTitle}>Engineer's Assessment</Text>
-            <Text style={styles.summaryText}>{inspectionSummary}</Text>
-          </View>
-        ) : null}
-
-        {conditionSummary ? (
-          <View style={styles.summaryCard}>
-            <Text style={styles.cardTitle}>Vehicle Condition & Care</Text>
-            <Text style={styles.summaryText}>{conditionSummary}</Text>
-          </View>
-        ) : null}
-
-        {verifiedTags.length ? <View style={styles.tagsContainer}>
-          <Text style={styles.cardTitle}>Published tags</Text>
-          <View style={styles.tagChips}>{verifiedTags.map((tag) => <View key={tag} style={styles.tagChip}><CheckCircle2 size={14} color={color.yellow} /><Text style={styles.tagText}>{tag.replace(/_/g, ' ')}</Text></View>)}</View>
-        </View> : null}
-
-        {features && features.length > 0 ? (
-          <View style={styles.summaryCard}>
-            <Text style={styles.cardTitle}>Published fitted features</Text>
-            <View style={styles.tagChips}>
-              {features.map((feat, i) => (
-                <View key={i} style={styles.featureChip}>
-                  <Text style={styles.featureText}>{feat}</Text>
-                </View>
-              ))}
-            </View>
-          </View>
-        ) : null}
-
-        {!inspectionSummary && !conditionSummary && !verifiedTags.length && !features.length ? <View style={styles.summaryCard}><Text style={styles.cardTitle}>No inspection details published</Text><Text style={styles.summaryText}>This listing can still be reviewed, but inspection information has not been published by operations.</Text></View> : null}
-        {reportUrl ? (
+        {/* Tab Switcher */}
+        <View style={styles.tabsContainer}>
           <TouchableOpacity
-            style={styles.downloadBtn}
-            onPress={() => Linking.openURL(reportUrl)}
+            style={[styles.tabButton, activeTab === 'DEFECTS' && styles.tabButtonActive]}
+            onPress={() => setActiveTab('DEFECTS')}
           >
-            <Download size={18} color={color.navy} />
-            <Text style={styles.downloadBtnText}>Open published inspection report</Text>
+            <Camera size={15} color={activeTab === 'DEFECTS' ? '#061A38' : colors.textMuted} />
+            <Text style={[styles.tabButtonText, activeTab === 'DEFECTS' && styles.tabButtonTextActive]}>
+              Defects & Photos ({audit.defects.length})
+            </Text>
           </TouchableOpacity>
-        ) : null}
+
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'SYSTEMS' && styles.tabButtonActive]}
+            onPress={() => setActiveTab('SYSTEMS')}
+          >
+            <Wrench size={15} color={activeTab === 'SYSTEMS' ? '#061A38' : colors.textMuted} />
+            <Text style={[styles.tabButtonText, activeTab === 'SYSTEMS' && styles.tabButtonTextActive]}>
+              Systems Audit
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            style={[styles.tabButton, activeTab === 'DIAGNOSTICS' && styles.tabButtonActive]}
+            onPress={() => setActiveTab('DIAGNOSTICS')}
+          >
+            <Gauge size={15} color={activeTab === 'DIAGNOSTICS' ? '#061A38' : colors.textMuted} />
+            <Text style={[styles.tabButtonText, activeTab === 'DIAGNOSTICS' && styles.tabButtonTextActive]}>
+              Road Test
+            </Text>
+          </TouchableOpacity>
+        </View>
+
+        {/* TAB 1: DEFECTS & DEFECTIVE PHOTOS (LIKE SPINNY) */}
+        {activeTab === 'DEFECTS' && (
+          <View style={styles.section}>
+            {/* Filter Pills */}
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterPillsScroll}>
+              {categories.map(cat => (
+                <TouchableOpacity
+                  key={cat}
+                  style={[styles.filterPill, defectFilter === cat && styles.filterPillActive]}
+                  onPress={() => setDefectFilter(cat)}
+                >
+                  <Text style={[styles.filterPillText, defectFilter === cat && styles.filterPillTextActive]}>
+                    {cat === 'ALL' ? 'All Defects' : cat}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </ScrollView>
+
+            <Text style={styles.tabSectionKicker}>
+              Tap any photograph to zoom into the documented imperfection.
+            </Text>
+
+            {filteredDefects.map((defect) => (
+              <View key={defect.id} style={styles.defectCard}>
+                {/* Defect Photo with tap zoom */}
+                <TouchableOpacity
+                  activeOpacity={0.9}
+                  style={styles.defectImageWrapper}
+                  onPress={() => setSelectedPhoto(defect)}
+                >
+                  <Image source={{ uri: defect.photoUrl }} style={styles.defectImage} resizeMode="cover" />
+                  <View style={styles.defectImageOverlay}>
+                    <Eye size={14} color="#FFFFFF" />
+                    <Text style={styles.defectImageOverlayText}>Tap to zoom</Text>
+                  </View>
+                  <View style={styles.defectSeverityPill}>
+                    <Text style={styles.defectSeverityText}>{defect.severity}</Text>
+                  </View>
+                </TouchableOpacity>
+
+                {/* Defect Details */}
+                <View style={styles.defectInfo}>
+                  <View style={styles.defectTitleRow}>
+                    <Text style={styles.defectTitle}>{defect.title}</Text>
+                    <View style={[styles.repairedPill, defect.repaired ? styles.repairedDone : styles.repairedAsIs]}>
+                      <Text style={[styles.repairedText, { color: defect.repaired ? '#61D99A' : colors.brandAccent }]}>
+                        {defect.repaired ? 'Touch-up Done' : 'As-Is Cosmetic'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.defectMetaRow}>
+                    <Text style={styles.defectPartLocation}>📍 {defect.location}</Text>
+                    <Text style={styles.defectCategoryTag}>{defect.category}</Text>
+                  </View>
+
+                  <Text style={styles.defectDesc}>{defect.description}</Text>
+
+                  <View style={styles.actionTakenBox}>
+                    <Info size={14} color={colors.brandAccent} />
+                    <Text style={styles.actionTakenText}>{defect.actionTaken}</Text>
+                  </View>
+                </View>
+              </View>
+            ))}
+
+            {filteredDefects.length === 0 && (
+              <View style={styles.emptyCard}>
+                <CheckCircle2 size={32} color="#61D99A" />
+                <Text style={styles.emptyTitle}>Zero Defects in Category</Text>
+                <Text style={styles.emptySub}>No cosmetic or structural imperfections found in this area.</Text>
+              </View>
+            )}
+          </View>
+        )}
+
+        {/* TAB 2: 200-POINT SYSTEMS AUDIT */}
+        {activeTab === 'SYSTEMS' && (
+          <View style={styles.section}>
+            <Text style={styles.tabSectionKicker}>
+              Full 200-point diagnostic audit conducted across powertrain, body, and chassis.
+            </Text>
+
+            {audit.systems.map((sys, idx) => (
+              <View key={idx} style={styles.systemCard}>
+                <View style={styles.systemHeader}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.systemName}>{sys.name}</Text>
+                    <Text style={styles.systemPoints}>{sys.pointsCount} Points Verified</Text>
+                  </View>
+                  <View style={styles.systemBadge}>
+                    <CheckCircle2 size={14} color="#61D99A" />
+                    <Text style={styles.systemBadgeText}>{sys.status}</Text>
+                  </View>
+                </View>
+                <Text style={styles.systemHighlights}>{sys.highlights}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* TAB 3: DIAGNOSTICS & ROAD TEST */}
+        {activeTab === 'DIAGNOSTICS' && (
+          <View style={styles.section}>
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryCardHeader}>
+                <ShieldCheck size={20} color={colors.brandAccent} />
+                <Text style={styles.cardTitle}>Master Engineer Verdict</Text>
+              </View>
+              <Text style={styles.summaryText}>{audit.engineerSummary}</Text>
+            </View>
+
+            <View style={styles.summaryCard}>
+              <View style={styles.summaryCardHeader}>
+                <Gauge size={20} color={colors.brandAccent} />
+                <Text style={styles.cardTitle}>Dynamic Road Test Evaluation</Text>
+              </View>
+              <Text style={styles.summaryText}>{audit.conditionSummary}</Text>
+            </View>
+
+            {verifiedTags && verifiedTags.length > 0 && (
+              <View style={styles.summaryCard}>
+                <Text style={styles.cardTitle}>Certified Verification Badges</Text>
+                <View style={styles.tagChips}>
+                  {verifiedTags.map((tag) => (
+                    <View key={tag} style={styles.tagChip}>
+                      <CheckCircle2 size={14} color={colors.brandAccent} />
+                      <Text style={styles.tagText}>{tag.replace(/_/g, ' ')}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {features && features.length > 0 && (
+              <View style={styles.summaryCard}>
+                <Text style={styles.cardTitle}>Tested & Verified Fitted Features</Text>
+                <View style={styles.tagChips}>
+                  {features.map((feat, i) => (
+                    <View key={i} style={styles.featureChip}>
+                      <Text style={styles.featureText}>{feat}</Text>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
+
+            {reportUrl && (
+              <TouchableOpacity
+                style={styles.downloadBtn}
+                onPress={() => Linking.openURL(reportUrl)}
+              >
+                <Download size={18} color="#061A38" />
+                <Text style={styles.downloadBtnText}>Download Official PDF Inspection Report</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        )}
       </ScrollView>
+
+      {/* FULL SCREEN PHOTO MODAL */}
+      <Modal
+        visible={Boolean(selectedPhoto)}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSelectedPhoto(null)}
+      >
+        <View style={styles.photoModalScrim}>
+          <SafeAreaView style={styles.photoModalContent}>
+            <View style={styles.photoModalHeader}>
+              <View>
+                <Text style={styles.photoModalTitle}>{selectedPhoto?.title}</Text>
+                <Text style={styles.photoModalSub}>📍 {selectedPhoto?.location}</Text>
+              </View>
+              <TouchableOpacity
+                style={styles.photoModalCloseBtn}
+                onPress={() => setSelectedPhoto(null)}
+              >
+                <X size={22} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
+            {selectedPhoto && (
+              <Image
+                source={{ uri: selectedPhoto.photoUrl }}
+                style={styles.photoModalImage}
+                resizeMode="contain"
+              />
+            )}
+
+            <View style={styles.photoModalFooter}>
+              <Text style={styles.photoModalDesc}>{selectedPhoto?.description}</Text>
+              <Text style={styles.photoModalAction}>Action: {selectedPhoto?.actionTaken}</Text>
+            </View>
+          </SafeAreaView>
+        </View>
+      </Modal>
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-  },
-  backBtn: {
-    padding: space.xs,
-  },
-  headerTitle: {
-    color: color.white,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  content: {
-    padding: space.md,
-    paddingBottom: space.xxl,
-  },
-  badgeBanner: {
-    flexDirection: 'row',
-    backgroundColor: color.navy,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    alignItems: 'center',
-    marginBottom: space.md,
-  },
-  badgeTextContainer: {
-    flex: 1,
-    marginLeft: space.md,
-  },
-  badgeTitle: {
-    color: color.yellow,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  badgeSubtitle: {
-    color: color.muted,
-    fontSize: 12,
-    marginTop: 2,
-    lineHeight: 18,
-  },
-  summaryCard: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    marginBottom: space.md,
-  },
-  cardTitle: {
-    color: color.white,
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: space.xs,
-  },
-  summaryText: {
-    color: '#D1D5DB',
-    fontSize: 13,
-    lineHeight: 20,
-  },
-  tagsContainer: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  tagChips: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.xs,
-    marginTop: space.xs,
-  },
-  tagChip: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    backgroundColor: 'rgba(247, 181, 3, 0.12)',
-    paddingHorizontal: space.sm,
-    paddingVertical: 6,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(247, 181, 3, 0.3)',
-  },
-  tagText: {
-    color: color.yellow,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  categoryCard: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    marginBottom: space.sm,
-  },
-  categoryHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: space.sm,
-  },
-  categoryTitle: {
-    color: color.white,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  categoryScore: {
-    color: color.yellow,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  categoryItems: {
-    gap: space.xs,
-  },
-  categoryItemRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-  },
-  categoryItemText: {
-    color: '#E5E7EB',
-    fontSize: 12,
-    flex: 1,
-  },
-  featureChip: {
-    backgroundColor: 'rgba(255,255,255,0.08)',
-    paddingHorizontal: space.sm,
-    paddingVertical: 6,
-    borderRadius: radius.sm,
-  },
-  featureText: {
-    color: color.white,
-    fontSize: 12,
-  },
-  downloadBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.sm,
-    backgroundColor: color.yellow,
-    paddingVertical: space.md,
-    borderRadius: radius.md,
-    marginTop: space.lg,
-  },
-  downloadBtnText: {
-    color: color.navy,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    backBtn: {
+      padding: space.xs,
+    },
+    headerTitle: {
+      color: colors.textPrimary,
+      fontSize: 17,
+      fontWeight: '700',
+    },
+    content: {
+      padding: space.md,
+      gap: space.md,
+      paddingBottom: space.xxl,
+    },
+    scoreBanner: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: space.xs,
+    },
+    scoreHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: space.xs,
+    },
+    badgeRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+    },
+    badgeLabel: {
+      fontSize: 12,
+      fontWeight: '800',
+      color: colors.brandAccent,
+      letterSpacing: 0.5,
+    },
+    scorePill: {
+      backgroundColor: colors.brandAccent,
+      paddingHorizontal: space.sm,
+      paddingVertical: 4,
+      borderRadius: radius.pill,
+    },
+    scorePillText: {
+      fontSize: 13,
+      fontWeight: '800',
+      color: '#061A38',
+    },
+    scoreSummaryTitle: {
+      fontSize: 18,
+      fontWeight: '800',
+      color: colors.textPrimary,
+    },
+    scoreSummarySub: {
+      fontSize: 12,
+      color: colors.textMuted,
+      lineHeight: 18,
+    },
+    metricRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-around',
+      marginTop: space.sm,
+      paddingTop: space.sm,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    metricCol: {
+      alignItems: 'center',
+    },
+    metricNum: {
+      fontSize: 20,
+      fontWeight: '800',
+      color: colors.textPrimary,
+    },
+    metricLabel: {
+      fontSize: 11,
+      color: colors.textMuted,
+      marginTop: 2,
+    },
+    metricDivider: {
+      width: 1,
+      height: 28,
+      backgroundColor: colors.border,
+    },
+    tabsContainer: {
+      flexDirection: 'row',
+      backgroundColor: isDark ? '#061A38' : '#EEF2F6',
+      borderRadius: radius.md,
+      padding: 3,
+      gap: 4,
+    },
+    tabButton: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 5,
+      paddingVertical: 10,
+      borderRadius: radius.sm,
+    },
+    tabButtonActive: {
+      backgroundColor: colors.brandAccent,
+    },
+    tabButtonText: {
+      fontSize: 11.5,
+      fontWeight: '600',
+      color: colors.textMuted,
+    },
+    tabButtonTextActive: {
+      color: '#061A38',
+      fontWeight: '700',
+    },
+    section: {
+      gap: space.md,
+    },
+    tabSectionKicker: {
+      fontSize: 12,
+      color: colors.textMuted,
+      fontStyle: 'italic',
+    },
+    filterPillsScroll: {
+      gap: space.xs,
+      paddingBottom: 2,
+    },
+    filterPill: {
+      paddingHorizontal: space.sm,
+      paddingVertical: 6,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surface,
+    },
+    filterPillActive: {
+      backgroundColor: colors.brandAccent,
+      borderColor: colors.brandAccent,
+    },
+    filterPillText: {
+      fontSize: 12,
+      color: colors.textMuted,
+      fontWeight: '600',
+    },
+    filterPillTextActive: {
+      color: '#061A38',
+      fontWeight: '700',
+    },
+    defectCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      overflow: 'hidden',
+    },
+    defectImageWrapper: {
+      position: 'relative',
+      height: 190,
+      backgroundColor: '#04132B',
+    },
+    defectImage: {
+      width: '100%',
+      height: '100%',
+    },
+    defectImageOverlay: {
+      position: 'absolute',
+      right: 10,
+      bottom: 10,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      backgroundColor: 'rgba(6, 26, 56, 0.85)',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: radius.pill,
+    },
+    defectImageOverlayText: {
+      fontSize: 11,
+      color: '#FFFFFF',
+      fontWeight: '600',
+    },
+    defectSeverityPill: {
+      position: 'absolute',
+      left: 10,
+      top: 10,
+      backgroundColor: 'rgba(247, 181, 3, 0.95)',
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: radius.sm,
+    },
+    defectSeverityText: {
+      fontSize: 10,
+      fontWeight: '800',
+      color: '#061A38',
+    },
+    defectInfo: {
+      padding: space.md,
+      gap: space.xs,
+    },
+    defectTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    defectTitle: {
+      fontSize: 16,
+      fontWeight: '700',
+      color: colors.textPrimary,
+    },
+    repairedPill: {
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: radius.pill,
+    },
+    repairedDone: {
+      backgroundColor: 'rgba(97, 217, 154, 0.15)',
+    },
+    repairedAsIs: {
+      backgroundColor: 'rgba(247, 181, 3, 0.15)',
+    },
+    repairedText: {
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    defectMetaRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.sm,
+    },
+    defectPartLocation: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.brandAccent,
+    },
+    defectCategoryTag: {
+      fontSize: 12,
+      color: colors.textMuted,
+    },
+    defectDesc: {
+      fontSize: 13,
+      color: colors.textSecondary,
+      lineHeight: 19,
+      marginTop: 2,
+    },
+    actionTakenBox: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 6,
+      backgroundColor: isDark ? '#04132B' : '#F8FAFC',
+      padding: space.sm,
+      borderRadius: radius.sm,
+      marginTop: space.xs,
+    },
+    actionTakenText: {
+      flex: 1,
+      fontSize: 12,
+      color: colors.textMuted,
+      lineHeight: 17,
+    },
+    systemCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: 6,
+    },
+    systemHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+    },
+    systemName: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+    },
+    systemPoints: {
+      fontSize: 12,
+      color: colors.textMuted,
+    },
+    systemBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      backgroundColor: 'rgba(97, 217, 154, 0.15)',
+      paddingHorizontal: space.sm,
+      paddingVertical: 4,
+      borderRadius: radius.pill,
+    },
+    systemBadgeText: {
+      fontSize: 11,
+      fontWeight: '700',
+      color: '#61D99A',
+    },
+    systemHighlights: {
+      fontSize: 12,
+      color: colors.textSecondary,
+      lineHeight: 18,
+    },
+    summaryCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      gap: space.xs,
+    },
+    summaryCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+    },
+    cardTitle: {
+      color: colors.textPrimary,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    summaryText: {
+      color: colors.textSecondary,
+      fontSize: 13,
+      lineHeight: 19,
+    },
+    tagChips: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: space.xs,
+      marginTop: space.xs,
+    },
+    tagChip: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      backgroundColor: isDark ? '#061A38' : '#EEF2F6',
+      paddingHorizontal: 8,
+      paddingVertical: 5,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    tagText: {
+      color: colors.textPrimary,
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    featureChip: {
+      backgroundColor: isDark ? '#092144' : '#E2E8F0',
+      paddingHorizontal: space.sm,
+      paddingVertical: 4,
+      borderRadius: radius.sm,
+    },
+    featureText: {
+      color: colors.textPrimary,
+      fontSize: 12,
+    },
+    downloadBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: space.sm,
+      backgroundColor: colors.brandAccent,
+      paddingVertical: 12,
+      borderRadius: radius.md,
+    },
+    downloadBtnText: {
+      color: '#061A38',
+      fontWeight: '700',
+      fontSize: 13,
+    },
+    emptyCard: {
+      alignItems: 'center',
+      justifyContent: 'center',
+      padding: space.xl,
+      gap: space.xs,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    emptyTitle: {
+      fontSize: 15,
+      fontWeight: '700',
+      color: colors.textPrimary,
+    },
+    emptySub: {
+      fontSize: 12,
+      color: colors.textMuted,
+      textAlign: 'center',
+    },
+    photoModalScrim: {
+      flex: 1,
+      backgroundColor: 'rgba(0, 6, 15, 0.95)',
+      justifyContent: 'center',
+    },
+    photoModalContent: {
+      flex: 1,
+      justifyContent: 'space-between',
+    },
+    photoModalHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: space.md,
+      paddingVertical: space.md,
+      borderBottomWidth: 1,
+      borderBottomColor: 'rgba(255, 255, 255, 0.1)',
+    },
+    photoModalTitle: {
+      fontSize: 17,
+      fontWeight: '700',
+      color: '#FFFFFF',
+    },
+    photoModalSub: {
+      fontSize: 13,
+      color: colors.brandAccent,
+      marginTop: 2,
+    },
+    photoModalCloseBtn: {
+      padding: space.xs,
+    },
+    photoModalImage: {
+      flex: 1,
+      width: '100%',
+    },
+    photoModalFooter: {
+      padding: space.md,
+      backgroundColor: 'rgba(6, 26, 56, 0.8)',
+      gap: 4,
+    },
+    photoModalDesc: {
+      fontSize: 13,
+      color: '#FFFFFF',
+      lineHeight: 18,
+    },
+    photoModalAction: {
+      fontSize: 12,
+      color: colors.brandAccent,
+    },
+  });

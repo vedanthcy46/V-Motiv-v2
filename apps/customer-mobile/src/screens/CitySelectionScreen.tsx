@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -15,7 +15,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, Check, MapPin, Search } from 'lucide-react-native';
 import { customer } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 import type { SupportedCity } from '../types';
 
@@ -23,6 +23,9 @@ type Props = NativeStackScreenProps<RootStack, 'CitySelection'>;
 
 export function CitySelectionScreen({ navigation }: Props) {
   const { user, refreshProfile } = useAuth();
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+
   const [cities, setCities] = useState<SupportedCity[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
@@ -61,7 +64,7 @@ export function CitySelectionScreen({ navigation }: Props) {
           onPress={() => navigation.goBack()}
           style={styles.backBtn}
         >
-          <ArrowLeft size={22} color={color.white} />
+          <ArrowLeft size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Select Your City</Text>
         <View style={{ width: 40 }} />
@@ -73,10 +76,10 @@ export function CitySelectionScreen({ navigation }: Props) {
         style={{ flex: 1 }}
       >
         <View style={styles.searchBox}>
-          <Search size={18} color={color.muted} style={styles.searchIcon} />
+          <Search size={18} color={colors.textMuted} style={styles.searchIcon} />
           <TextInput
             placeholder="Search city (e.g. Bengaluru, Hyderabad)"
-            placeholderTextColor={color.muted}
+            placeholderTextColor={colors.textMuted}
             value={search}
             onChangeText={setSearch}
             style={styles.input}
@@ -85,7 +88,7 @@ export function CitySelectionScreen({ navigation }: Props) {
 
         {loading ? (
           <View style={styles.loader}>
-            <ActivityIndicator size="large" color={color.yellow} />
+            <ActivityIndicator size="large" color={colors.brandAccent} />
           </View>
         ) : (
           <FlatList
@@ -103,15 +106,15 @@ export function CitySelectionScreen({ navigation }: Props) {
                   disabled={Boolean(updating)}
                 >
                   <View style={styles.cityLeft}>
-                    <MapPin size={18} color={isSelected ? color.yellow : color.muted} />
+                    <MapPin size={18} color={isSelected ? colors.brandAccent : colors.textMuted} />
                     <Text style={[styles.cityName, isSelected && styles.cityNameSelected]}>
                       {item.name}
                     </Text>
                   </View>
                   {updating === item.name ? (
-                    <ActivityIndicator size="small" color={color.yellow} />
+                    <ActivityIndicator size="small" color={colors.brandAccent} />
                   ) : isSelected ? (
-                    <Check size={18} color={color.yellow} />
+                    <Check size={18} color={colors.brandAccent} />
                   ) : null}
                 </TouchableOpacity>
               );
@@ -128,91 +131,92 @@ export function CitySelectionScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-  },
-  backBtn: {
-    padding: space.xs,
-  },
-  headerTitle: {
-    color: color.white,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  searchBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    margin: space.md,
-    paddingHorizontal: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  searchIcon: {
-    marginRight: space.sm,
-  },
-  input: {
-    flex: 1,
-    paddingVertical: space.md,
-    color: color.white,
-    fontSize: 14,
-  },
-  loader: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  list: {
-    paddingHorizontal: space.md,
-  },
-  cityRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingVertical: space.md,
-    paddingHorizontal: space.md,
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    marginBottom: space.sm,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  cityRowSelected: {
-    borderColor: color.yellow,
-    backgroundColor: 'rgba(247, 181, 3, 0.08)',
-  },
-  cityLeft: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-  },
-  cityName: {
-    color: color.white,
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  cityNameSelected: {
-    color: color.yellow,
-    fontWeight: '700',
-  },
-  empty: {
-    paddingVertical: space.xxl,
-    alignItems: 'center',
-  },
-  emptyText: {
-    color: color.muted,
-    fontSize: 14,
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backBtn: {
+      padding: space.xs,
+    },
+    headerTitle: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    searchBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      margin: space.md,
+      paddingHorizontal: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    searchIcon: {
+      marginRight: space.sm,
+    },
+    input: {
+      flex: 1,
+      paddingVertical: space.md,
+      color: colors.textPrimary,
+      fontSize: 14,
+    },
+    loader: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    list: {
+      paddingHorizontal: space.md,
+    },
+    cityRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingVertical: space.md,
+      paddingHorizontal: space.md,
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      marginBottom: space.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    cityRowSelected: {
+      borderColor: colors.brandAccent,
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.08)' : '#FFFBEB',
+    },
+    cityLeft: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.sm,
+    },
+    cityName: {
+      color: colors.textPrimary,
+      fontSize: 15,
+      fontWeight: '600',
+    },
+    cityNameSelected: {
+      color: isDark ? colors.brandAccent : colors.brandNavy,
+      fontWeight: '700',
+    },
+    empty: {
+      paddingVertical: space.xxl,
+      alignItems: 'center',
+    },
+    emptyText: {
+      color: colors.textMuted,
+      fontSize: 14,
+    },
+  });

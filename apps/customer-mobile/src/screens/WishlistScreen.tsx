@@ -1,24 +1,24 @@
 import React, { useCallback, useState } from 'react';
 import {
-  Pressable,
-  RefreshControl,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect } from '@react-navigation/native';
 import type { CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { Bookmark, CarFront, Clock, Search, Trash2 } from 'lucide-react-native';
-import { BrandHeader, EmptyState, Loading, PrimaryButton, Screen, common } from '../components/ui';
+import { ArrowLeft, Bookmark, CarFront, Clock, Search, Trash2 } from 'lucide-react-native';
+import { BrandHeader, EmptyState, Loading, PrimaryButton, Screen, useCommonStyles } from '../components/ui';
+import { BrandLogo } from '../components/BrandLogo';
 import { VehicleCard } from '../components/VehicleCard';
 import { customer } from '../services/customer';
 import type { RootStack, Tabs } from '../navigation/types';
 import type { SavedSearch, VehicleSummary } from '../types';
 import { friendlyError } from '../format';
-import { color, radius, space } from '../theme';
+import { useAppTheme, radius, space } from '../theme';
 import { useAuth } from '../auth/AuthProvider';
 import { AuthScreen } from './AuthScreen';
 
@@ -28,12 +28,16 @@ type Nav = CompositeNavigationProp<
 >;
 
 export function WishlistScreen({ navigation }: { navigation: Nav }) {
+  const insets = useSafeAreaInsets();
   const { state } = useAuth();
+  const { theme, isDark } = useAppTheme();
+  const c = theme.colors;
+  const common = useCommonStyles();
+
   const [items, setItems] = useState<VehicleSummary[]>([]);
   const [searches, setSearches] = useState<SavedSearch[]>([]);
   const [activeDriveIds, setActiveDriveIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
-  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
   const load = useCallback(async () => {
@@ -58,7 +62,6 @@ export function WishlistScreen({ navigation }: { navigation: Nav }) {
       setError(friendlyError(e));
     } finally {
       setLoading(false);
-      setRefreshing(false);
     }
   }, [state]);
 
@@ -69,23 +72,46 @@ export function WishlistScreen({ navigation }: { navigation: Nav }) {
   );
 
   if (state !== 'signed-in') {
-    return <AuthScreen />;
+    return (
+      <View style={[styles.container, { backgroundColor: c.background }]}>
+        <View style={[styles.topBar, { paddingTop: insets.top + space.sm, backgroundColor: c.surface, borderBottomColor: c.border }]}>
+          <BrandLogo variant="horizontal" size={26} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
+          <View style={styles.tabBadge}>
+            <Text style={[styles.tabBadgeText, { color: c.brandAccent }]}>SAVED</Text>
+          </View>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
   }
 
   return (
     <Screen>
-      <BrandHeader eyebrow="SAVED GARAGE" />
+      <View style={styles.navRow}>
+        {navigation.canGoBack() && (
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+            style={[styles.backBtn, { backgroundColor: c.surface }]}
+          >
+            <ArrowLeft size={20} color={c.textPrimary} />
+          </TouchableOpacity>
+        )}
+        <View style={styles.brandHeaderWrap}>
+          <BrandHeader eyebrow="SAVED GARAGE" />
+        </View>
+      </View>
 
       <View style={styles.header}>
-        <Text style={common.heading}>Your Saved Vehicles</Text>
-        <Text style={common.body}>
+        <Text style={[common.heading, { color: c.textPrimary }]}>Your Saved Vehicles</Text>
+        <Text style={[common.body, { color: c.textSecondary }]}>
           Shortlist cars, monitor price updates, or jump right into your saved searches.
         </Text>
       </View>
 
       {error ? (
-        <View style={styles.errorBox}>
-          <Text accessibilityRole="alert" style={styles.errorText}>
+        <View style={[styles.errorBox, { backgroundColor: c.errorBackground, borderLeftColor: c.error }]}>
+          <Text accessibilityRole="alert" style={[styles.errorText, { color: c.error }]}>
             {error}
           </Text>
         </View>
@@ -97,11 +123,11 @@ export function WishlistScreen({ navigation }: { navigation: Nav }) {
         <EmptyState
           title="Your garage is empty"
           description="Bookmark cars while exploring inventory to compare specs and book test drives."
-          icon={<Bookmark size={28} color={color.yellow} />}
+          icon={<Bookmark size={28} color={c.brandAccent} />}
           action={
             <PrimaryButton
               title="Explore Inventory"
-              onPress={() => navigation.navigate('Explore')}
+              onPress={() => navigation.navigate('Tabs', { screen: 'Explore' })}
             />
           }
         />
@@ -111,18 +137,18 @@ export function WishlistScreen({ navigation }: { navigation: Nav }) {
           {searches.length > 0 ? (
             <View style={styles.sectionWrap}>
               <View style={styles.sectionHeader}>
-                <Search size={15} color={color.yellow} />
-                <Text style={styles.sectionTitle}>Saved Searches ({searches.length})</Text>
+                <Search size={15} color={c.brandAccent} />
+                <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Saved Searches ({searches.length})</Text>
               </View>
 
               <View style={styles.searchesList}>
                 {searches.map((item) => (
-                  <View key={item.id} style={styles.searchCard}>
+                  <View key={item.id} style={[styles.searchCard, { backgroundColor: c.surface, borderColor: c.border }]}>
                     <View style={styles.searchCardInfo}>
-                      <Text style={styles.searchCardName}>{item.name}</Text>
+                      <Text style={[styles.searchCardName, { color: c.textPrimary }]}>{item.name}</Text>
                       <View style={styles.searchCardMeta}>
-                        <Clock size={11} color={color.muted} />
-                        <Text style={styles.searchCardDate}>
+                        <Clock size={11} color={c.textMuted} />
+                        <Text style={[styles.searchCardDate, { color: c.textMuted }]}>
                           Saved on {new Date(item.createdAt).toLocaleDateString('en-IN')}
                         </Text>
                       </View>
@@ -132,9 +158,9 @@ export function WishlistScreen({ navigation }: { navigation: Nav }) {
                       accessibilityRole="button"
                       accessibilityLabel={`Remove saved search ${item.name}`}
                       onPress={() => void customer.removeSavedSearch(item.id).then(load)}
-                      style={styles.deleteBtn}
+                      style={[styles.deleteBtn, { backgroundColor: c.errorBackground, borderColor: c.error }]}
                     >
-                      <Trash2 size={15} color="#EF4444" />
+                      <Trash2 size={15} color={c.error} />
                     </TouchableOpacity>
                   </View>
                 ))}
@@ -146,8 +172,8 @@ export function WishlistScreen({ navigation }: { navigation: Nav }) {
           {items.length > 0 ? (
             <View style={styles.sectionWrap}>
               <View style={styles.sectionHeader}>
-                <CarFront size={15} color={color.yellow} />
-                <Text style={styles.sectionTitle}>Shortlisted Vehicles ({items.length})</Text>
+                <CarFront size={15} color={c.brandAccent} />
+                <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Shortlisted Vehicles ({items.length})</Text>
               </View>
 
               <View style={styles.vehiclesList}>
@@ -183,6 +209,46 @@ export function WishlistScreen({ navigation }: { navigation: Nav }) {
 }
 
 const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderBottomWidth: 1,
+  },
+  tabBadge: {
+    backgroundColor: 'rgba(247, 181, 3, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(247, 181, 3, 0.3)',
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  tabBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  navRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: space.sm,
+  },
+  backBtn: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  brandHeaderWrap: {
+    flex: 1,
+  },
   header: {
     gap: 4,
     marginBottom: space.sm,
@@ -200,7 +266,6 @@ const styles = StyleSheet.create({
     paddingLeft: 2,
   },
   sectionTitle: {
-    color: color.white,
     fontSize: 16,
     fontWeight: '800',
     letterSpacing: -0.2,
@@ -212,18 +277,15 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: color.surface,
     borderRadius: radius.md,
     padding: space.md,
     borderWidth: 1,
-    borderColor: color.border,
   },
   searchCardInfo: {
     flex: 1,
     gap: 4,
   },
   searchCardName: {
-    color: color.text,
     fontSize: 15,
     fontWeight: '700',
   },
@@ -233,32 +295,26 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   searchCardDate: {
-    color: color.muted,
     fontSize: 12,
   },
   deleteBtn: {
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.25)',
   },
   vehiclesList: {
     gap: space.lg,
   },
   errorBox: {
-    backgroundColor: 'rgba(248, 113, 113, 0.12)',
     padding: space.md,
     borderRadius: radius.sm,
     borderLeftWidth: 3,
-    borderLeftColor: color.danger,
     marginVertical: space.xs,
   },
   errorText: {
-    color: color.danger,
     fontSize: 13,
     fontWeight: '600',
   },

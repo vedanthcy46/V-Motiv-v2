@@ -109,7 +109,10 @@ const offerResponseInput = z.object({
 }).strict();
 
 const buyerLeadQuery = pagination.extend({
-  status: z.enum(['RECEIVED', 'IN_REVIEW', 'CONTACTED', 'CLOSED']).optional(),
+  status: z.preprocess(v => {
+    if (typeof v === 'string' && ['RECEIVED', 'IN_REVIEW', 'CONTACTED', 'CLOSED'].includes(v)) return v;
+    return undefined;
+  }, z.enum(['RECEIVED', 'IN_REVIEW', 'CONTACTED', 'CLOSED']).optional()),
 }).strip();
 
 const buyerLeadStatus = z.object({
@@ -121,12 +124,16 @@ const inventoryQuery = pagination.extend({
 }).strip();
 
 const testDriveQuery = pagination.extend({
-  status: z.enum(['REQUESTED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional(),
+  status: z.preprocess(v => {
+    if (typeof v === 'string' && ['REQUESTED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(v)) return v;
+    return undefined;
+  }, z.enum(['REQUESTED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']).optional()),
 }).strip();
 
 const createTestDriveInput = z.object({
   listingId: uuid,
   customerId: uuid,
+  enquiryId: uuid.optional(),
   requestedDate: z.string().date().optional().transform(v => v ? new Date(`${v}T00:00:00.000Z`) : undefined),
   timeSlot: z.string().trim().min(2).max(80),
   locationPreference: z.enum(['HUB', 'HOME']).optional(),
@@ -219,6 +226,7 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   router.get('/seller-leads/:id', async (req, res) => res.json(await deps.store.sellerLead(res.locals.salesActor, uuid.parse(req.params.id))));
   router.patch('/seller-leads/:id/status', async (req, res) => res.json(await deps.store.updateSellerLeadStatus(res.locals.salesActor, uuid.parse(req.params.id), statusUpdate.parse(req.body))));
   router.post('/seller-leads/:id/claim', async (req, res) => res.status(201).json(await deps.store.claimSellerLead(res.locals.salesActor, uuid.parse(req.params.id))));
+  router.post('/seller-leads/:id/release', async (req, res) => res.json(await deps.store.releaseSellerLead(res.locals.salesActor, uuid.parse(req.params.id))));
   router.post('/seller-leads/:id/assign', async (req, res) => res.json(await deps.store.assignSellerLead(res.locals.salesActor, uuid.parse(req.params.id), assignInput.parse(req.body))));
   router.post('/seller-leads/:id/qualify', async (req, res) => res.json(await deps.store.qualifySellerLead(res.locals.salesActor, uuid.parse(req.params.id), qualifyInput.parse(req.body))));
 

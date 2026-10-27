@@ -134,6 +134,7 @@ export interface SalesStore {
   requestTestDrive(actor: SalesActor, input: {
     listingId: string;
     customerId: string;
+    enquiryId?: string;
     requestedDate?: Date;
     timeSlot: string;
     locationPreference?: 'HUB' | 'HOME';
@@ -189,6 +190,7 @@ export interface SalesStore {
   // Communications (Resend Outbox)
   sendApprovedEmail(actor: SalesActor, input: {
     customerId: string;
+    enquiryId?: string;
     template: string;
     variables?: Record<string, string>;
   }): Promise<unknown>;
@@ -1588,6 +1590,7 @@ export class PrismaSalesStore implements SalesStore {
   async requestTestDrive(actor: SalesActor, input: {
     listingId: string;
     customerId: string;
+    enquiryId?: string;
     requestedDate?: Date;
     timeSlot: string;
     locationPreference?: 'HUB' | 'HOME';
@@ -1601,6 +1604,7 @@ export class PrismaSalesStore implements SalesStore {
     if (!listing) throw new HttpError(404, 'LISTING_NOT_AVAILABLE');
 
     return this.db.$transaction(async tx => {
+      if (input.enquiryId) { await tx.purchaseEnquiry.updateMany({ where: { id: input.enquiryId, status: { in: ['RECEIVED', 'IN_REVIEW'] } }, data: { status: 'CONTACTED' } }); }
       const td = await tx.testDriveRequest.create({
         data: {
           userId: input.customerId,
@@ -1787,6 +1791,7 @@ export class PrismaSalesStore implements SalesStore {
     if (finalAmount <= 0n) throw new HttpError(400, 'INVALID_QUOTATION_AMOUNT');
 
     return this.db.$transaction(async tx => {
+      if (input.enquiryId) { await tx.purchaseEnquiry.updateMany({ where: { id: input.enquiryId, status: { in: ['RECEIVED', 'IN_REVIEW'] } }, data: { status: 'CONTACTED' } }); }
       const q = await tx.buyerQuotation.create({
         data: {
           listingId: input.listingId,
@@ -2414,6 +2419,7 @@ export class PrismaSalesStore implements SalesStore {
 
   async sendApprovedEmail(actor: SalesActor, input: {
     customerId: string;
+    enquiryId?: string;
     template: string;
     variables?: Record<string, string>;
   }) {

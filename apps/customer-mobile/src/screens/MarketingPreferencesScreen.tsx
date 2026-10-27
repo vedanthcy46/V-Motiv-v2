@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -14,13 +14,16 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, Bell, Mail, ShieldCheck } from 'lucide-react-native';
 import { customer } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 
 type Props = NativeStackScreenProps<RootStack, 'MarketingPreferences'>;
 
 export function MarketingPreferencesScreen({ navigation }: Props) {
   const { user, refreshProfile } = useAuth();
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+
   const [marketingConsent, setMarketingConsent] = useState(user?.marketingConsent || false);
   const [loading, setLoading] = useState(false);
 
@@ -42,7 +45,7 @@ export function MarketingPreferencesScreen({ navigation }: Props) {
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ArrowLeft size={22} color={color.white} />
+          <ArrowLeft size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Communication Preferences</Text>
         <View style={{ width: 40 }} />
@@ -52,7 +55,7 @@ export function MarketingPreferencesScreen({ navigation }: Props) {
         <View style={styles.card}>
           <View style={styles.row}>
             <View style={styles.iconContainer}>
-              <Mail size={22} color={color.yellow} />
+              <Mail size={22} color={colors.brandAccent} />
             </View>
             <View style={styles.textContainer}>
               <Text style={styles.optionTitle}>Promotional & Inventory Updates</Text>
@@ -63,8 +66,8 @@ export function MarketingPreferencesScreen({ navigation }: Props) {
             <Switch
               value={marketingConsent}
               onValueChange={handleToggle}
-              trackColor={{ false: color.border, true: color.yellow }}
-              thumbColor={color.white}
+              trackColor={{ false: colors.border, true: colors.brandAccent }}
+              thumbColor={isDark ? '#FFFFFF' : '#FFFFFF'}
               disabled={loading}
             />
           </View>
@@ -84,83 +87,84 @@ export function MarketingPreferencesScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-  },
-  backBtn: {
-    padding: space.xs,
-  },
-  headerTitle: {
-    color: color.white,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  content: {
-    padding: space.md,
-  },
-  card: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    marginBottom: space.md,
-  },
-  row: {
-    flexDirection: 'row',
-    alignItems: 'center',
-  },
-  iconContainer: {
-    marginRight: space.md,
-  },
-  textContainer: {
-    flex: 1,
-    marginRight: space.sm,
-  },
-  optionTitle: {
-    color: color.white,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  optionDesc: {
-    color: color.muted,
-    fontSize: 12,
-    marginTop: 4,
-    lineHeight: 18,
-  },
-  noticeCard: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    backgroundColor: 'rgba(34, 197, 94, 0.08)',
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.2)',
-  },
-  noticeTextContainer: {
-    flex: 1,
-    marginLeft: space.md,
-  },
-  noticeTitle: {
-    color: '#22C55E',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  noticeDesc: {
-    color: '#D1D5DB',
-    fontSize: 12,
-    marginTop: 4,
-    lineHeight: 18,
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backBtn: {
+      padding: space.xs,
+    },
+    headerTitle: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    content: {
+      padding: space.md,
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: space.md,
+    },
+    row: {
+      flexDirection: 'row',
+      alignItems: 'center',
+    },
+    iconContainer: {
+      marginRight: space.md,
+    },
+    textContainer: {
+      flex: 1,
+      marginRight: space.sm,
+    },
+    optionTitle: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    optionDesc: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 4,
+      lineHeight: 18,
+    },
+    noticeCard: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      backgroundColor: 'rgba(34, 197, 94, 0.08)',
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: 'rgba(34, 197, 94, 0.2)',
+    },
+    noticeTextContainer: {
+      flex: 1,
+      marginLeft: space.md,
+    },
+    noticeTitle: {
+      color: '#22C55E',
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    noticeDesc: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      marginTop: 4,
+      lineHeight: 18,
+    },
+  });

@@ -17,7 +17,7 @@ import {
   WORDMARK_VIEWBOX,
   PATH_EXACT_WORDMARK,
 } from './brand/official-logo-paths';
-import { color } from '../theme';
+import { useAppTheme } from '../theme';
 
 export interface BrandLogoProps {
   variant?: 'emblem' | 'wordmark' | 'fullLockup' | 'horizontal';
@@ -34,28 +34,29 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
   size = 32,
   showTagline = false,
   taglineText = 'YOUR NEXT CHAPTER',
-  accentColor = color.yellow,
-  bodyColor = color.white,
+  accentColor,
+  bodyColor: explicitBodyColor,
   style,
 }) => {
-  // Emblem aspect ratio: 1000 / 667.3 (~1.4985)
-  // Wordmark aspect ratio: 624 / 126.4 (~4.9367)
+  const { theme, isDark } = useAppTheme();
+  const effectiveAccent = accentColor ?? theme.colors.brandAccent;
+  const effectiveBody = explicitBodyColor ?? (isDark ? '#FFFFFF' : theme.colors.brandNavy);
   const emblemHeight = size;
   const emblemWidth = emblemHeight * (1000 / 667.3);
 
   const emblemSvg = (
     <Svg width={emblemWidth} height={emblemHeight} viewBox={LOGO_VIEWBOX}>
       <G>
-        {/* White car body with integrated dual headlight cutouts */}
+        {/* Car body with integrated dual headlight cutouts */}
         <Path
           d={`${PATH_WHITE_BODY} ${PATH_HEADLIGHT_LEFT} ${PATH_HEADLIGHT_RIGHT}`}
-          fill={bodyColor}
+          fill={effectiveBody}
           fillRule="evenodd"
         />
         {/* Yellow power slash arm */}
-        <Path d={PATH_YELLOW_ARM} fill={accentColor} />
+        <Path d={PATH_YELLOW_ARM} fill={effectiveAccent} />
         {/* Aerodynamic visor/roof */}
-        <Path d={PATH_CAR_ROOF} fill={bodyColor} />
+        <Path d={PATH_CAR_ROOF} fill={effectiveBody} />
       </G>
     </Svg>
   );
@@ -69,7 +70,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
 
   const wordmarkSvg = (
     <Svg width={wordmarkWidth} height={wordmarkHeight} viewBox={WORDMARK_VIEWBOX}>
-      <Path d={PATH_EXACT_WORDMARK} fill={bodyColor} fillRule="evenodd" />
+      <Path d={PATH_EXACT_WORDMARK} fill={effectiveBody} fillRule="evenodd" />
     </Svg>
   );
 
@@ -83,7 +84,7 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
         {emblemSvg}
         <View style={styles.horizontalTextWrap}>
           {wordmarkSvg}
-          {showTagline && <Text style={styles.taglineSmall}>{taglineText}</Text>}
+          {showTagline && <Text style={[styles.taglineSmall, { color: isDark ? '#8A9EB8' : '#627086' }]}>{taglineText}</Text>}
         </View>
       </View>
     );
@@ -101,22 +102,22 @@ export const BrandLogo: React.FC<BrandLogoProps> = ({
         <G>
           <Path
             d={`${PATH_WHITE_BODY} ${PATH_HEADLIGHT_LEFT} ${PATH_HEADLIGHT_RIGHT}`}
-            fill={bodyColor}
+            fill={effectiveBody}
             fillRule="evenodd"
           />
-          <Path d={PATH_YELLOW_ARM} fill={accentColor} />
-          <Path d={PATH_CAR_ROOF} fill={bodyColor} />
+          <Path d={PATH_YELLOW_ARM} fill={effectiveAccent} />
+          <Path d={PATH_CAR_ROOF} fill={effectiveBody} />
         </G>
       </Svg>
 
       <View style={[styles.wordmarkWrap, { width: lockupWordmarkWidth }]}>
         <Svg width={lockupWordmarkWidth} height={lockupWordmarkHeight} viewBox={WORDMARK_VIEWBOX}>
-          <Path d={PATH_EXACT_WORDMARK} fill={bodyColor} fillRule="evenodd" />
+          <Path d={PATH_EXACT_WORDMARK} fill={effectiveBody} fillRule="evenodd" />
         </Svg>
-        <View style={[styles.accentLine, { backgroundColor: accentColor, width: lockupWordmarkWidth * 0.7 }]} />
+        <View style={[styles.accentLine, { backgroundColor: effectiveAccent, width: lockupWordmarkWidth * 0.7 }]} />
       </View>
 
-      {showTagline && <Text style={styles.tagline}>{taglineText}</Text>}
+      {showTagline && <Text style={[styles.tagline, { color: isDark ? '#8A9EB8' : '#627086' }]}>{taglineText}</Text>}
     </View>
   );
 };

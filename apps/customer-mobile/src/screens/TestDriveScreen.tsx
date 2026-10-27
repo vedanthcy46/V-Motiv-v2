@@ -25,7 +25,7 @@ import {
 } from 'lucide-react-native';
 import type { RootStack } from '../navigation/types';
 import { customer } from '../services/customer';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
 import type { CustomerAddress, SupportedCity } from '../types';
 
@@ -33,6 +33,8 @@ const SLOTS = ['10:00-12:00', '12:00-14:00', '15:00-17:00'] as const;
 
 export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<RootStack, 'TestDrive'>) {
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const scrollRef = useRef<ScrollView>(null);
   const { listingId, title } = route.params;
 
@@ -115,7 +117,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
             onPress={() => navigation.goBack()}
             style={styles.backBtn}
           >
-            <ArrowLeft size={22} color={color.white} />
+            <ArrowLeft size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <View style={styles.headerTitleWrap}>
             <Text style={styles.headerTitle}>Book a Test Drive</Text>
@@ -404,253 +406,254 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-  },
-  backBtn: {
-    padding: space.xs,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  headerTitleWrap: {
-    flex: 1,
-    marginLeft: space.sm,
-  },
-  headerTitle: {
-    color: color.white,
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    color: color.muted,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  content: {
-    padding: space.md,
-  },
-  assuranceBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    backgroundColor: 'rgba(247, 181, 3, 0.08)',
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: 'rgba(247, 181, 3, 0.25)',
-    marginBottom: space.lg,
-  },
-  assuranceText: {
-    color: '#D1D5DB',
-    fontSize: 12,
-    flex: 1,
-    lineHeight: 18,
-  },
-  section: {
-    marginBottom: space.lg,
-  },
-  sectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    marginBottom: space.sm,
-  },
-  sectionTitle: {
-    color: color.white,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  inputLabel: {
-    color: color.white,
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: space.xs,
-  },
-  dateList: {
-    gap: space.sm,
-    paddingVertical: 2,
-  },
-  dateCard: {
-    width: 64,
-    paddingVertical: 12,
-    borderRadius: radius.md,
-    backgroundColor: color.card,
-    borderWidth: 1,
-    borderColor: color.border,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  dateCardActive: {
-    backgroundColor: color.yellow,
-    borderColor: color.yellow,
-  },
-  dayName: {
-    color: color.muted,
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  dayNameActive: {
-    color: color.navy,
-  },
-  dayNum: {
-    color: color.white,
-    fontSize: 18,
-    fontWeight: '800',
-    marginVertical: 2,
-  },
-  dayNumActive: {
-    color: color.navy,
-  },
-  monthName: {
-    color: color.muted,
-    fontSize: 10,
-    fontWeight: '600',
-  },
-  monthNameActive: {
-    color: color.navy,
-  },
-  slotGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.sm,
-  },
-  slotPill: {
-    flex: 1,
-    minWidth: 100,
-    paddingVertical: space.sm,
-    paddingHorizontal: space.sm,
-    borderRadius: radius.sm,
-    backgroundColor: color.card,
-    borderWidth: 1,
-    borderColor: color.border,
-    alignItems: 'center',
-  },
-  slotPillActive: {
-    backgroundColor: 'rgba(247, 181, 3, 0.15)',
-    borderColor: color.yellow,
-  },
-  slotText: {
-    color: color.white,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  slotTextActive: {
-    color: color.yellow,
-    fontWeight: '700',
-  },
-  locationToggle: {
-    gap: space.sm,
-  },
-  locationCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.md,
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  locationCardActive: {
-    borderColor: color.yellow,
-    backgroundColor: 'rgba(247, 181, 3, 0.08)',
-  },
-  locationCardTitle: {
-    color: color.white,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  locationCardTitleActive: {
-    color: color.yellow,
-  },
-  locationCardDesc: {
-    color: color.muted,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  cityPills: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.xs,
-  },
-  cityPill: {
-    paddingHorizontal: space.md,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
-    backgroundColor: color.card,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  cityPillActive: {
-    backgroundColor: color.yellow,
-    borderColor: color.yellow,
-  },
-  cityText: {
-    color: color.white,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  cityTextActive: {
-    color: color.navy,
-    fontWeight: '700',
-  },
-  textArea: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    padding: space.md,
-    color: color.white,
-    fontSize: 13,
-    textAlignVertical: 'top',
-    minHeight: 80,
-  },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderRadius: radius.sm,
-    padding: space.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.25)',
-    marginTop: space.sm,
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 12,
-    flex: 1,
-  },
-  bottomBar: {
-    backgroundColor: color.navy,
-    paddingHorizontal: space.md,
-    paddingTop: space.sm,
-    borderTopWidth: 1,
-    borderTopColor: color.border,
-  },
-  submitBtn: {
-    backgroundColor: color.yellow,
-    borderRadius: radius.md,
-    paddingVertical: space.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.xs,
-  },
-  submitBtnText: {
-    color: color.navy,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backBtn: {
+      padding: space.xs,
+      borderRadius: 20,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    headerTitleWrap: {
+      flex: 1,
+      marginLeft: space.sm,
+    },
+    headerTitle: {
+      color: colors.textPrimary,
+      fontSize: 17,
+      fontWeight: '800',
+    },
+    headerSubtitle: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    content: {
+      padding: space.md,
+    },
+    assuranceBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.sm,
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.08)' : '#FFFBEB',
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(247, 181, 3, 0.25)' : '#FDE68A',
+      marginBottom: space.lg,
+    },
+    assuranceText: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      flex: 1,
+      lineHeight: 18,
+    },
+    section: {
+      marginBottom: space.lg,
+    },
+    sectionHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+      marginBottom: space.sm,
+    },
+    sectionTitle: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    inputLabel: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: '600',
+      marginBottom: space.xs,
+    },
+    dateList: {
+      gap: space.sm,
+      paddingVertical: 2,
+    },
+    dateCard: {
+      width: 64,
+      paddingVertical: 12,
+      borderRadius: radius.md,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    dateCardActive: {
+      backgroundColor: colors.brandAccent,
+      borderColor: colors.brandAccent,
+    },
+    dayName: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontWeight: '600',
+      textTransform: 'uppercase',
+    },
+    dayNameActive: {
+      color: colors.brandNavy,
+    },
+    dayNum: {
+      color: colors.textPrimary,
+      fontSize: 18,
+      fontWeight: '800',
+      marginVertical: 2,
+    },
+    dayNumActive: {
+      color: colors.brandNavy,
+    },
+    monthName: {
+      color: colors.textMuted,
+      fontSize: 10,
+      fontWeight: '600',
+    },
+    monthNameActive: {
+      color: colors.brandNavy,
+    },
+    slotGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: space.sm,
+    },
+    slotPill: {
+      flex: 1,
+      minWidth: 100,
+      paddingVertical: space.sm,
+      paddingHorizontal: space.sm,
+      borderRadius: radius.sm,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+      alignItems: 'center',
+    },
+    slotPillActive: {
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : 'rgba(247, 181, 3, 0.2)',
+      borderColor: colors.brandAccent,
+    },
+    slotText: {
+      color: colors.textPrimary,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    slotTextActive: {
+      color: isDark ? colors.brandAccent : colors.brandNavy,
+      fontWeight: '700',
+    },
+    locationToggle: {
+      gap: space.sm,
+    },
+    locationCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.md,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    locationCardActive: {
+      borderColor: colors.brandAccent,
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.08)' : '#FFFBEB',
+    },
+    locationCardTitle: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    locationCardTitleActive: {
+      color: isDark ? colors.brandAccent : colors.brandNavy,
+    },
+    locationCardDesc: {
+      color: colors.textMuted,
+      fontSize: 11,
+      marginTop: 2,
+    },
+    cityPills: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: space.xs,
+    },
+    cityPill: {
+      paddingHorizontal: space.md,
+      paddingVertical: 8,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    cityPillActive: {
+      backgroundColor: colors.brandAccent,
+      borderColor: colors.brandAccent,
+    },
+    cityText: {
+      color: colors.textPrimary,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    cityTextActive: {
+      color: colors.brandNavy,
+      fontWeight: '700',
+    },
+    textArea: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: space.md,
+      color: colors.textPrimary,
+      fontSize: 13,
+      textAlignVertical: 'top',
+      minHeight: 80,
+    },
+    errorBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+      borderRadius: radius.sm,
+      padding: space.sm,
+      borderWidth: 1,
+      borderColor: 'rgba(239, 68, 68, 0.25)',
+      marginTop: space.sm,
+    },
+    errorText: {
+      color: '#EF4444',
+      fontSize: 12,
+      flex: 1,
+    },
+    bottomBar: {
+      backgroundColor: colors.surface,
+      paddingHorizontal: space.md,
+      paddingTop: space.sm,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    submitBtn: {
+      backgroundColor: colors.brandAccent,
+      borderRadius: radius.md,
+      paddingVertical: space.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: space.xs,
+    },
+    submitBtnText: {
+      color: colors.brandNavy,
+      fontSize: 15,
+      fontWeight: '800',
+    },
+  });

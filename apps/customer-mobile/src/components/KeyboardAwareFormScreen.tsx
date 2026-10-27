@@ -24,7 +24,7 @@ import {
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets, type Edge } from 'react-native-safe-area-context';
 import { AlertCircle } from 'lucide-react-native';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme } from '../theme';
 
 // ============================================================
 // 1. KeyboardAwareFormScreen
@@ -63,6 +63,7 @@ export const KeyboardAwareFormScreen = forwardRef<ScrollView, KeyboardAwareFormS
     ref
   ) => {
     const insets = useSafeAreaInsets();
+    const { colors } = useAppTheme();
     const internalScrollRef = useRef<ScrollView>(null);
     const scrollRef = (ref as React.RefObject<ScrollView>) || internalScrollRef;
 
@@ -72,14 +73,14 @@ export const KeyboardAwareFormScreen = forwardRef<ScrollView, KeyboardAwareFormS
       : Math.max(insets.bottom, space.md) + (footer ? space.md : space.xl);
 
     return (
-      <SafeAreaView style={[styles.container, containerStyle]} edges={edges}>
+      <SafeAreaView style={[styles.container, { backgroundColor: colors.background }, containerStyle]} edges={edges}>
         <KeyboardAvoidingView
           behavior="padding"
           keyboardVerticalOffset={keyboardVerticalOffset}
           style={styles.keyboardAvoid}
         >
           {/* Optional Fixed Header */}
-          {header ? <View style={styles.headerWrap}>{header}</View> : null}
+          {header ? <View style={[styles.headerWrap, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>{header}</View> : null}
 
           {/* Main Scrollable Content */}
           <ScrollView
@@ -108,7 +109,11 @@ export const KeyboardAwareFormScreen = forwardRef<ScrollView, KeyboardAwareFormS
             <View
               style={[
                 styles.stickyFooter,
-                { paddingBottom: Math.max(insets.bottom, space.md) },
+                {
+                  backgroundColor: colors.surface,
+                  borderTopColor: colors.border,
+                  paddingBottom: Math.max(insets.bottom, space.md),
+                },
               ]}
             >
               {footer}
@@ -148,21 +153,22 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(
     },
     ref
   ) => {
+    const { colors, isDark } = useAppTheme();
     const [focused, setFocused] = React.useState(false);
 
     return (
       <View style={[styles.fieldWrap, containerStyle]}>
         <View style={styles.labelRow}>
-          <Text style={[styles.fieldLabel, focused && styles.fieldLabelFocused]}>
+          <Text style={[styles.fieldLabel, { color: colors.textPrimary }, focused && { color: colors.brandAccent }]}>
             {label}
           </Text>
-          {required ? <Text style={styles.requiredStar}> *</Text> : null}
+          {required ? <Text style={[styles.requiredStar, { color: colors.brandAccent }]}> *</Text> : null}
         </View>
 
         <TextInput
           ref={ref}
           accessibilityLabel={label}
-          placeholderTextColor={color.muted}
+          placeholderTextColor={colors.textMuted}
           onFocus={(e) => {
             setFocused(true);
             onFocus?.(e);
@@ -173,7 +179,15 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(
           }}
           style={[
             styles.fieldInput,
-            focused && styles.fieldInputFocused,
+            {
+              backgroundColor: colors.surfaceSecondary,
+              borderColor: colors.border,
+              color: colors.textPrimary,
+            },
+            focused && {
+              borderColor: colors.brandAccent,
+              backgroundColor: isDark ? 'rgba(10, 36, 71, 0.95)' : '#FFFFFF',
+            },
             textInputProps.multiline && styles.fieldInputMultiline,
             Boolean(error) && styles.fieldInputError,
             style,
@@ -189,7 +203,7 @@ export const FormField = forwardRef<TextInput, FormFieldProps>(
             </Text>
           </View>
         ) : helperText ? (
-          <Text style={styles.fieldHelper}>{helperText}</Text>
+          <Text style={[styles.fieldHelper, { color: colors.textMuted }]}>{helperText}</Text>
         ) : null}
       </View>
     );
@@ -224,22 +238,31 @@ export function FormFooter({
   secondaryDisabled,
   style,
 }: FormFooterProps) {
+  const { colors } = useAppTheme();
+
   return (
     <View style={[styles.footerRow, style]}>
       {secondaryTitle && onSecondaryPress ? (
         <TouchableOpacity
-          style={styles.secondaryBtn}
+          style={[
+            styles.secondaryBtn,
+            {
+              backgroundColor: colors.surfaceSecondary,
+              borderColor: colors.border,
+            },
+          ]}
           activeOpacity={0.75}
           disabled={secondaryDisabled || primaryBusy}
           onPress={onSecondaryPress}
         >
-          <Text style={styles.secondaryBtnText}>{secondaryTitle}</Text>
+          <Text style={[styles.secondaryBtnText, { color: colors.textPrimary }]}>{secondaryTitle}</Text>
         </TouchableOpacity>
       ) : null}
 
       <TouchableOpacity
         style={[
           styles.primaryBtn,
+          { backgroundColor: colors.brandAccent },
           !secondaryTitle && styles.primaryBtnFull,
           (primaryDisabled || primaryBusy) && styles.primaryBtnDisabled,
         ]}
@@ -248,11 +271,11 @@ export function FormFooter({
         onPress={onPrimaryPress}
       >
         {primaryBusy ? (
-          <ActivityIndicator color={color.navy} />
+          <ActivityIndicator color={colors.brandNavy} />
         ) : (
           <View style={styles.primaryContent}>
             {primaryIcon ? <View style={styles.btnIconWrap}>{primaryIcon}</View> : null}
-            <Text style={styles.primaryBtnText}>{primaryTitle}</Text>
+            <Text style={[styles.primaryBtnText, { color: colors.brandNavy }]}>{primaryTitle}</Text>
           </View>
         )}
       </TouchableOpacity>

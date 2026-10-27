@@ -102,6 +102,16 @@ export const roleCatalog: Record<EmployeeRole, RoleDefinition> = {
   LISTING_EXECUTIVE: { name: 'Listing Executive', description: 'Listing preparation and publication workflow.', privileged: false, permissions: [] },
   PRICING_APPROVER: { name: 'Pricing Approver', description: 'Independent acquisition and retail pricing authority.', privileged: true, permissions: [] },
   FINANCE: { name: 'Finance Executive', description: 'Prepares and reads branch-scoped financial settlement work. Approval, execution, and verification are separately granted permissions.', privileged: true, permissions: ['finance.portal.access', 'finance.settlement.read', 'finance.settlement.prepare', 'finance.audit.read'] },
+  SERVICE_ADVISOR: { name: 'Service Advisor', description: 'Customer consultation, service intake, estimate generation and delivery coordination.', privileged: false, permissions: [] },
+  SERVICE_DISPATCH: { name: 'Service Dispatch', description: 'Logistics coordination and pickup/return driver dispatch.', privileged: false, permissions: [] },
+  PICKUP_DRIVER: { name: 'Pickup & Return Driver', description: 'Vehicle pickup, transit custody and customer return delivery.', privileged: false, permissions: [] },
+  HUB_MANAGER: { name: 'Service Hub Manager', description: 'Service hub operations, capacity and multi-bay workflow management.', privileged: true, permissions: [] },
+  TECHNICIAN: { name: 'Service Technician', description: 'Vehicle diagnosis, mechanical/electrical repairs and work order execution.', privileged: false, permissions: [] },
+  SERVICE_QC: { name: 'Service Quality Control Inspector', description: 'Independent post-service road testing, safety verification and sign-off.', privileged: true, permissions: [] },
+  SERVICE_MANAGER: { name: 'Service Operations Manager', description: 'Overall automotive service operations and workflow governance.', privileged: true, permissions: [] },
+  RENTAL_MANAGER: { name: 'Rental Operations Manager', description: 'Advance car rental fleet, reservations, pricing and operations oversight.', privileged: true, permissions: [] },
+  RENTAL_DISPATCH: { name: 'Rental Dispatch Officer', description: 'Pickup handover custody, driver license verification, and return inspection.', privileged: false, permissions: [] },
+  RENTAL_FLEET_OFFICER: { name: 'Rental Fleet Officer', description: 'Fleet maintenance scheduling, turnaround buffers, and vehicle compliance management.', privileged: false, permissions: [] },
 };
 
 type CatalogClient = Pick<PrismaClient, 'permission' | 'role' | 'rolePermission'> | Prisma.TransactionClient;

@@ -149,9 +149,10 @@ export type SellerLead = {
   updatedAt: string;
   assignments?: Array<{
     id: string;
-    employee: { id: string; user: { displayName: string | null; email: string } };
+    employeeId?: string;
+    employee?: { id?: string; user: { displayName: string | null; email: string } };
     assignedAt: string;
-    releasedAt: string | null;
+    releasedAt?: string | null;
   }>;
   interactions?: Array<{
     id: string;
@@ -514,7 +515,14 @@ export type InspectionRequestItem = {
   locationType: string;
   address: string | null;
   notes: string | null;
+  scheduledAt: string | null;
   createdAt: string;
+  assignment?: {
+    status: string;
+    scheduledAt: string | null;
+    locationType: string;
+    address: string | null;
+  } | null;
   lead: {
     id: string;
     referenceCode: string;
@@ -583,6 +591,8 @@ export const salesApi = {
     call<SellerLead>(user, `/seller-leads/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, note }) }),
   claimSellerLead: (user: User, id: string) =>
     call<{ id: string; leadId: string }>(user, `/seller-leads/${id}/claim`, { method: 'POST' }),
+  releaseSellerLead: (user: User, id: string) =>
+    call<{ id: string; leadId: string }>(user, `/seller-leads/${id}/release`, { method: 'POST' }),
   assignSellerLead: (user: User, id: string, employeeId: string, reason?: string) =>
     call<{ id: string }>(user, `/seller-leads/${id}/assign`, { method: 'POST', body: JSON.stringify({ employeeId, reason }) }),
   qualifySellerLead: (user: User, id: string, qualified: boolean, reasonCode: string, notes?: string) =>
@@ -643,7 +653,7 @@ export const salesApi = {
   // Test Drives
   testDrives: (user: User, params: { page?: number; limit?: number; search?: string; status?: string } = {}) =>
     call<TestDrivePage>(user, `/test-drives?${query(params)}`),
-  requestTestDrive: (user: User, input: { listingId: string; customerId: string; requestedDate: string; timeSlot: string; locationPreference?: 'HUB' | 'HOME'; serviceCity?: string; customerNotes?: string }) =>
+  requestTestDrive: (user: User, input: { listingId: string; customerId: string; enquiryId?: string; requestedDate: string; timeSlot: string; locationPreference?: 'HUB' | 'HOME'; serviceCity?: string; customerNotes?: string }) =>
     call<TestDrive>(user, '/test-drives', { method: 'POST', body: JSON.stringify(input) }),
   updateTestDriveStatus: (user: User, id: string, input: { status: string; customerNotes?: string }) =>
     call<TestDrive>(user, `/test-drives/${id}/status`, { method: 'PATCH', body: JSON.stringify(input) }),

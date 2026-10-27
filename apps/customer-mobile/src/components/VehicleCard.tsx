@@ -2,7 +2,7 @@ import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Bookmark, Calendar, CheckCircle2, Fuel, Gauge, MapPin } from 'lucide-react-native';
 import { formatPrice } from '../format';
-import { color, radius, space } from '../theme';
+import { useAppTheme, radius, space } from '../theme';
 import type { VehicleSummary } from '../types';
 
 export function VehicleCard({
@@ -18,6 +18,8 @@ export function VehicleCard({
   onSave: () => void;
   onBook: () => void;
 }) {
+  const { theme, isDark } = useAppTheme();
+  const c = theme.colors;
   const vehicle = listing.vehicle;
   const image = listing.media[0]?.url;
 
@@ -26,9 +28,13 @@ export function VehicleCard({
       accessibilityRole="button"
       accessibilityLabel={`View ${listing.title}`}
       onPress={onOpen}
-      style={({ pressed }) => [styles.card, pressed && styles.pressed]}
+      style={({ pressed }) => [
+        styles.card,
+        { backgroundColor: c.surface, borderColor: c.border },
+        pressed && styles.pressed,
+      ]}
     >
-      <View style={styles.imageWrap}>
+      <View style={[styles.imageWrap, { backgroundColor: isDark ? c.surfaceSecondary : c.brandNavy }]}>
         {image ? (
           <Image
             accessibilityLabel={`${listing.title} exterior`}
@@ -37,18 +43,24 @@ export function VehicleCard({
             resizeMode="cover"
           />
         ) : (
-          <View style={styles.noImage}>
-            <Text style={styles.noImageText}>Photos in inspection</Text>
+          <View style={[styles.noImage, { backgroundColor: isDark ? '#092144' : '#E2E8F0' }]}>
+            <Text style={[styles.noImageText, { color: c.textMuted }]}>Photos in inspection</Text>
           </View>
         )}
 
-        {/* Verified Badge */}
-        <View style={styles.badge}>
-          <CheckCircle2 size={12} color={color.yellow} />
-          <Text style={styles.badgeText}>180-PT VERIFIED</Text>
-        </View>
+        {/* Verified or Hold Badge */}
+        {listing.isHeld ? (
+          <View style={[styles.badge, styles.holdBadge]}>
+            <Text style={styles.holdBadgeText}>UNDER HOLD</Text>
+          </View>
+        ) : (
+          <View style={styles.badge}>
+            <CheckCircle2 size={12} color={c.brandAccent} />
+            <Text style={[styles.badgeText, { color: c.brandAccent }]}>200-PT CERTIFIED</Text>
+          </View>
+        )}
 
-        {/* Wishlist Button with hitSlop */}
+        {/* Wishlist Button */}
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={listing.isWishlisted ? 'Remove from wishlist' : 'Add to wishlist'}
@@ -62,14 +74,14 @@ export function VehicleCard({
         >
           <Bookmark
             size={18}
-            color={listing.isWishlisted ? color.yellow : color.white}
-            fill={listing.isWishlisted ? color.yellow : 'transparent'}
+            color={listing.isWishlisted ? c.brandAccent : '#FFFFFF'}
+            fill={listing.isWishlisted ? c.brandAccent : 'transparent'}
           />
         </Pressable>
 
         {/* City Overlay */}
         <View style={styles.cityPill}>
-          <MapPin size={11} color={color.white} />
+          <MapPin size={11} color="#FFFFFF" />
           <Text style={styles.cityPillText}>{vehicle.city || 'V MOTIV HUB'}</Text>
         </View>
       </View>
@@ -77,28 +89,28 @@ export function VehicleCard({
       <View style={styles.body}>
         <View style={styles.headerRow}>
           <View style={styles.titleWrap}>
-            <Text style={styles.title} numberOfLines={1}>
+            <Text style={[styles.title, { color: c.textPrimary }]} numberOfLines={1}>
               {vehicle.make} {vehicle.model}
             </Text>
-            <Text style={styles.subtitle} numberOfLines={1}>
+            <Text style={[styles.subtitle, { color: c.textMuted }]} numberOfLines={1}>
               {vehicle.manufacturingYear} · {vehicle.variant || 'Standard'}
             </Text>
           </View>
-          <Text style={styles.price}>{formatPrice(listing.pricePaise)}</Text>
+          <Text style={[styles.price, { color: isDark ? c.brandAccent : c.brandNavy }]}>{formatPrice(listing.pricePaise)}</Text>
         </View>
 
         {/* Key Specs Chips with Icons */}
         <View style={styles.chipsRow}>
-          <View style={styles.chip}>
-            <Gauge size={12} color={color.muted} />
-            <Text style={styles.chipText}>{vehicle.odometerKm.toLocaleString('en-IN')} km</Text>
+          <View style={[styles.chip, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <Gauge size={12} color={c.textMuted} />
+            <Text style={[styles.chipText, { color: c.textSecondary }]}>{vehicle.odometerKm.toLocaleString('en-IN')} km</Text>
           </View>
-          <View style={styles.chip}>
-            <Fuel size={12} color={color.muted} />
-            <Text style={styles.chipText}>{vehicle.fuelType}</Text>
+          <View style={[styles.chip, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <Fuel size={12} color={c.textMuted} />
+            <Text style={[styles.chipText, { color: c.textSecondary }]}>{vehicle.fuelType}</Text>
           </View>
-          <View style={styles.chip}>
-            <Text style={styles.chipText}>{vehicle.transmission}</Text>
+          <View style={[styles.chip, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+            <Text style={[styles.chipText, { color: c.textSecondary }]}>{vehicle.transmission}</Text>
           </View>
         </View>
 
@@ -106,25 +118,31 @@ export function VehicleCard({
         <Pressable
           accessibilityRole="button"
           accessibilityLabel={hasTestDrive ? `Test drive requested for ${listing.title}. View in Activity.` : `Book a test drive for ${listing.title}`}
+          disabled={listing.isHeld}
           onPress={(event) => {
+            if (listing.isHeld) return;
             event.stopPropagation();
             onBook();
           }}
           style={({ pressed }) => [
             styles.bookBtn,
-            hasTestDrive && styles.bookBtnRequested,
-            pressed && styles.bookBtnPressed,
+            { backgroundColor: listing.isHeld ? 'rgba(255, 124, 134, 0.2)' : c.brandAccent },
+            listing.isHeld && { borderWidth: 1, borderColor: '#FF7C86' },
+            hasTestDrive && [styles.bookBtnRequested, { borderColor: c.brandAccent, backgroundColor: c.selected }],
+            pressed && !listing.isHeld && styles.bookBtnPressed,
           ]}
         >
-          {hasTestDrive ? (
+          {listing.isHeld ? (
+            <Text style={[styles.bookBtnText, { color: '#FF7C86', fontWeight: '700' }]}>Currently On Hold</Text>
+          ) : hasTestDrive ? (
             <>
-              <CheckCircle2 size={16} color={color.yellow} />
-              <Text style={styles.bookBtnRequestedText}>Drive Requested · View Status</Text>
+              <CheckCircle2 size={16} color={c.brandAccent} />
+              <Text style={[styles.bookBtnRequestedText, { color: c.textPrimary }]}>Drive Requested · View Status</Text>
             </>
           ) : (
             <>
-              <Calendar size={15} color={color.navy} />
-              <Text style={styles.bookBtnText}>Book Test Drive</Text>
+              <Calendar size={15} color={c.brandNavy} />
+              <Text style={[styles.bookBtnText, { color: c.brandNavy }]}>Book Test Drive</Text>
             </>
           )}
         </Pressable>
@@ -135,14 +153,12 @@ export function VehicleCard({
 
 const styles = StyleSheet.create({
   card: {
-    backgroundColor: color.surface,
     borderRadius: radius.lg,
     borderWidth: 1,
-    borderColor: color.border,
     overflow: 'hidden',
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
+    shadowOpacity: 0.1,
     shadowRadius: 8,
     elevation: 3,
   },
@@ -152,7 +168,6 @@ const styles = StyleSheet.create({
   },
   imageWrap: {
     height: 190,
-    backgroundColor: color.navy,
     position: 'relative',
   },
   image: {
@@ -163,10 +178,8 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: '#092144',
   },
   noImageText: {
-    color: color.muted,
     fontSize: 13,
     fontWeight: '600',
   },
@@ -185,9 +198,18 @@ const styles = StyleSheet.create({
     gap: 5,
   },
   badgeText: {
-    color: color.yellow,
     fontSize: 10.5,
     fontWeight: '800',
+    letterSpacing: 0.6,
+  },
+  holdBadge: {
+    backgroundColor: '#FF7C86',
+    borderColor: '#FF7C86',
+  },
+  holdBadgeText: {
+    fontSize: 10.5,
+    fontWeight: '800',
+    color: '#061A38',
     letterSpacing: 0.6,
   },
   cityPill: {
@@ -203,7 +225,7 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   cityPillText: {
-    color: color.textSecondary,
+    color: '#CBD5E1',
     fontSize: 11,
     fontWeight: '700',
   },
@@ -239,18 +261,15 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   title: {
-    color: color.text,
     fontSize: 17.5,
     fontWeight: '800',
     letterSpacing: -0.2,
   },
   subtitle: {
-    color: color.muted,
     fontSize: 13,
     fontWeight: '500',
   },
   price: {
-    color: color.yellow,
     fontSize: 18,
     fontWeight: '900',
     letterSpacing: -0.3,
@@ -264,21 +283,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: color.input,
     borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.05)',
     paddingVertical: 5,
     paddingHorizontal: 9,
   },
   chipText: {
-    color: color.textSecondary,
     fontSize: 12,
     fontWeight: '600',
   },
   bookBtn: {
     minHeight: 44,
-    backgroundColor: color.yellow,
     borderRadius: radius.md,
     flexDirection: 'row',
     gap: 8,
@@ -291,18 +306,14 @@ const styles = StyleSheet.create({
     transform: [{ scale: 0.99 }],
   },
   bookBtnRequested: {
-    backgroundColor: 'rgba(247, 181, 3, 0.08)',
     borderWidth: 1,
-    borderColor: 'rgba(247, 181, 3, 0.4)',
   },
   bookBtnRequestedText: {
-    color: color.yellow,
     fontSize: 13.5,
     fontWeight: '800',
     letterSpacing: 0.1,
   },
   bookBtnText: {
-    color: color.navy,
     fontSize: 14,
     fontWeight: '800',
     letterSpacing: 0.2,

@@ -31,6 +31,22 @@ Implement the attached customer-mobile redesign brief in the existing V2 applica
 - [ ] Sales/Inspector original declaration vs observed identity and admin correction workflow.
 - [ ] Android installed-build visual tests, TalkBack, large fonts, reduced motion and full lifecycle tests.
 
+## Rental audit — 27 October 2026
+
+Completed in the current workspace:
+
+- Rental discovery now queries only active hubs that have at least one currently eligible, available and compliance-valid fleet vehicle.
+- Date searches and reservation holds now reject vehicles that are on trip, in maintenance, inactive at their hub, or selected with a mismatched hub id.
+- The customer app no longer substitutes unrelated stock imagery when a fleet photo is missing, and no longer advertises fixed inclusion/deposit/insurance claims that the selected vehicle did not prove.
+- Simulated KYC document URLs and simulated payment confirmations were removed from the mobile checkout. The customer sees an explicit availability message instead of a false paid booking.
+- Added `npm run seed:rental-demo -w @vmotiv/api`, a development-only demo vehicle seeder. It requires an existing active ServiceHub and will not create a fake hub or run in production.
+
+Still required before enabling customer booking:
+
+1. Add and deploy a Prisma migration for the new ServiceHub and rental tables. The schema currently contains the models but the tracked migration history does not.
+2. Configure real fleet photos, compliance records, operating terms, a secure document-upload flow, and live Razorpay (or another gateway) order creation/webhook verification.
+3. Run the demo seeder only against a local/dev database after an administrator has created an actual active ServiceHub.
+
 ## Continuation instructions
 
 1. Read this document and `git diff` before editing; do not overwrite parallel user changes.

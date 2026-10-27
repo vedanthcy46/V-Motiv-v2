@@ -38,8 +38,10 @@ import {
   Info,
   LogOut,
   MapPin,
+  Moon,
   Plus,
   RefreshCw,
+  Sun,
   Tag,
   Trash2,
   User,
@@ -49,7 +51,7 @@ import {
 import { BrandLogo } from '../components/BrandLogo';
 import { useAuth } from '../auth/AuthProvider';
 import { api, resolveRequestUrl } from '../api';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme } from '../theme';
 import { registerForPushNotificationsAsync, type InAppNotification } from '../services/notifications';
 import {
   cachedJobsKey,
@@ -71,6 +73,14 @@ type Assignment = {
   locationType: string;
   address: string | null;
   instructions: string | null;
+  completedAt?: string | null;
+  reports?: Array<{
+    id: string;
+    status: string;
+    revision: number;
+    submittedAt?: string | null;
+    reviewedAt?: string | null;
+  }>;
   request: {
     id: string;
     status: string;
@@ -189,6 +199,21 @@ function formatRefCode(code: string | null | undefined): string {
   return code.toUpperCase();
 }
 
+export function isInvalidRegNumberOrUuid(val: unknown): boolean {
+  if (!val || typeof val !== 'string') return true;
+  const s = val.trim();
+  if (!s) return true;
+  // Standard UUID (8-4-4-4-12 hex format)
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true;
+  // Compact 32-hex UUID
+  if (/^[0-9a-f]{32}$/i.test(s)) return true;
+  // System internal reference codes (e.g., SL-..., VM-..., REF-..., LEAD-...)
+  if (/^(SL-|VM-|REF-|LEAD-)/i.test(s)) return true;
+  // Registration numbers in India are max 14 characters and never have 3+ hyphens
+  if (s.length > 14 || (s.match(/-/g) || []).length >= 3) return true;
+  return false;
+}
+
 function formatScheduleDate(dateString: string | null | undefined): string {
   if (!dateString) return 'Appointment Pending';
   try {
@@ -234,14 +259,14 @@ function getStatusTheme(status: string) {
       return {
         bg: 'rgba(247, 181, 3, 0.14)',
         border: 'rgba(247, 181, 3, 0.4)',
-        text: color.yellow,
+        text: '#F7B503',
         label: 'ASSIGNED',
       };
     case 'CONFIRMED':
       return {
         bg: 'rgba(52, 211, 153, 0.14)',
         border: 'rgba(52, 211, 153, 0.4)',
-        text: color.success,
+        text: '#10B981',
         label: 'CONFIRMED',
       };
     case 'IN_PROGRESS':
@@ -251,12 +276,34 @@ function getStatusTheme(status: string) {
         text: '#38BDF8',
         label: 'IN PROGRESS',
       };
+    case 'SUBMITTED':
+    case 'UNDER_REVIEW':
+      return {
+        bg: 'rgba(56, 189, 248, 0.14)',
+        border: 'rgba(56, 189, 248, 0.4)',
+        text: '#38BDF8',
+        label: 'IN REVIEW',
+      };
+    case 'APPROVED':
+      return {
+        bg: 'rgba(34, 197, 94, 0.14)',
+        border: 'rgba(34, 197, 94, 0.4)',
+        text: '#10B981',
+        label: 'APPROVED',
+      };
     case 'COMPLETED':
       return {
         bg: 'rgba(34, 197, 94, 0.14)',
         border: 'rgba(34, 197, 94, 0.4)',
-        text: '#4ADE80',
+        text: '#10B981',
         label: 'COMPLETED',
+      };
+    case 'REWORK_REQUIRED':
+      return {
+        bg: 'rgba(239, 68, 68, 0.14)',
+        border: 'rgba(239, 68, 68, 0.4)',
+        text: '#EF4444',
+        label: 'REWORK REQUIRED',
       };
     case 'RESCHEDULED':
       return {
@@ -269,7 +316,7 @@ function getStatusTheme(status: string) {
       return {
         bg: 'rgba(130, 146, 174, 0.14)',
         border: 'rgba(130, 146, 174, 0.3)',
-        text: color.muted,
+        text: '#64748B',
         label: (status || 'UNKNOWN').replace(/_/g, ' '),
       };
   }
@@ -287,6 +334,30 @@ function getLocationTypeTheme(locationType: string | null | undefined) {
 
 export function InspectorScreen() {
   const insets = useSafeAreaInsets();
+  const { theme, mode, setMode, isDark } = useAppTheme();
+  const c = theme.colors;
+
+  const color = useMemo(() => ({
+    canvas: c.background,
+    navy: c.brandNavy,
+    headerBg: c.surface,
+    surface: c.surface,
+    card: c.card,
+    raised: c.surfaceSecondary,
+    border: c.border,
+    input: c.inputBackground,
+    yellow: c.brandAccent,
+    yellowPressed: c.brandAccentPressed,
+    white: isDark ? '#FFFFFF' : c.textPrimary,
+    text: c.textPrimary,
+    textSecondary: c.textSecondary,
+    muted: c.textMuted,
+    success: c.success,
+    danger: c.error,
+    overlay: c.overlay,
+  }), [c, isDark]);
+
+  const styles = useMemo(() => createStyles(color, isDark), [color, isDark]);
   const { height: windowHeight } = useWindowDimensions();
   const { isKeyboardVisible, keyboardHeight } = useKeyboard();
   const defectScrollRef = useRef<ScrollView>(null);
@@ -491,10 +562,14 @@ export function InspectorScreen() {
 
       // Hydrate existing answers / fields
       const iden = (activeReport.identity || {}) as Record<string, unknown>;
-      // Strict fix: Use existing report registrationNumber or declared lead registrationNumber. NEVER use UUID referenceCode!
-      const existingReg = typeof iden.registrationNumber === 'string' && iden.registrationNumber.trim()
-        ? iden.registrationNumber.trim()
-        : (job.request.lead.registrationNumber || '');
+      const rawReportReg = typeof iden.registrationNumber === 'string' ? iden.registrationNumber.trim() : '';
+      const rawLeadReg = typeof job.request.lead.registrationNumber === 'string' ? job.request.lead.registrationNumber.trim() : '';
+
+      // Strict fix: Use genuine registrationNumber only. Filter out UUIDs or reference codes!
+      const reportReg = !isInvalidRegNumberOrUuid(rawReportReg) ? rawReportReg : '';
+      const leadReg = !isInvalidRegNumberOrUuid(rawLeadReg) ? rawLeadReg : '';
+
+      const existingReg = reportReg || leadReg || '';
       setRegNumber(existingReg);
       setOdometerKm(String(iden.odometerKm || job.request.lead.odometerKm || ''));
       setVinChassis(String(iden.vinChassis || ''));
@@ -609,7 +684,7 @@ export function InspectorScreen() {
 
     const payload: DraftPayload = {
       identity: {
-        registrationNumber: regNumber.trim(),
+        registrationNumber: isInvalidRegNumberOrUuid(regNumber) ? '' : regNumber.trim(),
         odometerKm: Number(odometerKm) || 0,
         vinChassis: vinChassis.trim() || undefined,
         engineNumber: engineNumber.trim() || undefined,
@@ -826,8 +901,12 @@ export function InspectorScreen() {
       Alert.alert('Declaration Required', 'You must sign the truthfulness declaration before submitting.');
       return;
     }
-    if (!regNumber.trim() || !odometerKm.trim()) {
-      Alert.alert('Missing Identity Data', 'Observed registration number and odometer reading are required.');
+    if (!regNumber.trim() || isInvalidRegNumberOrUuid(regNumber) || !odometerKm.trim()) {
+      Alert.alert(
+        'Missing Identity Data',
+        'Valid physical registration plate number (e.g. KA01MJ1234) and odometer reading are required to submit evaluation.'
+      );
+      setActiveTab('identity');
       return;
     }
 
@@ -955,7 +1034,7 @@ export function InspectorScreen() {
     return (
       <View style={[styles.root, { paddingTop: insets.top }]}>
         {/* Workspace Top Bar */}
-        <View style={styles.workspaceHeader}>
+        <View style={[styles.workspaceHeader, { backgroundColor: c.surface, borderBottomColor: c.border }]}>
           <Pressable style={styles.backButton} onPress={() => setActiveJob(null)}>
             <Text style={styles.backButtonText}>‹ Jobs</Text>
           </Pressable>
@@ -963,7 +1042,7 @@ export function InspectorScreen() {
             <Text style={styles.workspaceKicker} numberOfLines={1} ellipsizeMode="tail">
               EVALUATION · #{formatRefCode(activeJob.request.lead.referenceCode)}
             </Text>
-            <Text style={styles.workspaceVehicle} numberOfLines={1} ellipsizeMode="tail">
+            <Text style={[styles.workspaceVehicle, { color: c.textPrimary }]} numberOfLines={1} ellipsizeMode="tail">
               {activeJob.request.lead.manufacturingYear} {activeJob.request.lead.make} {activeJob.request.lead.model}
             </Text>
           </View>
@@ -998,7 +1077,7 @@ export function InspectorScreen() {
         )}
 
         {/* Tab Navigation Strip */}
-        <View style={styles.tabsContainer}>
+        <View style={[styles.tabsContainer, { backgroundColor: c.surface, borderColor: c.border }]}>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
             {[
               { id: 'identity', label: '1. Identity' },
@@ -1047,7 +1126,7 @@ export function InspectorScreen() {
                   autoCapitalize="characters"
                   autoCorrect={false}
                 />
-                {activeJob.request.lead.registrationNumber ? (
+                {activeJob.request.lead.registrationNumber && !isInvalidRegNumberOrUuid(activeJob.request.lead.registrationNumber) ? (
                   <Text style={styles.inputHint} numberOfLines={1} ellipsizeMode="tail">
                     Declared at enquiry: {activeJob.request.lead.registrationNumber} (Seller: {activeJob.request.lead.sellerName})
                   </Text>
@@ -1484,7 +1563,9 @@ export function InspectorScreen() {
               <View style={styles.summaryCard}>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryKey} numberOfLines={1}>Registration Plate</Text>
-                  <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">{regNumber || 'Missing'}</Text>
+                  <Text style={styles.summaryVal} numberOfLines={1} ellipsizeMode="tail">
+                    {regNumber && !isInvalidRegNumberOrUuid(regNumber) ? regNumber : 'Missing'}
+                  </Text>
                 </View>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryKey} numberOfLines={1}>Observed Odometer</Text>
@@ -1701,7 +1782,7 @@ export function InspectorScreen() {
               </ScrollView>
 
               {/* Modal Footer CTA */}
-              <View style={[styles.defectModalFooter, { paddingBottom: isKeyboardVisible ? 10 : Math.max(insets.bottom, 14) }]}>
+              <View style={[styles.defectModalFooter, { paddingBottom: isKeyboardVisible ? 10 : Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 14) + space.xs }]}>
                 <Pressable
                   style={styles.defectCancelBtn}
                   onPress={() => {
@@ -1740,11 +1821,23 @@ export function InspectorScreen() {
         </Modal>
 
         {/* Fullscreen Photo Zoom Preview Modal */}
-        <Modal visible={Boolean(previewPhotoUri)} transparent animationType="fade">
+        <Modal
+          visible={Boolean(previewPhotoUri)}
+          transparent
+          animationType="fade"
+          statusBarTranslucent={true}
+          onRequestClose={() => setPreviewPhotoUri(null)}
+        >
           <View style={styles.previewBackdrop}>
-            <View style={styles.previewHeader}>
+            <View style={[styles.previewHeader, { top: Math.max(insets.top, 24) + space.xs }]}>
               <Text style={styles.previewTitle}>Evidence Photo</Text>
-              <Pressable style={styles.previewCloseBtn} onPress={() => setPreviewPhotoUri(null)}>
+              <Pressable
+                style={styles.previewCloseBtn}
+                onPress={() => setPreviewPhotoUri(null)}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Close photo preview"
+              >
                 <X color={color.white} size={20} />
               </Pressable>
             </View>
@@ -1754,14 +1847,36 @@ export function InspectorScreen() {
           </View>
         </Modal>
 
-        {/* Photo Source Action Sheet Modal */}
-        <Modal visible={Boolean(photoPickerSlot)} transparent animationType="slide">
+        {/* Photo Source Action Sheet Modal (Navigation-Bar Aware & Auto-Resizing) */}
+        <Modal
+          visible={Boolean(photoPickerSlot)}
+          transparent
+          animationType="slide"
+          statusBarTranslucent={true}
+          onRequestClose={() => setPhotoPickerSlot(null)}
+        >
           <Pressable style={styles.modalBackdrop} onPress={() => setPhotoPickerSlot(null)}>
-            <View style={styles.modalContent}>
+            <Pressable
+              style={[
+                styles.modalContent,
+                styles.photoModalContent,
+                { paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 16) + space.lg },
+              ]}
+              onPress={e => e.stopPropagation()}
+            >
+              {/* Sheet Drag Handle */}
+              <View style={styles.sheetHandle} />
+
               <View style={styles.rowBetween}>
                 <Text style={styles.modalTitle}>Add Evidence Photos</Text>
-                <Pressable onPress={() => setPhotoPickerSlot(null)}>
-                  <X color={color.text} size={22} />
+                <Pressable
+                  onPress={() => setPhotoPickerSlot(null)}
+                  hitSlop={8}
+                  style={styles.modalCloseBtn}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close photo picker"
+                >
+                  <X color={color.textSecondary} size={18} />
                 </Pressable>
               </View>
               <Text style={styles.sectionSub}>Choose real-time camera capture or select multiple photos from device storage.</Text>
@@ -1770,6 +1885,8 @@ export function InspectorScreen() {
                 <Pressable
                   style={styles.photoChoiceBtn}
                   onPress={() => photoPickerSlot && void takePhotoWithCamera(photoPickerSlot)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Take Photo with Camera"
                 >
                   <Camera color={color.navy} size={20} />
                   <View style={{ flex: 1 }}>
@@ -1782,6 +1899,8 @@ export function InspectorScreen() {
                 <Pressable
                   style={[styles.photoChoiceBtn, { backgroundColor: color.input, borderColor: color.border }]}
                   onPress={() => photoPickerSlot && void pickPhotosFromGallery(photoPickerSlot)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Upload from Gallery or Files"
                 >
                   <Images color={color.yellow} size={20} />
                   <View style={{ flex: 1 }}>
@@ -1792,13 +1911,18 @@ export function InspectorScreen() {
                 </Pressable>
 
                 <Pressable
-                  style={[styles.btnPrimary, { backgroundColor: 'transparent', borderColor: color.border, minHeight: 44 }]}
+                  style={({ pressed }) => [
+                    styles.photoCancelBtn,
+                    pressed && { opacity: 0.75, backgroundColor: isDark ? 'rgba(255, 255, 255, 0.12)' : '#E2E8F0' },
+                  ]}
                   onPress={() => setPhotoPickerSlot(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel="Cancel photo picker"
                 >
-                  <Text style={[styles.btnPrimaryText, { color: color.muted, fontSize: 13 }]}>Cancel</Text>
+                  <Text style={styles.photoCancelBtnText}>Cancel</Text>
                 </Pressable>
               </View>
-            </View>
+            </Pressable>
           </Pressable>
         </Modal>
       </View>
@@ -1809,15 +1933,24 @@ export function InspectorScreen() {
   return (
     <View style={[styles.root, { paddingTop: insets.top }]}>
       {/* Top Header */}
-      <View style={styles.mainHeader}>
+      <View style={[styles.mainHeader, { backgroundColor: c.surface, borderBottomColor: c.border }]}>
         <View style={styles.headerBrandRow}>
-          <BrandLogo variant="horizontal" size={24} />
+          <BrandLogo variant="horizontal" size={24} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
           <View style={styles.badgePill}>
             <Text style={styles.badgePillText}>INSPECTOR</Text>
           </View>
         </View>
 
         <View style={styles.headerRightActions}>
+          <Pressable
+            style={styles.iconCircle}
+            onPress={() => void setMode(isDark ? 'light' : 'dark')}
+            accessibilityRole="button"
+            accessibilityLabel={isDark ? 'Switch to light mode' : 'Switch to dark mode'}
+          >
+            {isDark ? <Sun color={color.yellow} size={18} /> : <Moon color={color.yellow} size={18} />}
+          </Pressable>
+
           <Pressable style={styles.iconCircle} onPress={() => setNotificationsOpen(true)}>
             <Bell color={unreadNotifsCount > 0 ? color.yellow : color.textSecondary} size={18} />
             {unreadNotifsCount > 0 && (
@@ -1935,7 +2068,15 @@ export function InspectorScreen() {
 
         {jobs.length ? (
           jobs.map(job => {
-            const statusTheme = getStatusTheme(job.status);
+            const latestReport = job.reports?.[0];
+            const effectiveStatus = latestReport?.status === 'APPROVED'
+              ? 'APPROVED'
+              : latestReport?.status === 'SUBMITTED'
+              ? 'UNDER_REVIEW'
+              : latestReport?.status === 'REWORK_REQUIRED'
+              ? 'REWORK_REQUIRED'
+              : job.status;
+            const statusTheme = getStatusTheme(effectiveStatus);
             const locTheme = getLocationTypeTheme(job.locationType);
             const refFormatted = formatRefCode(job.request.lead.referenceCode);
             const scheduleFormatted = formatScheduleDate(job.scheduledAt);
@@ -1985,7 +2126,7 @@ export function InspectorScreen() {
 
                 {/* Spec Pills (Registration Plate, Fuel, Transmission, Odometer) */}
                 <View style={styles.specPillsRow}>
-                  {job.request.lead.registrationNumber ? (
+                  {job.request.lead.registrationNumber && !isInvalidRegNumberOrUuid(job.request.lead.registrationNumber) ? (
                     <View style={[styles.specChip, styles.regPlateChip]}>
                       <Tag color={color.yellow} size={11} />
                       <Text style={styles.regPlateChipText} numberOfLines={1}>
@@ -2210,12 +2351,13 @@ export function InspectorScreen() {
   );
 }
 
-const styles = StyleSheet.create({
+const createStyles = (color: any, isDark: boolean) =>
+  StyleSheet.create({
   root: { flex: 1, backgroundColor: color.canvas },
 
   // Header
   mainHeader: {
-    backgroundColor: color.navy,
+    backgroundColor: color.headerBg,
     paddingHorizontal: space.lg,
     paddingVertical: space.md,
     flexDirection: 'row',
@@ -2254,7 +2396,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 36,
     borderRadius: 18,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2278,7 +2420,7 @@ const styles = StyleSheet.create({
   filterSection: {
     paddingVertical: 2,
     borderBottomWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.04)',
+    borderColor: color.border,
   },
   filterScrollView: {
     flexGrow: 0,
@@ -2294,9 +2436,9 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingVertical: 7,
     borderRadius: radius.pill,
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.04)',
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : color.border,
     flexShrink: 0,
   },
   filterPillActive: {
@@ -2318,9 +2460,9 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     paddingHorizontal: space.lg,
     paddingVertical: 7,
-    backgroundColor: 'rgba(2, 11, 24, 0.45)',
+    backgroundColor: isDark ? 'rgba(2, 11, 24, 0.45)' : color.raised,
     borderBottomWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: color.border,
   },
   sortHeader: {
     flexDirection: 'row',
@@ -2336,11 +2478,11 @@ const styles = StyleSheet.create({
   sortSegmentedGroup: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: 'rgba(255, 255, 255, 0.04)',
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : color.surface,
     borderRadius: radius.pill,
     padding: 3,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: color.border,
     flex: 1,
     maxWidth: 240,
     marginLeft: space.sm,
@@ -2373,7 +2515,7 @@ const styles = StyleSheet.create({
     width: 36,
     height: 4,
     borderRadius: 2,
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
     alignSelf: 'center',
     marginBottom: space.sm,
   },
@@ -2387,7 +2529,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingBottom: space.sm,
     borderBottomWidth: 1,
-    borderBottomColor: 'rgba(255, 255, 255, 0.08)',
+    borderBottomColor: color.border,
   },
   notifSheetHeaderLeft: {
     flexDirection: 'row',
@@ -2440,7 +2582,7 @@ const styles = StyleSheet.create({
     width: 32,
     height: 32,
     borderRadius: 16,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -2464,9 +2606,9 @@ const styles = StyleSheet.create({
   notifItemCard: {
     padding: space.md,
     borderRadius: radius.md,
-    backgroundColor: 'rgba(255, 255, 255, 0.02)',
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.02)' : color.surface,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: color.border,
     marginBottom: space.sm,
     gap: 6,
   },
@@ -2475,7 +2617,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(247, 181, 3, 0.35)',
   },
   notifItemCardPressed: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : color.raised,
   },
   notifItemTop: {
     flexDirection: 'row',
@@ -2494,7 +2636,7 @@ const styles = StyleSheet.create({
     backgroundColor: color.yellow,
   },
   notifCategoryTag: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.05)',
     paddingHorizontal: 6,
     paddingVertical: 2,
     borderRadius: 4,
@@ -2706,9 +2848,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 5,
-    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : color.raised,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: color.border,
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: radius.sm,
@@ -2719,10 +2861,10 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   cardMetaGrid: {
-    backgroundColor: 'rgba(2, 11, 24, 0.35)',
+    backgroundColor: isDark ? 'rgba(2, 11, 24, 0.35)' : color.raised,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: 'rgba(26, 59, 107, 0.4)',
+    borderColor: color.border,
     padding: space.md,
     gap: 10,
   },
@@ -2758,7 +2900,7 @@ const styles = StyleSheet.create({
   },
   metaValueHighlight: {
     fontSize: 13,
-    color: '#FEF08A',
+    color: isDark ? '#FEF08A' : '#B45309',
     lineHeight: 18,
     fontWeight: '700',
   },
@@ -2778,13 +2920,13 @@ const styles = StyleSheet.create({
   instructionsTitle: {
     fontSize: 11,
     fontWeight: '800',
-    color: color.yellow,
+    color: isDark ? color.yellow : '#B45309',
     textTransform: 'uppercase',
     letterSpacing: 0.5,
   },
   instructionsText: {
     fontSize: 12,
-    color: '#FDE68A',
+    color: isDark ? '#FDE68A' : '#92400E',
     lineHeight: 17,
     fontStyle: 'italic',
   },
@@ -2794,7 +2936,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     paddingTop: space.sm,
     borderTopWidth: 1,
-    borderColor: 'rgba(26, 59, 107, 0.6)',
+    borderColor: color.border,
     gap: space.sm,
   },
   cardFooterHint: {
@@ -2835,7 +2977,7 @@ const styles = StyleSheet.create({
 
   // Workspace
   workspaceHeader: {
-    backgroundColor: color.navy,
+    backgroundColor: color.headerBg,
     paddingHorizontal: space.lg,
     paddingVertical: space.md,
     flexDirection: 'row',
@@ -2856,17 +2998,17 @@ const styles = StyleSheet.create({
   },
   btnSmallYellowText: { color: color.navy, fontWeight: '800', fontSize: 13 },
 
-  tabsContainer: { backgroundColor: color.navy, borderBottomWidth: 1, borderColor: color.border },
+  tabsContainer: { backgroundColor: color.headerBg, borderBottomWidth: 1, borderColor: color.border },
   tabsScroll: { paddingHorizontal: space.md, paddingVertical: space.sm, gap: space.sm },
   tabButton: {
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.06)',
+    backgroundColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
   },
   tabButtonActive: { backgroundColor: color.yellow },
   tabButtonText: { color: color.muted, fontWeight: '700', fontSize: 12 },
-  tabButtonTextActive: { color: color.navy, fontWeight: '800' },
+  tabButtonTextActive: { color: '#061A38', fontWeight: '800' },
 
   contentScroll: { padding: space.lg, paddingBottom: 50 },
   formSection: { gap: space.lg },
@@ -3086,6 +3228,25 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: color.muted,
     marginTop: 2,
+  },
+  photoModalContent: {
+    paddingTop: space.md,
+    paddingHorizontal: space.xl,
+  },
+  photoCancelBtn: {
+    minHeight: 48,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: color.border,
+    backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F1F5F9',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginTop: space.xs,
+  },
+  photoCancelBtnText: {
+    color: color.textSecondary,
+    fontSize: 14,
+    fontWeight: '700',
   },
 
   // Checklist
@@ -3318,7 +3479,7 @@ const styles = StyleSheet.create({
   },
   roadTestChoiceActive: { backgroundColor: color.yellow, borderColor: color.yellow },
   roadTestChoiceText: { fontSize: 13, fontWeight: '700', color: color.muted },
-  roadTestChoiceTextActive: { color: color.navy },
+  roadTestChoiceTextActive: { color: '#061A38' },
 
   // Review
   summaryCard: {
@@ -3343,7 +3504,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   declarationCardActive: { borderColor: color.yellow },
-  declarationText: { fontSize: 12, lineHeight: 18, color: '#FDE68A', flex: 1, fontWeight: '600' },
+  declarationText: { fontSize: 12, lineHeight: 18, color: isDark ? '#FDE68A' : '#92400E', flex: 1, fontWeight: '600' },
 
   btnPrimary: {
     backgroundColor: color.yellow,
@@ -3355,10 +3516,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: color.yellow,
   },
-  btnPrimaryText: { color: color.navy, fontWeight: '800', fontSize: 15 },
+  btnPrimaryText: { color: '#061A38', fontWeight: '800', fontSize: 15 },
 
   // Modal
-  modalBackdrop: { flex: 1, backgroundColor: 'rgba(2, 11, 24, 0.88)', justifyContent: 'flex-end' },
+  modalBackdrop: { flex: 1, backgroundColor: isDark ? 'rgba(2, 11, 24, 0.88)' : 'rgba(15, 23, 42, 0.65)', justifyContent: 'flex-end' },
   modalContent: {
     backgroundColor: color.surface,
     borderTopLeftRadius: radius.lg,
@@ -3489,7 +3650,7 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   defectSubmitText: {
-    color: color.navy,
+    color: '#061A38',
     fontSize: 14,
     fontWeight: '800',
   },

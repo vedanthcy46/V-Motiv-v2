@@ -35,6 +35,11 @@ import type { PrismaInspectionStore } from './inspection-store.js';
 import { createFinanceRouter } from './finance-router.js';
 import type { PrismaFinanceStore } from './finance-store.js';
 import type { NotificationService } from './notification/index.js';
+import type { PrismaClient } from '@prisma/client';
+import type { PrismaServiceStore } from './service-store.js';
+import { createServiceCustomerRouter, createServiceOperationsRouter } from './service-router.js';
+import type { PrismaRentalStore } from './rental-store.js';
+import { createRentalCustomerRouter, createRentalOperationsRouter, createRentalWebhookRouter } from './rental-router.js';
 
 const uuid = z.string().uuid();
 const profileInput = z.object({ displayName: z.string().trim().min(1).max(80).optional(), phone: z.string().regex(/^\+91[6-9]\d{9}$/).optional(), marketingConsent: z.boolean().optional(), preferredCity: z.string().trim().min(2).max(100).optional(), termsVersion: z.string().trim().min(1).max(40).optional() }).strict().refine(value => Object.keys(value).length > 0);
@@ -93,6 +98,9 @@ export function createApp(deps: {
   finance?: PrismaFinanceStore;
   notificationRouter?: Router;
   notificationService?: NotificationService;
+  service?: PrismaServiceStore;
+  rental?: PrismaRentalStore;
+  db?: PrismaClient;
   revokeTokens?: (firebaseUid: string) => Promise<void>;
   onEmailQueued?: () => Promise<unknown> | unknown;
   drainEmails?: () => Promise<number>;
@@ -245,6 +253,31 @@ export function createApp(deps: {
     const notifLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
     app.use('/api/v2', notifLimiter, deps.notificationRouter);
   }
+  if (deps.service) {
+    const serviceLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+    const serviceCustomerRouter = createServiceCustomerRouter({ verify: deps.verify, store: deps.service });
+    app.use('/api/v2/customer', serviceLimiter, serviceCustomerRouter);
+    app.use('/api/v2/service', serviceLimiter, serviceCustomerRouter);
+
+    if (deps.db) {
+      const serviceOpsRouter = createServiceOperationsRouter({ verify: deps.verify, db: deps.db, store: deps.service });
+      app.use('/api/v2/operations/service', serviceLimiter, serviceOpsRouter);
+      app.use('/operations/service', serviceLimiter, serviceOpsRouter);
+    }
+  }
+  if (deps.rental && deps.db) {
+    const rentalLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+    const rentalCustomerRouter = createRentalCustomerRouter({ verify: deps.verify, store: deps.rental, db: deps.db });
+    app.use('/api/v2/rentals', rentalLimiter, rentalCustomerRouter);
+    app.use('/api/v2/customer/rentals', rentalLimiter, rentalCustomerRouter);
+
+    const rentalOpsRouter = createRentalOperationsRouter({ verify: deps.verify, store: deps.rental, db: deps.db });
+    app.use('/api/v2/operations/rentals', rentalLimiter, rentalOpsRouter);
+    app.use('/operations/rentals', rentalLimiter, rentalOpsRouter);
+
+    const rentalWebhookRouter = createRentalWebhookRouter({ store: deps.rental, db: deps.db });
+    app.use('/api/v2/webhooks/rentals', rentalLimiter, rentalWebhookRouter);
+  }
   // Published inventory is deliberately public. Every account-linked mutation remains below authentication.
   if (deps.customer) {
     app.get('/api/v1/inventory', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.inventory((res.locals.identity as Identity | undefined)?.uid, parsed(inventoryQuery, req.query))));
@@ -282,6 +315,8 @@ export function createApp(deps: {
     // Test drive requests (supports canonical and /me/drives alias)
     app.get('/api/v1/me/test-drive-requests', async (_req, res) => res.json(await deps.customer!.drives((res.locals.identity as Identity).uid)));
     app.get('/api/v1/me/drives', async (_req, res) => res.json(await deps.customer!.drives((res.locals.identity as Identity).uid)));
+    app.get('/api/v1/me/test-drive-requests/:id', async (req, res) => res.json(await deps.customer!.drive((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
+    app.get('/api/v1/me/drives/:id', async (req, res) => res.json(await deps.customer!.drive((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
     app.post('/api/v1/test-drive-requests', async (req, res) => {
       const result = await deps.customer!.bookDrive((res.locals.identity as Identity).uid, parsed(driveInput, req.body));
       await triggerEmailDrain();
@@ -324,6 +359,16 @@ export function createApp(deps: {
     // Purchase enquiries (supports canonical and /me/enquiries alias)
     app.get('/api/v1/me/purchase-enquiries', async (_req, res) => res.json(await deps.customer!.purchaseEnquiries((res.locals.identity as Identity).uid)));
     app.get('/api/v1/me/enquiries', async (_req, res) => res.json(await deps.customer!.purchaseEnquiries((res.locals.identity as Identity).uid)));
+    app.get('/api/v1/me/purchase-enquiries/:id', async (req, res) => res.json(await deps.customer!.purchaseEnquiry((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
+    app.get('/api/v1/me/enquiries/:id', async (req, res) => res.json(await deps.customer!.purchaseEnquiry((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
+    app.post('/api/v1/me/purchase-enquiries/:id/cancel', async (req, res) => {
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+      res.json(await deps.customer!.cancelPurchaseEnquiry((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), reason));
+    });
+    app.post('/api/v1/me/enquiries/:id/cancel', async (req, res) => {
+      const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
+      res.json(await deps.customer!.cancelPurchaseEnquiry((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), reason));
+    });
     app.post('/api/v1/purchase-enquiries', async (req, res) => {
       const result = await deps.customer!.createPurchaseEnquiry((res.locals.identity as Identity).uid, parsed(purchaseInput, req.body));
       await triggerEmailDrain();

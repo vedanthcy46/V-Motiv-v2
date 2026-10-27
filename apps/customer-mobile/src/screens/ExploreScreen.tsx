@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   FlatList,
-  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -14,13 +13,13 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useFocusEffect, type CompositeNavigationProp } from '@react-navigation/native';
 import type { BottomTabNavigationProp } from '@react-navigation/bottom-tabs';
-import { Bookmark, Filter, RotateCcw, Search, SlidersHorizontal, X } from 'lucide-react-native';
-import { BrandHeader, EmptyState, Loading, PrimaryButton, Screen, common } from '../components/ui';
+import { Bookmark, RotateCcw, Search, X } from 'lucide-react-native';
+import { BrandHeader, EmptyState, Loading, PrimaryButton } from '../components/ui';
 import { VehicleCard } from '../components/VehicleCard';
 import { customer } from '../services/customer';
 import type { RootStack, Tabs } from '../navigation/types';
 import type { SupportedCity, VehicleSummary } from '../types';
-import { color, radius, space } from '../theme';
+import { useAppTheme, radius, space } from '../theme';
 import { friendlyError } from '../format';
 import { useAuth } from '../auth/AuthProvider';
 
@@ -32,6 +31,9 @@ type Nav = CompositeNavigationProp<
 export function ExploreScreen({ navigation }: { navigation: Nav }) {
   const insets = useSafeAreaInsets();
   const { state } = useAuth();
+  const { theme } = useAppTheme();
+  const c = theme.colors;
+
   const [items, setItems] = useState<VehicleSummary[]>([]);
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<'newest' | 'price_asc' | 'year_desc'>('newest');
@@ -41,8 +43,6 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   const [cities, setCities] = useState<SupportedCity[]>([]);
   const [activeDriveIds, setActiveDriveIds] = useState<Set<string>>(new Set());
   const [saveMessage, setSaveMessage] = useState('');
-  const [savingSearch, setSavingSearch] = useState(false);
-  const [showFilters, setShowFilters] = useState(false);
   const requestId = useRef(0);
 
   const [loading, setLoading] = useState(true);
@@ -102,22 +102,25 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
     }, [state])
   );
 
-  const toggleWishlist = async (item: VehicleSummary) => {
-    setItems((current) =>
-      current.map((val) => (val.id === item.id ? { ...val, isWishlisted: !val.isWishlisted } : val))
-    );
+  const toggleWishlist = async (listing: VehicleSummary) => {
     try {
-      if (item.isWishlisted) {
-        await customer.removeWishlist(item.id);
+      if (listing.isWishlisted) {
+        await customer.removeWishlist(listing.id);
+        setItems((prev) =>
+          prev.map((item) => (item.id === listing.id ? { ...item, isWishlisted: false } : item))
+        );
       } else {
-        await customer.addWishlist(item.id);
+        await customer.addWishlist(listing.id);
+        setItems((prev) =>
+          prev.map((item) => (item.id === listing.id ? { ...item, isWishlisted: true } : item))
+        );
       }
     } catch {
-      setItems((current) =>
-        current.map((val) => (val.id === item.id ? item : val))
-      );
+      // Ignored
     }
   };
+
+  const hasActiveFilters = Boolean(search || city || fuelType || transmission || sort !== 'newest');
 
   const resetFilters = () => {
     setSearch('');
@@ -127,76 +130,85 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
     setSort('newest');
   };
 
-  const hasActiveFilters = Boolean(search || city || fuelType || transmission || sort !== 'newest');
-
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
-      {/* Fixed Search & Filters Header — positioned outside FlatList so typing never loses focus or dismisses keyboard */}
+    <View style={[styles.container, { backgroundColor: c.background, paddingTop: insets.top }]}>
+      {/* Top Header & Search Controls */}
       <View style={styles.header}>
         <BrandHeader
-          eyebrow="CERTIFIED INVENTORY"
+          eyebrow="VERIFIED INVENTORY"
           rightAction={
             hasActiveFilters ? (
               <TouchableOpacity
-                style={styles.resetBtn}
+                accessibilityRole="button"
+                accessibilityLabel="Reset all filters"
+                style={[styles.resetBtn, { backgroundColor: c.selected, borderColor: c.brandAccent }]}
                 onPress={resetFilters}
-                activeOpacity={0.7}
               >
-                <RotateCcw size={13} color={color.yellow} />
-                <Text style={styles.resetBtnText}>Reset</Text>
+                <RotateCcw size={12} color={c.brandAccent} />
+                <Text style={[styles.resetBtnText, { color: c.brandAccent }]}>Reset</Text>
               </TouchableOpacity>
             ) : null
           }
         />
 
-        {/* Search Input Bar */}
-        <View style={styles.searchBar}>
-          <Search color={color.muted} size={18} />
+        {/* Search Bar */}
+        <View style={[styles.searchBar, { backgroundColor: c.inputBackground, borderColor: c.inputBorder }]}>
+          <Search size={18} color={c.textMuted} />
           <TextInput
-            accessibilityLabel="Search make or model"
+            accessibilityLabel="Search by make, model, variant"
+            placeholder="Search Nexon, Swift, Creta, city…"
+            placeholderTextColor={c.inputPlaceholder}
             value={search}
             onChangeText={setSearch}
-            onSubmitEditing={() => void load()}
             returnKeyType="search"
-            placeholder="Search Honda, Hyundai, Innova…"
-            placeholderTextColor={color.muted}
-            style={styles.searchInput}
+            style={[styles.searchInput, { color: c.textPrimary }]}
           />
-          {search.length > 0 ? (
-            <TouchableOpacity onPress={() => setSearch('')} hitSlop={10}>
-              <X size={16} color={color.muted} />
+          {search ? (
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Clear search text"
+              onPress={() => setSearch('')}
+            >
+              <X size={16} color={c.textMuted} />
             </TouchableOpacity>
           ) : null}
         </View>
 
-        {/* Quick Filter Horizontal Scroll */}
+        {/* Filter Quick-Pills Row */}
         <View style={styles.filtersScrollWrap}>
           <ScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
-            keyboardShouldPersistTaps="handled"
             contentContainerStyle={styles.filterPillsRow}
           >
-            {/* Sort Pill */}
-            {([
-              { value: 'newest', label: 'Newest' },
-              { value: 'price_asc', label: 'Lowest Price' },
-              { value: 'year_desc', label: 'Latest Year' },
-            ] as const).map((opt) => {
-              const active = sort === opt.value;
-              return (
-                <TouchableOpacity
-                  key={opt.value}
-                  style={[styles.pill, active && styles.pillActive]}
-                  onPress={() => setSort(opt.value)}
-                  activeOpacity={0.75}
-                >
-                  <Text style={[styles.pillText, active && styles.pillTextActive]}>
-                    {opt.label}
-                  </Text>
-                </TouchableOpacity>
-              );
-            })}
+            {/* Sort Options */}
+            <TouchableOpacity
+              style={[
+                styles.pill,
+                { backgroundColor: c.surface, borderColor: c.border },
+                sort === 'price_asc' && [styles.pillActive, { backgroundColor: c.selected, borderColor: c.brandAccent }],
+              ]}
+              onPress={() => setSort(sort === 'price_asc' ? 'newest' : 'price_asc')}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.pillText, { color: c.textSecondary }, sort === 'price_asc' && [styles.pillTextActive, { color: c.brandAccent }]]}>
+                Price: Low to High
+              </Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[
+                styles.pill,
+                { backgroundColor: c.surface, borderColor: c.border },
+                sort === 'year_desc' && [styles.pillActive, { backgroundColor: c.selected, borderColor: c.brandAccent }],
+              ]}
+              onPress={() => setSort(sort === 'year_desc' ? 'newest' : 'year_desc')}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.pillText, { color: c.textSecondary }, sort === 'year_desc' && [styles.pillTextActive, { color: c.brandAccent }]]}>
+                Newest Year
+              </Text>
+            </TouchableOpacity>
 
             {/* Fuel Filters */}
             {['PETROL', 'DIESEL'].map((fuel) => {
@@ -204,11 +216,15 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
               return (
                 <TouchableOpacity
                   key={fuel}
-                  style={[styles.pill, active && styles.pillActive]}
+                  style={[
+                    styles.pill,
+                    { backgroundColor: c.surface, borderColor: c.border },
+                    active && [styles.pillActive, { backgroundColor: c.selected, borderColor: c.brandAccent }],
+                  ]}
                   onPress={() => setFuelType(active ? '' : fuel)}
                   activeOpacity={0.75}
                 >
-                  <Text style={[styles.pillText, active && styles.pillTextActive]}>
+                  <Text style={[styles.pillText, { color: c.textSecondary }, active && [styles.pillTextActive, { color: c.brandAccent }]]}>
                     {fuel === 'PETROL' ? 'Petrol' : 'Diesel'}
                   </Text>
                 </TouchableOpacity>
@@ -221,11 +237,15 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
               return (
                 <TouchableOpacity
                   key={trans}
-                  style={[styles.pill, active && styles.pillActive]}
+                  style={[
+                    styles.pill,
+                    { backgroundColor: c.surface, borderColor: c.border },
+                    active && [styles.pillActive, { backgroundColor: c.selected, borderColor: c.brandAccent }],
+                  ]}
                   onPress={() => setTransmission(active ? '' : trans)}
                   activeOpacity={0.75}
                 >
-                  <Text style={[styles.pillText, active && styles.pillTextActive]}>
+                  <Text style={[styles.pillText, { color: c.textSecondary }, active && [styles.pillTextActive, { color: c.brandAccent }]]}>
                     {trans === 'MANUAL' ? 'Manual' : 'Automatic'}
                   </Text>
                 </TouchableOpacity>
@@ -233,17 +253,21 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
             })}
 
             {/* Cities */}
-            {cities.map((c) => {
-              const active = city === c.name;
+            {cities.map((ci) => {
+              const active = city === ci.name;
               return (
                 <TouchableOpacity
-                  key={c.id}
-                  style={[styles.pill, active && styles.pillActive]}
-                  onPress={() => setCity(active ? '' : c.name)}
+                  key={ci.id}
+                  style={[
+                    styles.pill,
+                    { backgroundColor: c.surface, borderColor: c.border },
+                    active && [styles.pillActive, { backgroundColor: c.selected, borderColor: c.brandAccent }],
+                  ]}
+                  onPress={() => setCity(active ? '' : ci.name)}
                   activeOpacity={0.75}
                 >
-                  <Text style={[styles.pillText, active && styles.pillTextActive]}>
-                    {c.name}
+                  <Text style={[styles.pillText, { color: c.textSecondary }, active && [styles.pillTextActive, { color: c.brandAccent }]]}>
+                    {ci.name}
                   </Text>
                 </TouchableOpacity>
               );
@@ -253,7 +277,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
 
         {/* Results Count & Save search bar */}
         <View style={styles.countRow}>
-          <Text style={styles.countText}>
+          <Text style={[styles.countText, { color: c.textMuted }]}>
             {loading ? 'Searching…' : `${items.length} verified ${items.length === 1 ? 'car' : 'cars'} available`}
           </Text>
           {search.trim().length > 0 ? (
@@ -273,19 +297,19 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                 }
               }}
             >
-              <Bookmark size={13} color={color.yellow} />
-              <Text style={styles.saveSearchText}>Save search</Text>
+              <Bookmark size={13} color={c.brandAccent} />
+              <Text style={[styles.saveSearchText, { color: c.brandAccent }]}>Save search</Text>
             </TouchableOpacity>
           ) : null}
         </View>
 
         {saveMessage ? (
-          <Text style={saveMessage.includes('saved') ? styles.successText : styles.errorText}>
+          <Text style={[saveMessage.includes('saved') ? styles.successText : styles.errorText, { color: saveMessage.includes('saved') ? c.success : c.error }]}>
             {saveMessage}
           </Text>
         ) : null}
 
-        {error ? <Text style={styles.errorText}>{error}</Text> : null}
+        {error ? <Text style={[styles.errorText, { color: c.error }]}>{error}</Text> : null}
       </View>
 
       <FlatList
@@ -301,8 +325,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
         refreshControl={
           <RefreshControl
             refreshing={refreshing}
-            tintColor={color.yellow}
-            colors={[color.yellow]}
+            tintColor={c.brandAccent}
+            colors={[c.brandAccent]}
             onRefresh={() => {
               setRefreshing(true);
               void load();
@@ -361,7 +385,6 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: color.canvas,
   },
   content: {
     paddingHorizontal: space.lg,
@@ -383,24 +406,19 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
-    backgroundColor: 'rgba(247, 181, 3, 0.1)',
     borderRadius: radius.pill,
     paddingHorizontal: 10,
     paddingVertical: 5,
     borderWidth: 1,
-    borderColor: 'rgba(247, 181, 3, 0.3)',
   },
   resetBtnText: {
-    color: color.yellow,
     fontSize: 12,
     fontWeight: '700',
   },
   searchBar: {
     minHeight: 48,
     borderRadius: radius.md,
-    backgroundColor: color.input,
     borderWidth: 1.2,
-    borderColor: color.border,
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: space.md,
@@ -408,7 +426,6 @@ const styles = StyleSheet.create({
   },
   searchInput: {
     flex: 1,
-    color: color.text,
     fontSize: 15,
     paddingVertical: 10,
   },
@@ -424,23 +441,16 @@ const styles = StyleSheet.create({
     minHeight: 36,
     paddingHorizontal: 14,
     borderRadius: radius.pill,
-    backgroundColor: color.surface,
     borderWidth: 1,
-    borderColor: color.border,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  pillActive: {
-    backgroundColor: 'rgba(247, 181, 3, 0.15)',
-    borderColor: color.yellow,
-  },
+  pillActive: {},
   pillText: {
-    color: color.textSecondary,
     fontSize: 12.5,
     fontWeight: '700',
   },
   pillTextActive: {
-    color: color.yellow,
     fontWeight: '800',
   },
   countRow: {
@@ -451,7 +461,6 @@ const styles = StyleSheet.create({
     marginTop: space.xs,
   },
   countText: {
-    color: color.muted,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -461,7 +470,6 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   saveSearchText: {
-    color: color.yellow,
     fontSize: 12.5,
     fontWeight: '700',
   },
@@ -469,11 +477,9 @@ const styles = StyleSheet.create({
     height: space.lg,
   },
   errorText: {
-    color: color.danger,
     fontSize: 13,
   },
   successText: {
-    color: color.success,
     fontSize: 13,
     fontWeight: '700',
   },

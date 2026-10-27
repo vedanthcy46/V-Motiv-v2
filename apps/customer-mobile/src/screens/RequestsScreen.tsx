@@ -10,42 +10,42 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
-  AlertCircle,
   Calendar,
   CarFront,
   CheckCircle,
   ChevronRight,
-  Clock,
-  HelpCircle,
   IndianRupee,
   MapPin,
-  MessageSquare,
-  ShieldCheck,
-  Tag,
+  Wrench,
   XCircle,
 } from 'lucide-react-native';
 import { customer } from '../services/customer';
+import { fetchCustomerServiceRequests, type ServiceRequestSummary } from '../services/service-api';
 import { useAuth } from '../auth/AuthProvider';
+import { BrandLogo } from '../components/BrandLogo';
 import { AuthScreen } from './AuthScreen';
-import { color, radius, space } from '../theme';
+import { useAppTheme, radius, space } from '../theme';
 import { formatPaise, friendlyError } from '../format';
 import type { ActivityItem, PurchaseEnquiry, SellingRequest, SupportCase, TestDrive } from '../types';
 
-type FilterTab = 'ALL' | 'SELLING' | 'TEST_DRIVES' | 'PURCHASES' | 'SUPPORT';
+type FilterTab = 'ALL' | 'SELLING' | 'TEST_DRIVES' | 'PURCHASES' | 'SUPPORT' | 'SERVICE';
 
 export function RequestsScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { state } = useAuth();
-  const [filter, setFilter] = useState<FilterTab>('ALL');
+  const { theme, isDark } = useAppTheme();
+  const c = theme.colors;
 
+  const [filter, setFilter] = useState<FilterTab>('ALL');
   const [drives, setDrives] = useState<TestDrive[]>([]);
   const [selling, setSelling] = useState<SellingRequest[]>([]);
   const [purchases, setPurchases] = useState<PurchaseEnquiry[]>([]);
   const [cases, setCases] = useState<SupportCase[]>([]);
+  const [serviceRequests, setServiceRequests] = useState<ServiceRequestSummary[]>([]);
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const [activityTotal, setActivityTotal] = useState(0);
   const [activityPage, setActivityPage] = useState(1);
@@ -60,17 +60,19 @@ export function RequestsScreen() {
     if (state !== 'signed-in') return;
     try {
       setError('');
-      const [d, s, p, c, activity] = await Promise.all([
+      const [d, s, p, cs, activity, sr] = await Promise.all([
         customer.testDrives(),
         customer.sellingRequests(),
         customer.purchaseEnquiries(),
         customer.supportCases(),
         customer.activity(),
+        fetchCustomerServiceRequests().catch(() => []),
       ]);
       setDrives(d);
       setSelling(s);
       setPurchases(p);
-      setCases(c);
+      setCases(cs);
+      setServiceRequests(sr);
       setActivityItems(activity.items);
       setActivityTotal(activity.total);
       setActivityPage(activity.page);
@@ -88,7 +90,7 @@ export function RequestsScreen() {
     setLoadingOlder(true);
     try {
       const next = await customer.activity(activityPage + 1);
-      setActivityItems(current => [...current, ...next.items]);
+      setActivityItems((current) => [...current, ...next.items]);
       setActivityPage(next.page);
       setActivityPages(next.totalPages);
     } catch (e) {
@@ -127,7 +129,17 @@ export function RequestsScreen() {
   }
 
   if (state !== 'signed-in') {
-    return <AuthScreen />;
+    return (
+      <View style={[styles.container, { backgroundColor: c.background }]}>
+        <View style={[styles.topBar, { paddingTop: insets.top + space.sm, backgroundColor: c.surface, borderBottomColor: c.border }]}>
+          <BrandLogo variant="horizontal" size={26} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
+          <View style={styles.tabBadge}>
+            <Text style={[styles.tabBadgeText, { color: c.brandAccent }]}>ACTIVITY</Text>
+          </View>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
   }
 
   const totalCount = activityTotal;
@@ -135,34 +147,45 @@ export function RequestsScreen() {
   function openActivity(item: ActivityItem) {
     if (item.kind === 'SELLING') {
       navigation.navigate('SellingRequestDetails', { leadId: item.id.replace('selling/', '') });
-    } else if ((item.kind === 'TEST_DRIVE' || item.kind === 'PURCHASE') && item.listingId) {
-      navigation.navigate('Vehicle', { listingId: item.listingId });
+    } else if (item.kind === 'PURCHASE') {
+      navigation.navigate('PurchaseEnquiryDetails', { enquiryId: item.id.replace('purchase/', '') });
+    } else if (item.kind === 'TEST_DRIVE') {
+      navigation.navigate('TestDriveDetails', { driveId: item.id.replace('drive/', '') });
     } else if (item.kind === 'SUPPORT') {
       navigation.navigate('Support');
     }
   }
 
   function renderActivityItem({ item }: { item: ActivityItem }) {
-    const canOpen = item.kind === 'SELLING' || Boolean(item.listingId) || item.kind === 'SUPPORT';
+    const canOpen = item.kind === 'SELLING' || item.kind === 'PURCHASE' || item.kind === 'TEST_DRIVE' || Boolean(item.listingId) || item.kind === 'SUPPORT';
     return (
-      <TouchableOpacity disabled={!canOpen} onPress={() => openActivity(item)} style={styles.card} accessibilityRole={canOpen ? 'button' : undefined}>
+      <TouchableOpacity
+        disabled={!canOpen}
+        onPress={() => openActivity(item)}
+        style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
+        accessibilityRole={canOpen ? 'button' : undefined}
+      >
         <View style={styles.cardHeader}>
           <View style={{ flex: 1 }}>
-            <Text style={styles.cardTitle}>{item.title}</Text>
-            <Text style={styles.cardSubtitle}>{activityLabel(item.kind)} · {item.reference.slice(0, 8).toUpperCase()}</Text>
+            <Text style={[styles.cardTitle, { color: c.textPrimary }]}>{item.title}</Text>
+            <Text style={[styles.cardSubtitle, { color: c.textMuted }]}>
+              {activityLabel(item.kind)} · {item.reference.slice(0, 8).toUpperCase()}
+            </Text>
           </View>
-          <StatusBadge status={item.status} />
+          <StatusBadge status={item.status} themeColors={c} />
         </View>
-        <Text style={styles.metaText}>Updated {new Date(item.updatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}</Text>
+        <Text style={[styles.metaText, { color: c.textMuted }]}>
+          Updated {new Date(item.updatedAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+        </Text>
       </TouchableOpacity>
     );
   }
 
   return (
-    <View style={[styles.container, { paddingTop: insets.top }]}>
+    <View style={[styles.container, { backgroundColor: c.background, paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Your Activity</Text>
-        <Text style={styles.headerSubtitle}>
+        <Text style={[styles.headerTitle, { color: c.textPrimary }]}>Your Activity</Text>
+        <Text style={[styles.headerSubtitle, { color: c.textSecondary }]}>
           Real-time status of your buying, selling, and service requests
         </Text>
       </View>
@@ -174,75 +197,54 @@ export function RequestsScreen() {
           showsHorizontalScrollIndicator={false}
           contentContainerStyle={styles.tabBar}
         >
-          <TouchableOpacity
-            style={[styles.tabItem, filter === 'ALL' && styles.tabItemActive]}
-            onPress={() => setFilter('ALL')}
-          >
-            <Text style={[styles.tabText, filter === 'ALL' && styles.tabTextActive]}>
-              All ({totalCount})
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabItem, filter === 'SELLING' && styles.tabItemActive]}
-            onPress={() => setFilter('SELLING')}
-          >
-            <Text style={[styles.tabText, filter === 'SELLING' && styles.tabTextActive]}>
-              Selling ({selling.length})
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabItem, filter === 'TEST_DRIVES' && styles.tabItemActive]}
-            onPress={() => setFilter('TEST_DRIVES')}
-          >
-            <Text style={[styles.tabText, filter === 'TEST_DRIVES' && styles.tabTextActive]}>
-              Test Drives ({drives.length})
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabItem, filter === 'PURCHASES' && styles.tabItemActive]}
-            onPress={() => setFilter('PURCHASES')}
-          >
-            <Text style={[styles.tabText, filter === 'PURCHASES' && styles.tabTextActive]}>
-              Enquiries ({purchases.length})
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            style={[styles.tabItem, filter === 'SUPPORT' && styles.tabItemActive]}
-            onPress={() => setFilter('SUPPORT')}
-          >
-            <Text style={[styles.tabText, filter === 'SUPPORT' && styles.tabTextActive]}>
-              Support ({cases.length})
-            </Text>
-          </TouchableOpacity>
+          {[
+            { key: 'ALL', label: `All (${totalCount})` },
+            { key: 'SERVICE', label: `Service (${serviceRequests.length})` },
+            { key: 'SELLING', label: `Selling (${selling.length})` },
+            { key: 'TEST_DRIVES', label: `Test Drives (${drives.length})` },
+            { key: 'PURCHASES', label: `Enquiries (${purchases.length})` },
+            { key: 'SUPPORT', label: `Support (${cases.length})` },
+          ].map((tab) => {
+            const active = filter === tab.key;
+            return (
+              <TouchableOpacity
+                key={tab.key}
+                style={[
+                  styles.tabItem,
+                  { backgroundColor: c.surface, borderColor: c.border },
+                  active && { backgroundColor: c.selected, borderColor: c.brandAccent },
+                ]}
+                onPress={() => setFilter(tab.key as FilterTab)}
+              >
+                <Text
+                  style={[
+                    styles.tabText,
+                    { color: active ? c.brandAccent : c.textSecondary, fontWeight: active ? '700' : '600' },
+                  ]}
+                >
+                  {tab.label}
+                </Text>
+              </TouchableOpacity>
+            );
+          })}
         </ScrollView>
       </View>
 
       {loading ? (
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={color.yellow} />
+          <ActivityIndicator size="large" color={c.brandAccent} />
         </View>
       ) : totalCount === 0 ? (
         <View style={styles.center}>
-          <CarFront size={48} color={color.muted} />
-          <Text style={styles.emptyTitle}>No Activity Yet</Text>
-          <Text style={styles.emptyBody}>
+          <CarFront size={48} color={c.textMuted} />
+          <Text style={[styles.emptyTitle, { color: c.textPrimary }]}>No Activity Yet</Text>
+          <Text style={[styles.emptyBody, { color: c.textSecondary }]}>
             When you request test drives, submit cars for valuation, or create enquiries, you can track them here live.
           </Text>
         </View>
       ) : filter === 'ALL' ? (
         <FlatList
-          contentContainerStyle={[styles.list, { paddingBottom: Math.max(insets.bottom, 20) + 72 }]}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => { setRefreshing(true); loadData(); }} tintColor={color.yellow} />}
-          data={activityItems}
-          keyExtractor={(item) => item.id}
-          renderItem={renderActivityItem}
-          onEndReached={() => void loadOlderActivity()}
-          onEndReachedThreshold={0.3}
-          ListFooterComponent={activityPage < activityPages ? <TouchableOpacity style={styles.loadMore} onPress={() => void loadOlderActivity()} disabled={loadingOlder}><Text style={styles.loadMoreText}>{loadingOlder ? 'Loading older activity…' : 'Load older activity'}</Text></TouchableOpacity> : null}
-        />
-      ) : (
-        <FlatList
-          contentContainerStyle={[styles.list, { paddingBottom: Math.max(insets.bottom, 20) + 72 }]}
+          contentContainerStyle={[styles.list, { paddingBottom: Math.max(insets.bottom, 20) + 96 }]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -250,56 +252,95 @@ export function RequestsScreen() {
                 setRefreshing(true);
                 loadData();
               }}
-              tintColor={color.yellow}
+              tintColor={c.brandAccent}
             />
           }
-          data={[1]} // single scroll view wrapper
+          data={activityItems}
+          keyExtractor={(item) => item.id}
+          renderItem={renderActivityItem}
+          onEndReached={() => void loadOlderActivity()}
+          onEndReachedThreshold={0.3}
+          ListFooterComponent={
+            activityPage < activityPages ? (
+              <TouchableOpacity
+                style={[styles.loadMore, { borderColor: c.border }]}
+                onPress={() => void loadOlderActivity()}
+                disabled={loadingOlder}
+              >
+                <Text style={[styles.loadMoreText, { color: c.brandAccent }]}>
+                  {loadingOlder ? 'Loading older activity…' : 'Load older activity'}
+                </Text>
+              </TouchableOpacity>
+            ) : null
+          }
+        />
+      ) : (
+        <FlatList
+          contentContainerStyle={[styles.list, { paddingBottom: Math.max(insets.bottom, 20) + 96 }]}
+          refreshControl={
+            <RefreshControl
+              refreshing={refreshing}
+              onRefresh={() => {
+                setRefreshing(true);
+                loadData();
+              }}
+              tintColor={c.brandAccent}
+            />
+          }
+          data={[1]}
           keyExtractor={() => 'activity-content'}
           renderItem={() => (
             <View style={{ gap: space.md }}>
               {/* Selling Requests */}
               {filter === 'SELLING' && selling.length > 0 && (
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Vehicle Selling Requests</Text>
+                  <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Vehicle Selling Requests</Text>
                   {selling.map((item) => {
                     const activeOffer = item.offers?.find((o) => o.status === 'OFFERED');
-                    const isAccepted = item.status === 'ACCEPTED';
                     return (
                       <TouchableOpacity
                         key={item.id}
-                        style={styles.card}
+                        style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
                         onPress={() =>
                           navigation.navigate('SellingRequestDetails', { leadId: item.id })
                         }
                       >
                         <View style={styles.cardHeader}>
                           <View style={{ flex: 1 }}>
-                            <Text style={styles.cardTitle}>
+                            <Text style={[styles.cardTitle, { color: c.textPrimary }]}>
                               {item.manufacturingYear} {item.make} {item.model}
                             </Text>
                             {item.variant ? (
-                              <Text style={styles.cardSubtitle}>{item.variant}</Text>
+                              <Text style={[styles.cardSubtitle, { color: c.textMuted }]}>{item.variant}</Text>
                             ) : null}
                           </View>
-                          <StatusBadge status={item.status} />
+                          <StatusBadge status={item.status} themeColors={c} />
                         </View>
 
                         {/* Active Offer Callout */}
                         {activeOffer ? (
-                          <View style={styles.offerCallout}>
-                            <IndianRupee size={16} color={color.navy} />
-                            <Text style={styles.offerCalloutText}>
+                          <View style={[styles.offerCallout, { backgroundColor: c.brandAccent }]}>
+                            <IndianRupee size={16} color={c.brandNavy} />
+                            <Text style={[styles.offerCalloutText, { color: c.brandNavy }]}>
                               Offer Available: {formatPaise(activeOffer.offerAmountPaise)}
                             </Text>
-                            <ChevronRight size={14} color={color.navy} />
+                            <ChevronRight size={14} color={c.brandNavy} />
+                          </View>
+                        ) : (item.status === 'OFFER_PENDING' || item.inspection?.isCompleted) ? (
+                          <View style={[styles.offerCallout, { backgroundColor: 'rgba(16, 185, 129, 0.12)', borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.35)' }]}>
+                            <CheckCircle size={15} color="#10B981" />
+                            <Text style={[styles.offerCalloutText, { color: '#10B981', flex: 1, fontSize: 13, fontWeight: '700' }]}>
+                              Inspection Completed · Preparing Offer
+                            </Text>
+                            <ChevronRight size={14} color="#10B981" />
                           </View>
                         ) : null}
 
                         <View style={styles.metaRow}>
-                          <Text style={styles.metaText}>
+                          <Text style={[styles.metaText, { color: c.textMuted }]}>
                             Ref: {item.referenceCode?.slice(0, 8).toUpperCase()}
                           </Text>
-                          <Text style={styles.metaText}>
+                          <Text style={[styles.metaText, { color: c.textMuted }]}>
                             {new Date(item.createdAt).toLocaleDateString('en-IN', {
                               day: 'numeric',
                               month: 'short',
@@ -315,28 +356,28 @@ export function RequestsScreen() {
               {/* Test Drives */}
               {filter === 'TEST_DRIVES' && drives.length > 0 && (
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Test Drive Bookings</Text>
+                  <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Test Drive Bookings</Text>
                   {drives.map((item) => (
-                    <View key={item.id} style={styles.card}>
+                    <TouchableOpacity
+                      key={item.id}
+                      activeOpacity={0.85}
+                      style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
+                      onPress={() => navigation.navigate('TestDriveDetails', { driveId: item.id })}
+                    >
                       <View style={styles.cardHeader}>
-                        <TouchableOpacity
-                          style={{ flex: 1 }}
-                          onPress={() =>
-                            navigation.navigate('Vehicle', { listingId: item.listing.id })
-                          }
-                        >
-                          <Text style={styles.cardTitle}>{item.listing.title}</Text>
-                          <Text style={styles.cardSubtitle}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.cardTitle, { color: c.textPrimary }]}>{item.listing.title}</Text>
+                          <Text style={[styles.cardSubtitle, { color: c.brandAccent }]}>
                             {formatPaise(item.listing.pricePaise)}
                           </Text>
-                        </TouchableOpacity>
-                        <StatusBadge status={item.status} />
+                        </View>
+                        <StatusBadge status={item.status} themeColors={c} />
                       </View>
 
                       <View style={styles.driveDetails}>
                         <View style={styles.driveRow}>
-                          <Calendar size={14} color={color.yellow} />
-                          <Text style={styles.driveText}>
+                          <Calendar size={14} color={c.brandAccent} />
+                          <Text style={[styles.driveText, { color: c.textSecondary }]}>
                             {new Date(item.requestedDate).toLocaleDateString('en-IN', {
                               weekday: 'short',
                               day: 'numeric',
@@ -346,8 +387,8 @@ export function RequestsScreen() {
                           </Text>
                         </View>
                         <View style={styles.driveRow}>
-                          <MapPin size={14} color={color.yellow} />
-                          <Text style={styles.driveText}>
+                          <MapPin size={14} color={c.brandAccent} />
+                          <Text style={[styles.driveText, { color: c.textSecondary }]}>
                             {item.locationPreference === 'HOME'
                               ? `Doorstep (${item.address || item.serviceCity})`
                               : `V MOTIV Hub (${item.serviceCity})`}
@@ -355,16 +396,21 @@ export function RequestsScreen() {
                         </View>
                       </View>
 
-                      {item.status === 'REQUESTED' ? (
-                        <TouchableOpacity
-                          style={styles.cancelLink}
-                          onPress={() => handleCancelTestDrive(item.id)}
-                        >
-                          <XCircle size={14} color="#EF4444" />
-                          <Text style={styles.cancelLinkText}>Cancel Booking</Text>
-                        </TouchableOpacity>
-                      ) : null}
-                    </View>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: space.xs }}>
+                        <Text style={[styles.metaText, { color: c.brandAccent, fontWeight: '700' }]}>
+                          View Test Drive Details →
+                        </Text>
+                        {item.status === 'REQUESTED' ? (
+                          <TouchableOpacity
+                            style={styles.cancelLink}
+                            onPress={() => handleCancelTestDrive(item.id)}
+                          >
+                            <XCircle size={14} color={c.error} />
+                            <Text style={[styles.cancelLinkText, { color: c.error }]}>Cancel</Text>
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+                    </TouchableOpacity>
                   ))}
                 </View>
               )}
@@ -372,30 +418,30 @@ export function RequestsScreen() {
               {/* Purchase Enquiries */}
               {filter === 'PURCHASES' && purchases.length > 0 && (
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Purchase Enquiries</Text>
+                  <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Purchase Enquiries</Text>
                   {purchases.map((item) => (
                     <TouchableOpacity
                       key={item.id}
-                      style={styles.card}
+                      style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
                       onPress={() =>
-                        navigation.navigate('Vehicle', { listingId: item.listing.id })
+                        navigation.navigate('PurchaseEnquiryDetails', { enquiryId: item.id })
                       }
                     >
                       <View style={styles.cardHeader}>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.cardTitle}>{item.listing.title}</Text>
-                          <Text style={styles.cardSubtitle}>
+                          <Text style={[styles.cardTitle, { color: c.textPrimary }]}>{item.listing.title}</Text>
+                          <Text style={[styles.cardSubtitle, { color: c.brandAccent }]}>
                             {formatPaise(item.listing.pricePaise)}
                           </Text>
                         </View>
-                        <StatusBadge status={item.status} />
+                        <StatusBadge status={item.status} themeColors={c} />
                       </View>
                       {item.message ? (
-                        <Text style={styles.enquiryMsg} numberOfLines={2}>
+                        <Text style={[styles.enquiryMsg, { color: c.textSecondary }]} numberOfLines={2}>
                           "{item.message}"
                         </Text>
                       ) : null}
-                      <Text style={styles.metaText}>
+                      <Text style={[styles.metaText, { color: c.textMuted }]}>
                         Sent {new Date(item.createdAt).toLocaleDateString('en-IN')}
                       </Text>
                     </TouchableOpacity>
@@ -406,11 +452,11 @@ export function RequestsScreen() {
               {/* Support Cases */}
               {filter === 'SUPPORT' && cases.length > 0 && (
                 <View style={styles.section}>
-                  <Text style={styles.sectionTitle}>Customer Support</Text>
+                  <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Customer Support</Text>
                   {cases.map((item) => (
                     <TouchableOpacity
                       key={item.id}
-                      style={styles.card}
+                      style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
                       activeOpacity={0.8}
                       onPress={() =>
                         navigation.navigate('SupportCaseDetails', { caseId: item.id })
@@ -418,29 +464,87 @@ export function RequestsScreen() {
                     >
                       <View style={styles.cardHeader}>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.cardTitle}>{item.subject}</Text>
-                          <Text style={styles.cardSubtitle}>
+                          <Text style={[styles.cardTitle, { color: c.textPrimary }]}>{item.subject}</Text>
+                          <Text style={[styles.cardSubtitle, { color: c.textMuted }]}>
                             Case #{item.referenceCode.slice(0, 8).toUpperCase()} · {item.category.replace(/_/g, ' ')}
                           </Text>
                         </View>
-                        <StatusBadge status={item.status} />
+                        <StatusBadge status={item.status} themeColors={c} />
                       </View>
                       {item.description ? (
-                        <Text style={styles.enquiryMsg} numberOfLines={2}>
+                        <Text style={[styles.enquiryMsg, { color: c.textSecondary }]} numberOfLines={2}>
                           {item.description}
                         </Text>
                       ) : null}
                       <View style={[styles.metaRow, { alignItems: 'center', paddingTop: space.xs }]}>
-                        <Text style={styles.metaText}>
+                        <Text style={[styles.metaText, { color: c.textMuted }]}>
                           Updated {new Date(item.updatedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                         </Text>
                         <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          <Text style={{ color: color.yellow, fontSize: 12, fontWeight: '700' }}>View thread</Text>
-                          <ChevronRight size={14} color={color.yellow} />
+                          <Text style={{ color: c.brandAccent, fontSize: 12, fontWeight: '700' }}>View thread</Text>
+                          <ChevronRight size={14} color={c.brandAccent} />
                         </View>
                       </View>
                     </TouchableOpacity>
                   ))}
+                </View>
+              )}
+
+              {/* Car Service Requests */}
+              {filter === 'SERVICE' && (
+                <View style={styles.section}>
+                  <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Car Service Requests</Text>
+                  {serviceRequests.length === 0 ? (
+                    <Text style={[styles.emptyBody, { color: c.textSecondary }]}>
+                      No car service bookings found. You can book scheduled maintenance or diagnostics anytime.
+                    </Text>
+                  ) : (
+                    serviceRequests.map((item) => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
+                        activeOpacity={0.8}
+                        onPress={() =>
+                          navigation.navigate('ServiceRequestDetails', { requestId: item.id })
+                        }
+                      >
+                        <View style={styles.cardHeader}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.cardTitle, { color: c.textPrimary }]}>
+                              {item.vehicle.make} {item.vehicle.model} ({item.vehicle.year})
+                            </Text>
+                            <Text style={[styles.cardSubtitle, { color: c.brandAccent }]}>
+                              {item.categoryKey.replace(/_/g, ' ')} · {item.requestNumber}
+                            </Text>
+                          </View>
+                          <StatusBadge status={item.status} themeColors={c} />
+                        </View>
+                        <View style={styles.driveDetails}>
+                          <View style={styles.driveRow}>
+                            <Calendar size={14} color={c.brandAccent} />
+                            <Text style={[styles.driveText, { color: c.textSecondary }]}>
+                              {item.scheduledDate} · {item.scheduledTimeSlot}
+                            </Text>
+                          </View>
+                          <View style={styles.driveRow}>
+                            <MapPin size={14} color={c.brandAccent} />
+                            <Text style={[styles.driveText, { color: c.textSecondary }]}>
+                              {item.hub.name}
+                            </Text>
+                          </View>
+                        </View>
+                        <View style={[styles.metaRow, { alignItems: 'center', paddingTop: space.xs }]}>
+                          <Text style={[styles.metaText, { color: c.textMuted }]}>
+                            Booked {new Date(item.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <Text style={{ color: c.brandAccent, fontSize: 12, fontWeight: '700' }}>Track Live</Text>
+                            <ChevronRight size={14} color={c.brandAccent} />
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    ))
+                  )}
                 </View>
               )}
             </View>
@@ -451,26 +555,55 @@ export function RequestsScreen() {
   );
 }
 
-function StatusBadge({ status }: { status: string }) {
-  const isPositive = ['OFFERED', 'ACCEPTED', 'CONFIRMED', 'RESOLVED'].includes(status);
+function formatStatusBadgeLabel(status: string) {
+  switch (status) {
+    case 'OFFER_PENDING':
+      return 'INSPECTION COMPLETED';
+    case 'INSPECTION_SCHEDULED':
+      return 'INSPECTION SCHEDULED';
+    case 'OFFERED':
+      return 'OFFER READY';
+    case 'ACCEPTED':
+      return 'OFFER ACCEPTED';
+    case 'QUALIFYING':
+      return 'UNDER REVIEW';
+    case 'SUBMITTED':
+      return 'REQUEST SUBMITTED';
+    default:
+      return (status || 'PENDING').replace(/_/g, ' ');
+  }
+}
+
+function StatusBadge({ status, themeColors }: { status: string; themeColors: any }) {
+  const isPositive = ['OFFERED', 'ACCEPTED', 'CONFIRMED', 'RESOLVED', 'COMPLETED', 'OFFER_PENDING'].includes(status);
   const isNegative = ['CANCELLED', 'REJECTED', 'CLOSED'].includes(status);
 
   return (
     <View
       style={[
         styles.badge,
-        isPositive && styles.badgePositive,
-        isNegative && styles.badgeNegative,
+        {
+          backgroundColor: isPositive
+            ? themeColors.successBackground
+            : isNegative
+            ? themeColors.errorBackground
+            : themeColors.badgeBackground,
+        },
       ]}
     >
       <Text
         style={[
           styles.badgeText,
-          isPositive && styles.badgeTextPositive,
-          isNegative && styles.badgeTextNegative,
+          {
+            color: isPositive
+              ? themeColors.success
+              : isNegative
+              ? themeColors.error
+              : themeColors.brandAccent,
+          },
         ]}
       >
-        {status.replace(/_/g, ' ')}
+        {formatStatusBadgeLabel(status)}
       </Text>
     </View>
   );
@@ -483,7 +616,27 @@ function activityLabel(kind: ActivityItem['kind']) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: color.canvas,
+  },
+  topBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: space.lg,
+    paddingVertical: space.md,
+    borderBottomWidth: 1,
+  },
+  tabBadge: {
+    backgroundColor: 'rgba(247, 181, 3, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(247, 181, 3, 0.3)',
+    borderRadius: radius.pill,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+  },
+  tabBadgeText: {
+    fontSize: 9.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   header: {
     paddingHorizontal: space.md,
@@ -491,12 +644,10 @@ const styles = StyleSheet.create({
     paddingBottom: space.xs,
   },
   headerTitle: {
-    color: color.white,
     fontSize: 22,
     fontWeight: '800',
   },
   headerSubtitle: {
-    color: color.muted,
     fontSize: 12,
     marginTop: 2,
   },
@@ -510,22 +661,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
     paddingVertical: 6,
     borderRadius: radius.pill,
-    backgroundColor: color.card,
     borderWidth: 1,
-    borderColor: color.border,
-  },
-  tabItemActive: {
-    borderColor: color.yellow,
-    backgroundColor: 'rgba(247, 181, 3, 0.12)',
   },
   tabText: {
-    color: color.muted,
     fontSize: 11,
-    fontWeight: '600',
-  },
-  tabTextActive: {
-    color: color.yellow,
-    fontWeight: '700',
   },
   center: {
     flex: 1,
@@ -534,13 +673,11 @@ const styles = StyleSheet.create({
     padding: space.xl,
   },
   emptyTitle: {
-    color: color.white,
     fontSize: 16,
     fontWeight: '700',
     marginTop: space.md,
   },
   emptyBody: {
-    color: color.muted,
     fontSize: 13,
     textAlign: 'center',
     marginTop: space.xs,
@@ -548,7 +685,6 @@ const styles = StyleSheet.create({
   },
   list: {
     padding: space.md,
-    paddingBottom: space.xxl,
   },
   loadMore: {
     minHeight: 44,
@@ -556,11 +692,9 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: radius.sm,
     borderWidth: 1,
-    borderColor: color.border,
     marginTop: space.sm,
   },
   loadMoreText: {
-    color: color.yellow,
     fontSize: 13,
     fontWeight: '700',
   },
@@ -568,18 +702,15 @@ const styles = StyleSheet.create({
     marginBottom: space.lg,
   },
   sectionTitle: {
-    color: color.white,
     fontSize: 14,
     fontWeight: '700',
     marginBottom: space.sm,
   },
   card: {
-    backgroundColor: color.card,
     borderRadius: radius.md,
     paddingHorizontal: space.lg,
     paddingVertical: space.lg,
     borderWidth: 1,
-    borderColor: color.border,
     marginBottom: space.md,
   },
   cardHeader: {
@@ -589,12 +720,10 @@ const styles = StyleSheet.create({
     gap: space.sm,
   },
   cardTitle: {
-    color: color.white,
     fontSize: 15,
     fontWeight: '700',
   },
   cardSubtitle: {
-    color: color.muted,
     fontSize: 12,
     marginTop: 2,
   },
@@ -602,29 +731,14 @@ const styles = StyleSheet.create({
     paddingHorizontal: space.sm,
     paddingVertical: 4,
     borderRadius: radius.sm,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  badgePositive: {
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
-  },
-  badgeNegative: {
-    backgroundColor: 'rgba(239, 68, 68, 0.15)',
   },
   badgeText: {
-    color: color.yellow,
     fontSize: 10,
     fontWeight: '800',
-  },
-  badgeTextPositive: {
-    color: '#22C55E',
-  },
-  badgeTextNegative: {
-    color: '#EF4444',
   },
   offerCallout: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: color.yellow,
     paddingHorizontal: space.sm,
     paddingVertical: 8,
     borderRadius: radius.sm,
@@ -632,7 +746,6 @@ const styles = StyleSheet.create({
     gap: space.xs,
   },
   offerCalloutText: {
-    color: color.navy,
     fontSize: 12,
     fontWeight: '800',
     flex: 1,
@@ -643,7 +756,6 @@ const styles = StyleSheet.create({
     marginTop: space.sm,
   },
   metaText: {
-    color: color.muted,
     fontSize: 11,
   },
   driveDetails: {
@@ -656,7 +768,6 @@ const styles = StyleSheet.create({
     gap: space.xs,
   },
   driveText: {
-    color: '#E5E7EB',
     fontSize: 12,
   },
   cancelLink: {
@@ -668,12 +779,10 @@ const styles = StyleSheet.create({
     paddingTop: space.xs,
   },
   cancelLinkText: {
-    color: '#EF4444',
     fontSize: 12,
     fontWeight: '600',
   },
   enquiryMsg: {
-    color: '#D1D5DB',
     fontSize: 12,
     marginVertical: space.xs,
     fontStyle: 'italic',

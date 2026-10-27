@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -27,13 +27,15 @@ import {
 import { BrandLogo } from '../components/BrandLogo';
 import { useAuth } from '../auth/AuthProvider';
 import { customer } from '../services/customer';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
 import type { SupportedCity } from '../types';
 
 export function OnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { profile, refreshProfile, signOut } = useAuth();
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
   const [phone, setPhone] = useState(profile?.phone?.replace(/^\+91/, '') ?? '');
   const [cities, setCities] = useState<SupportedCity[]>([]);
@@ -117,9 +119,9 @@ export function OnboardingScreen() {
           {/* Section: Mobile */}
           <View style={styles.card}>
             <View style={styles.cardTitleRow}>
-              <Phone size={16} color={color.yellow} />
+              <Phone size={16} color={colors.brandAccent} />
               <Text style={styles.cardTitle}>
-                Mobile Number <Text style={{ color: color.yellow }}>*</Text>
+                Mobile Number <Text style={{ color: colors.brandAccent }}>*</Text>
               </Text>
             </View>
             <Text style={styles.cardDesc}>
@@ -132,7 +134,7 @@ export function OnboardingScreen() {
               <TextInput
                 style={styles.phoneInput}
                 placeholder="98765 43210"
-                placeholderTextColor={color.muted}
+                placeholderTextColor={colors.textMuted}
                 keyboardType="phone-pad"
                 value={phone}
                 onChangeText={(text) => {
@@ -149,7 +151,7 @@ export function OnboardingScreen() {
           {cities.length > 0 && (
             <View style={styles.card}>
               <View style={styles.cardTitleRow}>
-                <MapPin size={16} color={color.yellow} />
+                <MapPin size={16} color={colors.brandAccent} />
                 <Text style={styles.cardTitle}>Preferred City</Text>
               </View>
               <Text style={styles.cardDesc}>
@@ -186,7 +188,7 @@ export function OnboardingScreen() {
           {/* Section: Terms & Conditions */}
           <View style={styles.card}>
             <View style={styles.cardTitleRow}>
-              <FileCheck size={16} color={color.yellow} />
+              <FileCheck size={16} color={colors.brandAccent} />
               <Text style={styles.cardTitle}>Terms & Privacy Notice *</Text>
             </View>
             <Text style={styles.cardDesc}>
@@ -197,8 +199,8 @@ export function OnboardingScreen() {
               <Switch
                 value={accepted}
                 onValueChange={setAccepted}
-                trackColor={{ false: color.border, true: color.yellow }}
-                thumbColor={color.white}
+                trackColor={{ false: colors.border, true: colors.brandAccent }}
+                thumbColor={isDark ? '#FFFFFF' : '#FFFFFF'}
               />
             </View>
           </View>
@@ -206,7 +208,7 @@ export function OnboardingScreen() {
           {/* Section: Marketing */}
           <View style={styles.card}>
             <View style={styles.cardTitleRow}>
-              <Bell size={16} color={color.yellow} />
+              <Bell size={16} color={colors.brandAccent} />
               <Text style={styles.cardTitle}>Promotional Updates (Optional)</Text>
             </View>
             <Text style={styles.cardDesc}>
@@ -217,8 +219,8 @@ export function OnboardingScreen() {
               <Switch
                 value={marketing}
                 onValueChange={setMarketing}
-                trackColor={{ false: color.border, true: color.yellow }}
-                thumbColor={color.white}
+                trackColor={{ false: colors.border, true: colors.brandAccent }}
+                thumbColor={isDark ? '#FFFFFF' : '#FFFFFF'}
               />
             </View>
           </View>
@@ -239,11 +241,11 @@ export function OnboardingScreen() {
             onPress={continueApp}
           >
             {busy ? (
-              <ActivityIndicator color={color.navy} />
+              <ActivityIndicator color={colors.brandNavy} />
             ) : (
               <>
                 <Text style={styles.continueBtnText}>Continue to V MOTIV</Text>
-                <ChevronRight size={18} color={color.navy} />
+                <ChevronRight size={18} color={colors.brandNavy} />
               </>
             )}
           </TouchableOpacity>
@@ -254,7 +256,7 @@ export function OnboardingScreen() {
             activeOpacity={0.7}
             onPress={() => void signOut()}
           >
-            <LogOut size={14} color={color.muted} />
+            <LogOut size={14} color={colors.textMuted} />
             <Text style={styles.signOutBtnText}>Sign out of this Google Account</Text>
           </TouchableOpacity>
         </ScrollView>
@@ -263,178 +265,179 @@ export function OnboardingScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  content: {
-    padding: space.lg,
-  },
-  brandHeader: {
-    alignItems: 'center',
-    marginBottom: space.lg,
-    gap: space.xs,
-  },
-  badgePill: {
-    color: color.yellow,
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 1.5,
-    marginTop: 4,
-    backgroundColor: 'rgba(247, 181, 3, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-  },
-  welcomeTitle: {
-    color: color.white,
-    fontSize: 24,
-    fontWeight: '900',
-    textAlign: 'center',
-  },
-  welcomeSubtitle: {
-    color: color.muted,
-    fontSize: 13,
-    textAlign: 'center',
-    marginTop: 6,
-    lineHeight: 20,
-    marginBottom: space.xl,
-  },
-  card: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    marginBottom: space.md,
-  },
-  cardTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-    marginBottom: 4,
-  },
-  cardTitle: {
-    color: color.white,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  cardDesc: {
-    color: color.muted,
-    fontSize: 12,
-    lineHeight: 18,
-    marginBottom: space.sm,
-  },
-  phoneInputRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-  },
-  countryCodeBadge: {
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    paddingHorizontal: 12,
-    paddingVertical: 12,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  countryCodeText: {
-    color: color.white,
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  phoneInput: {
-    flex: 1,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    paddingHorizontal: space.md,
-    paddingVertical: 10,
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: color.border,
-    color: color.white,
-    fontSize: 14,
-  },
-  cityGrid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.xs,
-  },
-  cityChip: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  cityChipActive: {
-    backgroundColor: color.yellow,
-    borderColor: color.yellow,
-  },
-  cityChipText: {
-    color: color.white,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  cityChipTextActive: {
-    color: color.navy,
-    fontWeight: '800',
-  },
-  switchRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: space.xs,
-  },
-  switchLabel: {
-    color: color.white,
-    fontSize: 13,
-    fontWeight: '600',
-    flex: 1,
-    marginRight: space.sm,
-  },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderRadius: radius.sm,
-    padding: space.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.25)',
-    marginBottom: space.md,
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 12,
-    flex: 1,
-  },
-  continueBtn: {
-    backgroundColor: color.yellow,
-    borderRadius: radius.md,
-    paddingVertical: space.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.xs,
-    marginTop: space.sm,
-  },
-  continueBtnText: {
-    color: color.navy,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-  signOutBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: space.md,
-    marginTop: space.xs,
-  },
-  signOutBtnText: {
-    color: color.muted,
-    fontSize: 12,
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    content: {
+      padding: space.lg,
+    },
+    brandHeader: {
+      alignItems: 'center',
+      marginBottom: space.lg,
+      gap: space.xs,
+    },
+    badgePill: {
+      color: isDark ? colors.brandAccent : '#92400E',
+      fontSize: 9,
+      fontWeight: '800',
+      letterSpacing: 1.5,
+      marginTop: 4,
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.1)' : 'rgba(247, 181, 3, 0.15)',
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+    },
+    welcomeTitle: {
+      color: colors.textPrimary,
+      fontSize: 24,
+      fontWeight: '900',
+      textAlign: 'center',
+    },
+    welcomeSubtitle: {
+      color: colors.textMuted,
+      fontSize: 13,
+      textAlign: 'center',
+      marginTop: 6,
+      lineHeight: 20,
+      marginBottom: space.xl,
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: space.md,
+    },
+    cardTitleRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 4,
+    },
+    cardTitle: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    cardDesc: {
+      color: colors.textMuted,
+      fontSize: 12,
+      lineHeight: 18,
+      marginBottom: space.sm,
+    },
+    phoneInputRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+    },
+    countryCodeBadge: {
+      backgroundColor: colors.surfaceSecondary,
+      paddingHorizontal: 12,
+      paddingVertical: 12,
+      borderRadius: radius.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    countryCodeText: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: '700',
+    },
+    phoneInput: {
+      flex: 1,
+      backgroundColor: colors.surfaceSecondary,
+      paddingHorizontal: space.md,
+      paddingVertical: 10,
+      borderRadius: radius.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      color: colors.textPrimary,
+      fontSize: 14,
+    },
+    cityGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: space.xs,
+    },
+    cityChip: {
+      paddingHorizontal: 14,
+      paddingVertical: 8,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    cityChipActive: {
+      backgroundColor: colors.brandAccent,
+      borderColor: colors.brandAccent,
+    },
+    cityChipText: {
+      color: colors.textPrimary,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    cityChipTextActive: {
+      color: colors.brandNavy,
+      fontWeight: '800',
+    },
+    switchRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingTop: space.xs,
+    },
+    switchLabel: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: '600',
+      flex: 1,
+      marginRight: space.sm,
+    },
+    errorBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+      borderRadius: radius.sm,
+      padding: space.sm,
+      borderWidth: 1,
+      borderColor: 'rgba(239, 68, 68, 0.25)',
+      marginBottom: space.md,
+    },
+    errorText: {
+      color: '#EF4444',
+      fontSize: 12,
+      flex: 1,
+    },
+    continueBtn: {
+      backgroundColor: colors.brandAccent,
+      borderRadius: radius.md,
+      paddingVertical: space.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: space.xs,
+      marginTop: space.sm,
+    },
+    continueBtnText: {
+      color: colors.brandNavy,
+      fontSize: 15,
+      fontWeight: '800',
+    },
+    signOutBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: space.md,
+      marginTop: space.xs,
+    },
+    signOutBtnText: {
+      color: colors.textMuted,
+      fontSize: 12,
+    },
+  });

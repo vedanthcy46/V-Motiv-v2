@@ -20,6 +20,17 @@ import {
 } from 'firebase/auth';
 import './styles.css';
 
+function isInvalidRegNumberOrUuid(val: unknown): boolean {
+  if (!val || typeof val !== 'string') return true;
+  const s = val.trim();
+  if (!s) return true;
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true;
+  if (/^[0-9a-f]{32}$/i.test(s)) return true;
+  if (/^(SL-|VM-|REF-|LEAD-)/i.test(s)) return true;
+  if (s.length > 14 || (s.match(/-/g) || []).length >= 3) return true;
+  return false;
+}
+
 type QueueItem = {
   id: string;
   revision: number;
@@ -385,7 +396,7 @@ export function App() {
   const [reason, setReason] = useState<string>('');
   const [search, setSearch] = useState<string>('');
   const [sortOrder, setSortOrder] = useState<'submitted_desc' | 'submitted_asc'>('submitted_desc');
-  const [statusFilter, setStatusFilter] = useState<'ALL' | 'SUBMITTED' | 'UNDER_REVIEW'>('ALL');
+  const [statusFilter, setStatusFilter] = useState<'ALL' | 'SUBMITTED' | 'UNDER_REVIEW' | 'REWORK_REQUIRED' | 'APPROVED'>('ALL');
   const [notifications, setNotifications] = useState<any[]>([]);
   const [unreadNotifsCount, setUnreadNotifsCount] = useState(0);
   const [notifsOpen, setNotifsOpen] = useState(false);
@@ -762,13 +773,14 @@ export function App() {
 
             {/* Filter pills and Sort order */}
             <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', margin: '8px 0' }}>
-              <div style={{ display: 'flex', gap: '6px' }}>
-                {(['ALL', 'SUBMITTED', 'UNDER_REVIEW'] as const).map(st => (
+              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                {(['ALL', 'SUBMITTED', 'UNDER_REVIEW', 'REWORK_REQUIRED', 'APPROVED'] as const).map(st => (
                   <button
                     key={st}
                     className={`btn-outline ${statusFilter === st ? 'active' : ''}`}
                     style={{
-                      flex: 1,
+                      flex: '1 1 auto',
+                      minWidth: '70px',
                       padding: '4px 6px',
                       fontSize: '11px',
                       background: statusFilter === st ? 'rgba(247, 181, 3, 0.15)' : 'transparent',
@@ -781,7 +793,15 @@ export function App() {
                       void loadQueue(user, sortOrder, st, search);
                     }}
                   >
-                    {st === 'ALL' ? 'All' : st === 'SUBMITTED' ? 'Submitted' : 'Under Review'}
+                    {st === 'ALL'
+                      ? 'All'
+                      : st === 'SUBMITTED'
+                      ? 'Submitted'
+                      : st === 'UNDER_REVIEW'
+                      ? 'Under Review'
+                      : st === 'REWORK_REQUIRED'
+                      ? 'Rework'
+                      : 'Approved'}
                   </button>
                 ))}
               </div>
@@ -830,6 +850,22 @@ export function App() {
                     <div className="queue-item-meta">
                       <span>{item.request.lead.referenceCode}</span>
                       <span>{item._count.defects} Defects · {item._count.media} Photos</span>
+                    </div>
+                    <div style={{ marginTop: '4px' }}>
+                      <span
+                        className={`badge ${
+                          item.status === 'APPROVED'
+                            ? 'badge-success'
+                            : item.status === 'REWORK_REQUIRED'
+                            ? 'badge-danger'
+                            : item.status === 'UNDER_REVIEW'
+                            ? 'badge-amber'
+                            : 'badge-blue'
+                        }`}
+                        style={{ fontSize: '10px' }}
+                      >
+                        {item.status.replace(/_/g, ' ')}
+                      </span>
                     </div>
                   </div>
                 ))
@@ -904,7 +940,11 @@ export function App() {
                       <div className="grid-3">
                         <div className="info-block">
                           <span className="info-label">Observed Registration</span>
-                          <span className="info-value">{String(report.identity.registrationNumber || 'Not recorded')}</span>
+                          <span className="info-value">
+                            {report.identity.registrationNumber && !isInvalidRegNumberOrUuid(report.identity.registrationNumber)
+                              ? String(report.identity.registrationNumber)
+                              : 'Not recorded'}
+                          </span>
                         </div>
                         <div className="info-block">
                           <span className="info-label">Observed Odometer</span>

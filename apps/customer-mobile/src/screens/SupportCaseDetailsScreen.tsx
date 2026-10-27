@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -24,13 +24,15 @@ import {
 import { customer } from '../services/customer';
 import type { SupportCaseDetail } from '../types';
 import type { RootStack } from '../navigation/types';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
 
 type Props = NativeStackScreenProps<RootStack, 'SupportCaseDetails'>;
 
 export function SupportCaseDetailsScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const scrollViewRef = useRef<ScrollView>(null);
 
   const [detail, setDetail] = useState<SupportCaseDetail | null>(null);
@@ -84,11 +86,11 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
             onPress={() => navigation.goBack()}
             style={styles.backBtn}
           >
-            <ArrowLeft size={22} color={color.white} />
+            <ArrowLeft size={22} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>
         <View style={styles.centerBox}>
-          <ActivityIndicator size="large" color={color.yellow} />
+          <ActivityIndicator size="large" color={colors.brandAccent} />
         </View>
       </SafeAreaView>
     );
@@ -103,7 +105,7 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
             onPress={() => navigation.goBack()}
             style={styles.backBtn}
           >
-            <ArrowLeft size={22} color={color.white} />
+            <ArrowLeft size={22} color={colors.textPrimary} />
           </TouchableOpacity>
         </View>
         <View style={styles.centerBox}>
@@ -129,7 +131,7 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
             onPress={() => navigation.goBack()}
             style={styles.backBtn}
           >
-            <ArrowLeft size={22} color={color.white} />
+            <ArrowLeft size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <View style={styles.headerTitleWrap}>
             <Text style={styles.headerTitle} numberOfLines={1}>
@@ -269,9 +271,9 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
             onPress={reply}
           >
             {busy ? (
-              <ActivityIndicator size="small" color={color.navy} />
+              <ActivityIndicator size="small" color={colors.brandNavy} />
             ) : (
-              <Send size={18} color={color.navy} />
+              <Send size={18} color={colors.brandNavy} />
             )}
           </TouchableOpacity>
         </View>
@@ -280,225 +282,226 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-  },
-  backBtn: {
-    padding: space.xs,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  headerTitleWrap: {
-    flex: 1,
-    marginHorizontal: space.sm,
-  },
-  headerTitle: {
-    color: color.white,
-    fontSize: 16,
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    color: color.muted,
-    fontSize: 11,
-    marginTop: 2,
-  },
-  statusBadge: {
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 6,
-  },
-  statusOpen: {
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
-  },
-  statusClosed: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  statusOpenText: {
-    color: '#22C55E',
-  },
-  statusClosedText: {
-    color: color.muted,
-  },
-  centerBox: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  notFoundText: {
-    color: color.muted,
-    fontSize: 14,
-  },
-  content: {
-    padding: space.md,
-  },
-  originalCard: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.lg,
-    borderWidth: 1,
-    borderColor: 'rgba(247, 181, 3, 0.25)',
-  },
-  originalCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    marginBottom: space.sm,
-  },
-  originalCardAuthor: {
-    color: color.yellow,
-    fontSize: 12,
-    fontWeight: '700',
-    flex: 1,
-  },
-  originalCardDate: {
-    color: color.muted,
-    fontSize: 11,
-  },
-  originalDescription: {
-    color: color.white,
-    fontSize: 14,
-    lineHeight: 22,
-    marginTop: 2,
-  },
-  divider: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    marginVertical: space.lg,
-    gap: space.sm,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  dividerText: {
-    color: color.muted,
-    fontSize: 11,
-    fontWeight: '600',
-    textTransform: 'uppercase',
-  },
-  noRepliesBox: {
-    alignItems: 'center',
-    paddingVertical: 36,
-  },
-  noRepliesTitle: {
-    color: color.white,
-    fontSize: 14,
-    fontWeight: '700',
-    marginTop: space.sm,
-  },
-  noRepliesDesc: {
-    color: color.muted,
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 4,
-    maxWidth: 260,
-  },
-  bubbleContainer: {
-    maxWidth: '85%',
-    borderRadius: radius.md,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-    marginBottom: space.md,
-  },
-  bubbleMe: {
-    alignSelf: 'flex-end',
-    backgroundColor: color.raised,
-    borderTopRightRadius: 2,
-    borderWidth: 1,
-    borderColor: 'rgba(247, 181, 3, 0.3)',
-  },
-  bubbleSupport: {
-    alignSelf: 'flex-start',
-    backgroundColor: color.card,
-    borderTopLeftRadius: 2,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  bubbleAuthorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    marginBottom: 4,
-  },
-  bubbleAuthor: {
-    color: color.muted,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  bubbleTime: {
-    color: color.muted,
-    fontSize: 10,
-    marginLeft: 'auto',
-  },
-  bubbleText: {
-    color: color.white,
-    fontSize: 13,
-    lineHeight: 19,
-  },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderRadius: radius.sm,
-    padding: space.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.25)',
-    marginVertical: space.sm,
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 12,
-    flex: 1,
-  },
-  composerBar: {
-    backgroundColor: color.navy,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    paddingHorizontal: space.md,
-    paddingTop: space.sm,
-    borderTopWidth: 1,
-    borderTopColor: color.border,
-  },
-  composerInput: {
-    flex: 1,
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    paddingHorizontal: space.md,
-    paddingVertical: 10,
-    color: color.white,
-    fontSize: 13,
-    maxHeight: 100,
-  },
-  sendBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: color.yellow,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  sendBtnDisabled: {
-    opacity: 0.4,
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backBtn: {
+      padding: space.xs,
+      borderRadius: 20,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    headerTitleWrap: {
+      flex: 1,
+      marginHorizontal: space.sm,
+    },
+    headerTitle: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '800',
+    },
+    headerSubtitle: {
+      color: colors.textMuted,
+      fontSize: 11,
+      marginTop: 2,
+    },
+    statusBadge: {
+      paddingHorizontal: 8,
+      paddingVertical: 4,
+      borderRadius: 6,
+    },
+    statusOpen: {
+      backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    },
+    statusClosed: {
+      backgroundColor: colors.surfaceSecondary,
+    },
+    statusBadgeText: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    statusOpenText: {
+      color: '#22C55E',
+    },
+    statusClosedText: {
+      color: colors.textMuted,
+    },
+    centerBox: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    notFoundText: {
+      color: colors.textMuted,
+      fontSize: 14,
+    },
+    content: {
+      padding: space.md,
+    },
+    originalCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      paddingHorizontal: space.lg,
+      paddingVertical: space.lg,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(247, 181, 3, 0.25)' : 'rgba(247, 181, 3, 0.4)',
+    },
+    originalCardHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+      marginBottom: space.sm,
+    },
+    originalCardAuthor: {
+      color: isDark ? colors.brandAccent : colors.brandNavy,
+      fontSize: 12,
+      fontWeight: '700',
+      flex: 1,
+    },
+    originalCardDate: {
+      color: colors.textMuted,
+      fontSize: 11,
+    },
+    originalDescription: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      lineHeight: 22,
+      marginTop: 2,
+    },
+    divider: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      marginVertical: space.lg,
+      gap: space.sm,
+    },
+    dividerLine: {
+      flex: 1,
+      height: 1,
+      backgroundColor: colors.border,
+    },
+    dividerText: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontWeight: '600',
+      textTransform: 'uppercase',
+    },
+    noRepliesBox: {
+      alignItems: 'center',
+      paddingVertical: 36,
+    },
+    noRepliesTitle: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '700',
+      marginTop: space.sm,
+    },
+    noRepliesDesc: {
+      color: colors.textMuted,
+      fontSize: 12,
+      textAlign: 'center',
+      marginTop: 4,
+      maxWidth: 260,
+    },
+    bubbleContainer: {
+      maxWidth: '85%',
+      borderRadius: radius.md,
+      paddingHorizontal: space.lg,
+      paddingVertical: space.md,
+      marginBottom: space.md,
+    },
+    bubbleMe: {
+      alignSelf: 'flex-end',
+      backgroundColor: isDark ? colors.surfaceSecondary : '#EFF6FF',
+      borderTopRightRadius: 2,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(247, 181, 3, 0.3)' : '#BFDBFE',
+    },
+    bubbleSupport: {
+      alignSelf: 'flex-start',
+      backgroundColor: colors.surface,
+      borderTopLeftRadius: 2,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    bubbleAuthorRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      marginBottom: 4,
+    },
+    bubbleAuthor: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    bubbleTime: {
+      color: colors.textMuted,
+      fontSize: 10,
+      marginLeft: 'auto',
+    },
+    bubbleText: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      lineHeight: 19,
+    },
+    errorBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+      borderRadius: radius.sm,
+      padding: space.sm,
+      borderWidth: 1,
+      borderColor: 'rgba(239, 68, 68, 0.25)',
+      marginVertical: space.sm,
+    },
+    errorText: {
+      color: '#EF4444',
+      fontSize: 12,
+      flex: 1,
+    },
+    composerBar: {
+      backgroundColor: colors.surface,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.sm,
+      paddingHorizontal: space.md,
+      paddingTop: space.sm,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    composerInput: {
+      flex: 1,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: space.md,
+      paddingVertical: 10,
+      color: colors.textPrimary,
+      fontSize: 13,
+      maxHeight: 100,
+    },
+    sendBtn: {
+      width: 44,
+      height: 44,
+      borderRadius: 22,
+      backgroundColor: colors.brandAccent,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    sendBtnDisabled: {
+      opacity: 0.4,
+    },
+  });

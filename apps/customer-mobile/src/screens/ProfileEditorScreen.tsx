@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,13 +16,16 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, Check, ChevronRight } from 'lucide-react-native';
 import { customer } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 
 type Props = NativeStackScreenProps<RootStack, 'ProfileEditor'>;
 
 export function ProfileEditorScreen({ navigation }: Props) {
   const { user, refreshProfile } = useAuth();
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+
   const [displayName, setDisplayName] = useState(user?.displayName || '');
   const [phone, setPhone] = useState(user?.phone || '+91');
   const [loading, setLoading] = useState(false);
@@ -66,12 +69,12 @@ export function ProfileEditorScreen({ navigation }: Props) {
       >
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <ArrowLeft size={22} color={color.white} />
+            <ArrowLeft size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Edit Profile</Text>
           <TouchableOpacity onPress={handleSave} disabled={loading} style={styles.saveBtn}>
             {loading ? (
-              <ActivityIndicator size="small" color={color.yellow} />
+              <ActivityIndicator size="small" color={colors.brandAccent} />
             ) : (
               <Text style={styles.saveBtnText}>Save</Text>
             )}
@@ -142,81 +145,82 @@ export function ProfileEditorScreen({ navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-  },
-  backBtn: {
-    padding: space.xs,
-  },
-  headerTitle: {
-    color: color.white,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  saveBtn: {
-    paddingHorizontal: space.sm,
-    paddingVertical: space.xs,
-  },
-  saveBtnText: {
-    color: color.yellow,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  content: {
-    padding: space.md,
-  },
-  formGroup: {
-    marginBottom: space.lg,
-  },
-  label: {
-    color: color.white,
-    fontSize: 13,
-    fontWeight: '600',
-    marginBottom: space.xs,
-  },
-  input: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    paddingHorizontal: space.md,
-    paddingVertical: space.md,
-    color: color.white,
-    fontSize: 14,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  disabledInput: {
-    backgroundColor: 'rgba(255,255,255,0.04)',
-    color: color.muted,
-  },
-  helperText: {
-    color: color.muted,
-    fontSize: 11,
-    marginTop: 4,
-  },
-  citySelector: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    paddingHorizontal: space.md,
-    paddingVertical: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  cityText: {
-    color: color.white,
-    fontSize: 14,
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backBtn: {
+      padding: space.xs,
+    },
+    headerTitle: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    saveBtn: {
+      paddingHorizontal: space.sm,
+      paddingVertical: space.xs,
+    },
+    saveBtnText: {
+      color: isDark ? colors.brandAccent : colors.brandNavy,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    content: {
+      padding: space.md,
+    },
+    formGroup: {
+      marginBottom: space.lg,
+    },
+    label: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: '600',
+      marginBottom: space.xs,
+    },
+    input: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      paddingHorizontal: space.md,
+      paddingVertical: space.md,
+      color: colors.textPrimary,
+      fontSize: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    disabledInput: {
+      backgroundColor: colors.disabledBackground,
+      color: colors.disabledText,
+    },
+    helperText: {
+      color: colors.textMuted,
+      fontSize: 11,
+      marginTop: 4,
+    },
+    citySelector: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      paddingHorizontal: space.md,
+      paddingVertical: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    cityText: {
+      color: colors.textPrimary,
+      fontSize: 14,
+    },
+  });

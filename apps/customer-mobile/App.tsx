@@ -1,28 +1,15 @@
-import React, { useState } from 'react';
-import { ActivityIndicator, View } from 'react-native';
-import { NavigationContainer, DarkTheme, type LinkingOptions } from '@react-navigation/native';
+import React, { useMemo, useState } from 'react';
+import { ActivityIndicator, Platform, StatusBar as NativeStatusBar, View } from 'react-native';
+import { NavigationContainer, DarkTheme, DefaultTheme, type LinkingOptions } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from './src/auth/AuthProvider';
 import { CustomerNavigator } from './src/navigation/CustomerNavigator';
 import { InspectorScreen } from './src/screens/InspectorScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
-import { color } from './src/theme';
+import { ThemeProvider, useAppTheme } from './src/theme';
 import { BrandRevealScreen } from './src/components/BrandRevealScreen';
 import type { RootStack } from './src/navigation/types';
-
-const theme = {
-  ...DarkTheme,
-  colors: {
-    ...DarkTheme.colors,
-    primary: color.yellow,
-    background: color.canvas,
-    card: color.navy,
-    text: color.text,
-    border: color.border,
-    notification: color.yellow,
-  },
-};
 
 const linking: LinkingOptions<RootStack> = {
   prefixes: ['vmotiv://'],
@@ -38,11 +25,12 @@ const linking: LinkingOptions<RootStack> = {
 
 function Root() {
   const { state, profile, isInspector, activeMode } = useAuth();
+  const { theme } = useAppTheme();
 
   if (state === 'booting') {
     return (
-      <View style={{ flex: 1, backgroundColor: color.canvas, justifyContent: 'center' }}>
-        <ActivityIndicator accessibilityLabel="Restoring account" color={color.yellow} />
+      <View style={{ flex: 1, backgroundColor: theme.colors.background, justifyContent: 'center' }}>
+        <ActivityIndicator accessibilityLabel="Restoring account" color={theme.colors.brandAccent} />
       </View>
     );
   }
@@ -60,20 +48,58 @@ function Root() {
   return <CustomerNavigator />;
 }
 
-export default function App() {
+function MainContent({ onFinishReveal }: { onFinishReveal: () => void }) {
   const [revealed, setRevealed] = useState(false);
+  const { theme, isDark } = useAppTheme();
+
+  const navTheme = useMemo(() => {
+    const base = isDark ? DarkTheme : DefaultTheme;
+    return {
+      ...base,
+      colors: {
+        ...base.colors,
+        primary: theme.colors.brandAccent,
+        background: theme.colors.background,
+        card: theme.colors.tabBar,
+        text: theme.colors.textPrimary,
+        border: theme.colors.border,
+        notification: theme.colors.brandAccent,
+      },
+    };
+  }, [isDark, theme.colors]);
+
   return (
-    <SafeAreaProvider>
+    <>
+      <StatusBar style={isDark ? 'light' : 'dark'} />
+      <NativeStatusBar
+        barStyle={isDark ? 'light-content' : 'dark-content'}
+        backgroundColor={theme.colors.surface}
+        translucent={Platform.OS === 'android'}
+      />
       {revealed ? (
         <AuthProvider>
-          <NavigationContainer<RootStack> theme={theme} linking={linking}>
-            <StatusBar style="light" />
+          <NavigationContainer<RootStack> theme={navTheme} linking={linking}>
             <Root />
           </NavigationContainer>
         </AuthProvider>
       ) : (
-        <BrandRevealScreen onFinish={() => setRevealed(true)} />
+        <BrandRevealScreen
+          onFinish={() => {
+            setRevealed(true);
+            onFinishReveal();
+          }}
+        />
       )}
+    </>
+  );
+}
+
+export default function App() {
+  return (
+    <SafeAreaProvider>
+      <ThemeProvider>
+        <MainContent onFinishReveal={() => {}} />
+      </ThemeProvider>
     </SafeAreaProvider>
   );
 }

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -19,16 +19,18 @@ import {
   ArrowLeft,
   Calendar,
   CheckCircle,
+  CheckCircle2,
   Clock,
   MapPin,
   ShieldAlert,
+  ShieldCheck,
   ThumbsDown,
   ThumbsUp,
   XCircle,
 } from 'lucide-react-native';
 import { customer } from '../services/customer';
 import { formatPaise } from '../format';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 import type { AcquisitionOffer, SellingRequest } from '../types';
 
@@ -45,6 +47,9 @@ const TIMELINE_STEPS = [
 
 export function SellingRequestDetailsScreen({ route, navigation }: Props) {
   const { leadId } = route.params;
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+
   const [lead, setLead] = useState<SellingRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
@@ -144,13 +149,13 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <ArrowLeft size={22} color={color.white} />
+            <ArrowLeft size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Selling Request</Text>
           <View style={{ width: 40 }} />
         </View>
         <View style={styles.center}>
-          <ActivityIndicator size="large" color={color.yellow} />
+          <ActivityIndicator size="large" color={colors.brandAccent} />
         </View>
       </SafeAreaView>
     );
@@ -161,7 +166,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
       <SafeAreaView style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <ArrowLeft size={22} color={color.white} />
+            <ArrowLeft size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Selling Request</Text>
           <View style={{ width: 40 }} />
@@ -175,13 +180,17 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
 
   const activeOffer = lead.offers?.find((o) => o.status === 'OFFERED');
   const acceptedOffer = lead.offers?.find((o) => o.status === 'ACCEPTED');
-  const isCancellable = ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'].includes(lead.status);
+  const isInspectionCompleted = Boolean(
+    lead.inspection?.isCompleted ||
+    ['OFFER_PENDING', 'OFFERED', 'ACCEPTED'].includes(lead.status)
+  );
+  const isCancellable = ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'].includes(lead.status) && !isInspectionCompleted;
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <View style={styles.header}>
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-          <ArrowLeft size={22} color={color.white} />
+          <ArrowLeft size={22} color={colors.textPrimary} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Selling Request</Text>
         <View style={{ width: 40 }} />
@@ -283,9 +292,57 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
           </View>
         ) : null}
 
+        {/* Valuation in Progress Callout */}
+        {lead.status === 'OFFER_PENDING' && !activeOffer && (
+          <View style={styles.valuationCallout}>
+            <View style={styles.valuationIconWrap}>
+              <Clock size={20} color={isDark ? '#FEF08A' : '#B45309'} />
+            </View>
+            <View style={{ flex: 1, gap: 4 }}>
+              <Text style={styles.valuationCalloutTitle}>Acquisition Offer in Preparation</Text>
+              <Text style={styles.valuationCalloutSub}>
+                Inspection is complete! Our pricing experts are reviewing the technical report and physical condition data to formulate your guaranteed acquisition purchase offer.
+              </Text>
+            </View>
+          </View>
+        )}
+
         {/* Evaluation / Inspection Card */}
-        <View style={styles.card}>
-          <Text style={styles.sectionTitle}>Evaluation & Inspection</Text>
+        <View style={[styles.card, isInspectionCompleted && styles.inspectionDoneCard]}>
+          <View style={styles.cardHeaderRow}>
+            <Text style={styles.sectionTitle}>Evaluation & Inspection</Text>
+            {isInspectionCompleted ? (
+              <View style={styles.completedBadgePill}>
+                <CheckCircle2 size={13} color="#10B981" />
+                <Text style={styles.completedBadgePillText}>INSPECTION COMPLETED</Text>
+              </View>
+            ) : (
+              <View style={styles.scheduledBadgePill}>
+                <Clock size={13} color={isDark ? '#FEF08A' : '#B45309'} />
+                <Text style={styles.scheduledBadgePillText}>SCHEDULED</Text>
+              </View>
+            )}
+          </View>
+
+          {isInspectionCompleted ? (
+            <View style={styles.inspectionDoneBanner}>
+              <View style={styles.doneBannerIconWrap}>
+                <ShieldCheck size={22} color="#10B981" />
+              </View>
+              <View style={{ flex: 1, gap: 4 }}>
+                <Text style={styles.inspectionDoneTitle}>180-Point Inspection Completed & Certified</Text>
+                <Text style={styles.inspectionDoneSub}>
+                  Our certified technician has completed the physical evaluation. Observations, vehicle condition ratings, and photographic evidence have been verified and sealed.
+                </Text>
+                {lead.inspection?.completedAt ? (
+                  <Text style={styles.inspectionDoneDate}>
+                    Certified on: {new Date(lead.inspection.completedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                ) : null}
+              </View>
+            </View>
+          ) : null}
+
           {lead.inspectionDate ? (
             <View style={styles.infoRow}>
               <Calendar size={18} color={color.yellow} />
@@ -403,335 +460,445 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-  },
-  backBtn: {
-    padding: space.xs,
-  },
-  headerTitle: {
-    color: color.white,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  center: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  errorText: {
-    color: color.muted,
-    fontSize: 14,
-  },
-  content: {
-    padding: space.md,
-    paddingBottom: space.xxl,
-  },
-  carHeaderCard: {
-    backgroundColor: color.navy,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    marginBottom: space.md,
-  },
-  carTitle: {
-    color: color.white,
-    fontSize: 18,
-    fontWeight: '700',
-  },
-  carVariant: {
-    color: color.muted,
-    fontSize: 13,
-    marginTop: 2,
-  },
-  refRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    marginTop: space.sm,
-  },
-  refLabel: {
-    color: color.muted,
-    fontSize: 12,
-  },
-  refCode: {
-    color: color.yellow,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  timelineCard: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    marginBottom: space.md,
-  },
-  sectionTitle: {
-    color: color.white,
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: space.sm,
-  },
-  timelineRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    marginTop: space.sm,
-  },
-  timelineStep: {
-    alignItems: 'center',
-    flex: 1,
-  },
-  stepDot: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    backgroundColor: color.border,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 4,
-  },
-  stepDotDone: {
-    backgroundColor: '#22C55E',
-  },
-  stepDotActive: {
-    backgroundColor: color.yellow,
-    borderWidth: 2,
-    borderColor: color.white,
-  },
-  stepLabel: {
-    color: color.muted,
-    fontSize: 9,
-    textAlign: 'center',
-  },
-  stepLabelActive: {
-    color: color.white,
-    fontWeight: '700',
-  },
-  offerCard: {
-    backgroundColor: 'rgba(247, 181, 3, 0.1)',
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 2,
-    borderColor: color.yellow,
-    marginBottom: space.md,
-    alignItems: 'center',
-  },
-  offerBadge: {
-    backgroundColor: color.yellow,
-    paddingHorizontal: space.sm,
-    paddingVertical: 4,
-    borderRadius: radius.sm,
-    marginBottom: space.xs,
-  },
-  offerBadgeText: {
-    color: color.navy,
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  offerPrice: {
-    color: color.white,
-    fontSize: 28,
-    fontWeight: '800',
-    marginVertical: space.xs,
-  },
-  offerValidity: {
-    color: color.muted,
-    fontSize: 12,
-    marginBottom: space.sm,
-  },
-  offerTerms: {
-    color: '#D1D5DB',
-    fontSize: 12,
-    textAlign: 'center',
-    marginBottom: space.md,
-    lineHeight: 18,
-  },
-  offerActions: {
-    flexDirection: 'row',
-    gap: space.md,
-    width: '100%',
-  },
-  acceptBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.xs,
-    backgroundColor: color.yellow,
-    paddingVertical: space.md,
-    borderRadius: radius.md,
-  },
-  acceptBtnText: {
-    color: color.navy,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  declineBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.xs,
-    paddingHorizontal: space.md,
-    paddingVertical: space.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: '#EF4444',
-  },
-  declineBtnText: {
-    color: '#EF4444',
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  acceptedBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(34, 197, 94, 0.12)',
-    padding: space.md,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: '#22C55E',
-    marginBottom: space.md,
-  },
-  acceptedBannerText: {
-    flex: 1,
-    marginLeft: space.sm,
-  },
-  acceptedTitle: {
-    color: '#22C55E',
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  acceptedSubtitle: {
-    color: '#D1D5DB',
-    fontSize: 12,
-    marginTop: 2,
-    lineHeight: 18,
-  },
-  card: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    marginBottom: space.md,
-  },
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    marginBottom: space.sm,
-  },
-  infoText: {
-    color: '#E5E7EB',
-    fontSize: 13,
-  },
-  grid: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.md,
-  },
-  gridItem: {
-    width: '45%',
-  },
-  gridLabel: {
-    color: color.muted,
-    fontSize: 11,
-  },
-  gridValue: {
-    color: color.white,
-    fontSize: 13,
-    fontWeight: '600',
-    marginTop: 2,
-  },
-  cancelActionBtn: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.xs,
-    paddingVertical: space.md,
-    marginTop: space.sm,
-  },
-  cancelActionBtnText: {
-    color: '#EF4444',
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  modalOverlay: {
-    flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.8)',
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: space.lg,
-  },
-  modalContent: {
-    backgroundColor: color.card,
-    borderRadius: radius.lg,
-    padding: space.lg,
-    width: '100%',
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  modalTitle: {
-    color: color.white,
-    fontSize: 16,
-    fontWeight: '700',
-    marginBottom: space.xs,
-  },
-  modalSubtitle: {
-    color: color.muted,
-    fontSize: 13,
-    marginBottom: space.md,
-    lineHeight: 18,
-  },
-  modalInput: {
-    backgroundColor: color.canvas,
-    borderRadius: radius.md,
-    padding: space.md,
-    color: color.white,
-    fontSize: 13,
-    borderWidth: 1,
-    borderColor: color.border,
-    textAlignVertical: 'top',
-    height: 100,
-    marginBottom: space.lg,
-  },
-  modalButtons: {
-    flexDirection: 'row',
-    gap: space.md,
-    justifyContent: 'flex-end',
-  },
-  modalBackBtn: {
-    paddingVertical: space.sm,
-    paddingHorizontal: space.md,
-  },
-  modalBackBtnText: {
-    color: color.muted,
-    fontSize: 14,
-    fontWeight: '600',
-  },
-  modalDeclineConfirmBtn: {
-    backgroundColor: '#EF4444',
-    borderRadius: radius.md,
-    paddingVertical: space.sm,
-    paddingHorizontal: space.md,
-  },
-  modalDeclineConfirmBtnText: {
-    color: color.white,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backBtn: {
+      padding: space.xs,
+    },
+    headerTitle: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    center: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+    },
+    errorText: {
+      color: colors.textMuted,
+      fontSize: 14,
+    },
+    content: {
+      padding: space.md,
+      paddingBottom: space.xxl,
+    },
+    carHeaderCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: space.md,
+    },
+    carTitle: {
+      color: colors.textPrimary,
+      fontSize: 18,
+      fontWeight: '700',
+    },
+    carVariant: {
+      color: colors.textMuted,
+      fontSize: 13,
+      marginTop: 2,
+    },
+    refRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+      marginTop: space.sm,
+    },
+    refLabel: {
+      color: colors.textMuted,
+      fontSize: 12,
+    },
+    refCode: {
+      color: colors.brandAccent,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    timelineCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: space.md,
+    },
+    sectionTitle: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '700',
+      marginBottom: space.sm,
+    },
+    timelineRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      marginTop: space.sm,
+    },
+    timelineStep: {
+      alignItems: 'center',
+      flex: 1,
+    },
+    stepDot: {
+      width: 20,
+      height: 20,
+      borderRadius: 10,
+      backgroundColor: colors.border,
+      justifyContent: 'center',
+      alignItems: 'center',
+      marginBottom: 4,
+    },
+    stepDotDone: {
+      backgroundColor: '#22C55E',
+    },
+    stepDotActive: {
+      backgroundColor: colors.brandAccent,
+      borderWidth: 2,
+      borderColor: colors.brandNavy,
+    },
+    stepLabel: {
+      color: colors.textMuted,
+      fontSize: 9,
+      textAlign: 'center',
+    },
+    stepLabelActive: {
+      color: colors.textPrimary,
+      fontWeight: '700',
+    },
+    offerCard: {
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.1)' : 'rgba(247, 181, 3, 0.15)',
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 2,
+      borderColor: colors.brandAccent,
+      marginBottom: space.md,
+      alignItems: 'center',
+    },
+    offerBadge: {
+      backgroundColor: colors.brandAccent,
+      paddingHorizontal: space.sm,
+      paddingVertical: 4,
+      borderRadius: radius.sm,
+      marginBottom: space.xs,
+    },
+    offerBadgeText: {
+      color: colors.brandNavy,
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    offerPrice: {
+      color: colors.textPrimary,
+      fontSize: 28,
+      fontWeight: '800',
+      marginVertical: space.xs,
+    },
+    offerValidity: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginBottom: space.sm,
+    },
+    offerTerms: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      textAlign: 'center',
+      marginBottom: space.md,
+      lineHeight: 18,
+    },
+    offerActions: {
+      flexDirection: 'row',
+      gap: space.md,
+      width: '100%',
+    },
+    acceptBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: space.xs,
+      backgroundColor: colors.brandAccent,
+      paddingVertical: space.md,
+      borderRadius: radius.md,
+    },
+    acceptBtnText: {
+      color: colors.brandNavy,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    declineBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: space.xs,
+      paddingHorizontal: space.md,
+      paddingVertical: space.md,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: '#EF4444',
+    },
+    declineBtnText: {
+      color: '#EF4444',
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    acceptedBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      backgroundColor: 'rgba(34, 197, 94, 0.12)',
+      padding: space.md,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: '#22C55E',
+      marginBottom: space.md,
+    },
+    acceptedBannerText: {
+      flex: 1,
+      marginLeft: space.sm,
+    },
+    acceptedTitle: {
+      color: '#22C55E',
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    acceptedSubtitle: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      marginTop: 2,
+      lineHeight: 18,
+    },
+    card: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: space.md,
+    },
+    cardHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: space.sm,
+    },
+    inspectionDoneCard: {
+      borderColor: isDark ? 'rgba(16, 185, 129, 0.4)' : 'rgba(16, 185, 129, 0.35)',
+    },
+    completedBadgePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: radius.pill,
+      backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : 'rgba(16, 185, 129, 0.1)',
+      borderWidth: 1,
+      borderColor: 'rgba(16, 185, 129, 0.35)',
+    },
+    completedBadgePillText: {
+      color: '#10B981',
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.4,
+    },
+    scheduledBadgePill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 5,
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: radius.pill,
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.14)' : 'rgba(247, 181, 3, 0.1)',
+      borderWidth: 1,
+      borderColor: 'rgba(247, 181, 3, 0.35)',
+    },
+    scheduledBadgePillText: {
+      color: isDark ? '#FEF08A' : '#B45309',
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.4,
+    },
+    inspectionDoneBanner: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: space.md,
+      backgroundColor: isDark ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.08)',
+      borderWidth: 1,
+      borderColor: 'rgba(16, 185, 129, 0.3)',
+      borderRadius: radius.md,
+      padding: space.md,
+      marginBottom: space.md,
+    },
+    doneBannerIconWrap: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : 'rgba(16, 185, 129, 0.15)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    inspectionDoneTitle: {
+      color: '#10B981',
+      fontWeight: '700',
+      fontSize: 14,
+    },
+    inspectionDoneSub: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      lineHeight: 17,
+      marginTop: 2,
+    },
+    inspectionDoneDate: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontStyle: 'italic',
+      marginTop: 2,
+    },
+    valuationCallout: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: space.md,
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.12)' : 'rgba(247, 181, 3, 0.08)',
+      borderWidth: 1,
+      borderColor: 'rgba(247, 181, 3, 0.35)',
+      borderRadius: radius.md,
+      padding: space.md,
+      marginBottom: space.md,
+    },
+    valuationIconWrap: {
+      width: 32,
+      height: 32,
+      borderRadius: 16,
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.2)' : 'rgba(247, 181, 3, 0.15)',
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    valuationCalloutTitle: {
+      color: isDark ? '#FEF08A' : '#B45309',
+      fontWeight: '700',
+      fontSize: 14,
+    },
+    valuationCalloutSub: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      lineHeight: 17,
+      marginTop: 2,
+    },
+    infoRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.sm,
+      marginBottom: space.sm,
+    },
+    infoText: {
+      color: colors.textSecondary,
+      fontSize: 13,
+    },
+    grid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: space.md,
+    },
+    gridItem: {
+      width: '45%',
+    },
+    gridLabel: {
+      color: colors.textMuted,
+      fontSize: 11,
+    },
+    gridValue: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: '600',
+      marginTop: 2,
+    },
+    cancelActionBtn: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: space.xs,
+      paddingVertical: space.md,
+      marginTop: space.sm,
+    },
+    cancelActionBtnText: {
+      color: '#EF4444',
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    modalOverlay: {
+      flex: 1,
+      backgroundColor: colors.overlay,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: space.lg,
+    },
+    modalContent: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      padding: space.lg,
+      width: '100%',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    modalTitle: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '700',
+      marginBottom: space.xs,
+    },
+    modalSubtitle: {
+      color: colors.textMuted,
+      fontSize: 13,
+      marginBottom: space.md,
+      lineHeight: 18,
+    },
+    modalInput: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      padding: space.md,
+      color: colors.textPrimary,
+      fontSize: 13,
+      borderWidth: 1,
+      borderColor: colors.border,
+      textAlignVertical: 'top',
+      height: 100,
+      marginBottom: space.lg,
+    },
+    modalButtons: {
+      flexDirection: 'row',
+      gap: space.md,
+      justifyContent: 'flex-end',
+    },
+    modalBackBtn: {
+      paddingVertical: space.sm,
+      paddingHorizontal: space.md,
+    },
+    modalBackBtnText: {
+      color: colors.textMuted,
+      fontSize: 14,
+      fontWeight: '600',
+    },
+    modalDeclineConfirmBtn: {
+      backgroundColor: '#EF4444',
+      borderRadius: radius.md,
+      paddingVertical: space.sm,
+      paddingHorizontal: space.md,
+    },
+    modalDeclineConfirmBtnText: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '700',
+    },
+  });

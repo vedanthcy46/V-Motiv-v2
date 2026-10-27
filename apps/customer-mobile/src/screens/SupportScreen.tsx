@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -26,7 +26,7 @@ import {
 } from 'lucide-react-native';
 import { customer } from '../services/customer';
 import type { SupportCase } from '../types';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
 
 const CATEGORIES = [
@@ -46,6 +46,8 @@ type CategoryType = typeof CATEGORIES[number]['key'];
 export function SupportScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const scrollRef = useRef<ScrollView>(null);
 
   const [activeTab, setActiveTab] = useState<'CASES' | 'NEW'>('CASES');
@@ -123,7 +125,7 @@ export function SupportScreen() {
             onPress={() => navigation.goBack()}
             style={styles.backBtn}
           >
-            <ArrowLeft size={22} color={color.white} />
+            <ArrowLeft size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <View style={styles.headerTitleWrap}>
             <Text style={styles.headerTitle}>Customer Concierge</Text>
@@ -144,7 +146,7 @@ export function SupportScreen() {
           >
             <MessageSquare
               size={15}
-              color={activeTab === 'CASES' ? color.yellow : color.muted}
+              color={activeTab === 'CASES' ? colors.brandAccent : colors.textMuted}
             />
             <Text
               style={[
@@ -166,7 +168,7 @@ export function SupportScreen() {
           >
             <Plus
               size={15}
-              color={activeTab === 'NEW' ? color.yellow : color.muted}
+              color={activeTab === 'NEW' ? colors.brandAccent : colors.textMuted}
             />
             <Text
               style={[
@@ -376,313 +378,314 @@ export function SupportScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-  },
-  backBtn: {
-    padding: space.xs,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  headerTitleWrap: {
-    flex: 1,
-    marginLeft: space.sm,
-  },
-  headerTitle: {
-    color: color.white,
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    color: color.muted,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  tabBar: {
-    flexDirection: 'row',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    gap: space.sm,
-    backgroundColor: color.navy,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-  },
-  tabBtn: {
-    flex: 1,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: 6,
-    paddingVertical: 10,
-    borderRadius: radius.sm,
-    backgroundColor: color.card,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  tabBtnActive: {
-    backgroundColor: 'rgba(247, 181, 3, 0.12)',
-    borderColor: color.yellow,
-  },
-  tabBtnText: {
-    color: color.muted,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  tabBtnTextActive: {
-    color: color.yellow,
-  },
-  content: {
-    padding: space.md,
-  },
-  successBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    backgroundColor: 'rgba(34, 197, 94, 0.1)',
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: 'rgba(34, 197, 94, 0.3)',
-    marginBottom: space.md,
-  },
-  successText: {
-    color: '#22C55E',
-    fontSize: 13,
-    fontWeight: '600',
-    flex: 1,
-  },
-  banner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    backgroundColor: 'rgba(247, 181, 3, 0.08)',
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: 'rgba(247, 181, 3, 0.25)',
-    marginBottom: space.lg,
-  },
-  bannerText: {
-    color: '#D1D5DB',
-    fontSize: 12,
-    flex: 1,
-    lineHeight: 18,
-  },
-  centerBox: {
-    paddingVertical: 60,
-    alignItems: 'center',
-  },
-  emptyCard: {
-    backgroundColor: color.card,
-    borderRadius: radius.lg,
-    padding: space.xl,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  emptyTitle: {
-    color: color.white,
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: space.md,
-  },
-  emptyDesc: {
-    color: color.muted,
-    fontSize: 13,
-    textAlign: 'center',
-    marginTop: space.xs,
-    lineHeight: 20,
-    marginBottom: space.lg,
-  },
-  createCaseBtn: {
-    backgroundColor: color.yellow,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-    borderRadius: radius.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-  },
-  createCaseBtnText: {
-    color: color.navy,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  caseCard: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.lg,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  caseTopRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: space.sm,
-  },
-  statusBadge: {
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: radius.pill,
-  },
-  statusOpen: {
-    backgroundColor: 'rgba(34, 197, 94, 0.15)',
-  },
-  statusClosed: {
-    backgroundColor: 'rgba(255, 255, 255, 0.08)',
-  },
-  statusBadgeText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  statusOpenText: {
-    color: '#22C55E',
-  },
-  statusClosedText: {
-    color: color.muted,
-  },
-  refCode: {
-    color: color.muted,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  caseSubject: {
-    color: color.white,
-    fontSize: 16,
-    fontWeight: '700',
-    lineHeight: 22,
-    marginBottom: 4,
-  },
-  caseCategory: {
-    color: color.textSecondary,
-    fontSize: 12,
-    marginBottom: space.xs,
-  },
-  caseDesc: {
-    color: color.muted,
-    fontSize: 13,
-    lineHeight: 19,
-    marginVertical: 4,
-  },
-  caseFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: space.md,
-    paddingTop: space.md,
-    borderTopWidth: 1,
-    borderTopColor: 'rgba(255,255,255,0.08)',
-  },
-  caseDate: {
-    color: color.muted,
-    fontSize: 11,
-  },
-  viewRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-  },
-  viewText: {
-    color: color.yellow,
-    fontSize: 12,
-    fontWeight: '700',
-  },
-  fieldLabel: {
-    color: color.white,
-    fontSize: 13,
-    fontWeight: '700',
-    marginBottom: space.xs,
-    marginTop: space.md,
-  },
-  categoryPills: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: space.xs,
-    marginBottom: space.xs,
-  },
-  catPill: {
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: radius.pill,
-    backgroundColor: color.card,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  catPillActive: {
-    backgroundColor: color.yellow,
-    borderColor: color.yellow,
-  },
-  catText: {
-    color: color.white,
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  catTextActive: {
-    color: color.navy,
-    fontWeight: '800',
-  },
-  input: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    padding: space.md,
-    color: color.white,
-    fontSize: 13,
-  },
-  textArea: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    padding: space.md,
-    color: color.white,
-    fontSize: 13,
-    textAlignVertical: 'top',
-    minHeight: 110,
-  },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderRadius: radius.sm,
-    padding: space.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.25)',
-    marginTop: space.md,
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 12,
-    flex: 1,
-  },
-  submitBtn: {
-    backgroundColor: color.yellow,
-    borderRadius: radius.md,
-    paddingVertical: space.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.xs,
-    marginTop: space.lg,
-  },
-  submitBtnText: {
-    color: color.navy,
-    fontSize: 15,
-    fontWeight: '800',
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backBtn: {
+      padding: space.xs,
+      borderRadius: 20,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    headerTitleWrap: {
+      flex: 1,
+      marginLeft: space.sm,
+    },
+    headerTitle: {
+      color: colors.textPrimary,
+      fontSize: 17,
+      fontWeight: '800',
+    },
+    headerSubtitle: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    tabBar: {
+      flexDirection: 'row',
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      gap: space.sm,
+      backgroundColor: colors.surface,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    tabBtn: {
+      flex: 1,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: 6,
+      paddingVertical: 10,
+      borderRadius: radius.sm,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    tabBtnActive: {
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.12)' : 'rgba(247, 181, 3, 0.15)',
+      borderColor: colors.brandAccent,
+    },
+    tabBtnText: {
+      color: colors.textMuted,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    tabBtnTextActive: {
+      color: isDark ? colors.brandAccent : colors.brandNavy,
+    },
+    content: {
+      padding: space.md,
+    },
+    successBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+      backgroundColor: 'rgba(34, 197, 94, 0.1)',
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: 'rgba(34, 197, 94, 0.3)',
+      marginBottom: space.md,
+    },
+    successText: {
+      color: '#22C55E',
+      fontSize: 13,
+      fontWeight: '600',
+      flex: 1,
+    },
+    banner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.sm,
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.08)' : '#FFFBEB',
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(247, 181, 3, 0.25)' : '#FDE68A',
+      marginBottom: space.lg,
+    },
+    bannerText: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      flex: 1,
+      lineHeight: 18,
+    },
+    centerBox: {
+      paddingVertical: 60,
+      alignItems: 'center',
+    },
+    emptyCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.lg,
+      padding: space.xl,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    emptyTitle: {
+      color: colors.textPrimary,
+      fontSize: 18,
+      fontWeight: '800',
+      marginTop: space.md,
+    },
+    emptyDesc: {
+      color: colors.textMuted,
+      fontSize: 13,
+      textAlign: 'center',
+      marginTop: space.xs,
+      lineHeight: 20,
+      marginBottom: space.lg,
+    },
+    createCaseBtn: {
+      backgroundColor: colors.brandAccent,
+      paddingHorizontal: space.lg,
+      paddingVertical: space.md,
+      borderRadius: radius.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+    },
+    createCaseBtnText: {
+      color: colors.brandNavy,
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    caseCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      paddingHorizontal: space.lg,
+      paddingVertical: space.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    caseTopRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: space.sm,
+    },
+    statusBadge: {
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+      borderRadius: radius.pill,
+    },
+    statusOpen: {
+      backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    },
+    statusClosed: {
+      backgroundColor: colors.surfaceSecondary,
+    },
+    statusBadgeText: {
+      fontSize: 10,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
+    statusOpenText: {
+      color: '#22C55E',
+    },
+    statusClosedText: {
+      color: colors.textMuted,
+    },
+    refCode: {
+      color: colors.textMuted,
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    caseSubject: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '700',
+      lineHeight: 22,
+      marginBottom: 4,
+    },
+    caseCategory: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      marginBottom: space.xs,
+    },
+    caseDesc: {
+      color: colors.textMuted,
+      fontSize: 13,
+      lineHeight: 19,
+      marginVertical: 4,
+    },
+    caseFooter: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginTop: space.md,
+      paddingTop: space.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+    caseDate: {
+      color: colors.textMuted,
+      fontSize: 11,
+    },
+    viewRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+    },
+    viewText: {
+      color: isDark ? colors.brandAccent : colors.brandNavy,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    fieldLabel: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: '700',
+      marginBottom: space.xs,
+      marginTop: space.md,
+    },
+    categoryPills: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: space.xs,
+      marginBottom: space.xs,
+    },
+    catPill: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    catPillActive: {
+      backgroundColor: colors.brandAccent,
+      borderColor: colors.brandAccent,
+    },
+    catText: {
+      color: colors.textPrimary,
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    catTextActive: {
+      color: colors.brandNavy,
+      fontWeight: '800',
+    },
+    input: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: space.md,
+      color: colors.textPrimary,
+      fontSize: 13,
+    },
+    textArea: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: space.md,
+      color: colors.textPrimary,
+      fontSize: 13,
+      textAlignVertical: 'top',
+      minHeight: 110,
+    },
+    errorBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+      borderRadius: radius.sm,
+      padding: space.sm,
+      borderWidth: 1,
+      borderColor: 'rgba(239, 68, 68, 0.25)',
+      marginTop: space.md,
+    },
+    errorText: {
+      color: '#EF4444',
+      fontSize: 12,
+      flex: 1,
+    },
+    submitBtn: {
+      backgroundColor: colors.brandAccent,
+      borderRadius: radius.md,
+      paddingVertical: space.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: space.xs,
+      marginTop: space.lg,
+    },
+    submitBtnText: {
+      color: colors.brandNavy,
+      fontSize: 15,
+      fontWeight: '800',
+    },
+  });

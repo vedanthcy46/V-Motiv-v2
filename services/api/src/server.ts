@@ -12,6 +12,8 @@ import { PrismaAdminStore } from './admin-store.js';
 import { PrismaSalesStore } from './sales-store.js';
 import { PrismaInspectionStore } from './inspection-store.js';
 import { PrismaFinanceStore } from './finance-store.js';
+import { PrismaServiceStore } from './service-store.js';
+import { PrismaRentalStore } from './rental-store.js';
 import { processEmail, resendSender } from './email.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
 
@@ -101,6 +103,9 @@ const app = createApp({
   sales: new PrismaSalesStore(db),
   inspection: new PrismaInspectionStore(db, undefined, notificationService),
   finance: new PrismaFinanceStore(db, notificationService),
+  service: new PrismaServiceStore(db, notificationService),
+  rental: new PrismaRentalStore(db, notificationService),
+  db,
   notificationRouter,
   notificationService,
   revokeTokens: firebaseUid => getAuth(firebase).revokeRefreshTokens(firebaseUid),

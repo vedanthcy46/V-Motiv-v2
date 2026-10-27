@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -27,7 +27,7 @@ import {
 import { customer } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
 import type { CustomerAddress } from '../types';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
 
 const PRESET_LABELS = ['Home', 'Office', 'Other'] as const;
@@ -35,6 +35,8 @@ const PRESET_LABELS = ['Home', 'Office', 'Other'] as const;
 export function AddressesScreen() {
   const navigation = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
   const scrollRef = useRef<ScrollView>(null);
   const { user } = useAuth();
 
@@ -143,7 +145,7 @@ export function AddressesScreen() {
             onPress={() => navigation.goBack()}
             style={styles.backBtn}
           >
-            <ArrowLeft size={22} color={color.white} />
+            <ArrowLeft size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <View style={styles.headerTitleWrap}>
             <Text style={styles.headerTitle}>Saved Addresses</Text>
@@ -157,7 +159,7 @@ export function AddressesScreen() {
           >
             <Plus
               size={20}
-              color={showAddForm ? color.yellow : color.white}
+              color={showAddForm ? colors.brandAccent : colors.textPrimary}
               style={showAddForm ? { transform: [{ rotate: '45deg' }] } : undefined}
             />
           </TouchableOpacity>
@@ -343,242 +345,243 @@ export function AddressesScreen() {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-  },
-  backBtn: {
-    padding: space.xs,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  headerTitleWrap: {
-    flex: 1,
-    marginLeft: space.sm,
-  },
-  headerTitle: {
-    color: color.white,
-    fontSize: 17,
-    fontWeight: '800',
-  },
-  headerSubtitle: {
-    color: color.muted,
-    fontSize: 12,
-    marginTop: 2,
-  },
-  addToggleBtn: {
-    padding: space.xs,
-    borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.08)',
-  },
-  content: {
-    padding: space.md,
-  },
-  formCard: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: 'rgba(247, 181, 3, 0.3)',
-    marginBottom: space.lg,
-  },
-  formTitle: {
-    color: color.white,
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: space.sm,
-  },
-  fieldLabel: {
-    color: color.muted,
-    fontSize: 12,
-    fontWeight: '600',
-    marginBottom: 6,
-    marginTop: space.sm,
-  },
-  labelPills: {
-    flexDirection: 'row',
-    gap: space.xs,
-  },
-  labelPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 14,
-    paddingVertical: 7,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  labelPillActive: {
-    backgroundColor: color.yellow,
-    borderColor: color.yellow,
-  },
-  labelPillText: {
-    color: color.white,
-    fontSize: 12,
-    fontWeight: '600',
-  },
-  labelPillTextActive: {
-    color: color.navy,
-    fontWeight: '700',
-  },
-  textArea: {
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: color.border,
-    padding: space.md,
-    color: color.white,
-    fontSize: 13,
-    textAlignVertical: 'top',
-    minHeight: 70,
-  },
-  row: {
-    flexDirection: 'row',
-    gap: space.sm,
-  },
-  input: {
-    backgroundColor: 'rgba(0,0,0,0.2)',
-    borderRadius: radius.sm,
-    borderWidth: 1,
-    borderColor: color.border,
-    paddingHorizontal: space.md,
-    paddingVertical: 10,
-    color: color.white,
-    fontSize: 13,
-  },
-  errorBox: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    backgroundColor: 'rgba(239, 68, 68, 0.1)',
-    borderRadius: radius.sm,
-    padding: space.sm,
-    borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.25)',
-    marginTop: space.md,
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 12,
-    flex: 1,
-  },
-  saveBtn: {
-    backgroundColor: color.yellow,
-    borderRadius: radius.sm,
-    paddingVertical: space.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'center',
-    gap: space.xs,
-    marginTop: space.md,
-  },
-  saveBtnText: {
-    color: color.navy,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  listSection: {
-    marginTop: space.xs,
-  },
-  sectionHeading: {
-    color: color.white,
-    fontSize: 14,
-    fontWeight: '700',
-    marginBottom: space.sm,
-  },
-  centerBox: {
-    paddingVertical: 40,
-    alignItems: 'center',
-  },
-  emptyCard: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.xl,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  emptyTitle: {
-    color: color.white,
-    fontSize: 16,
-    fontWeight: '800',
-    marginTop: space.md,
-  },
-  emptyDesc: {
-    color: color.muted,
-    fontSize: 12,
-    textAlign: 'center',
-    marginTop: 4,
-    lineHeight: 18,
-    marginBottom: space.lg,
-  },
-  addFirstBtn: {
-    backgroundColor: color.yellow,
-    paddingHorizontal: space.lg,
-    paddingVertical: space.md,
-    borderRadius: radius.md,
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-  },
-  addFirstBtnText: {
-    color: color.navy,
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  addressCard: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  addressTop: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginBottom: space.xs,
-  },
-  labelBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: 'rgba(247, 181, 3, 0.1)',
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 6,
-    borderWidth: 1,
-    borderColor: 'rgba(247, 181, 3, 0.25)',
-  },
-  labelBadgeText: {
-    color: color.yellow,
-    fontSize: 11,
-    fontWeight: '700',
-  },
-  deleteBtn: {
-    padding: 4,
-  },
-  addressText: {
-    color: color.white,
-    fontSize: 13,
-    lineHeight: 19,
-    marginTop: 4,
-  },
-  cityPincodeText: {
-    color: color.muted,
-    fontSize: 12,
-    marginTop: 4,
-    fontWeight: '600',
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backBtn: {
+      padding: space.xs,
+      borderRadius: 20,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    headerTitleWrap: {
+      flex: 1,
+      marginLeft: space.sm,
+    },
+    headerTitle: {
+      color: colors.textPrimary,
+      fontSize: 17,
+      fontWeight: '800',
+    },
+    headerSubtitle: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 2,
+    },
+    addToggleBtn: {
+      padding: space.xs,
+      borderRadius: 20,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    content: {
+      padding: space.md,
+    },
+    formCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(247, 181, 3, 0.3)' : 'rgba(247, 181, 3, 0.5)',
+      marginBottom: space.lg,
+    },
+    formTitle: {
+      color: colors.textPrimary,
+      fontSize: 15,
+      fontWeight: '700',
+      marginBottom: space.sm,
+    },
+    fieldLabel: {
+      color: colors.textMuted,
+      fontSize: 12,
+      fontWeight: '600',
+      marginBottom: 6,
+      marginTop: space.sm,
+    },
+    labelPills: {
+      flexDirection: 'row',
+      gap: space.xs,
+    },
+    labelPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 6,
+      paddingHorizontal: 14,
+      paddingVertical: 7,
+      borderRadius: radius.pill,
+      backgroundColor: colors.surfaceSecondary,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    labelPillActive: {
+      backgroundColor: colors.brandAccent,
+      borderColor: colors.brandAccent,
+    },
+    labelPillText: {
+      color: colors.textPrimary,
+      fontSize: 12,
+      fontWeight: '600',
+    },
+    labelPillTextActive: {
+      color: colors.brandNavy,
+      fontWeight: '700',
+    },
+    textArea: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: space.md,
+      color: colors.textPrimary,
+      fontSize: 13,
+      textAlignVertical: 'top',
+      minHeight: 70,
+    },
+    row: {
+      flexDirection: 'row',
+      gap: space.sm,
+    },
+    input: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.sm,
+      borderWidth: 1,
+      borderColor: colors.border,
+      paddingHorizontal: space.md,
+      paddingVertical: 10,
+      color: colors.textPrimary,
+      fontSize: 13,
+    },
+    errorBox: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+      backgroundColor: 'rgba(239, 68, 68, 0.1)',
+      borderRadius: radius.sm,
+      padding: space.sm,
+      borderWidth: 1,
+      borderColor: 'rgba(239, 68, 68, 0.25)',
+      marginTop: space.md,
+    },
+    errorText: {
+      color: '#EF4444',
+      fontSize: 12,
+      flex: 1,
+    },
+    saveBtn: {
+      backgroundColor: colors.brandAccent,
+      borderRadius: radius.sm,
+      paddingVertical: space.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: space.xs,
+      marginTop: space.md,
+    },
+    saveBtnText: {
+      color: colors.brandNavy,
+      fontSize: 14,
+      fontWeight: '800',
+    },
+    listSection: {
+      marginTop: space.xs,
+    },
+    sectionHeading: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '700',
+      marginBottom: space.sm,
+    },
+    centerBox: {
+      paddingVertical: 40,
+      alignItems: 'center',
+    },
+    emptyCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.xl,
+      alignItems: 'center',
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    emptyTitle: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '800',
+      marginTop: space.md,
+    },
+    emptyDesc: {
+      color: colors.textMuted,
+      fontSize: 12,
+      textAlign: 'center',
+      marginTop: 4,
+      lineHeight: 18,
+      marginBottom: space.lg,
+    },
+    addFirstBtn: {
+      backgroundColor: colors.brandAccent,
+      paddingHorizontal: space.lg,
+      paddingVertical: space.md,
+      borderRadius: radius.md,
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+    },
+    addFirstBtnText: {
+      color: colors.brandNavy,
+      fontSize: 13,
+      fontWeight: '800',
+    },
+    addressCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    addressTop: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      marginBottom: space.xs,
+    },
+    labelBadge: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.1)' : 'rgba(247, 181, 3, 0.15)',
+      paddingHorizontal: 8,
+      paddingVertical: 3,
+      borderRadius: 6,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(247, 181, 3, 0.25)' : 'rgba(247, 181, 3, 0.4)',
+    },
+    labelBadgeText: {
+      color: isDark ? colors.brandAccent : '#92400E',
+      fontSize: 11,
+      fontWeight: '700',
+    },
+    deleteBtn: {
+      padding: 4,
+    },
+    addressText: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      lineHeight: 19,
+      marginTop: 4,
+    },
+    cityPincodeText: {
+      color: colors.textMuted,
+      fontSize: 12,
+      marginTop: 4,
+      fontWeight: '600',
+    },
+  });

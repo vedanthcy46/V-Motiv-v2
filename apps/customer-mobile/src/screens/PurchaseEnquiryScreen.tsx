@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -16,7 +16,7 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, CheckCircle, HelpCircle, Mail, MessageSquare, ShieldCheck, Sparkles } from 'lucide-react-native';
 import { customer } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
-import { color, radius, space } from '../theme';
+import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 
 type Props = NativeStackScreenProps<RootStack, 'PurchaseEnquiry'>;
@@ -32,6 +32,9 @@ const QUICK_TOPICS = [
 export function PurchaseEnquiryScreen({ route, navigation }: Props) {
   const { listingId, title } = route.params;
   const { user } = useAuth();
+  const { colors, isDark } = useAppTheme();
+  const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+
   const [message, setMessage] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
   const [loading, setLoading] = useState(false);
@@ -109,7 +112,7 @@ export function PurchaseEnquiryScreen({ route, navigation }: Props) {
       >
         <View style={styles.header}>
           <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
-            <ArrowLeft size={22} color={color.white} />
+            <ArrowLeft size={22} color={colors.textPrimary} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Purchase Enquiry</Text>
           <View style={{ width: 40 }} />
@@ -217,206 +220,207 @@ export function PurchaseEnquiryScreen({ route, navigation }: Props) {
   );
 }
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: color.canvas,
-  },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: space.md,
-    paddingVertical: space.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: color.border,
-  },
-  backBtn: {
-    padding: space.xs,
-  },
-  headerTitle: {
-    color: color.white,
-    fontSize: 16,
-    fontWeight: '700',
-  },
-  content: {
-    padding: space.md,
-  },
-  vehicleCard: {
-    backgroundColor: color.navy,
-    borderRadius: radius.md,
-    padding: space.md,
-    borderWidth: 1,
-    borderColor: color.border,
-    marginBottom: space.md,
-  },
-  vehicleLabel: {
-    color: color.muted,
-    fontSize: 11,
-    textTransform: 'uppercase',
-    letterSpacing: 0.5,
-  },
-  vehicleTitle: {
-    color: color.white,
-    fontSize: 16,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  assuranceBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    backgroundColor: 'rgba(247, 181, 3, 0.08)',
-    borderRadius: radius.md,
-    padding: space.md,
-    marginBottom: space.md,
-    borderWidth: 1,
-    borderColor: 'rgba(247, 181, 3, 0.2)',
-  },
-  assuranceText: {
-    color: '#D1D5DB',
-    fontSize: 12,
-    flex: 1,
-    lineHeight: 18,
-  },
-  topicsSection: {
-    marginBottom: space.md,
-  },
-  topicsHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.xs,
-    marginBottom: space.xs,
-  },
-  topicsLabel: {
-    color: color.yellow,
-    fontSize: 12,
-    fontWeight: '700',
-    letterSpacing: 0.3,
-  },
-  chipRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-    marginTop: 4,
-  },
-  chip: {
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
-    paddingHorizontal: 12,
-    paddingVertical: 7,
-    borderRadius: radius.pill,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.12)',
-  },
-  chipText: {
-    color: '#E2E8F0',
-    fontSize: 12,
-    fontWeight: '500',
-  },
-  formGroup: {
-    marginBottom: space.md,
-  },
-  labelRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    marginBottom: space.xs,
-  },
-  label: {
-    color: color.white,
-    fontSize: 13,
-    fontWeight: '600',
-  },
-  requiredStar: {
-    color: color.yellow,
-    fontWeight: '700',
-  },
-  charCount: {
-    color: color.muted,
-    fontSize: 11,
-  },
-  textArea: {
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    color: color.white,
-    fontSize: 14,
-    borderWidth: 1,
-    borderColor: color.border,
-    textAlignVertical: 'top',
-    height: 120,
-  },
-  textAreaError: {
-    borderColor: '#EF4444',
-  },
-  errorText: {
-    color: '#EF4444',
-    fontSize: 12,
-    marginTop: 4,
-    fontWeight: '500',
-  },
-  contactCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space.sm,
-    backgroundColor: color.card,
-    borderRadius: radius.md,
-    padding: space.md,
-    marginBottom: space.xl,
-    borderWidth: 1,
-    borderColor: color.border,
-  },
-  contactText: {
-    color: color.muted,
-    fontSize: 12,
-    flex: 1,
-  },
-  submitBtn: {
-    backgroundColor: color.yellow,
-    paddingVertical: space.md,
-    borderRadius: radius.md,
-    alignItems: 'center',
-  },
-  submitBtnDisabled: {
-    backgroundColor: 'rgba(255, 255, 255, 0.1)',
-  },
-  submitBtnText: {
-    color: color.navy,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-  submitBtnTextDisabled: {
-    color: color.muted,
-  },
-  successContainer: {
-    flex: 1,
-    justifyContent: 'center',
-    alignItems: 'center',
-    padding: space.xl,
-  },
-  successTitle: {
-    color: color.white,
-    fontSize: 22,
-    fontWeight: '800',
-    marginTop: space.lg,
-  },
-  successSubtitle: {
-    color: color.muted,
-    fontSize: 14,
-    textAlign: 'center',
-    marginTop: space.sm,
-    lineHeight: 22,
-    marginBottom: space.xl,
-  },
-  actionBtn: {
-    backgroundColor: color.yellow,
-    paddingHorizontal: space.xl,
-    paddingVertical: space.md,
-    borderRadius: radius.md,
-  },
-  actionBtnText: {
-    color: color.navy,
-    fontSize: 15,
-    fontWeight: '700',
-  },
-});
+const createStyles = (colors: ThemeColors, isDark: boolean) =>
+  StyleSheet.create({
+    container: {
+      flex: 1,
+      backgroundColor: colors.background,
+    },
+    header: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      justifyContent: 'space-between',
+      paddingHorizontal: space.md,
+      paddingVertical: space.sm,
+      borderBottomWidth: 1,
+      borderBottomColor: colors.border,
+    },
+    backBtn: {
+      padding: space.xs,
+    },
+    headerTitle: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '700',
+    },
+    content: {
+      padding: space.md,
+    },
+    vehicleCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginBottom: space.md,
+    },
+    vehicleLabel: {
+      color: colors.textMuted,
+      fontSize: 11,
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+    },
+    vehicleTitle: {
+      color: colors.textPrimary,
+      fontSize: 16,
+      fontWeight: '700',
+      marginTop: 4,
+    },
+    assuranceBanner: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.sm,
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.08)' : '#FFFBEB',
+      borderRadius: radius.md,
+      padding: space.md,
+      marginBottom: space.md,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(247, 181, 3, 0.2)' : '#FDE68A',
+    },
+    assuranceText: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      flex: 1,
+      lineHeight: 18,
+    },
+    topicsSection: {
+      marginBottom: space.md,
+    },
+    topicsHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+      marginBottom: space.xs,
+    },
+    topicsLabel: {
+      color: isDark ? colors.brandAccent : colors.brandNavy,
+      fontSize: 12,
+      fontWeight: '700',
+      letterSpacing: 0.3,
+    },
+    chipRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginTop: 4,
+    },
+    chip: {
+      backgroundColor: colors.surfaceSecondary,
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    chipText: {
+      color: colors.textPrimary,
+      fontSize: 12,
+      fontWeight: '500',
+    },
+    formGroup: {
+      marginBottom: space.md,
+    },
+    labelRow: {
+      flexDirection: 'row',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: space.xs,
+    },
+    label: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: '600',
+    },
+    requiredStar: {
+      color: colors.brandAccent,
+      fontWeight: '700',
+    },
+    charCount: {
+      color: colors.textMuted,
+      fontSize: 11,
+    },
+    textArea: {
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      padding: space.md,
+      color: colors.textPrimary,
+      fontSize: 14,
+      borderWidth: 1,
+      borderColor: colors.border,
+      textAlignVertical: 'top',
+      height: 120,
+    },
+    textAreaError: {
+      borderColor: '#EF4444',
+    },
+    errorText: {
+      color: '#EF4444',
+      fontSize: 12,
+      marginTop: 4,
+      fontWeight: '500',
+    },
+    contactCard: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.sm,
+      backgroundColor: colors.surfaceSecondary,
+      borderRadius: radius.md,
+      padding: space.md,
+      marginBottom: space.xl,
+      borderWidth: 1,
+      borderColor: colors.border,
+    },
+    contactText: {
+      color: colors.textMuted,
+      fontSize: 12,
+      flex: 1,
+    },
+    submitBtn: {
+      backgroundColor: colors.brandAccent,
+      paddingVertical: space.md,
+      borderRadius: radius.md,
+      alignItems: 'center',
+    },
+    submitBtnDisabled: {
+      backgroundColor: colors.disabledBackground,
+    },
+    submitBtnText: {
+      color: colors.brandNavy,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+    submitBtnTextDisabled: {
+      color: colors.disabledText,
+    },
+    successContainer: {
+      flex: 1,
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: space.xl,
+    },
+    successTitle: {
+      color: colors.textPrimary,
+      fontSize: 22,
+      fontWeight: '800',
+      marginTop: space.lg,
+    },
+    successSubtitle: {
+      color: colors.textMuted,
+      fontSize: 14,
+      textAlign: 'center',
+      marginTop: space.sm,
+      lineHeight: 22,
+      marginBottom: space.xl,
+    },
+    actionBtn: {
+      backgroundColor: colors.brandAccent,
+      paddingHorizontal: space.xl,
+      paddingVertical: space.md,
+      borderRadius: radius.md,
+    },
+    actionBtnText: {
+      color: colors.brandNavy,
+      fontSize: 15,
+      fontWeight: '700',
+    },
+  });

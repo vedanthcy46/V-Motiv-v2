@@ -27,6 +27,22 @@ const qcRoles = ['INSPECTION_REVIEWER', 'ADMIN', 'SUPER_ADMIN'];
 const reviewerRoles = ['INSPECTION_REVIEWER', 'ADMIN', 'SUPER_ADMIN'];
 const listingRoles = ['LISTING_EXECUTIVE', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const publishRoles = ['PRICING_APPROVER', 'LISTING_EXECUTIVE', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
+
+export function isInvalidRegNumberOrUuid(val: unknown): boolean {
+  if (!val || typeof val !== 'string') return true;
+  const s = val.trim();
+  if (!s) return true;
+  // Standard UUID (8-4-4-4-12 hex format)
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s)) return true;
+  // Compact 32-hex UUID
+  if (/^[0-9a-f]{32}$/i.test(s)) return true;
+  // System internal reference codes
+  if (/^(SL-|VM-|REF-|LEAD-)/i.test(s)) return true;
+  // Indian registration plates are at most 14 characters and never contain 3+ hyphens
+  if (s.length > 14 || (s.match(/-/g) || []).length >= 3) return true;
+  return false;
+}
+
 const documentTerminalStatuses = ['VERIFIED', 'WAIVED_BY_AUTHORIZED_POLICY'];
 const documentTransitions: Record<string, string[]> = {
   NOT_REQUESTED: ['REQUESTED'],
@@ -48,7 +64,19 @@ const assignmentDetail = {
   address: true,
   instructions: true,
   startedAt: true,
+  completedAt: true,
   createdAt: true,
+  reports: {
+    select: {
+      id: true,
+      status: true,
+      revision: true,
+      submittedAt: true,
+      reviewedAt: true,
+    },
+    orderBy: { revision: 'desc' as const },
+    take: 1,
+  },
   request: {
     select: {
       id: true,
@@ -181,18 +209,18 @@ export class PrismaInspectionStore {
       : {};
 
     const baseWhere: Prisma.InspectionAssignmentWhereInput = isElevated
-      ? {
+      ? (query?.status ? {} : {
           OR: [
             { inspectorId: actor.userId },
-            { status: { in: ['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'] } },
-            { reports: { some: { status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED'] } } } },
+            { status: { in: ['ASSIGNED', 'CONFIRMED', 'RESCHEDULED', 'COMPLETED'] } },
+            { reports: { some: { status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED', 'SUBMITTED', 'APPROVED'] } } } },
           ],
-        }
+        })
       : {
           inspectorId: actor.userId,
           ...(query?.status ? {} : {
             OR: [
-              { status: { in: ['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'] } },
+              { status: { in: ['ASSIGNED', 'CONFIRMED', 'RESCHEDULED', 'COMPLETED'] } },
               { reports: { some: { inspectorId: actor.userId, status: { in: ['DRAFT', 'SYNC_PENDING', 'REWORK_REQUIRED', 'SUBMITTED', 'APPROVED'] } } } },
             ],
           }),
@@ -308,9 +336,10 @@ export class PrismaInspectionStore {
           revision: 1,
           templateKey: template.key,
           templateVersion: template.version,
-          identity: assignment.request.lead.registrationNumber
-            ? { registrationNumber: assignment.request.lead.registrationNumber }
-            : {},
+          identity:
+            assignment.request.lead.registrationNumber && !isInvalidRegNumberOrUuid(assignment.request.lead.registrationNumber)
+              ? { registrationNumber: assignment.request.lead.registrationNumber.trim() }
+              : {},
           startedAt: new Date(),
         },
         include: {
@@ -375,6 +404,12 @@ export class PrismaInspectionStore {
     });
 
     if (!report) throw new HttpError(404, 'INSPECTION_REPORT_NOT_FOUND');
+    if (report.identity && typeof report.identity === 'object') {
+      const iden = report.identity as Record<string, unknown>;
+      if (typeof iden.registrationNumber === 'string' && isInvalidRegNumberOrUuid(iden.registrationNumber)) {
+        iden.registrationNumber = '';
+      }
+    }
     return report;
   }
 
@@ -418,6 +453,11 @@ export class PrismaInspectionStore {
       throw new HttpError(409, 'INSPECTION_REPORT_VERSION_CONFLICT');
     }
 
+    const draftIdentity = { ...(input.identity || {}) } as Record<string, unknown>;
+    if (typeof draftIdentity.registrationNumber === 'string' && isInvalidRegNumberOrUuid(draftIdentity.registrationNumber)) {
+      draftIdentity.registrationNumber = '';
+    }
+
     return this.db.$transaction(async tx => {
       await tx.inspectionAnswer.deleteMany({ where: { reportId: id } });
       await tx.inspectionDefect.deleteMany({ where: { reportId: id } });
@@ -425,7 +465,7 @@ export class PrismaInspectionStore {
       const updated = await tx.inspectionReport.update({
         where: { id },
         data: {
-          identity: input.identity as Prisma.InputJsonValue,
+          identity: draftIdentity as Prisma.InputJsonValue,
           recordVersion: { increment: 1 },
           answers: {
             create: input.answers.map(answer => ({
@@ -502,7 +542,7 @@ export class PrismaInspectionStore {
     const registrationNumber = typeof identity.registrationNumber === 'string' ? identity.registrationNumber.trim() : '';
     const odometerKm = typeof identity.odometerKm === 'number' ? identity.odometerKm : Number(identity.odometerKm);
 
-    if (!registrationNumber || !Number.isFinite(odometerKm) || odometerKm <= 0) {
+    if (!registrationNumber || isInvalidRegNumberOrUuid(registrationNumber) || !Number.isFinite(odometerKm) || odometerKm <= 0) {
       throw new HttpError(400, 'INSPECTION_IDENTITY_INCOMPLETE');
     }
 
@@ -547,6 +587,16 @@ export class PrismaInspectionStore {
         where: { id: report.requestId },
         data: { status: 'COMPLETED' },
       });
+
+      if (report.request?.leadId) {
+        await tx.acquisitionLead.updateMany({
+          where: {
+            id: report.request.leadId,
+            status: { in: ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'] },
+          },
+          data: { status: 'OFFER_PENDING' },
+        });
+      }
 
       await tx.auditEvent.create({
         data: {
@@ -1132,7 +1182,19 @@ export class PrismaInspectionStore {
     if (workOrder.version !== input.expectedVersion) throw new HttpError(409, 'WORK_ORDER_VERSION_CONFLICT');
     if (workOrder.status !== 'DRAFT') throw new HttpError(409, 'WORK_ORDER_NOT_SUBMITTABLE');
     const approval = await this.db.$transaction(async tx => {
-      const created = await tx.refurbishmentCostApproval.create({ data: { workOrderId, requestedByEmployeeId: actor.userId, reason: input.reason } });
+      // Use upsert so that re-submission after a REJECTED cost approval replaces the old record
+      const created = await tx.refurbishmentCostApproval.upsert({
+        where: { workOrderId },
+        create: { workOrderId, requestedByEmployeeId: actor.userId, reason: input.reason },
+        update: {
+          requestedByEmployeeId: actor.userId,
+          reason: input.reason,
+          status: 'PENDING',
+          decidedByEmployeeId: null,
+          decidedAt: null,
+          version: { increment: 1 },
+        },
+      });
       await tx.refurbishmentWorkOrder.update({ where: { id: workOrderId }, data: { estimatedCostPaise: input.estimatedCostPaise, status: 'PENDING_COST_APPROVAL', version: { increment: 1 } } });
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'REFURBISHMENT_COST_APPROVAL_REQUESTED', entityType: 'RefurbishmentCostApproval', entityId: created.id, details: { workOrderId, estimatedCostPaise: input.estimatedCostPaise.toString() } } });
       return created;
@@ -1185,16 +1247,38 @@ export class PrismaInspectionStore {
 
   async startQualityControl(actor: InspectionActor, stockId: string, input: { workOrderId?: string; findings?: string; evidenceNotes?: string }) {
     checkRole(actor, qcRoles);
-    const stock = await this.db.vehicleStockUnit.findFirst({ where: this.stockScope(actor, stockId), select: { id: true, status: true } });
+    const stock = await this.db.vehicleStockUnit.findFirst({
+      where: this.stockScope(actor, stockId),
+      select: {
+        id: true,
+        status: true,
+        workOrders: { select: { status: true } },
+        qualityControlReports: { select: { status: true } },
+      },
+    });
     if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
-    if (stock.status !== 'QC_PENDING') throw new HttpError(409, 'STOCK_NOT_QC_ELIGIBLE');
+    const hasCompletedWorkOrder = stock.workOrders.some(workOrder => workOrder.status === 'COMPLETED');
+    const hasPassedQualityControl = stock.qualityControlReports.some(report => report.status === 'PASSED');
+    // A completed repair without a passing QC report must be actionable from
+    // the QC queue, whatever non-terminal workflow state an older/manual
+    // transition left it in. Keep published/reserved/sold/retired stock out.
+    const isRecoverableStaleStatus =
+      !['LISTED', 'RESERVED', 'SOLD', 'RETIRED'].includes(stock.status) &&
+      hasCompletedWorkOrder &&
+      !hasPassedQualityControl;
+    if (stock.status !== 'QC_PENDING' && !isRecoverableStaleStatus) throw new HttpError(409, 'STOCK_NOT_QC_ELIGIBLE');
     const workOrder = input.workOrderId ? await this.db.refurbishmentWorkOrder.findFirst({ where: { id: input.workOrderId, stockUnitId: stockId } }) : null;
     if (input.workOrderId && !workOrder) throw new HttpError(404, 'WORK_ORDER_NOT_FOUND');
     if (workOrder && workOrder.status !== 'COMPLETED') throw new HttpError(409, 'WORK_ORDER_NOT_COMPLETED');
     if (workOrder?.createdByEmployeeId === actor.userId) throw new HttpError(403, 'QC_SELF_REVIEW_DENIED');
-    const report = await this.db.qualityControlReport.create({ data: { stockUnitId: stockId, workOrderId: input.workOrderId, reviewerEmployeeId: actor.userId, status: 'IN_PROGRESS', findings: input.findings, evidenceNotes: input.evidenceNotes } });
-    await this.db.auditEvent.create({ data: { actorId: actor.userId, action: 'QUALITY_CONTROL_STARTED', entityType: 'QualityControlReport', entityId: report.id, details: { stockUnitId: stockId, workOrderId: input.workOrderId } } });
-    return report;
+    return this.db.$transaction(async tx => {
+      if (isRecoverableStaleStatus) {
+        await tx.vehicleStockUnit.update({ where: { id: stockId }, data: { status: 'QC_PENDING', version: { increment: 1 } } });
+      }
+      const report = await tx.qualityControlReport.create({ data: { stockUnitId: stockId, workOrderId: input.workOrderId, reviewerEmployeeId: actor.userId, status: 'IN_PROGRESS', findings: input.findings, evidenceNotes: input.evidenceNotes } });
+      await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'QUALITY_CONTROL_STARTED', entityType: 'QualityControlReport', entityId: report.id, details: { stockUnitId: stockId, workOrderId: input.workOrderId, restoredFromStaleStatus: isRecoverableStaleStatus } } });
+      return report;
+    });
   }
 
   async decideQualityControl(actor: InspectionActor, reportId: string, input: { expectedVersion: number; decision: 'PASS' | 'REWORK_REQUIRED' | 'FAIL'; findings?: string; evidenceNotes?: string }) {
@@ -1227,7 +1311,7 @@ export class PrismaInspectionStore {
     checkRole(actor, listingRoles);
     const stock = await this.db.vehicleStockUnit.findFirst({
       where: this.stockScope(actor, stockId),
-      include: { vehicle: true },
+      include: { vehicle: true, branch: true, acquisitionCase: { include: { lead: true } } },
     });
     if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
     if (stock.version !== input.expectedVersion) throw new HttpError(409, 'STOCK_VERSION_CONFLICT');
@@ -1238,6 +1322,7 @@ export class PrismaInspectionStore {
     return this.db.$transaction(async tx => {
       let vehicleId = stock.vehicleId;
       if (!vehicleId) {
+        const vehicleCity = stock.branch?.city || stock.acquisitionCase?.lead?.city || (stock.physicalLocation?.includes('Bengaluru') ? 'Bengaluru' : stock.physicalLocation) || 'Bengaluru';
         const createdVehicle = await tx.vehicle.create({
           data: {
             make: stock.make,
@@ -1247,6 +1332,7 @@ export class PrismaInspectionStore {
             fuelType: stock.fuelType,
             transmission: stock.transmission,
             odometerKm: stock.odometerKm,
+            city: vehicleCity,
             color: input.color,
             conditionSummary: input.conditionSummary,
             inspectionSummary: input.inspectionSummary,
@@ -1322,7 +1408,7 @@ export class PrismaInspectionStore {
       where: this.stockScope(actor, stockId),
       include: {
         vehicle: { include: { listing: { include: { media: true } } } },
-        workOrders: true,
+        workOrders: { include: { costApproval: true } },
         qualityControlReports: true,
       },
     });
@@ -1330,7 +1416,13 @@ export class PrismaInspectionStore {
     if (stock.version !== input.expectedVersion) throw new HttpError(409, 'STOCK_VERSION_CONFLICT');
     if (input.retailPricePaise <= 0n) throw new HttpError(400, 'INVALID_RETAIL_PRICE');
 
-    const hasUnfinishedWorkOrders = stock.workOrders.some(wo => !['COMPLETED', 'CANCELLED'].includes(wo.status));
+    // A work order is "blocking" if it is not COMPLETED/CANCELLED AND its cost
+    // approval has not been REJECTED (cost-rejected DRAFTs mean the work was
+    // declined on budget grounds and is effectively waived).
+    const hasUnfinishedWorkOrders = stock.workOrders.some(wo =>
+      !['COMPLETED', 'CANCELLED'].includes(wo.status) &&
+      wo.costApproval?.status !== 'REJECTED'
+    );
     if (hasUnfinishedWorkOrders) throw new HttpError(409, 'WORK_ORDERS_NOT_COMPLETED');
     const hasPassedQC = stock.qualityControlReports.some(qc => qc.status === 'PASSED');
     if (stock.workOrders.length > 0 && !hasPassedQC) throw new HttpError(409, 'QC_REPORT_NOT_PASSED');
@@ -1463,7 +1555,7 @@ export class PrismaInspectionStore {
       where: { id: requestId, ...(actor.roles.includes('SUPER_ADMIN') ? {} : { branchId: { in: actor.branchIds } }) },
       include: { lead: true },
     });
-    if (!request || request.status === 'CANCELLED') throw new HttpError(404, 'INSPECTION_REQUEST_NOT_FOUND');
+    if (!request) throw new HttpError(404, 'INSPECTION_REQUEST_NOT_FOUND');
 
     const previousAssignment = await this.db.inspectionAssignment.findUnique({
       where: { requestId },
@@ -1486,13 +1578,15 @@ export class PrismaInspectionStore {
       throw new HttpError(400, 'INSPECTOR_NOT_ELIGIBLE');
     }
 
+    const scheduledAt = input.scheduledAt ?? new Date();
+
     return this.db.$transaction(async tx => {
       const assignment = await tx.inspectionAssignment.upsert({
         where: { requestId },
         update: {
           inspectorId: input.inspectorId,
           assignedById: actor.userId,
-          scheduledAt: input.scheduledAt,
+          scheduledAt,
           locationType: input.locationType,
           address: input.address,
           instructions: input.instructions,
@@ -1502,7 +1596,7 @@ export class PrismaInspectionStore {
           requestId,
           inspectorId: input.inspectorId,
           assignedById: actor.userId,
-          scheduledAt: input.scheduledAt,
+          scheduledAt,
           locationType: input.locationType,
           address: input.address,
           instructions: input.instructions,
@@ -1511,7 +1605,15 @@ export class PrismaInspectionStore {
 
       await tx.inspectionRequest.update({
         where: { id: requestId },
-        data: { status: 'SCHEDULED', scheduledAt: input.scheduledAt ?? new Date() },
+        // This is the shared appointment snapshot consumed outside the
+        // dispatch view. Preserve requestedDate/timeSlot as the customer's
+        // original preference, but mirror confirmed place and time here.
+        data: {
+          status: 'SCHEDULED',
+          scheduledAt,
+          locationType: input.locationType,
+          address: input.address,
+        },
       });
 
       await tx.auditEvent.create({
@@ -1520,7 +1622,7 @@ export class PrismaInspectionStore {
           action: 'INSPECTION_ASSIGNED',
           entityType: 'InspectionAssignment',
           entityId: assignment.id,
-          details: { requestId, inspectorId: input.inspectorId, scheduledAt: input.scheduledAt?.toISOString() },
+          details: { requestId, inspectorId: input.inspectorId, scheduledAt: scheduledAt.toISOString() },
         },
       });
 
@@ -1561,7 +1663,7 @@ export class PrismaInspectionStore {
           metadata: { targetApp: 'INSPECTOR', requestId, assignmentId: assignment.id },
           emailTemplate: 'inspection-assigned-v1',
           emailSubject: `New Inspection Assignment: ${vehicleTitle} [${refCode}]`,
-          emailBody: `Hello,\n\nYou have been assigned a new vehicle inspection:\n\nVehicle: ${vehicleTitle}\nRef Code: ${refCode}\nScheduled: ${input.scheduledAt ? new Date(input.scheduledAt).toLocaleString() : 'Pending confirmation'}\nLocation: ${input.address || 'Doorstep / Hub'}\n\nPlease open the V MOTIV Inspector app to review the assignment checklist.\n\nV MOTIV Operations`,
+          emailBody: `Hello,\n\nYou have been assigned a new vehicle inspection:\n\nVehicle: ${vehicleTitle}\nRef Code: ${refCode}\nScheduled: ${scheduledAt.toLocaleString()}\nLocation: ${input.address || 'Doorstep / Hub'}\n\nPlease open the V MOTIV Inspector app to review the assignment checklist.\n\nV MOTIV Operations`,
         }, tx);
       }
 
@@ -1578,7 +1680,10 @@ export class PrismaInspectionStore {
     const assignment = await this.db.inspectionAssignment.findFirst({
       where: { requestId, request: actor.roles.includes('SUPER_ADMIN') ? {} : { branchId: { in: actor.branchIds } } },
     });
-    if (!assignment || !['ASSIGNED', 'CONFIRMED', 'RESCHEDULED'].includes(assignment.status)) {
+    // Dispatch may reopen a cancelled appointment when the seller confirms a
+    // replacement slot. The update below restores both shared records to a
+    // scheduled state and retains the cancellation/reschedule audit trail.
+    if (!assignment || !['ASSIGNED', 'CONFIRMED', 'RESCHEDULED', 'CANCELLED'].includes(assignment.status)) {
       throw new HttpError(409, 'INSPECTION_NOT_RESCHEDULABLE');
     }
 
@@ -1596,7 +1701,12 @@ export class PrismaInspectionStore {
 
       await tx.inspectionRequest.update({
         where: { id: requestId },
-        data: { status: 'SCHEDULED', scheduledAt: input.scheduledAt },
+        data: {
+          status: 'SCHEDULED',
+          scheduledAt: input.scheduledAt,
+          locationType: input.locationType,
+          address: input.address,
+        },
       });
 
       await tx.auditEvent.create({
@@ -1668,7 +1778,7 @@ export class PrismaInspectionStore {
     const statusFilter =
       query?.status && query.status !== 'ALL'
         ? [query.status as any]
-        : ['SUBMITTED', 'UNDER_REVIEW'];
+        : ['SUBMITTED', 'UNDER_REVIEW', 'REWORK_REQUIRED', 'APPROVED'];
 
     const searchFilter: Prisma.InspectionReportWhereInput = query?.search?.trim()
       ? {
@@ -1685,7 +1795,7 @@ export class PrismaInspectionStore {
         }
       : {};
 
-    return this.db.inspectionReport.findMany({
+    const rows = await this.db.inspectionReport.findMany({
       where: {
         status: { in: statusFilter },
         ...(isSuperAdmin ? {} : { inspectorId: { not: actor.userId } }),
@@ -1719,6 +1829,16 @@ export class PrismaInspectionStore {
         },
         _count: { select: { defects: true, media: true, answers: true } },
       },
+    });
+
+    return rows.map(r => {
+      if (r.identity && typeof r.identity === 'object') {
+        const iden = r.identity as Record<string, unknown>;
+        if (typeof iden.registrationNumber === 'string' && isInvalidRegNumberOrUuid(iden.registrationNumber)) {
+          iden.registrationNumber = '';
+        }
+      }
+      return r;
     });
   }
 
@@ -1757,6 +1877,12 @@ export class PrismaInspectionStore {
     });
 
     if (!report) throw new HttpError(404, 'INSPECTION_REPORT_NOT_FOUND');
+    if (report.identity && typeof report.identity === 'object') {
+      const iden = report.identity as Record<string, unknown>;
+      if (typeof iden.registrationNumber === 'string' && isInvalidRegNumberOrUuid(iden.registrationNumber)) {
+        iden.registrationNumber = '';
+      }
+    }
     return report;
   }
 
@@ -1803,6 +1929,16 @@ export class PrismaInspectionStore {
         where: { id },
         data: { status, reviewedAt: new Date() },
       });
+
+      if (input.decision === 'APPROVE' && report.request?.leadId) {
+        await tx.acquisitionLead.updateMany({
+          where: {
+            id: report.request.leadId,
+            status: { in: ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'] },
+          },
+          data: { status: 'OFFER_PENDING' },
+        });
+      }
 
       let nextRevisionId: string | undefined;
 
@@ -1857,6 +1993,16 @@ export class PrismaInspectionStore {
           where: { id: report.requestId },
           data: { status: 'IN_PROGRESS' },
         });
+
+        if (report.request?.leadId) {
+          await tx.acquisitionLead.updateMany({
+            where: {
+              id: report.request.leadId,
+              status: 'OFFER_PENDING',
+            },
+            data: { status: 'INSPECTION_SCHEDULED' },
+          });
+        }
       }
 
       await tx.auditEvent.create({

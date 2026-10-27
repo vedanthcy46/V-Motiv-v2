@@ -25,6 +25,16 @@ enum EmployeeRole {
   FINANCE
   ADMIN
   AUDIT_VIEWER
+  SERVICE_ADVISOR
+  SERVICE_DISPATCH
+  PICKUP_DRIVER
+  HUB_MANAGER
+  TECHNICIAN
+  SERVICE_QC
+  SERVICE_MANAGER
+  RENTAL_MANAGER
+  RENTAL_DISPATCH
+  RENTAL_FLEET_OFFICER
 }
 enum EmployeeStatus {
   ACTIVE
@@ -478,6 +488,8 @@ model User {
   privacyRequests PrivacyRequest[]
   auditEvents AuditEvent[]
   policyVersions PolicyVersion[] @relation("PolicyVersionCreator")
+  customerVehicles CustomerVehicle[]
+  serviceRequests ServiceRequest[]
   buyerQuotations BuyerQuotation[] @relation("BuyerQuotationCustomer")
   vehicleReservations VehicleReservation[] @relation("ReservationCustomer")
   notifications Notification[]
@@ -487,6 +499,10 @@ model User {
   incomingReceipts IncomingReceipt[] @relation("CustomerReceipt")
   refunds RefundCase[] @relation("CustomerRefund")
   invoices InvoiceDocument[] @relation("CustomerInvoice")
+  rentalBookings RentalBooking[]
+  rentalHolds RentalBookingHold[]
+  rentalDriverVerifications RentalDriverVerification[]
+  rentalAgreements RentalAgreementAcceptance[]
 }
 model CustomerAddress {
   id String @id @default(uuid()) @db.Uuid
@@ -1314,6 +1330,7 @@ model Branch {
   vehicleHandovers VehicleHandover[]
   stockUnits VehicleStockUnit[]
   expenseClaims ExpenseClaim[]
+  serviceHub ServiceHub?
 }
 model EmployeeBranchAssignment {
   employeeId String @db.Uuid
@@ -1946,4 +1963,707 @@ model InvoiceDocument {
   @@index([customerId])
 }
 
+enum ServiceRequestStatus {
+  DRAFT
+  SUBMITTED
+  APPOINTMENT_SCHEDULED
+  PICKUP_DISPATCHED
+  IN_TRANSIT_TO_HUB
+  ARRIVED_AT_HUB
+  CHECKED_IN
+  DIAGNOSIS_IN_PROGRESS
+  ESTIMATE_PENDING_APPROVAL
+  ESTIMATE_APPROVED
+  ESTIMATE_REJECTED
+  PARTS_ORDERED
+  WORK_IN_PROGRESS
+  QC_PENDING
+  QC_PASSED
+  QC_REWORK_REQUIRED
+  INVOICE_GENERATED
+  PAYMENT_PENDING
+  PAID
+  RETURN_DISPATCHED
+  READY_FOR_COLLECTION
+  COMPLETED
+  CANCELLED
+}
 
+enum ServiceFulfillmentType {
+  PICKUP_AND_RETURN
+  SELF_DROP_AT_HUB
+}
+
+enum ServiceEstimateStatus {
+  DRAFT
+  SENT_TO_CUSTOMER
+  APPROVED
+  DECLINED
+  SUPERSEDED
+}
+
+enum ServiceWorkOrderStatus {
+  PLANNED
+  IN_PROGRESS
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum ServiceQCResult {
+  PASS
+  REWORK_REQUIRED
+}
+
+enum ServicePaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID_VERIFIED
+  FAILED
+  REFUNDED
+}
+
+model CustomerVehicle {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  make String
+  model String
+  year Int
+  variant String?
+  fuelType String
+  transmission String
+  color String?
+  registrationNumber String?
+  odometerKm Int?
+  vin String?
+  declaredOwnership String @default("OWNER")
+  photoUrls Json?
+  notes String?
+  isPreferred Boolean @default(false)
+  isArchived Boolean @default(false)
+  archivedAt DateTime?
+  lastServiceDate DateTime?
+  nextServiceDueKm Int?
+  nextServiceDueDate DateTime?
+  connectDeviceId String?
+  connectStatus String @default("NOT_CONNECTED")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  serviceRequests ServiceRequest[]
+
+  @@index([userId, isArchived])
+  @@index([registrationNumber])
+}
+
+model ServiceHub {
+  id String @id @default(uuid()) @db.Uuid
+  branchId String? @unique @db.Uuid
+  code String @unique
+  name String
+  city String
+  address String
+  latitude Float?
+  longitude Float?
+  operatingHours String @default("08:00 - 19:00 Mon-Sat")
+  phone String?
+  isActive Boolean @default(true)
+  capacityPerSlot Int @default(4)
+  pickupRadiusKm Float @default(25.0)
+  pickupFeePaise BigInt @default(49900)
+  diagnosticFeePaise BigInt @default(79900)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  branch Branch? @relation(fields: [branchId], references: [id], onDelete: SetNull)
+  serviceRequests ServiceRequest[]
+  slotCapacities ServiceSlotCapacity[]
+  rentalVehicles RentalFleetVehicle[]
+  rentalHolds RentalBookingHold[]
+  rentalPickups RentalBooking[] @relation("RentalPickupHub")
+  rentalReturns RentalBooking[] @relation("RentalReturnHub")
+
+  @@index([city, isActive])
+}
+
+model ServiceSlotCapacity {
+  id String @id @default(uuid()) @db.Uuid
+  hubId String @db.Uuid
+  slotDate String
+  slotTime String
+  maxCapacity Int @default(4)
+  bookedCount Int @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  hub ServiceHub @relation(fields: [hubId], references: [id], onDelete: Cascade)
+
+  @@unique([hubId, slotDate, slotTime])
+  @@index([hubId, slotDate])
+}
+
+model ServiceIssueTemplate {
+  id String @id @default(uuid()) @db.Uuid
+  categoryKey String @unique
+  version Int @default(1)
+  title String
+  description String
+  icon String
+  fixedPackageAvailable Boolean @default(false)
+  packagePricePaise BigInt?
+  packageFeatures Json?
+  questionsJson Json
+  isActive Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([categoryKey, isActive])
+}
+
+model ServiceRequest {
+  id String @id @default(uuid()) @db.Uuid
+  requestNumber String @unique
+  customerId String @db.Uuid
+  vehicleId String @db.Uuid
+  hubId String @db.Uuid
+  categoryKey String
+  templateVersion Int @default(1)
+  customerSymptoms String
+  questionAnswers Json
+  mediaUrls Json?
+  fulfillmentType ServiceFulfillmentType
+  status ServiceRequestStatus @default(SUBMITTED)
+  pickupAddress Json?
+  returnAddress Json?
+  scheduledDate String
+  scheduledTimeSlot String
+  assignedAdvisorId String? @db.Uuid
+  assignedTechnicianId String? @db.Uuid
+  assignedPickupDriverId String? @db.Uuid
+  assignedReturnDriverId String? @db.Uuid
+  emergencySafetyFlag Boolean @default(false)
+  safetyNotes String?
+  estimatedCompletionDate DateTime?
+  cancellationReason String?
+  cancelledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer User @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  vehicle CustomerVehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  hub ServiceHub @relation(fields: [hubId], references: [id], onDelete: Restrict)
+  custodyRecords ServiceCustodyRecord[]
+  diagnoses ServiceDiagnosis[]
+  estimates ServiceEstimate[]
+  workOrders ServiceWorkOrder[]
+  qcRecords ServiceQCRecord[]
+  payments ServicePaymentRecord[]
+  historyEvents ServiceHistoryEvent[]
+
+  @@index([customerId, status])
+  @@index([hubId, status])
+  @@index([requestNumber])
+  @@index([vehicleId])
+}
+
+model ServiceCustodyRecord {
+  id String @id @default(uuid()) @db.Uuid
+  serviceRequestId String @db.Uuid
+  type String
+  odometerKm Int
+  fuelChargeLevel String
+  keyCount Int @default(1)
+  accessoriesJson Json?
+  preExistingDamageNotes String?
+  damagePhotoUrls Json?
+  custodyOfficerId String? @db.Uuid
+  handoverByPerson String
+  customerAcknowledged Boolean @default(false)
+  customerSignatureUrl String?
+  discrepancyNotes String?
+  recordedAt DateTime @default(now())
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+
+  @@index([serviceRequestId])
+}
+
+model ServiceDiagnosis {
+  id String @id @default(uuid()) @db.Uuid
+  serviceRequestId String @db.Uuid
+  technicianId String? @db.Uuid
+  diagnosticSummary String
+  detailedFindings String
+  recommendedAction String
+  photosAndScans Json?
+  diagnosticFeePaise BigInt @default(0)
+  isRoadTestNeeded Boolean @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+
+  @@index([serviceRequestId])
+}
+
+model ServiceEstimate {
+  id String @id @default(uuid()) @db.Uuid
+  serviceRequestId String @db.Uuid
+  version Int @default(1)
+  status ServiceEstimateStatus @default(DRAFT)
+  subtotalPaise BigInt
+  pickupDropFeePaise BigInt @default(0)
+  diagnosticFeePaise BigInt @default(0)
+  discountPaise BigInt @default(0)
+  cgstPaise BigInt @default(0)
+  sgstPaise BigInt @default(0)
+  igstPaise BigInt @default(0)
+  totalAmountPaise BigInt
+  customerNotes String?
+  internalNotes String?
+  validUntil DateTime
+  respondedAt DateTime?
+  responseNotes String?
+  createdById String? @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+  items ServiceEstimateItem[]
+
+  @@index([serviceRequestId, status])
+}
+
+model ServiceEstimateItem {
+  id String @id @default(uuid()) @db.Uuid
+  estimateId String @db.Uuid
+  category String
+  description String
+  partNumber String?
+  quantity Int @default(1)
+  unitPricePaise BigInt
+  totalPricePaise BigInt
+  isMandatory Boolean @default(true)
+  isApprovedByCustomer Boolean @default(true)
+
+  estimate ServiceEstimate @relation(fields: [estimateId], references: [id], onDelete: Cascade)
+
+  @@index([estimateId])
+}
+
+model ServiceWorkOrder {
+  id String @id @default(uuid()) @db.Uuid
+  serviceRequestId String @db.Uuid
+  status ServiceWorkOrderStatus @default(PLANNED)
+  instructions String
+  assignedTechnicianId String? @db.Uuid
+  startedAt DateTime?
+  completedAt DateTime?
+  actualHoursSpent Float?
+  technicianNotes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+
+  @@index([serviceRequestId])
+}
+
+model ServiceQCRecord {
+  id String @id @default(uuid()) @db.Uuid
+  serviceRequestId String @db.Uuid
+  inspectorId String? @db.Uuid
+  result ServiceQCResult
+  checklistResults Json
+  reworkReason String?
+  notes String?
+  passedAt DateTime?
+  createdAt DateTime @default(now())
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+
+  @@index([serviceRequestId])
+}
+
+model ServicePaymentRecord {
+  id String @id @default(uuid()) @db.Uuid
+  serviceRequestId String @db.Uuid
+  type String
+  amountPaise BigInt
+  status ServicePaymentStatus @default(PENDING)
+  paymentGateway String?
+  gatewayOrderId String?
+  gatewayPaymentId String?
+  verifiedByFinanceId String? @db.Uuid
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+
+  @@index([serviceRequestId])
+}
+
+model ServiceHistoryEvent {
+  id String @id @default(uuid()) @db.Uuid
+  serviceRequestId String @db.Uuid
+  fromStatus String?
+  toStatus String
+  title String
+  description String
+  actorRole String?
+  actorId String? @db.Uuid
+  metadata Json?
+  createdAt DateTime @default(now())
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+
+  @@index([serviceRequestId])
+}
+
+
+
+
+
+// =============================================================
+// PART 2: ADVANCE CAR RENTAL PLATFORM MODELS & ENUMS
+// =============================================================
+
+enum RentalVehicleStatus {
+  AVAILABLE
+  ON_TRIP
+  MAINTENANCE
+  CLEANING
+  RESERVED
+  RETIRED
+}
+
+enum RentalBlockReason {
+  MAINTENANCE
+  CLEANING
+  OPERATIONAL_RESTRICTION
+  ACCIDENT_REPAIR
+  BUFFER
+}
+
+enum RentalBookingStatus {
+  PENDING_PAYMENT
+  CONFIRMED
+  VEHICLE_COLLECTED
+  TRIP_ACTIVE
+  RETURN_INSPECTED
+  SETTLED
+  CANCELLED
+}
+
+enum RentalDriverKycStatus {
+  PENDING_REVIEW
+  VERIFIED
+  REJECTED
+}
+
+enum RentalExtensionStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum RentalHoldStatus {
+  ACTIVE
+  CONVERTED
+  EXPIRED
+  RELEASED
+}
+
+enum RentalPaymentType {
+  RENTAL_PREPAYMENT
+  REFUNDABLE_DEPOSIT
+  EXTENSION_FEE
+  ADDITIONAL_CHARGES
+  DEPOSIT_REFUND
+}
+
+enum RentalPaymentStatus {
+  PENDING
+  VERIFIED
+  FAILED
+  REFUNDED
+}
+
+model RentalFleetVehicle {
+  id String @id @default(uuid()) @db.Uuid
+  fleetNumber String @unique
+  registrationNumber String @unique
+  vin String @unique
+  make String
+  model String
+  variant String?
+  year Int
+  transmission String
+  fuelType String
+  seats Int @default(5)
+  color String
+  odometerKm Int @default(0)
+  fuelLevelPercent Int @default(100)
+  hubId String @db.Uuid
+  images Json
+  status RentalVehicleStatus @default(AVAILABLE)
+  commercialPermitNumber String
+  commercialPermitExpiry DateTime
+  insurancePolicyNumber String
+  insuranceExpiry DateTime
+  fitnessCertExpiry DateTime
+  isEligibleForRental Boolean @default(true)
+  baseDailyRatePaise BigInt
+  baseHourlyRatePaise BigInt
+  securityDepositPaise BigInt
+  includedKmPerDay Int @default(250)
+  extraKmRatePaise BigInt @default(1200)
+  cleaningBufferMinutes Int @default(120)
+  minRentalHours Int @default(8)
+  maxRentalDays Int @default(30)
+  features Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  hub ServiceHub @relation(fields: [hubId], references: [id], onDelete: Restrict)
+  blocks RentalVehicleBlock[]
+  holds RentalBookingHold[]
+  bookings RentalBooking[]
+
+  @@index([hubId, status, isEligibleForRental])
+  @@index([make, model])
+}
+
+model RentalVehicleBlock {
+  id String @id @default(uuid()) @db.Uuid
+  vehicleId String @db.Uuid
+  reason RentalBlockReason
+  startTime DateTime
+  endTime DateTime
+  notes String?
+  createdById String? @db.Uuid
+  createdAt DateTime @default(now())
+
+  vehicle RentalFleetVehicle @relation(fields: [vehicleId], references: [id], onDelete: Cascade)
+
+  @@index([vehicleId, startTime, endTime])
+}
+
+model RentalBookingHold {
+  id String @id @default(uuid()) @db.Uuid
+  holdCode String @unique
+  vehicleId String @db.Uuid
+  customerId String @db.Uuid
+  hubId String @db.Uuid
+  startTime DateTime
+  endTime DateTime
+  expiresAt DateTime
+  status RentalHoldStatus @default(ACTIVE)
+  quoteSnapshot Json
+  estimatedTotalPaise BigInt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicle RentalFleetVehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  customer User @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  hub ServiceHub @relation(fields: [hubId], references: [id], onDelete: Restrict)
+  booking RentalBooking?
+
+  @@index([vehicleId, startTime, endTime, status, expiresAt])
+  @@index([customerId, status])
+}
+
+model RentalBooking {
+  id String @id @default(uuid()) @db.Uuid
+  bookingNumber String @unique
+  holdId String? @unique @db.Uuid
+  customerId String @db.Uuid
+  vehicleId String @db.Uuid
+  pickupHubId String @db.Uuid
+  returnHubId String @db.Uuid
+  startTime DateTime
+  endTime DateTime
+  status RentalBookingStatus @default(PENDING_PAYMENT)
+  kycStatus RentalDriverKycStatus @default(PENDING_REVIEW)
+  pricingSnapshot Json
+  baseFarePaise BigInt
+  taxPaise BigInt
+  securityDepositPaise BigInt
+  totalPayablePaise BigInt
+  includedKm Int
+  extraKmRatePaise BigInt
+  cancellationReason String?
+  cancelledAt DateTime?
+  customerNotes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer User @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  vehicle RentalFleetVehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
+  pickupHub ServiceHub @relation("RentalPickupHub", fields: [pickupHubId], references: [id], onDelete: Restrict)
+  returnHub ServiceHub @relation("RentalReturnHub", fields: [returnHubId], references: [id], onDelete: Restrict)
+  hold RentalBookingHold? @relation(fields: [holdId], references: [id], onDelete: SetNull)
+  trip RentalTrip?
+  driverVerification RentalDriverVerification?
+  agreement RentalAgreementAcceptance?
+  payments RentalPaymentRecord[]
+  extensions RentalExtension[]
+  damageClaims RentalDamageClaim[]
+  auditEvents RentalAuditEvent[]
+
+  @@index([customerId, status])
+  @@index([vehicleId, startTime, endTime, status])
+  @@index([pickupHubId, status])
+}
+
+model RentalDriverVerification {
+  id String @id @default(uuid()) @db.Uuid
+  bookingId String @unique @db.Uuid
+  customerId String @db.Uuid
+  licenseNumber String
+  licenseExpiry DateTime
+  licenseCategory String @default("LMV")
+  dateOfBirth DateTime
+  drivingExperienceYears Int
+  licenseFrontUrl String
+  licenseBackUrl String
+  status RentalDriverKycStatus @default(PENDING_REVIEW)
+  rejectionReason String?
+  verifiedById String? @db.Uuid
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  booking RentalBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customer User @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId, status])
+}
+
+model RentalAgreementAcceptance {
+  id String @id @default(uuid()) @db.Uuid
+  bookingId String @unique @db.Uuid
+  customerId String @db.Uuid
+  termsVersion String
+  acceptedAt DateTime @default(now())
+  ipAddress String?
+  userAgent String?
+
+  booking RentalBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customer User @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([customerId])
+}
+
+model RentalTrip {
+  id String @id @default(uuid()) @db.Uuid
+  bookingId String @unique @db.Uuid
+  pickupTime DateTime?
+  pickupOdometerKm Int?
+  pickupFuelPercent Int?
+  pickupPhotos Json?
+  pickupNotes String?
+  pickupStaffId String? @db.Uuid
+  pickupCustomerSigned Boolean @default(false)
+  returnTime DateTime?
+  returnOdometerKm Int?
+  returnFuelPercent Int?
+  returnPhotos Json?
+  returnNotes String?
+  returnStaffId String? @db.Uuid
+  returnCustomerSigned Boolean @default(false)
+  excessKm Int @default(0)
+  excessKmChargePaise BigInt @default(0)
+  fuelRefillChargePaise BigInt @default(0)
+  lateReturnChargePaise BigInt @default(0)
+  damageChargePaise BigInt @default(0)
+  totalAdditionalChargesPaise BigInt @default(0)
+  depositRefundPaise BigInt @default(0)
+  isSettled Boolean @default(false)
+  settledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  booking RentalBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId])
+}
+
+model RentalExtension {
+  id String @id @default(uuid()) @db.Uuid
+  bookingId String @db.Uuid
+  originalEndTime DateTime
+  requestedEndTime DateTime
+  additionalHours Int
+  additionalFarePaise BigInt
+  additionalTaxPaise BigInt
+  totalPayablePaise BigInt
+  status RentalExtensionStatus @default(REQUESTED)
+  reviewedById String? @db.Uuid
+  reviewedAt DateTime?
+  paymentRecordId String? @db.Uuid
+  createdAt DateTime @default(now())
+
+  booking RentalBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, status])
+}
+
+model RentalDamageClaim {
+  id String @id @default(uuid()) @db.Uuid
+  bookingId String @db.Uuid
+  description String
+  estimatedRepairCostPaise BigInt
+  photos Json
+  reportedByStaffId String @db.Uuid
+  isCustomerDisputed Boolean @default(false)
+  customerDisputeNotes String?
+  resolvedCostPaise BigInt?
+  resolutionNotes String?
+  resolvedByFinanceId String? @db.Uuid
+  status String @default("PENDING_FINANCE_REVIEW")
+  createdAt DateTime @default(now())
+
+  booking RentalBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, status])
+}
+
+model RentalPaymentRecord {
+  id String @id @default(uuid()) @db.Uuid
+  bookingId String @db.Uuid
+  type RentalPaymentType
+  amountPaise BigInt
+  status RentalPaymentStatus @default(PENDING)
+  paymentGateway String @default("RAZORPAY")
+  gatewayOrderId String?
+  gatewayPaymentId String?
+  gatewaySignature String?
+  verifiedByFinanceId String? @db.Uuid
+  verifiedAt DateTime?
+  idempotencyKey String? @unique
+  createdAt DateTime @default(now())
+
+  booking RentalBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([bookingId, status])
+}
+
+model RentalAuditEvent {
+  id String @id @default(uuid()) @db.Uuid
+  bookingId String? @db.Uuid
+  vehicleId String? @db.Uuid
+  eventType String
+  actorId String? @db.Uuid
+  actorRole String?
+  metadata Json?
+  createdAt DateTime @default(now())
+
+  booking RentalBooking? @relation(fields: [bookingId], references: [id], onDelete: SetNull)
+
+  @@index([bookingId, eventType])
+  @@index([vehicleId])
+}

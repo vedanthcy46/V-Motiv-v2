@@ -387,6 +387,7 @@ function App() {
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
   const [prefilledCustomerId, setPrefilledCustomerId] = useState<string>('');
   const [targetListingId, setTargetListingId] = useState<string>('');
+  const [targetEnquiryId, setTargetEnquiryId] = useState<string>('');
   const [showManualLeadModal, setShowManualLeadModal] = useState(false);
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
@@ -444,9 +445,12 @@ function App() {
         });
         setSellerLeads(res.items);
       } else if (page === 'buyer') {
+        const buyerStatus = ['RECEIVED', 'IN_REVIEW', 'CONTACTED', 'CLOSED'].includes(statusFilter)
+          ? statusFilter
+          : undefined;
         const res = await salesApi.buyerLeads(currentUser, {
           search,
-          status: statusFilter || undefined,
+          status: buyerStatus,
         });
         setBuyerLeads(res.items);
       } else if (page === 'inspections') {
@@ -512,9 +516,22 @@ function App() {
     }
   };
 
+  // Clear page-specific filters and errors when switching navigation tabs
+  useEffect(() => {
+    setStatusFilter('');
+    setSearch('');
+    setError('');
+  }, [page]);
+
   useEffect(() => {
     if (user) void loadData(user);
   }, [user, page, statusFilter, unassignedFilter]);
+
+  useEffect(() => {
+    if (!user || page !== 'inspections') return;
+    const refresh = window.setInterval(() => void loadData(user), 30_000);
+    return () => window.clearInterval(refresh);
+  }, [user, page, statusFilter]);
 
   if (!user) return <SignIn />;
   if (loading) return <div className="auth-screen"><p className="eyebrow">INITIALIZING WORKSPACE…</p></div>;
@@ -1033,28 +1050,42 @@ function App() {
                         <th>City</th>
                         <th>Expected Price</th>
                         <th>Status</th>
+                        <th>Owner</th>
                         <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {sellerLeads.slice(0, 5).map(lead => (
-                        <tr key={lead.id}>
-                          <td>
-                            <div className="table-title">{lead.manufacturingYear} {lead.make} {lead.model}</div>
-                            <div className="table-sub">{lead.sellerName} · {lead.sellerPhone}</div>
-                          </td>
-                          <td>{lead.city}</td>
-                          <td className="font-mono">{formatCurrency(lead.expectedPricePaise)}</td>
-                          <td><span className={`badge ${statusBadgeClass(lead.status)}`}>{lead.status}</span></td>
-                          <td>
-                            <button className="btn-secondary btn-sm" onClick={() => setSelectedSellerLead(lead)}>
-                              Manage Lead
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {sellerLeads.slice(0, 5).map(lead => {
+                        const activeAssignment = lead.assignments && lead.assignments.length > 0 ? lead.assignments[0] : null;
+                        const isClaimedByMe = Boolean(user?.email && activeAssignment?.employee?.user?.email === user.email);
+                        return (
+                          <tr key={lead.id}>
+                            <td>
+                              <div className="table-title">{lead.manufacturingYear} {lead.make} {lead.model}</div>
+                              <div className="table-sub">{lead.sellerName} · {lead.sellerPhone}</div>
+                            </td>
+                            <td>{lead.city}</td>
+                            <td className="font-mono">{formatCurrency(lead.expectedPricePaise)}</td>
+                            <td><span className={`badge ${statusBadgeClass(lead.status)}`}>{lead.status}</span></td>
+                            <td>
+                              {activeAssignment ? (
+                                <span className={`badge ${isClaimedByMe ? 'badge-success' : 'badge-neutral'}`} style={{ fontSize: '11px' }}>
+                                  {isClaimedByMe ? '✓ You' : (activeAssignment.employee?.user?.displayName || activeAssignment.employee?.user?.email)}
+                                </span>
+                              ) : (
+                                <span className="badge badge-warning" style={{ fontSize: '11px' }}>Unassigned</span>
+                              )}
+                            </td>
+                            <td>
+                              <button className="btn-secondary btn-sm" onClick={() => setSelectedSellerLead(lead)}>
+                                Manage Lead
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                       {sellerLeads.length === 0 && (
-                        <tr><td colSpan={5} className="empty-state">No active seller enquiries in queue.</td></tr>
+                        <tr><td colSpan={6} className="empty-state">No active seller enquiries in queue.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -1125,30 +1156,44 @@ function App() {
                         <th>Odometer</th>
                         <th>Expected</th>
                         <th>Status</th>
+                        <th>Owner</th>
                         <th>Action</th>
                       </tr>
                     </thead>
                     <tbody>
-                      {sellerLeads.map(lead => (
-                        <tr key={lead.id}>
-                          <td className="font-mono text-xs">{lead.referenceCode}</td>
-                          <td>
-                            <div className="table-title">{lead.manufacturingYear} {lead.make} {lead.model} {lead.variant || ''}</div>
-                            <div className="table-sub">{lead.sellerName} · {lead.sellerPhone}</div>
-                          </td>
-                          <td>{lead.city} ({lead.pincode})</td>
-                          <td className="font-mono">{lead.odometerKm.toLocaleString('en-IN')} km</td>
-                          <td className="font-mono">{formatCurrency(lead.expectedPricePaise)}</td>
-                          <td><span className={`badge ${statusBadgeClass(lead.status)}`}>{lead.status}</span></td>
-                          <td>
-                            <button className="btn-secondary btn-sm" onClick={() => setSelectedSellerLead(lead)}>
-                              View Details
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
+                      {sellerLeads.map(lead => {
+                        const activeAssignment = lead.assignments && lead.assignments.length > 0 ? lead.assignments[0] : null;
+                        const isClaimedByMe = Boolean(user?.email && activeAssignment?.employee?.user?.email === user.email);
+                        return (
+                          <tr key={lead.id}>
+                            <td className="font-mono text-xs">{lead.referenceCode}</td>
+                            <td>
+                              <div className="table-title">{lead.manufacturingYear} {lead.make} {lead.model} {lead.variant || ''}</div>
+                              <div className="table-sub">{lead.sellerName} · {lead.sellerPhone}</div>
+                            </td>
+                            <td>{lead.city} ({lead.pincode})</td>
+                            <td className="font-mono">{lead.odometerKm.toLocaleString('en-IN')} km</td>
+                            <td className="font-mono">{formatCurrency(lead.expectedPricePaise)}</td>
+                            <td><span className={`badge ${statusBadgeClass(lead.status)}`}>{lead.status}</span></td>
+                            <td>
+                              {activeAssignment ? (
+                                <span className={`badge ${isClaimedByMe ? 'badge-success' : 'badge-neutral'}`} style={{ fontSize: '11px' }}>
+                                  {isClaimedByMe ? '✓ You' : (activeAssignment.employee?.user?.displayName || activeAssignment.employee?.user?.email)}
+                                </span>
+                              ) : (
+                                <span className="badge badge-warning" style={{ fontSize: '11px' }}>Unassigned</span>
+                              )}
+                            </td>
+                            <td>
+                              <button className="btn-secondary btn-sm" onClick={() => setSelectedSellerLead(lead)}>
+                                View Details
+                              </button>
+                            </td>
+                          </tr>
+                        );
+                      })}
                       {sellerLeads.length === 0 && (
-                        <tr><td colSpan={7} className="empty-state">No seller leads found matching the filters.</td></tr>
+                        <tr><td colSpan={8} className="empty-state">No seller leads found matching the filters.</td></tr>
                       )}
                     </tbody>
                   </table>
@@ -1264,9 +1309,9 @@ function App() {
                       <tr>
                         <th>Lead Ref</th>
                         <th>Seller & Vehicle</th>
-                        <th>Location Type</th>
-                        <th>Requested Date / Slot</th>
-                        <th>Address</th>
+                        <th>Confirmed location</th>
+                        <th>Confirmed appointment</th>
+                        <th>Appointment address</th>
                         <th>Status</th>
                         <th>Action</th>
                       </tr>
@@ -1279,12 +1324,14 @@ function App() {
                             <div className="table-title">{req.lead.make} {req.lead.model}</div>
                             <div className="table-sub">{req.lead.sellerName} · {req.lead.sellerPhone}</div>
                           </td>
-                          <td><span className="badge badge-gray">{req.locationType}</span></td>
+                          <td><span className="badge badge-gray">{req.assignment?.locationType || req.locationType}</span></td>
                           <td>
-                            <div>{formatDate(req.requestedDate)}</div>
-                            <div className="table-sub font-mono">{req.timeSlot || '—'}</div>
+                            <div>{formatDate(req.assignment?.scheduledAt || req.scheduledAt || req.requestedDate)}</div>
+                            <div className="table-sub font-mono">
+                              {req.assignment?.scheduledAt || req.scheduledAt ? 'Confirmed by Operations' : (req.timeSlot || 'Awaiting Operations')}
+                            </div>
                           </td>
-                          <td>{req.address || req.lead.city}</td>
+                          <td>{req.assignment?.address || req.address || req.lead.city}</td>
                           <td><span className={`badge ${statusBadgeClass(req.status)}`}>{req.status}</span></td>
                           <td>
                             <button
@@ -2175,14 +2222,16 @@ function App() {
             setPrefilledCustomerId(id);
             setPage('communications');
           }}
-          onCreateQuote={(listingId, customerId) => {
+          onCreateQuote={(listingId, customerId, enquiryId) => {
             setTargetListingId(listingId);
             setPrefilledCustomerId(customerId);
+            setTargetEnquiryId(enquiryId || '');
             setShowQuotationModal(true);
           }}
-          onBookTestDrive={(listingId, customerId) => {
+          onBookTestDrive={(listingId, customerId, enquiryId) => {
             setTargetListingId(listingId);
             setPrefilledCustomerId(customerId);
+            setTargetEnquiryId(enquiryId || '');
             setShowTestDriveModal(true);
           }}
         />
@@ -2212,18 +2261,21 @@ function App() {
           inventory={inventory}
           initialListingId={targetListingId}
           initialCustomerId={prefilledCustomerId}
+          initialEnquiryId={targetEnquiryId}
           draft={editingQuotation}
           onClose={() => {
             setShowQuotationModal(false);
             setEditingQuotation(null);
             setTargetListingId('');
             setPrefilledCustomerId('');
+            setTargetEnquiryId('');
           }}
           onSuccess={() => {
             setShowQuotationModal(false);
             setEditingQuotation(null);
             setTargetListingId('');
             setPrefilledCustomerId('');
+            setTargetEnquiryId('');
             void loadData();
           }}
         />
@@ -2285,15 +2337,18 @@ function App() {
           inventory={inventory}
           initialListingId={targetListingId}
           initialCustomerId={prefilledCustomerId}
+          initialEnquiryId={targetEnquiryId}
           onClose={() => {
             setShowTestDriveModal(false);
             setTargetListingId('');
             setPrefilledCustomerId('');
+            setTargetEnquiryId('');
           }}
           onSuccess={() => {
             setShowTestDriveModal(false);
             setTargetListingId('');
             setPrefilledCustomerId('');
+            setTargetEnquiryId('');
             void loadData();
           }}
         />
@@ -2598,6 +2653,22 @@ function SellerLeadDrawer({
     }
   };
 
+  const handleRelease = async () => {
+    if (!user) return;
+    if (!confirm('Release this lead back to the branch pool for other team members?')) return;
+    setBusy(true);
+    setError('');
+    try {
+      await salesApi.releaseSellerLead(user, lead.id);
+      onRefresh();
+      onClose();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to release lead.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleStatusChange = async (newStatus: string) => {
     if (!user) return;
     setBusy(true);
@@ -2721,37 +2792,67 @@ function SellerLeadDrawer({
           {error && <div className="error-banner">{error}</div>}
 
           {/* Quick Action Ribbon */}
-          <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <span className={`badge ${statusBadgeClass(lead.status)}`}>{lead.status}</span>
-            <button className="btn-secondary btn-sm" onClick={handleClaim} disabled={busy}>
-              Claim Lead
-            </button>
-            {lead.status === 'SUBMITTED' && (
-              <>
-                <button className="btn-primary btn-sm" onClick={() => handleStatusChange('QUALIFYING')}>
-                  Start Qualification
-                </button>
-                <button className="btn-secondary btn-sm" onClick={() => setTab('inspection')}>
-                  Schedule Inspection
-                </button>
-              </>
-            )}
-            {lead.status === 'QUALIFYING' && (
-              <button className="btn-primary btn-sm" onClick={() => setTab('inspection')}>
-                Schedule Inspection
-              </button>
-            )}
-            {lead.status === 'INSPECTION_SCHEDULED' && (
-              <>
-                <button className="btn-secondary btn-sm" onClick={() => setTab('inspection')}>
-                  View Inspection Status
-                </button>
-                <button className="btn-primary btn-sm" onClick={() => setTab('offer')}>
-                  Propose Purchase Offer
-                </button>
-              </>
-            )}
-          </div>
+          {(() => {
+            const activeAssignment = lead.assignments && lead.assignments.length > 0 ? lead.assignments[0] : null;
+            const isClaimedByMe = Boolean(user?.email && activeAssignment?.employee?.user?.email === user.email);
+            const assigneeName = activeAssignment?.employee?.user?.displayName || activeAssignment?.employee?.user?.email || 'Sales Advisor';
+
+            return (
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '16px', flexWrap: 'wrap', alignItems: 'center' }}>
+                <span className={`badge ${statusBadgeClass(lead.status)}`}>{lead.status}</span>
+                {activeAssignment ? (
+                  <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+                    <span
+                      className={`badge ${isClaimedByMe ? 'badge-success' : 'badge-neutral'}`}
+                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px' }}
+                    >
+                      {isClaimedByMe ? '✓ Claimed by You' : `🔒 Claimed by ${assigneeName}`}
+                    </span>
+                    {isClaimedByMe && (
+                      <button
+                        className="btn-outline btn-sm"
+                        onClick={handleRelease}
+                        disabled={busy}
+                        style={{ fontSize: '11px', padding: '3px 8px' }}
+                        title="Release this lead back to the unassigned branch pool"
+                      >
+                        Release Lead
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <button className="btn-secondary btn-sm" onClick={handleClaim} disabled={busy}>
+                    Claim Lead
+                  </button>
+                )}
+                {lead.status === 'SUBMITTED' && (
+                  <>
+                    <button className="btn-primary btn-sm" onClick={() => handleStatusChange('QUALIFYING')}>
+                      Start Qualification
+                    </button>
+                    <button className="btn-secondary btn-sm" onClick={() => setTab('inspection')}>
+                      Schedule Inspection
+                    </button>
+                  </>
+                )}
+                {lead.status === 'QUALIFYING' && (
+                  <button className="btn-primary btn-sm" onClick={() => setTab('inspection')}>
+                    Schedule Inspection
+                  </button>
+                )}
+                {lead.status === 'INSPECTION_SCHEDULED' && (
+                  <>
+                    <button className="btn-secondary btn-sm" onClick={() => setTab('inspection')}>
+                      View Inspection Status
+                    </button>
+                    <button className="btn-primary btn-sm" onClick={() => setTab('offer')}>
+                      Propose Purchase Offer
+                    </button>
+                  </>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Tab Navigation */}
           <div className="tabs-nav">
@@ -2764,6 +2865,25 @@ function SellerLeadDrawer({
           {/* TAB 1: DETAILS */}
           {tab === 'details' && (
             <div className="form-grid">
+              <div className="metric-card">
+                <div className="metric-label">Assigned Advisor</div>
+                {lead.assignments && lead.assignments.length > 0 ? (
+                  <div>
+                    <div style={{ fontWeight: 600 }}>
+                      {lead.assignments[0].employee?.user?.displayName || 'Sales Representative'}
+                    </div>
+                    <div className="metric-sub">{lead.assignments[0].employee?.user?.email}</div>
+                    <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+                      Claimed {new Date(lead.assignments[0].assignedAt).toLocaleString()}
+                    </div>
+                  </div>
+                ) : (
+                  <div>
+                    <span className="badge badge-warning">Unassigned Pool</span>
+                    <div className="metric-sub" style={{ marginTop: '4px' }}>Open for branch claiming</div>
+                  </div>
+                )}
+              </div>
               <div className="metric-card">
                 <div className="metric-label">Seller Details</div>
                 <div style={{ fontWeight: 600 }}>{lead.sellerName}</div>
@@ -3289,8 +3409,8 @@ function BuyerLeadDrawer({
   onClose: () => void;
   onRefresh: () => void;
   onNotifyCustomer?: (id: string) => void;
-  onCreateQuote?: (listingId: string, customerId: string) => void;
-  onBookTestDrive?: (listingId: string, customerId: string) => void;
+  onCreateQuote?: (listingId: string, customerId: string, enquiryId?: string) => void;
+  onBookTestDrive?: (listingId: string, customerId: string, enquiryId?: string) => void;
 }) {
   const [busy, setBusy] = useState(false);
   const [copiedCustomer, setCopiedCustomer] = useState(false);
@@ -3325,12 +3445,42 @@ function BuyerLeadDrawer({
       <div className="modal-dialog">
         <div className="modal-header">
           <div>
-            <span className="eyebrow">BUYER ENQUIRY</span>
+            <span className="eyebrow">BUYER ENQUIRY WORKFLOW</span>
             <h3>{lead.user.displayName || lead.user.email}</h3>
           </div>
           <button onClick={onClose}><Icons.Close size={18} /></button>
         </div>
         <div className="modal-body">
+          {/* Synchronized 4-Stage Lead Pipeline */}
+          <div style={{ marginBottom: '14px', padding: '10px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+            <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: '8px', fontWeight: 600 }}>
+              Lead Workflow Progress (Synced with Customer Mobile)
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '6px', textAlign: 'center', fontSize: '12px' }}>
+              {[
+                { key: 'RECEIVED', label: '1. Received' },
+                { key: 'IN_REVIEW', label: '2. In Review' },
+                { key: 'CONTACTED', label: '3. Contacted' },
+                { key: 'CLOSED', label: '4. Closed' },
+              ].map(st => {
+                const isActive = lead.status === st.key;
+                const isPast = ['RECEIVED', 'IN_REVIEW', 'CONTACTED', 'CLOSED'].indexOf(lead.status) > ['RECEIVED', 'IN_REVIEW', 'CONTACTED', 'CLOSED'].indexOf(st.key);
+                return (
+                  <div key={st.key} style={{
+                    padding: '6px 4px',
+                    borderRadius: '6px',
+                    fontWeight: isActive ? 700 : 500,
+                    background: isActive ? 'var(--yellow)' : isPast ? 'rgba(97, 217, 154, 0.15)' : 'rgba(255,255,255,0.02)',
+                    color: isActive ? '#061A38' : isPast ? 'var(--success)' : 'var(--muted)',
+                    border: isActive ? '1px solid var(--yellow)' : '1px solid transparent',
+                  }}>
+                    {st.label}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
           <div className="form-grid">
             <div className="metric-card full" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
               <div>
@@ -3375,7 +3525,7 @@ function BuyerLeadDrawer({
                     type="button"
                     className="btn-primary btn-sm"
                     onClick={() => {
-                      onCreateQuote(lead.listing.id, lead.user.id);
+                      onCreateQuote(lead.listing.id, lead.user.id, lead.id);
                       onClose();
                     }}
                   >
@@ -3387,7 +3537,7 @@ function BuyerLeadDrawer({
                     type="button"
                     className="btn-outline btn-sm"
                     onClick={() => {
-                      onBookTestDrive(lead.listing.id, lead.user.id);
+                      onBookTestDrive(lead.listing.id, lead.user.id, lead.id);
                       onClose();
                     }}
                   >
@@ -3417,12 +3567,12 @@ function BuyerLeadDrawer({
           <button className="btn-outline" onClick={onClose}>Close</button>
           {lead.status === 'RECEIVED' && (
             <button className="btn-secondary" onClick={() => updateStatus('IN_REVIEW')} disabled={busy}>
-              Mark In Review
+              Move to In Review
             </button>
           )}
           {lead.status === 'IN_REVIEW' && (
             <button className="btn-primary" onClick={() => updateStatus('CONTACTED')} disabled={busy}>
-              Mark Contacted
+              Move to Contacted
             </button>
           )}
           {lead.status === 'CONTACTED' && (
@@ -4146,6 +4296,7 @@ function CreateQuotationModal({
   inventory = [],
   initialListingId = '',
   initialCustomerId = '',
+  initialEnquiryId = '',
   draft = null,
   onClose,
   onSuccess,
@@ -4155,6 +4306,7 @@ function CreateQuotationModal({
   inventory?: InventoryItem[];
   initialListingId?: string;
   initialCustomerId?: string;
+  initialEnquiryId?: string;
   draft?: Quotation | null;
   onClose: () => void;
   onSuccess: () => void;
@@ -4181,7 +4333,12 @@ function CreateQuotationModal({
     setError('');
     try {
       const validUntil = new Date(Date.now() + form.validDays * 86400000).toISOString();
-      const payload = { chargesPaise: String(BigInt(form.chargesRupees) * 100n), validUntil, terms: form.terms };
+      const payload = {
+        chargesPaise: String(BigInt(form.chargesRupees) * 100n),
+        validUntil,
+        terms: form.terms,
+        enquiryId: initialEnquiryId || undefined,
+      };
       if (draft) await salesApi.updateQuotation(user, draft.id, payload);
       else await salesApi.createQuotation(user, { listingId: form.listingId, customerId: form.customerId, ...payload });
       onSuccess();
@@ -4494,6 +4651,7 @@ function ScheduleTestDriveModal({
   inventory = [],
   initialListingId = '',
   initialCustomerId = '',
+  initialEnquiryId = '',
   onClose,
   onSuccess,
 }: {
@@ -4502,6 +4660,7 @@ function ScheduleTestDriveModal({
   inventory?: InventoryItem[];
   initialListingId?: string;
   initialCustomerId?: string;
+  initialEnquiryId?: string;
   onClose: () => void;
   onSuccess: () => void;
 }) {
@@ -4529,6 +4688,7 @@ function ScheduleTestDriveModal({
       await salesApi.requestTestDrive(user, {
         listingId: form.listingId,
         customerId: form.customerId,
+        enquiryId: initialEnquiryId || undefined,
         requestedDate: form.requestedDate,
         timeSlot: form.timeSlot,
         customerNotes: form.customerNotes,

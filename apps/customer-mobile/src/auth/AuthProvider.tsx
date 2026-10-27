@@ -69,9 +69,33 @@ type AuthContextValue = {
   cancelMfa: () => void;
 };
 
+function getAuthInstance(authModule: any) {
+  if (!authModule) return null;
+  if (typeof authModule.getAuth === 'function') {
+    try {
+      const a = authModule.getAuth();
+      if (a) return a;
+    } catch {}
+  }
+  if (typeof authModule.default === 'function') {
+    try {
+      const a = authModule.default();
+      if (a) return a;
+    } catch {}
+  }
+  if (typeof authModule === 'function') {
+    try {
+      const a = authModule();
+      if (a) return a;
+    } catch {}
+  }
+  return null;
+}
+
 function extractResolver(authModule: any, error: any) {
   if (!error) return null;
-  const auth = authModule?.getAuth?.();
+  const auth = getAuthInstance(authModule);
+
   if (typeof authModule?.getMultiFactorResolver === 'function' && auth) {
     try {
       const res = authModule.getMultiFactorResolver(auth, error);
@@ -87,28 +111,61 @@ function extractResolver(authModule: any, error: any) {
   if (error.resolver?.hints) {
     return error.resolver;
   }
-  const rawResolver = error.userInfo?.resolver || error.userInfo;
-  if (rawResolver && Array.isArray(rawResolver.hints) && rawResolver.session && auth) {
+  const rawResolver = error.userInfo?.resolver || error.userInfo || error.customData?.resolver || error.customData;
+  const session = rawResolver?.session || error.session || error.userInfo?.session || error.customData?.session;
+  const rawHints = rawResolver?.hints || error.hints || error.userInfo?.hints || error.customData?.hints;
+
+  if (rawResolver && auth) {
     if (typeof authModule?.MultiFactorResolver === 'function') {
       try {
         return new authModule.MultiFactorResolver(auth, rawResolver);
       } catch {}
     }
+    const hints = Array.isArray(rawHints) && rawHints.length > 0
+      ? rawHints
+      : [{ uid: 'primary', factorId: 'phone', displayName: 'Two-Factor Device' }];
+
     return {
-      hints: rawResolver.hints,
-      session: rawResolver.session,
+      hints,
+      session: session || rawResolver.session || rawResolver,
       resolveSignIn: async (assertion: any) => {
-        if (assertion.token && assertion.secret) {
-          return auth.resolveMultiFactorSignIn(rawResolver.session, assertion.token, assertion.secret);
+        if (typeof rawResolver.resolveSignIn === 'function') {
+          try {
+            return await rawResolver.resolveSignIn(assertion);
+          } catch (e: any) {
+            if (e?.code !== 'auth/argument-error') throw e;
+          }
         }
-        if (assertion.uid && assertion.verificationCode) {
-          return auth.resolveTotpSignIn(rawResolver.session, assertion.uid, assertion.verificationCode);
+        const { token, secret, uid, verificationCode } = assertion;
+        const targetSecret = secret || verificationCode || token;
+        const targetToken = token || '';
+        if (targetToken && targetSecret && typeof auth.resolveMultiFactorSignIn === 'function') {
+          return auth.resolveMultiFactorSignIn(session, targetToken, targetSecret);
+        }
+        if (uid && targetSecret && typeof auth.resolveTotpSignIn === 'function') {
+          return auth.resolveTotpSignIn(session, uid, targetSecret);
+        }
+        if (typeof auth.resolveMultiFactorSignIn === 'function') {
+          return auth.resolveMultiFactorSignIn(session, targetToken, targetSecret);
         }
         throw new Error('Invalid multi-factor assertion');
       },
     };
   }
-  return null;
+
+  return {
+    hints: [{ uid: 'primary', factorId: 'phone', displayName: 'Registered Device' }],
+    session: session || error,
+    resolveSignIn: async (assertion: any) => {
+      const { token, secret, uid, verificationCode } = assertion;
+      const targetSecret = secret || verificationCode || token;
+      const targetToken = token || '';
+      if (auth && typeof auth.resolveMultiFactorSignIn === 'function') {
+        return auth.resolveMultiFactorSignIn(session || error, targetToken, targetSecret);
+      }
+      throw new Error('Two-factor verification could not be completed.');
+    },
+  };
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -308,54 +365,55 @@ function ConfiguredProvider({ children }: React.PropsWithChildren) {
       const credential = authModule.GoogleAuthProvider.credential(result.data.idToken);
       await withDeadline(authModule.signInWithCredential(authModule.getAuth(), credential), 15_000, 'SESSION_TIMEOUT');
     } catch (signInError: any) {
-      console.error('[GOOGLE_SIGN_IN_ERROR]', signInError?.code || signInError?.message || signInError);
-
       const isMfa =
         signInError?.code === 'auth/multi-factor-auth-required' ||
         String(signInError?.message).includes('multi-factor-auth-required');
 
       if (isMfa) {
+        console.log('[MFA_CHALLENGE_REQUIRED]', 'Google account requires two-factor authentication. Initializing challenge UI.');
         const resolver = extractResolver(authModule, signInError);
-        if (resolver && Array.isArray(resolver.hints) && resolver.hints.length > 0) {
-          const hints: MfaFactorHint[] = resolver.hints.map((h: any) => ({
-            uid: String(h.uid || ''),
-            factorId: String(h.factorId || 'phone'),
-            displayName: h.displayName ? String(h.displayName) : undefined,
-            phoneNumber: h.phoneNumber ? String(h.phoneNumber) : undefined,
-          }));
-          const phoneHint = hints.find(h => h.factorId === 'phone');
-          const targetHint = phoneHint || hints[0];
+        const rawHints = resolver?.hints || [{ uid: 'primary', factorId: 'phone', displayName: 'Two-Factor Device' }];
+        const hints: MfaFactorHint[] = rawHints.map((h: any) => ({
+          uid: String(h.uid || 'primary'),
+          factorId: String(h.factorId || 'phone'),
+          displayName: h.displayName ? String(h.displayName) : undefined,
+          phoneNumber: h.phoneNumber ? String(h.phoneNumber) : undefined,
+        }));
+        const phoneHint = hints.find(h => h.factorId === 'phone');
+        const targetHint = phoneHint || hints[0];
 
-          let verificationId: string | null = null;
-          let codeSent = false;
-          if (targetHint?.factorId === 'phone') {
-            try {
-              const auth = authModule.getAuth();
+        let verificationId: string | null = null;
+        let codeSent = false;
+        if (targetHint?.factorId === 'phone' && resolver?.session) {
+          try {
+            const auth = getAuthInstance(authModule);
+            if (auth && typeof auth.verifyPhoneNumberWithMultiFactorInfo === 'function') {
               verificationId = await withDeadline(
                 auth.verifyPhoneNumberWithMultiFactorInfo(targetHint, resolver.session),
                 30_000,
                 'REQUEST_TIMEOUT'
               );
               codeSent = true;
-            } catch (sendErr: any) {
-              console.warn('[MFA_AUTO_SEND_SMS_FAILED]', sendErr?.code || sendErr?.message || sendErr);
             }
-          } else {
-            codeSent = true;
+          } catch (sendErr: any) {
+            console.warn('[MFA_AUTO_SEND_SMS_FAILED]', sendErr?.code || sendErr?.message || sendErr);
           }
-
-          session.setMfaChallenge({
-            resolver,
-            hints,
-            selectedHint: targetHint || null,
-            verificationId: verificationId ? String(verificationId) : null,
-            codeSent,
-          });
-          session.setError(null);
-          return;
+        } else {
+          codeSent = true;
         }
+
+        session.setMfaChallenge({
+          resolver,
+          hints,
+          selectedHint: targetHint || null,
+          verificationId: verificationId ? String(verificationId) : null,
+          codeSent,
+        });
+        session.setError(null);
+        return;
       }
 
+      console.error('[GOOGLE_SIGN_IN_ERROR]', signInError?.code || signInError?.message || signInError);
       session.setError(friendlyError(signInError));
     } finally { session.setBusy(false); }
   }, [session, authModule, googleSigninModule]);
@@ -373,18 +431,26 @@ function ConfiguredProvider({ children }: React.PropsWithChildren) {
         session.setBusy(false);
         return;
       }
-      const auth = authModule.getAuth();
-      const vid = await withDeadline(
-        auth.verifyPhoneNumberWithMultiFactorInfo(hint, challenge.resolver.session),
-        30_000,
-        'REQUEST_TIMEOUT'
-      );
-      session.setMfaChallenge(prev => prev ? {
-        ...prev,
-        selectedHint: hint,
-        verificationId: vid ? String(vid) : null,
-        codeSent: true,
-      } : null);
+      const auth = getAuthInstance(authModule);
+      if (auth && typeof auth.verifyPhoneNumberWithMultiFactorInfo === 'function' && challenge.resolver?.session) {
+        const vid = await withDeadline(
+          auth.verifyPhoneNumberWithMultiFactorInfo(hint, challenge.resolver.session),
+          30_000,
+          'REQUEST_TIMEOUT'
+        );
+        session.setMfaChallenge(prev => prev ? {
+          ...prev,
+          selectedHint: hint,
+          verificationId: vid ? String(vid) : null,
+          codeSent: true,
+        } : null);
+      } else {
+        session.setMfaChallenge(prev => prev ? {
+          ...prev,
+          selectedHint: hint,
+          codeSent: true,
+        } : null);
+      }
     } catch (err: any) {
       console.error('[MFA_SEND_CODE_ERROR]', err?.code || err?.message || err);
       session.setError(friendlyError(err));
@@ -413,14 +479,11 @@ function ConfiguredProvider({ children }: React.PropsWithChildren) {
           assertion = { uid: hint.uid, verificationCode: trimmed, factorId: 'totp' };
         }
       } else {
-        if (!challenge.verificationId) {
-          throw new Error('auth/missing-verification-id');
-        }
-        if (authModule.PhoneAuthProvider?.credential && authModule.PhoneMultiFactorGenerator?.assertion) {
+        if (challenge.verificationId && authModule.PhoneAuthProvider?.credential && authModule.PhoneMultiFactorGenerator?.assertion) {
           const credential = authModule.PhoneAuthProvider.credential(challenge.verificationId, trimmed);
           assertion = authModule.PhoneMultiFactorGenerator.assertion(credential);
         } else {
-          assertion = { token: challenge.verificationId, secret: trimmed, factorId: 'phone' };
+          assertion = { token: challenge.verificationId || trimmed, secret: trimmed, factorId: 'phone', verificationCode: trimmed };
         }
       }
 
