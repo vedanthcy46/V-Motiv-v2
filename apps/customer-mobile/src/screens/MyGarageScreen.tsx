@@ -18,7 +18,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
   AlertCircle,
   AlertTriangle,
@@ -168,8 +168,9 @@ export function MyGarageScreen() {
   const loadVehicles = useCallback(async () => {
     try {
       const data = await fetchCustomerVehicles();
-      setVehicles(data);
-      void loadConnectDataForVehicles(data);
+      const list = Array.isArray(data) ? data : ((data as any)?.vehicles || (data as any)?.data || []);
+      setVehicles(list);
+      void loadConnectDataForVehicles(list);
     } catch (err: any) {
       console.warn('[GARAGE_FETCH_ERROR]', err?.message || err);
     } finally {
@@ -349,6 +350,12 @@ export function MyGarageScreen() {
     void loadVehicles();
   }, [loadVehicles]);
 
+  useFocusEffect(
+    useCallback(() => {
+      void loadVehicles();
+    }, [loadVehicles])
+  );
+
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     void loadVehicles();
@@ -410,7 +417,7 @@ export function MyGarageScreen() {
     setSubmitting(true);
     try {
       if (editingVehicle) {
-        await updateCustomerVehicle(editingVehicle.id, {
+        const updated = await updateCustomerVehicle(editingVehicle.id, {
           variant: variant.trim() || undefined,
           color: color.trim() || undefined,
           registrationNumber: regNumber.trim().toUpperCase() || undefined,
@@ -418,9 +425,12 @@ export function MyGarageScreen() {
           declaredOwnership: ownership,
           notes: notes.trim() || undefined,
         });
+        if (updated && updated.id) {
+          setVehicles(prev => prev.map(v => (v.id === updated.id ? { ...v, ...updated } : v)));
+        }
         Alert.alert('Vehicle Updated', 'Your car details have been saved.');
       } else {
-        await createCustomerVehicle({
+        const created = await createCustomerVehicle({
           make: make.trim(),
           model: model.trim(),
           year: yearNum,
@@ -433,6 +443,9 @@ export function MyGarageScreen() {
           declaredOwnership: ownership,
           notes: notes.trim() || undefined,
         });
+        if (created && created.id) {
+          setVehicles(prev => [created, ...prev.filter(v => v.id !== created.id)]);
+        }
         Alert.alert('Car Added', 'Your car has been added to My Garage.');
       }
       setModalVisible(false);
@@ -447,6 +460,7 @@ export function MyGarageScreen() {
   const handleSetPreferred = async (vehicle: CustomerVehicle) => {
     if (vehicle.isPreferred) return;
     try {
+      setVehicles(prev => prev.map(v => ({ ...v, isPreferred: v.id === vehicle.id })));
       await updateCustomerVehicle(vehicle.id, { isPreferred: true });
       void loadVehicles();
     } catch (err: any) {
@@ -466,6 +480,7 @@ export function MyGarageScreen() {
           onPress: async () => {
             try {
               await archiveCustomerVehicle(vehicle.id);
+              setVehicles(prev => prev.filter(v => v.id !== vehicle.id));
               void loadVehicles();
             } catch (err: any) {
               Alert.alert('Cannot Archive', err?.message || 'Failed to archive vehicle.');

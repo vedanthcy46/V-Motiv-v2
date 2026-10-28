@@ -16,9 +16,8 @@ function publicApiBase() {
     .replace('https://vmotiv.in', 'https://api.vmotiv.in')
     .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
     .replace(/\/$/, '');
-  if (configured.endsWith('/api/v1')) return configured;
-  if (configured.endsWith('/api/v2')) return `${configured.slice(0, -'/api/v2'.length)}/api/v1`;
-  return `${configured}/api/v1`;
+  if (configured.endsWith('/api/v1') || configured.endsWith('/api/v2')) return configured;
+  return `${configured}/api/v2`;
 }
 const API_BASE = publicApiBase();
 

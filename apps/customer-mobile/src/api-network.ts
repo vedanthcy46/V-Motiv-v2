@@ -31,7 +31,7 @@ export function resolveApiBaseUrl({ configured, development, devServerUrl }: Api
   // An explicitly configured public backend retains its own host.
   if (endpoint && !isLocalHost(endpoint.hostname)) return endpoint.toString().replace(/\/$/, '');
   const metro = devServerUrl ? parseUrl(devServerUrl) : undefined;
-  const local = endpoint ?? new URL('http://localhost:4100/api/v1');
+  const local = endpoint ?? new URL('http://localhost:4100/api/v2');
   if (metro && isLocalHost(metro.hostname)) local.hostname = metro.hostname;
   return local.toString().replace(/\/$/, '');
 }

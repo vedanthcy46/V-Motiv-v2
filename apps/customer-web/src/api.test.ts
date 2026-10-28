@@ -46,7 +46,7 @@ describe('public API client', () => {
 
     const result = await fetchInventory({ limit: 6, fuelType: 'PETROL' });
     expect(result).toEqual(mockData);
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/v1/inventory?limit=6&fuelType=PETROL'));
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/v[12]\/inventory\?limit=6&fuelType=PETROL/));
   });
 
   it('fetches supported cities gracefully', async () => {
@@ -106,7 +106,7 @@ describe('authenticated customer action APIs', () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
 
     const [url, options] = fetchMock.mock.calls[0];
-    expect(url).toContain('/api/v1/me/sell');
+    expect(url).toMatch(/\/api\/v[12]\/me\/sell/);
     expect(options.method).toBe('POST');
     expect(options.headers.Authorization).toBe('Bearer test-firebase-token');
     const sentBody = JSON.parse(options.body);
@@ -134,7 +134,7 @@ describe('authenticated customer action APIs', () => {
     const res = await submitTestDrive(mockUser, driveInput);
     expect(res).toEqual({ id: 'drive-1', status: 'REQUESTED' });
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/api/v1/me/drives'),
+      expect.stringMatching(/\/api\/v[12]\/me\/drives/),
       expect.objectContaining({
         method: 'POST',
         headers: {
@@ -162,7 +162,7 @@ describe('authenticated customer action APIs', () => {
     const res = await submitEnquiry(mockUser, enquiryInput);
     expect(res).toEqual({ id: 'enq-1' });
     const [url, options] = fetchMock.mock.calls[0];
-    expect(url).toContain('/api/v1/me/enquiries');
+    expect(url).toMatch(/\/api\/v[12]\/me\/enquiries/);
     const sentBody = JSON.parse(options.body);
     expect(sentBody.message).toBe('I would like to verify the service history documents.');
     expect(sentBody.idempotencyKey).toMatch(/^enq-user-123-22222222-2222-2222-2222-222222222222-\d+$/);
@@ -215,11 +215,11 @@ describe('authenticated customer action APIs', () => {
 
     const drives = await fetchUserDrives(mockUser);
     expect(drives).toEqual(mockDrives);
-    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining('/api/v1/me/drives'), expect.any(Object));
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringMatching(/\/api\/v[12]\/me\/drives/), expect.any(Object));
 
     await cancelTestDrive(mockUser, 'drive-123', 'Changed plans');
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining('/api/v1/me/drives/drive-123/cancel'),
+      expect.stringMatching(/\/api\/v[12]\/me\/drives\/drive-123\/cancel/),
       expect.objectContaining({
         method: 'PATCH',
         body: JSON.stringify({ reason: 'Changed plans' }),

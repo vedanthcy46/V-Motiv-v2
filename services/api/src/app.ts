@@ -170,9 +170,8 @@ export function createApp(deps: {
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
   app.use('/brand', express.static(path.resolve(__dirname, '../assets/brand')));
   app.get('/', (_req, res) => res.json({ service: 'vmotiv-api', status: 'ready', version: 'v2' }));
-  app.get('/health', (_req, res) => res.json({ status: 'alive' }));
-  app.get('/api/v1/health/live', (_req, res) => res.json({ status: 'alive' }));
-  app.get('/api/v1/health/ready', async (_req, res) => {
+  app.get(['/health', '/health/live', '/api/health/live', '/api/v1/health/live', '/api/v2/health/live'], (_req, res) => res.json({ status: 'alive' }));
+  app.get(['/health/ready', '/api/health/ready', '/api/v1/health/ready', '/api/v2/health/ready'], async (_req, res) => {
     try { await deps.store.ready(); res.json({ database: 'ready' }); }
     catch { res.status(503).json({ code: 'DATABASE_UNAVAILABLE' }); }
   });
@@ -192,43 +191,52 @@ export function createApp(deps: {
     }
   };
 
-  app.use('/api/v1', rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false }));
+  const apiLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+  const standardLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+  const salesLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+  const financeLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+  const serviceLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+  const rentalLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+  const connectLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+  const connectPublicLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
+
   if (deps.inspection) {
     const inspectorRouter = createInspectorRouter({ verify: deps.verify, store: deps.inspection });
     const inspectionReviewRouter = createInspectionReviewRouter({ verify: deps.verify, store: deps.inspection });
     const operationsRouter = createOperationsInspectionRouter({ verify: deps.verify, store: deps.inspection });
     const financeRouter = createFinanceAcquisitionRouter({ verify: deps.verify, store: deps.inspection });
 
-    const standardLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
-    const financeLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
-
     app.use('/api/v2/inspector', standardLimiter, inspectorRouter);
+    app.use('/api/v1/inspector', standardLimiter, inspectorRouter);
     app.use('/api/inspector', standardLimiter, inspectorRouter);
     app.use('/inspector', standardLimiter, inspectorRouter);
 
     app.use('/api/v2/inspection-review', standardLimiter, inspectionReviewRouter);
+    app.use('/api/v1/inspection-review', standardLimiter, inspectionReviewRouter);
     app.use('/api/inspection-review', standardLimiter, inspectionReviewRouter);
     app.use('/inspection-review', standardLimiter, inspectionReviewRouter);
 
     app.use('/api/v2/operations', standardLimiter, operationsRouter);
+    app.use('/api/v1/operations', standardLimiter, operationsRouter);
     app.use('/api/operations', standardLimiter, operationsRouter);
     app.use('/operations', standardLimiter, operationsRouter);
 
     app.use('/api/v2/finance-legacy', financeLimiter, financeRouter);
+    app.use('/api/v1/finance-legacy', financeLimiter, financeRouter);
     app.use('/api/finance-legacy', financeLimiter, financeRouter);
     app.use('/finance-legacy', financeLimiter, financeRouter);
   }
   if (deps.finance) {
-    const financeLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
     const financeRouter = createFinanceRouter({ verify: deps.verify, store: deps.finance });
     app.use('/api/v2/finance', financeLimiter, financeRouter);
+    app.use('/api/v1/finance', financeLimiter, financeRouter);
     app.use('/api/finance', financeLimiter, financeRouter);
     app.use('/finance', financeLimiter, financeRouter);
   }
   if (deps.sales) {
     const salesRouter = createSalesRouter({ verify: deps.verify, store: deps.sales });
-    const salesLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
     app.use('/api/v2/sales', salesLimiter, salesRouter);
+    app.use('/api/v1/sales', salesLimiter, salesRouter);
     app.use('/api/sales', salesLimiter, salesRouter);
     app.use('/sales', salesLimiter, salesRouter);
   }
@@ -249,79 +257,92 @@ export function createApp(deps: {
     });
     const adminLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
     app.use('/api/v2', adminLimiter, adminRouter);
+    app.use('/api/v1', adminLimiter, adminRouter);
+    app.use('/api', adminLimiter, adminRouter);
     app.use('/admin', adminLimiter, adminRouter);
     app.use('/staff', adminLimiter, adminRouter);
   }
+
+  // Unified API Router (serves /api/v2, /api/v1, and /api seamlessly)
+  const unifiedApiRouter = express.Router();
+
   if (deps.notificationRouter) {
-    const notifLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
-    app.use('/api/v2', notifLimiter, deps.notificationRouter);
+    unifiedApiRouter.use(deps.notificationRouter);
   }
+
   if (deps.service) {
-    const serviceLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
     const serviceCustomerRouter = createServiceCustomerRouter({ verify: deps.verify, store: deps.service });
-    app.use('/api/v2/customer', serviceLimiter, serviceCustomerRouter);
-    app.use('/api/v2/service', serviceLimiter, serviceCustomerRouter);
-    app.use('/api/customer', serviceLimiter, serviceCustomerRouter);
+    unifiedApiRouter.use('/customer', serviceCustomerRouter);
+    unifiedApiRouter.use('/service', serviceCustomerRouter);
+
     app.use('/customer', serviceLimiter, serviceCustomerRouter);
 
     if (deps.db) {
       const serviceOpsRouter = createServiceOperationsRouter({ verify: deps.verify, db: deps.db, store: deps.service });
       app.use('/api/v2/operations/service', serviceLimiter, serviceOpsRouter);
+      app.use('/api/v1/operations/service', serviceLimiter, serviceOpsRouter);
+      app.use('/api/operations/service', serviceLimiter, serviceOpsRouter);
       app.use('/operations/service', serviceLimiter, serviceOpsRouter);
     }
   }
+
   if (deps.rental && deps.db) {
-    const rentalLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
     const rentalCustomerRouter = createRentalCustomerRouter({ verify: deps.verify, store: deps.rental, db: deps.db });
-    app.use('/api/v2/rentals', rentalLimiter, rentalCustomerRouter);
-    app.use('/api/v2/customer/rentals', rentalLimiter, rentalCustomerRouter);
-    app.use('/api/rentals', rentalLimiter, rentalCustomerRouter);
+    unifiedApiRouter.use('/rentals', rentalCustomerRouter);
+    unifiedApiRouter.use('/customer/rentals', rentalCustomerRouter);
+
     app.use('/rentals', rentalLimiter, rentalCustomerRouter);
 
     const rentalOpsRouter = createRentalOperationsRouter({ verify: deps.verify, store: deps.rental, db: deps.db });
     app.use('/api/v2/operations/rentals', rentalLimiter, rentalOpsRouter);
+    app.use('/api/v1/operations/rentals', rentalLimiter, rentalOpsRouter);
+    app.use('/api/operations/rentals', rentalLimiter, rentalOpsRouter);
     app.use('/operations/rentals', rentalLimiter, rentalOpsRouter);
 
     const rentalWebhookRouter = createRentalWebhookRouter({ store: deps.rental, db: deps.db });
     app.use('/api/v2/webhooks/rentals', rentalLimiter, rentalWebhookRouter);
+    app.use('/api/v1/webhooks/rentals', rentalLimiter, rentalWebhookRouter);
+    app.use('/api/webhooks/rentals', rentalLimiter, rentalWebhookRouter);
+    app.use('/webhooks/rentals', rentalLimiter, rentalWebhookRouter);
   }
-  if (deps.connect) {
-    const connectLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
-    const connectCustomerRouter = createConnectCustomerRouter({ verify: deps.verify, store: deps.connect });
-    app.use('/api/v2/customer', connectLimiter, connectCustomerRouter);
-    app.use('/api/v2/connect', connectLimiter, connectCustomerRouter);
-    app.use('/api/customer', connectLimiter, connectCustomerRouter);
-    app.use('/customer', connectLimiter, connectCustomerRouter);
 
-    // Scanner endpoints intentionally sit outside authentication. They carry no
-    // owner contact information and have their own tighter abuse limit.
-    const connectPublicLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
-    app.use('/api/v2/public/connect', connectPublicLimiter, createConnectPublicRouter({ store: deps.connect }));
+  if (deps.connect) {
+    const connectCustomerRouter = createConnectCustomerRouter({ verify: deps.verify, store: deps.connect });
+    unifiedApiRouter.use('/customer', connectCustomerRouter);
+    unifiedApiRouter.use('/connect', connectCustomerRouter);
+    unifiedApiRouter.use('/public/connect', connectPublicLimiter, createConnectPublicRouter({ store: deps.connect }));
 
     const connectWebhookRouter = createConnectWebhookRouter({ store: deps.connect });
-    app.use('/api/v2/webhooks/connect', connectLimiter, connectWebhookRouter);
+    unifiedApiRouter.use('/webhooks/connect', connectWebhookRouter);
+    app.use('/customer', connectLimiter, connectCustomerRouter);
   }
-  // Published inventory is deliberately public. Every account-linked mutation remains below authentication.
+
+  // Published inventory is deliberately public.
   if (deps.customer) {
-    app.get('/api/v1/inventory', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.inventory((res.locals.identity as Identity | undefined)?.uid, parsed(inventoryQuery, req.query))));
-    app.get('/api/v1/inventory/:id', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.vehicle((res.locals.identity as Identity | undefined)?.uid, parsed(uuid, req.params.id))));
-    app.get('/api/v1/cities', async (_req, res) => res.json(await deps.customer!.cities()));
+    unifiedApiRouter.get('/inventory', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.inventory((res.locals.identity as Identity | undefined)?.uid, parsed(inventoryQuery, req.query))));
+    unifiedApiRouter.get('/inventory/:id', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.vehicle((res.locals.identity as Identity | undefined)?.uid, parsed(uuid, req.params.id))));
+    unifiedApiRouter.get('/cities', async (_req, res) => res.json(await deps.customer!.cities()));
   }
-  app.use('/api/v1', authentication(deps.verify));
-  app.post('/api/v1/auth/sync', async (req, res) => {
+
+  // Authenticated customer & profile routes
+  const auth = authentication(deps.verify);
+
+  unifiedApiRouter.post('/auth/sync', auth, async (req, res) => {
     if (req.body && Object.keys(req.body).length) throw new HttpError(400, 'BODY_MUST_BE_EMPTY');
     const profile = await deps.store.sync(res.locals.identity as Identity);
     await triggerEmailDrain();
     res.json(profile);
   });
-  app.get('/api/v1/me', async (_req, res) => {
+
+  unifiedApiRouter.get('/me', auth, async (_req, res) => {
     const identity = res.locals.identity as Identity;
     const user = await deps.store.find(identity.uid);
     if (!user) throw new HttpError(404, 'PROFILE_NOT_REGISTERED');
     if (user.status !== 'ACTIVE') throw new HttpError(403, 'ACCOUNT_INACTIVE');
     res.json(user);
   });
-  app.get('/api/v1/employee/me', async (_req, res) => {
+
+  unifiedApiRouter.get('/employee/me', auth, async (_req, res) => {
     const identity = res.locals.identity as Identity;
     const user = await deps.store.find(identity.uid);
     if (!user || user.status !== 'ACTIVE' || !user.employee?.active) throw new HttpError(403, 'EMPLOYEE_ACCESS_REQUIRED');
@@ -330,99 +351,76 @@ export function createApp(deps: {
     if (privilegedRoles.has(user.employee.role) && !identity.secondFactor && mfaRequired) throw new HttpError(403, 'EMPLOYEE_MFA_REQUIRED');
     res.json(user);
   });
+
   if (deps.customer) {
-    app.patch('/api/v1/me', async (req, res) => res.json(await deps.customer!.updateProfile((res.locals.identity as Identity).uid, parsed(profileInput, req.body))));
-    app.get('/api/v1/me/wishlist', async (_req, res) => res.json(await deps.customer!.wishlist((res.locals.identity as Identity).uid)));
-    app.put('/api/v1/me/wishlist/:id', async (req, res) => { await deps.customer!.addWishlist((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
-    app.delete('/api/v1/me/wishlist/:id', async (req, res) => { await deps.customer!.removeWishlist((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
+    unifiedApiRouter.patch('/me', auth, async (req, res) => res.json(await deps.customer!.updateProfile((res.locals.identity as Identity).uid, parsed(profileInput, req.body))));
+    unifiedApiRouter.get('/me/wishlist', auth, async (_req, res) => res.json(await deps.customer!.wishlist((res.locals.identity as Identity).uid)));
+    unifiedApiRouter.put('/me/wishlist/:id', auth, async (req, res) => { await deps.customer!.addWishlist((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
+    unifiedApiRouter.delete('/me/wishlist/:id', auth, async (req, res) => { await deps.customer!.removeWishlist((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
+
     // Test drive requests (supports canonical and /me/drives alias)
-    app.get('/api/v1/me/test-drive-requests', async (_req, res) => res.json(await deps.customer!.drives((res.locals.identity as Identity).uid)));
-    app.get('/api/v1/me/drives', async (_req, res) => res.json(await deps.customer!.drives((res.locals.identity as Identity).uid)));
-    app.get('/api/v1/me/test-drive-requests/:id', async (req, res) => res.json(await deps.customer!.drive((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
-    app.get('/api/v1/me/drives/:id', async (req, res) => res.json(await deps.customer!.drive((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
-    app.post('/api/v1/test-drive-requests', async (req, res) => {
+    unifiedApiRouter.get(['/me/test-drive-requests', '/me/drives'], auth, async (_req, res) => res.json(await deps.customer!.drives((res.locals.identity as Identity).uid)));
+    unifiedApiRouter.get(['/me/test-drive-requests/:id', '/me/drives/:id'], auth, async (req, res) => res.json(await deps.customer!.drive((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
+    unifiedApiRouter.post(['/test-drive-requests', '/me/drives'], auth, async (req, res) => {
       const result = await deps.customer!.bookDrive((res.locals.identity as Identity).uid, parsed(driveInput, req.body));
       await triggerEmailDrain();
       res.status(201).json(result);
     });
-    app.post('/api/v1/me/drives', async (req, res) => {
-      const result = await deps.customer!.bookDrive((res.locals.identity as Identity).uid, parsed(driveInput, req.body));
-      await triggerEmailDrain();
-      res.status(201).json(result);
-    });
-    app.patch('/api/v1/test-drive-requests/:id/cancel', async (req, res) => { parsed(z.object({ reason: z.string().trim().min(1).max(200) }).strict(), req.body); await deps.customer!.cancelDrive((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
-    app.patch('/api/v1/me/drives/:id/cancel', async (req, res) => { parsed(z.object({ reason: z.string().trim().min(1).max(200) }).strict(), req.body); await deps.customer!.cancelDrive((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
+    unifiedApiRouter.patch(['/test-drive-requests/:id/cancel', '/me/drives/:id/cancel'], auth, async (req, res) => { parsed(z.object({ reason: z.string().trim().min(1).max(200) }).strict(), req.body); await deps.customer!.cancelDrive((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
 
     // Acquisition leads / Sell car requests (supports canonical and /me/sell alias)
-    app.get('/api/v1/me/acquisition-leads', async (_req, res) => res.json(await deps.customer!.leads((res.locals.identity as Identity).uid)));
-    app.get('/api/v1/me/sell', async (_req, res) => res.json(await deps.customer!.leads((res.locals.identity as Identity).uid)));
-    app.get('/api/v1/me/acquisition-leads/:id', async (req, res) => res.json(await deps.customer!.lead((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
-    app.post('/api/v1/acquisition-leads', async (req, res) => {
+    unifiedApiRouter.get(['/me/acquisition-leads', '/me/sell'], auth, async (_req, res) => res.json(await deps.customer!.leads((res.locals.identity as Identity).uid)));
+    unifiedApiRouter.get('/me/acquisition-leads/:id', auth, async (req, res) => res.json(await deps.customer!.lead((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
+    unifiedApiRouter.post(['/acquisition-leads', '/me/sell'], auth, async (req, res) => {
       const result = await deps.customer!.createLead((res.locals.identity as Identity).uid, parsed(sellInput, req.body));
       await triggerEmailDrain();
       res.status(201).json(result);
     });
-    app.post('/api/v1/me/sell', async (req, res) => {
-      const result = await deps.customer!.createLead((res.locals.identity as Identity).uid, parsed(sellInput, req.body));
-      await triggerEmailDrain();
-      res.status(201).json(result);
-    });
-    app.patch('/api/v1/acquisition-leads/:id/cancel', async (req, res) => { const body = parsed(z.object({ reason: z.string().trim().max(500).optional() }).strict(), req.body); await deps.customer!.cancelLead((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), body.reason); res.status(204).end(); });
-    app.patch('/api/v1/acquisition-offers/:id/accept', async (req, res) => {
+    unifiedApiRouter.patch('/acquisition-leads/:id/cancel', auth, async (req, res) => { const body = parsed(z.object({ reason: z.string().trim().max(500).optional() }).strict(), req.body); await deps.customer!.cancelLead((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), body.reason); res.status(204).end(); });
+    unifiedApiRouter.patch('/acquisition-offers/:id/accept', auth, async (req, res) => {
       const body = parsed(acceptOfferInput, req.body);
       const result = await deps.customer!.acceptOffer((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), body.version);
       await triggerEmailDrain();
       res.json(result);
     });
-    app.patch('/api/v1/acquisition-offers/:id/decline', async (req, res) => { const body = parsed(declineOfferInput, req.body); res.json(await deps.customer!.declineOffer((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), body)); });
-    app.get('/api/v1/me/saved-searches', async (_req, res) => res.json(await deps.customer!.savedSearches((res.locals.identity as Identity).uid)));
-    app.post('/api/v1/me/saved-searches', async (req, res) => res.status(201).json(await deps.customer!.createSavedSearch((res.locals.identity as Identity).uid, parsed(savedSearchInput, req.body))));
-    app.delete('/api/v1/me/saved-searches/:id', async (req, res) => { await deps.customer!.deleteSavedSearch((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
+    unifiedApiRouter.patch('/acquisition-offers/:id/decline', auth, async (req, res) => { const body = parsed(declineOfferInput, req.body); res.json(await deps.customer!.declineOffer((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), body)); });
+    unifiedApiRouter.get('/me/saved-searches', auth, async (_req, res) => res.json(await deps.customer!.savedSearches((res.locals.identity as Identity).uid)));
+    unifiedApiRouter.post('/me/saved-searches', auth, async (req, res) => res.status(201).json(await deps.customer!.createSavedSearch((res.locals.identity as Identity).uid, parsed(savedSearchInput, req.body))));
+    unifiedApiRouter.delete('/me/saved-searches/:id', auth, async (req, res) => { await deps.customer!.deleteSavedSearch((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
 
     // Purchase enquiries (supports canonical and /me/enquiries alias)
-    app.get('/api/v1/me/purchase-enquiries', async (_req, res) => res.json(await deps.customer!.purchaseEnquiries((res.locals.identity as Identity).uid)));
-    app.get('/api/v1/me/enquiries', async (_req, res) => res.json(await deps.customer!.purchaseEnquiries((res.locals.identity as Identity).uid)));
-    app.get('/api/v1/me/purchase-enquiries/:id', async (req, res) => res.json(await deps.customer!.purchaseEnquiry((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
-    app.get('/api/v1/me/enquiries/:id', async (req, res) => res.json(await deps.customer!.purchaseEnquiry((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
-    app.post('/api/v1/me/purchase-enquiries/:id/cancel', async (req, res) => {
+    unifiedApiRouter.get(['/me/purchase-enquiries', '/me/enquiries'], auth, async (_req, res) => res.json(await deps.customer!.purchaseEnquiries((res.locals.identity as Identity).uid)));
+    unifiedApiRouter.get(['/me/purchase-enquiries/:id', '/me/enquiries/:id'], auth, async (req, res) => res.json(await deps.customer!.purchaseEnquiry((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
+    unifiedApiRouter.post(['/me/purchase-enquiries/:id/cancel', '/me/enquiries/:id/cancel'], auth, async (req, res) => {
       const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
       res.json(await deps.customer!.cancelPurchaseEnquiry((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), reason));
     });
-    app.post('/api/v1/me/enquiries/:id/cancel', async (req, res) => {
-      const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
-      res.json(await deps.customer!.cancelPurchaseEnquiry((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), reason));
-    });
-    app.post('/api/v1/purchase-enquiries', async (req, res) => {
+    unifiedApiRouter.post(['/purchase-enquiries', '/me/enquiries'], auth, async (req, res) => {
       const result = await deps.customer!.createPurchaseEnquiry((res.locals.identity as Identity).uid, parsed(purchaseInput, req.body));
       await triggerEmailDrain();
       res.status(201).json(result);
     });
-    app.post('/api/v1/me/enquiries', async (req, res) => {
-      const result = await deps.customer!.createPurchaseEnquiry((res.locals.identity as Identity).uid, parsed(purchaseInput, req.body));
-      await triggerEmailDrain();
-      res.status(201).json(result);
-    });
-    app.get('/api/v1/me/support-cases', async (_req, res) => res.json(await deps.customer!.supportCases((res.locals.identity as Identity).uid)));
-    app.post('/api/v1/support-cases', async (req, res) => {
+    unifiedApiRouter.get('/me/support-cases', auth, async (_req, res) => res.json(await deps.customer!.supportCases((res.locals.identity as Identity).uid)));
+    unifiedApiRouter.post('/support-cases', auth, async (req, res) => {
       const result = await deps.customer!.createSupportCase((res.locals.identity as Identity).uid, parsed(supportInput, req.body));
       await triggerEmailDrain();
       res.status(201).json(result);
     });
-    app.get('/api/v1/support-cases/:id', async (req, res) => res.json(await deps.customer!.supportCase((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
-    app.post('/api/v1/support-cases/:id/replies', async (req, res) => {
+    unifiedApiRouter.get('/support-cases/:id', auth, async (req, res) => res.json(await deps.customer!.supportCase((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
+    unifiedApiRouter.post('/support-cases/:id/replies', auth, async (req, res) => {
       const result = await deps.customer!.replySupportCase((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), parsed(supportReplyInput, req.body).body);
       await triggerEmailDrain();
       res.status(201).json(result);
     });
-    app.get('/api/v1/me/activity', async (req, res) => res.json(await deps.customer!.activity((res.locals.identity as Identity).uid, parsed(z.coerce.number().int().min(1).default(1), req.query.page ?? 1), parsed(z.coerce.number().int().min(1).max(50).default(20), req.query.limit ?? 20))));
-    app.get('/api/v1/me/addresses', async (_req, res) => res.json(await deps.customer!.addresses((res.locals.identity as Identity).uid)));
-    app.post('/api/v1/me/addresses', async (req, res) => res.status(201).json(await deps.customer!.createAddress((res.locals.identity as Identity).uid, parsed(addressInput, req.body))));
-    app.delete('/api/v1/me/addresses/:id', async (req, res) => { await deps.customer!.deleteAddress((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
-    app.post('/api/v1/me/privacy-requests', async (req, res) => res.status(201).json(await deps.customer!.createPrivacyRequest((res.locals.identity as Identity).uid, parsed(privacyRequestInput, req.body).requestType)));
+    unifiedApiRouter.get('/me/activity', auth, async (req, res) => res.json(await deps.customer!.activity((res.locals.identity as Identity).uid, parsed(z.coerce.number().int().min(1).default(1), req.query.page ?? 1), parsed(z.coerce.number().int().min(1).max(50).default(20), req.query.limit ?? 20))));
+    unifiedApiRouter.get('/me/addresses', auth, async (_req, res) => res.json(await deps.customer!.addresses((res.locals.identity as Identity).uid)));
+    unifiedApiRouter.post('/me/addresses', auth, async (req, res) => res.status(201).json(await deps.customer!.createAddress((res.locals.identity as Identity).uid, parsed(addressInput, req.body))));
+    unifiedApiRouter.delete('/me/addresses/:id', auth, async (req, res) => { await deps.customer!.deleteAddress((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });
+    unifiedApiRouter.post('/me/privacy-requests', auth, async (req, res) => res.status(201).json(await deps.customer!.createPrivacyRequest((res.locals.identity as Identity).uid, parsed(privacyRequestInput, req.body).requestType)));
   }
 
   // General Media Upload Route (Cloudinary backed)
-  app.post('/api/v2/media/upload', authentication(deps.verify), express.json({ limit: '50mb' }), async (req, res, next) => {
+  unifiedApiRouter.post('/media/upload', auth, express.json({ limit: '50mb' }), async (req, res, next) => {
     try {
       const input = z.object({
         base64Data: z.string().min(1),
@@ -471,6 +469,11 @@ export function createApp(deps: {
       next(e);
     }
   });
+
+  // Mount unified routes across /api/v2 (canonical), /api/v1 (compat), and /api (alias)
+  app.use('/api/v2', apiLimiter, unifiedApiRouter);
+  app.use('/api/v1', apiLimiter, unifiedApiRouter);
+  app.use('/api', apiLimiter, unifiedApiRouter);
 
   app.use((_req, res) => res.status(404).json({ code: 'NOT_FOUND' }));
   const errors: ErrorRequestHandler = (error: unknown, _req, res, _next) => {

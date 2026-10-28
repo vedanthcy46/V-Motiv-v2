@@ -11,7 +11,7 @@ describe('development API connectivity', () => {
       .toBe('http://localhost:4100/api/v1');
   });
   it('allows emulator configuration and preserves explicit public APIs', () => {
-    expect(resolveApiBaseUrl({ development: true, devServerUrl: '10.0.2.2:8081' })).toBe('http://10.0.2.2:4100/api/v1');
+    expect(resolveApiBaseUrl({ development: true, devServerUrl: '10.0.2.2:8081' })).toBe('http://10.0.2.2:4100/api/v2');
     expect(resolveApiBaseUrl({ configured: 'https://api.vmotiv.example/api/v1/', development: true, devServerUrl: 'localhost:8081' }))
       .toBe('https://api.vmotiv.example/api/v1');
   });

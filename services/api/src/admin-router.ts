@@ -123,7 +123,7 @@ export function createAdminRouter(deps: {
   drainEmails?: () => Promise<number>;
 }) {
   const router = Router();
-  router.use(authentication(deps.verify));
+  router.use(['/admin', '/staff'], authentication(deps.verify));
 
   router.post('/staff/invitations/accept', async (req, res) => {
     const body = parse(acceptInput, req.body);

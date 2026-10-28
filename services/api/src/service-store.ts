@@ -574,6 +574,50 @@ export const DEFAULT_SERVICE_HUBS = [
   },
 ];
 
+function safeParsePhotoUrls(raw: unknown): string[] {
+  if (!raw) return [];
+  if (Array.isArray(raw)) return raw.map(x => String(x)).filter(Boolean);
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed.map(x => String(x)).filter(Boolean);
+      if (typeof parsed === 'string' && parsed.trim()) return [parsed.trim()];
+    } catch {
+      if (raw.trim()) return [raw.trim()];
+    }
+  }
+  return [];
+}
+
+function formatCustomerVehicleRecord(v: any, activeServiceRequest?: any) {
+  return {
+    id: v.id,
+    make: v.make,
+    model: v.model,
+    year: v.year,
+    variant: v.variant ?? undefined,
+    fuelType: v.fuelType,
+    transmission: v.transmission,
+    color: v.color ?? undefined,
+    registrationNumber: v.registrationNumber ?? undefined,
+    odometerKm: v.odometerKm ?? undefined,
+    vin: v.vin ?? undefined,
+    declaredOwnership: v.declaredOwnership || 'OWNER',
+    photoUrls: safeParsePhotoUrls(v.photoUrls),
+    notes: v.notes ?? undefined,
+    isPreferred: Boolean(v.isPreferred),
+    isArchived: Boolean(v.isArchived),
+    lastServiceDate: v.lastServiceDate ? (v.lastServiceDate instanceof Date ? v.lastServiceDate.toISOString() : String(v.lastServiceDate)) : null,
+    nextServiceDueKm: v.nextServiceDueKm ?? null,
+    nextServiceDueDate: v.nextServiceDueDate ? (v.nextServiceDueDate instanceof Date ? v.nextServiceDueDate.toISOString() : String(v.nextServiceDueDate)) : null,
+    connectDeviceId: v.connectDeviceId || null,
+    connectStatus: v.connectStatus || 'NOT_CONNECTED',
+    activeServiceRequest: activeServiceRequest ?? null,
+    createdAt: v.createdAt instanceof Date ? v.createdAt.toISOString() : String(v.createdAt),
+    updatedAt: v.updatedAt instanceof Date ? v.updatedAt.toISOString() : String(v.updatedAt),
+  };
+}
+
 export class PrismaServiceStore {
   constructor(
     private readonly db: PrismaClient,
@@ -768,40 +812,21 @@ export class PrismaServiceStore {
       },
     });
 
-    return vehicles.map(v => ({
-      id: v.id,
-      make: v.make,
-      model: v.model,
-      year: v.year,
-      variant: v.variant,
-      fuelType: v.fuelType,
-      transmission: v.transmission,
-      color: v.color,
-      registrationNumber: v.registrationNumber,
-      odometerKm: v.odometerKm,
-      vin: v.vin,
-      declaredOwnership: v.declaredOwnership,
-      photoUrls: v.photoUrls ? (typeof v.photoUrls === 'string' ? JSON.parse(v.photoUrls) : v.photoUrls) : [],
-      notes: v.notes,
-      isPreferred: v.isPreferred,
-      lastServiceDate: v.lastServiceDate ? v.lastServiceDate.toISOString() : null,
-      nextServiceDueKm: v.nextServiceDueKm,
-      nextServiceDueDate: v.nextServiceDueDate ? v.nextServiceDueDate.toISOString() : null,
-      connectDeviceId: v.connectDeviceId,
-      connectStatus: v.connectStatus,
-      activeServiceRequest: v.serviceRequests[0]
-        ? {
-            id: v.serviceRequests[0].id,
-            requestNumber: v.serviceRequests[0].requestNumber,
-            categoryKey: v.serviceRequests[0].categoryKey,
-            status: v.serviceRequests[0].status,
-            scheduledDate: v.serviceRequests[0].scheduledDate,
-            scheduledTimeSlot: v.serviceRequests[0].scheduledTimeSlot,
-          }
-        : null,
-      createdAt: v.createdAt.toISOString(),
-      updatedAt: v.updatedAt.toISOString(),
-    }));
+    return vehicles.map(v =>
+      formatCustomerVehicleRecord(
+        v,
+        v.serviceRequests[0]
+          ? {
+              id: v.serviceRequests[0].id,
+              requestNumber: v.serviceRequests[0].requestNumber,
+              categoryKey: v.serviceRequests[0].categoryKey,
+              status: v.serviceRequests[0].status,
+              scheduledDate: v.serviceRequests[0].scheduledDate,
+              scheduledTimeSlot: v.serviceRequests[0].scheduledTimeSlot,
+            }
+          : null
+      )
+    );
   }
 
   async getCustomerVehicle(firebaseUid: string, vehicleId: string) {
@@ -820,27 +845,7 @@ export class PrismaServiceStore {
     if (!vehicle) throw new HttpError(404, 'VEHICLE_NOT_FOUND');
 
     return {
-      id: vehicle.id,
-      make: vehicle.make,
-      model: vehicle.model,
-      year: vehicle.year,
-      variant: vehicle.variant,
-      fuelType: vehicle.fuelType,
-      transmission: vehicle.transmission,
-      color: vehicle.color,
-      registrationNumber: vehicle.registrationNumber,
-      odometerKm: vehicle.odometerKm,
-      vin: vehicle.vin,
-      declaredOwnership: vehicle.declaredOwnership,
-      photoUrls: vehicle.photoUrls ? (typeof vehicle.photoUrls === 'string' ? JSON.parse(vehicle.photoUrls) : vehicle.photoUrls) : [],
-      notes: vehicle.notes,
-      isPreferred: vehicle.isPreferred,
-      isArchived: vehicle.isArchived,
-      lastServiceDate: vehicle.lastServiceDate ? vehicle.lastServiceDate.toISOString() : null,
-      nextServiceDueKm: vehicle.nextServiceDueKm,
-      nextServiceDueDate: vehicle.nextServiceDueDate ? vehicle.nextServiceDueDate.toISOString() : null,
-      connectDeviceId: vehicle.connectDeviceId,
-      connectStatus: vehicle.connectStatus,
+      ...formatCustomerVehicleRecord(vehicle),
       serviceRequests: vehicle.serviceRequests.map(sr => ({
         id: sr.id,
         requestNumber: sr.requestNumber,
@@ -851,8 +856,6 @@ export class PrismaServiceStore {
         scheduledTimeSlot: sr.scheduledTimeSlot,
         createdAt: sr.createdAt.toISOString(),
       })),
-      createdAt: vehicle.createdAt.toISOString(),
-      updatedAt: vehicle.updatedAt.toISOString(),
     };
   }
 
@@ -887,7 +890,7 @@ export class PrismaServiceStore {
           odometerKm: input.odometerKm,
           vin: input.vin?.trim().toUpperCase(),
           declaredOwnership: input.declaredOwnership || 'OWNER',
-          photoUrls: input.photoUrls ? JSON.stringify(input.photoUrls) : Prisma.JsonNull,
+          photoUrls: input.photoUrls ? (Array.isArray(input.photoUrls) ? input.photoUrls : [input.photoUrls]) : Prisma.JsonNull,
           notes: input.notes?.trim(),
           isPreferred: shouldBePreferred,
           // Estimate next service: +10,000 km or 6 months if odometer provided
@@ -896,7 +899,7 @@ export class PrismaServiceStore {
         },
       });
 
-      return vehicle;
+      return formatCustomerVehicleRecord(vehicle);
     });
   }
 
@@ -926,7 +929,7 @@ export class PrismaServiceStore {
           odometerKm: input.odometerKm !== undefined ? input.odometerKm : undefined,
           vin: input.vin !== undefined ? input.vin?.trim().toUpperCase() : undefined,
           declaredOwnership: input.declaredOwnership !== undefined ? input.declaredOwnership : undefined,
-          photoUrls: input.photoUrls !== undefined ? (input.photoUrls ? JSON.stringify(input.photoUrls) : Prisma.JsonNull) : undefined,
+          photoUrls: input.photoUrls !== undefined ? (input.photoUrls ? (Array.isArray(input.photoUrls) ? input.photoUrls : [input.photoUrls]) : Prisma.JsonNull) : undefined,
           notes: input.notes !== undefined ? input.notes?.trim() : undefined,
           isPreferred: input.isPreferred !== undefined ? input.isPreferred : undefined,
           lastServiceDate: input.lastServiceDate ? new Date(input.lastServiceDate) : undefined,
@@ -935,7 +938,7 @@ export class PrismaServiceStore {
         },
       });
 
-      return updated;
+      return formatCustomerVehicleRecord(updated);
     });
   }
 

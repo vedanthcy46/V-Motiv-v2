@@ -40,7 +40,7 @@ export function apiBaseUrl() {
 export function resolveRequestUrl(path: string) {
   const base = apiBaseUrl();
   if (path.startsWith('/api/')) {
-    const origin = base.replace(/\/api\/v[0-9]+\/?$/, '');
+    const origin = base.replace(/\/api\/v[0-9]+\/?$/, '').replace(/\/api\/?$/, '');
     return `${origin}${path}`;
   }
   return `${base}${path.startsWith('/') ? path : `/${path}`}`;
