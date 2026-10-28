@@ -47,6 +47,68 @@ export interface DashboardMetrics {
   activeObligations: number;
   unappliedReceiptsPaise: string;
   totalExpensesPaise: string;
+  totalCashBankPaise?: string;
+  generatedAt?: string;
+}
+
+type FinanceDashboardResponse = {
+  sellerPayouts?: Partial<Pick<DashboardMetrics, 'readyForPreparation' | 'pendingApproval' | 'approved' | 'reconciliation' | 'exceptions'>>;
+  buyerCollections?: { activeObligations?: number; unverifiedReceipts?: number; unappliedReceiptsPaise?: string };
+  refunds?: { pendingRefunds?: number };
+  expenses?: { pendingExpenses?: number; totalExpensesPaise?: string };
+  totalCashBankPaise?: string;
+  generatedAt?: string;
+} & Partial<DashboardMetrics>;
+
+function normaliseDashboard(data: FinanceDashboardResponse): DashboardMetrics {
+  const payouts = data.sellerPayouts || {};
+  return {
+    readyForPreparation: data.readyForPreparation ?? payouts.readyForPreparation ?? 0,
+    pendingApproval: data.pendingApproval ?? payouts.pendingApproval ?? 0,
+    approved: data.approved ?? payouts.approved ?? 0,
+    reconciliation: data.reconciliation ?? payouts.reconciliation ?? 0,
+    exceptions: data.exceptions ?? payouts.exceptions ?? 0,
+    activeObligations: data.activeObligations ?? data.buyerCollections?.activeObligations ?? 0,
+    unappliedReceiptsPaise: data.unappliedReceiptsPaise ?? data.buyerCollections?.unappliedReceiptsPaise ?? '0',
+    totalExpensesPaise: data.totalExpensesPaise ?? data.expenses?.totalExpensesPaise ?? '0',
+    totalCashBankPaise: data.totalCashBankPaise ?? '0',
+    generatedAt: data.generatedAt,
+  };
+}
+
+function parseStatementFeed(rawText: string) {
+  const rows = rawText.trim().split(/\r?\n/).filter(Boolean);
+  if (rows.length < 2) throw new ApiError('STATEMENT_REQUIRES_HEADER_AND_ENTRY');
+  const parseRow = (line: string) => {
+    const values: string[] = [];
+    let cell = ''; let quote = false;
+    for (let i = 0; i < line.length; i += 1) {
+      const char = line[i];
+      if (char === '"') quote = !quote;
+      else if (char === ',' && !quote) { values.push(cell.trim()); cell = ''; }
+      else cell += char;
+    }
+    values.push(cell.trim());
+    return values;
+  };
+  const headers = parseRow(rows[0]).map(value => value.toLowerCase().replace(/[^a-z]/g, ''));
+  const index = (name: string) => headers.indexOf(name);
+  const dateIndex = index('date');
+  const narrationIndex = Math.max(index('narration'), index('description'));
+  if (dateIndex < 0 || narrationIndex < 0) throw new ApiError('STATEMENT_COLUMNS_DATE_AND_NARRATION_REQUIRED');
+  const numericPaise = (value: string) => String(Math.round((Number(value.replace(/,/g, '')) || 0) * 100));
+  const entries = rows.slice(1).map(line => {
+    const cells = parseRow(line);
+    return {
+      entryDate: cells[dateIndex],
+      description: cells[narrationIndex],
+      reference: index('ref') >= 0 ? cells[index('ref')] : index('reference') >= 0 ? cells[index('reference')] : undefined,
+      debitPaise: index('debit') >= 0 ? numericPaise(cells[index('debit')]) : '0',
+      creditPaise: index('credit') >= 0 ? numericPaise(cells[index('credit')]) : '0',
+    };
+  }).filter(entry => entry.entryDate && entry.description);
+  if (!entries.length) throw new ApiError('STATEMENT_HAS_NO_VALID_ENTRIES');
+  return entries;
 }
 
 export interface SettlementDocument {
@@ -110,6 +172,7 @@ export interface PayoutInstruction {
 export interface BuyerPaymentObligation {
   id: string;
   obligationNumber: string;
+  customerId?: string;
   buyerUserId: string;
   buyerName: string;
   buyerEmail?: string | null;
@@ -186,6 +249,7 @@ export interface RefundCase {
   approvedAt?: string | null;
   executedAt?: string | null;
   createdAt: string;
+  version?: number;
 }
 
 export interface Vendor {
@@ -378,7 +442,7 @@ export interface AuditLogEntry {
 
 export const financeApi = {
   me: (u: User) => call<FinanceActor>(u, '/me'),
-  dashboard: (u: User) => call<DashboardMetrics>(u, '/dashboard'),
+  dashboard: async (u: User) => normaliseDashboard(await call<FinanceDashboardResponse>(u, '/dashboard')),
 
   // Seller Settlements & Payouts
   settlements: (u: User) => call<SettlementCase[]>(u, '/seller-settlements'),
@@ -469,10 +533,13 @@ export const financeApi = {
   requestRefund: (u: User, body: {
     receiptId?: string;
     obligationId?: string;
+    customerId?: string;
     beneficiaryName: string;
     beneficiaryAccountMasked: string;
     reason: string;
-    refundAmountPaise: string;
+    refundAmountPaise?: string;
+    requestedAmountPaise?: string;
+    notes?: string;
   }) => call<RefundCase>(u, '/refunds', {
     method: 'POST',
     body: JSON.stringify(body),
@@ -556,14 +623,24 @@ export const financeApi = {
     companyBankAccountId: string;
     fileName: string;
     rawText: string;
-  }) => call<{ importId: string; entriesCount: number }>(u, '/bank-statements/import', {
+  }) => {
+    const entries = parseStatementFeed(body.rawText);
+    const dates = entries.map(entry => entry.entryDate).sort();
+    return call<{ importId: string; totalEntries: number; matchedEntries: number }>(u, '/bank-statements/import', {
     method: 'POST',
-    body: JSON.stringify(body),
-  }),
+      body: JSON.stringify({
+        companyBankAccountId: body.companyBankAccountId,
+        filename: body.fileName,
+        startDate: dates[0],
+        endDate: dates[dates.length - 1],
+        entries,
+      }),
+    });
+  },
   matchStatementEntry: (u: User, entryId: string, body: { matchedEntityType: string; matchedEntityId: string }) =>
     call<BankStatementEntry>(u, `/bank-statements/entries/${entryId}/match`, {
       method: 'POST',
-      body: JSON.stringify(body),
+      body: JSON.stringify({ kind: body.matchedEntityType, targetId: body.matchedEntityId }),
     }),
   exceptions: (u: User) => call<ReconciliationException[]>(u, '/reconciliation-exceptions'),
   resolveException: (u: User, exceptionId: string, body: { note: string }) =>

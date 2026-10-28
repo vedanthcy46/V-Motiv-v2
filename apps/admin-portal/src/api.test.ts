@@ -41,4 +41,15 @@ describe('Admin API client', () => {
     await adminApi.createExportJob(user, { resourceType: 'INVENTORY' });
     expect(fetch).toHaveBeenCalledWith(expect.stringContaining('/api/v2/admin/exports'), expect.objectContaining({ method: 'POST' }));
   });
+
+  it('forwards support queue filters without putting customer data in headers', async () => {
+    const fetch = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ page: 1, limit: 25, total: 0, items: [] }), { status: 200, headers: { 'Content-Type': 'application/json' } }));
+
+    await adminApi.supportCases(user, 2, 'OPEN', 'Case VM-100');
+
+    expect(fetch).toHaveBeenCalledWith(
+      expect.stringContaining('/api/v2/admin/support/cases?page=2&limit=25&status=OPEN&search=Case+VM-100'),
+      expect.objectContaining({ headers: expect.objectContaining({ Authorization: 'Bearer verified-token' }) }),
+    );
+  });
 });

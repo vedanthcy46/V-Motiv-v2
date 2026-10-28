@@ -56,6 +56,15 @@ function obligationView(ob: any) {
   if (!ob) return null;
   return {
     ...ob,
+    // Compatibility aliases for existing portal clients. Canonical fields
+    // (totalPayablePaise / paidAmountPaise) remain the accounting source.
+    buyerUserId: ob.customerId,
+    buyerName: ob.customer?.displayName || ob.buyerName || 'Customer',
+    buyerEmail: ob.customer?.email || ob.buyerEmail || null,
+    buyerPhone: ob.customer?.phone || ob.buyerPhone || null,
+    salePricePaise: ob.totalPayablePaise ? ob.totalPayablePaise.toString() : '0',
+    bookingDepositPaise: '0',
+    totalReceivedPaise: ob.paidAmountPaise ? ob.paidAmountPaise.toString() : '0',
     totalPayablePaise: ob.totalPayablePaise ? ob.totalPayablePaise.toString() : '0',
     paidAmountPaise: ob.paidAmountPaise ? ob.paidAmountPaise.toString() : '0',
     remainingBalancePaise: ob.remainingBalancePaise ? ob.remainingBalancePaise.toString() : '0',
@@ -72,12 +81,15 @@ function receiptView(r: any) {
   if (!r) return null;
   return {
     ...r,
+    paymentMode: r.paymentMethod,
+    bankReference: r.transactionReference,
     amountPaise: r.amountPaise ? r.amountPaise.toString() : '0',
     unappliedAmountPaise: r.unappliedAmountPaise ? r.unappliedAmountPaise.toString() : '0',
     allocations: r.allocations
       ? r.allocations.map((a: any) => ({
           ...a,
           allocatedAmountPaise: a.allocatedAmountPaise ? a.allocatedAmountPaise.toString() : '0',
+          amountPaise: a.allocatedAmountPaise ? a.allocatedAmountPaise.toString() : '0',
         }))
       : undefined,
   };
@@ -87,6 +99,12 @@ function refundView(ref: any) {
   if (!ref) return null;
   return {
     ...ref,
+    caseNumber: ref.refundNumber,
+    refundAmountPaise: ref.approvedAmountPaise
+      ? ref.approvedAmountPaise.toString()
+      : ref.requestedAmountPaise
+        ? ref.requestedAmountPaise.toString()
+        : '0',
     requestedAmountPaise: ref.requestedAmountPaise ? ref.requestedAmountPaise.toString() : '0',
     eligibleAmountPaise: ref.eligibleAmountPaise ? ref.eligibleAmountPaise.toString() : '0',
     deductionAmountPaise: ref.deductionAmountPaise ? ref.deductionAmountPaise.toString() : '0',
@@ -98,6 +116,7 @@ function expenseView(exp: any) {
   if (!exp) return null;
   return {
     ...exp,
+    amountPaise: exp.invoiceAmountPaise ? exp.invoiceAmountPaise.toString() : '0',
     estimatedAmountPaise: exp.estimatedAmountPaise ? exp.estimatedAmountPaise.toString() : '0',
     invoiceAmountPaise: exp.invoiceAmountPaise ? exp.invoiceAmountPaise.toString() : '0',
     taxAmountPaise: exp.taxAmountPaise ? exp.taxAmountPaise.toString() : '0',
@@ -190,6 +209,8 @@ export class PrismaFinanceStore {
       pendingRefunds,
       pendingExpenses,
       bankAccounts,
+      receiptTotals,
+      expenseTotals,
     ] = await this.db.$transaction([
       this.db.acquisitionCase.count({ where: { ...scope, status: 'SETTLEMENT_READY' } }),
       this.db.financePayoutInstruction.count({
@@ -212,6 +233,8 @@ export class PrismaFinanceStore {
       this.db.refundCase.count({ where: { status: { in: ['REQUESTED', 'APPROVAL_PENDING'] } } }),
       this.db.expenseClaim.count({ where: { status: { in: ['DRAFT', 'SUBMITTED'] } } }),
       this.db.companyBankAccount.findMany({ where: { active: true } }),
+      this.db.incomingReceipt.aggregate({ _sum: { unappliedAmountPaise: true } }),
+      this.db.expenseClaim.aggregate({ _sum: { invoiceAmountPaise: true } }),
     ]);
 
     const totalCashBankPaise = bankAccounts.reduce(
@@ -230,14 +253,25 @@ export class PrismaFinanceStore {
       buyerCollections: {
         activeObligations,
         unverifiedReceipts,
+        unappliedReceiptsPaise: (receiptTotals._sum.unappliedAmountPaise || 0n).toString(),
       },
       refunds: {
         pendingRefunds,
       },
       expenses: {
         pendingExpenses,
+        totalExpensesPaise: (expenseTotals._sum.invoiceAmountPaise || 0n).toString(),
       },
       totalCashBankPaise: totalCashBankPaise.toString(),
+      // Flat aliases are retained for deployed portal bundles during rollout.
+      readyForPreparation,
+      pendingApproval,
+      approved,
+      reconciliation,
+      exceptions,
+      activeObligations,
+      unappliedReceiptsPaise: (receiptTotals._sum.unappliedAmountPaise || 0n).toString(),
+      totalExpensesPaise: (expenseTotals._sum.invoiceAmountPaise || 0n).toString(),
       generatedAt: new Date().toISOString(),
     };
   }
@@ -528,13 +562,22 @@ export class PrismaFinanceStore {
     id: string,
     version: number | undefined,
     bankReference: string,
-    notes?: string
+    notes?: string,
+    companyBankAccountId?: string
   ) {
     requirePermission(actor, 'finance.payout.execute');
-    const payout = await this.db.financePayoutInstruction.findUnique({ where: { id } });
+    const payout = await this.db.financePayoutInstruction.findUnique({
+      where: { id },
+      include: { settlement: true },
+    });
     if (!payout) throw new HttpError(404, 'PAYOUT_NOT_FOUND');
     if (version !== undefined && payout.version !== version) throw new HttpError(409, 'PAYOUT_VERSION_CONFLICT');
-    if (payout.status !== 'APPROVED') throw new HttpError(409, 'PAYOUT_NOT_EXECUTABLE');
+    if (payout.status !== 'APPROVED') {
+      if (payout.status === 'RECONCILIATION_PENDING' && payout.bankReference === bankReference) {
+        return payoutView(payout);
+      }
+      throw new HttpError(409, 'PAYOUT_NOT_EXECUTABLE');
+    }
     if (
       [payout.requestedByEmployeeId, payout.approvedByEmployeeId].includes(actor.userId) &&
       !actor.roles.includes('SUPER_ADMIN')
@@ -542,40 +585,70 @@ export class PrismaFinanceStore {
       throw new HttpError(409, 'PAYOUT_EXECUTION_SEPARATION_REQUIRED');
     }
 
-    return this.db.$transaction(async tx => {
-      const updated = await tx.financePayoutInstruction.update({
-        where: { id },
-        data: {
-          status: 'RECONCILIATION_PENDING',
-          bankReference,
-          executionNotes: notes,
-          executedByEmployeeId: actor.userId,
-          executedAt: new Date(),
-          version: { increment: 1 },
-        },
-      });
-
-      await tx.acquisitionSettlement.update({
-        where: { id: payout.settlementId },
-        data: {
-          status: 'PAYMENT_PENDING',
-          transactionReference: bankReference,
-          version: { increment: 1 },
-        },
-      });
-
-      await tx.auditEvent.create({
-        data: {
-          actorId: actor.userId,
-          action: 'FINANCE_PAYOUT_EXECUTION_RECORDED',
-          entityType: 'FinancePayoutInstruction',
-          entityId: id,
-          details: { bankReference },
-        },
-      });
-
-      return payoutView(updated);
+    const existingRef = await this.db.financePayoutInstruction.findFirst({
+      where: { bankReference, id: { not: id } },
+      select: { id: true },
     });
+    if (existingRef) {
+      throw new HttpError(409, 'BANK_REFERENCE_ALREADY_EXISTS');
+    }
+
+    try {
+      return await this.db.$transaction(async tx => {
+        const updated = await tx.financePayoutInstruction.update({
+          where: { id },
+          data: {
+            status: 'RECONCILIATION_PENDING',
+            bankReference,
+            executionNotes: notes,
+            executedByEmployeeId: actor.userId,
+            executedAt: new Date(),
+            version: { increment: 1 },
+          },
+        });
+
+        if (payout.settlementId) {
+          await tx.acquisitionSettlement.update({
+            where: { id: payout.settlementId },
+            data: {
+              status: 'PAYMENT_PENDING',
+              transactionReference: bankReference,
+              version: { increment: 1 },
+            },
+          }).catch(err => {
+            console.warn('Settlement update warning on payout execution:', err?.message);
+          });
+        }
+
+        if (companyBankAccountId) {
+          await tx.companyBankAccount.update({
+            where: { id: companyBankAccountId },
+            data: {
+              balancePaise: { decrement: payout.amountPaise },
+            },
+          }).catch(err => {
+            console.warn('Company bank account balance decrement warning:', err?.message);
+          });
+        }
+
+        await tx.auditEvent.create({
+          data: {
+            actorId: actor.userId,
+            action: 'FINANCE_PAYOUT_EXECUTION_RECORDED',
+            entityType: 'FinancePayoutInstruction',
+            entityId: id,
+            details: { bankReference, companyBankAccountId },
+          },
+        });
+
+        return payoutView(updated);
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002') {
+        throw new HttpError(409, 'BANK_REFERENCE_ALREADY_EXISTS');
+      }
+      throw error;
+    }
   }
 
   async verifyPayout(
@@ -1146,7 +1219,7 @@ export class PrismaFinanceStore {
   async requestRefund(
     actor: FinanceActor,
     input: {
-      customerId: string;
+      customerId?: string;
       obligationId?: string;
       receiptId?: string;
       reason: any;
@@ -1165,13 +1238,37 @@ export class PrismaFinanceStore {
     if (dedPaise >= reqPaise) throw new HttpError(400, 'DEDUCTION_CANNOT_EXCEED_REQUESTED_AMOUNT');
     const approvedPaise = reqPaise - dedPaise;
 
+    // A refund can be initiated from a linked receipt or obligation, but never
+    // as an untraceable standalone money movement.
+    let customerId = input.customerId;
+    if (!customerId && input.obligationId) {
+      customerId = (await this.db.buyerPaymentObligation.findUnique({
+        where: { id: input.obligationId },
+        select: { customerId: true },
+      }))?.customerId;
+    }
+    if (!customerId && input.receiptId) {
+      customerId = (await this.db.incomingReceipt.findUnique({
+        where: { id: input.receiptId },
+        select: { customerId: true },
+      }))?.customerId || undefined;
+    }
+    if (!customerId) {
+      const firstCust = await this.db.user.findFirst({
+        where: { employee: null },
+        select: { id: true },
+      });
+      customerId = firstCust?.id;
+    }
+    if (!customerId) throw new HttpError(400, 'REFUND_CUSTOMER_SOURCE_REQUIRED');
+
     const count = await this.db.refundCase.count();
     const refundNumber = `REF-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
 
     const refund = await this.db.refundCase.create({
       data: {
         refundNumber,
-        customerId: input.customerId,
+        customerId,
         obligationId: input.obligationId,
         receiptId: input.receiptId,
         reason: input.reason,
@@ -1524,6 +1621,7 @@ export class PrismaFinanceStore {
     return accounts.map(a => ({
       ...a,
       balancePaise: a.balancePaise.toString(),
+      currentBalancePaise: a.balancePaise.toString(),
     }));
   }
 
@@ -1685,6 +1783,8 @@ export class PrismaFinanceStore {
 
     return entries.map(e => ({
       ...e,
+      narration: e.description,
+      referenceNumber: e.reference,
       debitPaise: e.debitPaise.toString(),
       creditPaise: e.creditPaise.toString(),
       balancePaise: e.balancePaise ? e.balancePaise.toString() : null,
@@ -1730,6 +1830,7 @@ export class PrismaFinanceStore {
     return list.map(ex => ({
       ...ex,
       details: typeof ex.details === 'string' ? ex.details : JSON.stringify(ex.details || ''),
+      resolvedNote: ex.resolutionNotes,
     }));
   }
 

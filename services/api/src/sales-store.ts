@@ -131,7 +131,7 @@ export interface SalesStore {
   inventoryItem(actor: SalesActor, id: string): Promise<unknown>;
 
   // Test Drives
-  testDrives(actor: SalesActor, query: { page: number; limit: number; status?: TestDriveStatus }): Promise<unknown>;
+  testDrives(actor: SalesActor, query: { page: number; limit: number; status?: TestDriveStatus; search?: string }): Promise<unknown>;
   requestTestDrive(actor: SalesActor, input: {
     listingId: string;
     customerId: string;
@@ -1584,10 +1584,17 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
     return item;
   }
 
-  async testDrives(actor: SalesActor, query: { page: number; limit: number; status?: TestDriveStatus }) {
+  async testDrives(actor: SalesActor, query: { page: number; limit: number; status?: TestDriveStatus; search?: string }) {
     const where: Prisma.TestDriveRequestWhereInput = {
       ...(actor.globalScope ? {} : { serviceCity: { in: actor.branches.map(branch => branch.city), mode: 'insensitive' } }),
       ...(query.status ? { status: query.status } : {}),
+      ...(query.search ? {
+        OR: [
+          { user: { displayName: { contains: query.search, mode: 'insensitive' } } },
+          { user: { email: { contains: query.search, mode: 'insensitive' } } },
+          { listing: { title: { contains: query.search, mode: 'insensitive' } } },
+        ],
+      } : {}),
     };
     if (!actor.globalScope && !actor.branches.length) throw new HttpError(403, 'SALES_BRANCH_SCOPE_REQUIRED');
     const [items, total] = await this.db.$transaction([
@@ -1629,6 +1636,15 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
       include: { vehicle: true },
     });
     if (!listing) throw new HttpError(404, 'LISTING_NOT_AVAILABLE');
+    const customer = await this.db.user.findUnique({ where: { id: input.customerId }, select: { id: true, status: true } });
+    if (!customer || customer.status !== 'ACTIVE') throw new HttpError(404, 'CUSTOMER_NOT_FOUND');
+    if (input.enquiryId) {
+      const enquiry = await this.db.purchaseEnquiry.findFirst({
+        where: { id: input.enquiryId, userId: input.customerId, listingId: input.listingId },
+        select: { id: true },
+      });
+      if (!enquiry) throw new HttpError(409, 'TEST_DRIVE_ENQUIRY_MISMATCH');
+    }
 
     return this.db.$transaction(async tx => {
       if (input.enquiryId) { await tx.purchaseEnquiry.updateMany({ where: { id: input.enquiryId, status: { in: ['RECEIVED', 'IN_REVIEW'] } }, data: { status: 'CONTACTED' } }); }
@@ -1658,8 +1674,21 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
   }
 
   async updateTestDriveStatus(actor: SalesActor, id: string, input: { status: TestDriveStatus; customerNotes?: string }) {
-    const td = await this.db.testDriveRequest.findUnique({ where: { id } });
+    const td = await this.db.testDriveRequest.findFirst({
+      where: {
+        id,
+        ...(actor.globalScope ? {} : { serviceCity: { in: actor.branches.map(branch => branch.city), mode: 'insensitive' } }),
+      },
+    });
     if (!td) throw new HttpError(404, 'TEST_DRIVE_NOT_FOUND');
+    const allowedTransitions: Partial<Record<TestDriveStatus, TestDriveStatus[]>> = {
+      REQUESTED: ['CONFIRMED', 'CANCELLED'],
+      CONFIRMED: ['COMPLETED', 'CANCELLED', 'NO_SHOW'],
+    };
+    if (td.status === input.status) return td;
+    if (!allowedTransitions[td.status]?.includes(input.status)) {
+      throw new HttpError(409, 'TEST_DRIVE_STATUS_TRANSITION_NOT_ALLOWED');
+    }
 
     return this.db.$transaction(async tx => {
       const updated = await tx.testDriveRequest.update({

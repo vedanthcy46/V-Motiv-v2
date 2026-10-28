@@ -32,7 +32,7 @@ const executeInput = z.object({
   version: z.number().int().positive().optional(),
   bankReference: z.string().trim().min(1).max(160),
   notes: z.string().trim().max(2000).optional(),
-  companyBankAccountId: uuid.optional(),
+  companyBankAccountId: uuid.or(z.literal('')).optional().transform(v => v || undefined),
 });
 
 const verifyInput = z.object({
@@ -87,17 +87,28 @@ const allocateReceiptInput = z.object({
 });
 
 const requestRefundInput = z.object({
-  customerId: uuid,
-  obligationId: uuid.optional(),
-  receiptId: uuid.optional(),
-  reason: z.enum(['CANCELLED_RESERVATION', 'CANCELLED_SALE', 'DUPLICATE_PAYMENT', 'EXCESS_COLLECTION', 'DISPUTE_RESOLUTION', 'CONTRACTUAL_ADJUSTMENT']),
-  notes: z.string().trim().min(5).max(2000),
-  requestedAmountPaise: z.union([z.string(), z.number()]),
+  customerId: uuid.or(z.literal('')).optional().transform(v => v || undefined),
+  obligationId: uuid.or(z.literal('')).optional().transform(v => v || undefined),
+  receiptId: uuid.or(z.literal('')).optional().transform(v => v || undefined),
+  reason: z.string().trim().transform(reason => ({
+    BOOKING_CANCELLATION: 'CANCELLED_RESERVATION',
+    EXCESS_PAYMENT: 'EXCESS_COLLECTION',
+    LOAN_REJECTION: 'CANCELLED_SALE',
+    VEHICLE_UNAVAILABLE: 'CONTRACTUAL_ADJUSTMENT',
+  }[reason] || reason) as any).pipe(z.enum(['CANCELLED_RESERVATION', 'CANCELLED_SALE', 'DUPLICATE_PAYMENT', 'EXCESS_COLLECTION', 'DISPUTE_RESOLUTION', 'CONTRACTUAL_ADJUSTMENT'])),
+  notes: z.string().trim().max(2000).optional().transform(v => (v && v.length >= 5 ? v : undefined)),
+  requestedAmountPaise: z.union([z.string(), z.number()]).optional(),
+  refundAmountPaise: z.union([z.string(), z.number()]).optional(),
+  amountPaise: z.union([z.string(), z.number()]).optional(),
   deductionAmountPaise: z.union([z.string(), z.number()]).optional(),
   beneficiaryName: z.string().trim().min(2).max(160),
   beneficiaryAccountMasked: z.string().trim().min(4).max(80).regex(/^[A-Za-z0-9* -]+$/),
   paymentMethod: z.enum(['MANUAL_BANK_TRANSFER', 'NEFT', 'RTGS', 'IMPS', 'UPI', 'PAYMENT_GATEWAY']).optional(),
-}).strict();
+}).strict().transform(input => ({
+  ...input,
+  requestedAmountPaise: input.requestedAmountPaise || input.refundAmountPaise || input.amountPaise,
+  notes: input.notes || 'Refund requested through the Finance Control Centre.',
+}));
 
 const createVendorInput = z.object({
   name: z.string().trim().min(2).max(160),
@@ -321,7 +332,8 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
           uuid.parse(req.params.id),
           input.version,
           input.bankReference,
-          input.notes
+          input.notes,
+          input.companyBankAccountId
         )
       );
     } catch (error) {
@@ -482,6 +494,7 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
   router.post('/refunds', async (req, res, next) => {
     try {
       const input = requestRefundInput.parse(req.body);
+      if (!input.requestedAmountPaise) throw new Error('REFUND_AMOUNT_REQUIRED');
       res.status(201).json(await deps.store.requestRefund(res.locals.financeActor, input as any));
     } catch (error) {
       next(error);

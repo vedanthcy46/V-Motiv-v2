@@ -505,4 +505,31 @@ describe('Sales Executive Portal API Boundaries', () => {
     expect(offerRes.status).toBe(200);
     expect(sales.acquisitionOffers).toHaveBeenCalled();
   });
+
+  it('passes a test-drive search term through to the scoped Sales store', async () => {
+    const { app, sales } = setup();
+    const res = await request(app)
+      .get('/api/v2/sales/test-drives?search=Honda&status=REQUESTED')
+      .set('Authorization', 'Bearer valid-firebase-token');
+
+    expect(res.status).toBe(200);
+    expect(sales.testDrives).toHaveBeenCalledWith(actor, expect.objectContaining({
+      search: 'Honda',
+      status: 'REQUESTED',
+    }));
+  });
+
+  it('rejects a test-drive appointment scheduled in the past', async () => {
+    const { app } = setup();
+    const res = await request(app)
+      .post('/api/v2/sales/test-drives')
+      .set('Authorization', 'Bearer valid-firebase-token')
+      .send({
+        listingId: '55555555-5555-4555-8555-555555555555',
+        customerId: '99999999-9999-4999-8999-999999999999',
+        requestedDate: '2020-01-01',
+        timeSlot: '10:00 AM - 12:00 PM',
+      });
+    expect(res.status).toBe(400);
+  });
 });

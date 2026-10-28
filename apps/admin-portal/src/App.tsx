@@ -59,6 +59,7 @@ const iconPaths: Record<string, ReactNode> = {
   masterdata: <><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></>,
   communications: <><rect width="20" height="16" x="2" y="4" rx="2"/><path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7"/></>,
   reports: <><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></>,
+  bell: <><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 21h4"/></>,
   download: <><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></>,
   audit: <><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></>,
   menu: <><path d="M4 6h16M4 12h16M4 18h16"/></>,
@@ -93,6 +94,7 @@ function errorMessage(error: unknown) {
     APPROVAL_NOT_PENDING: 'This request is no longer awaiting a decision.',
     APPROVAL_VERSION_MISMATCH: 'This request was updated by another administrator. Please refresh.',
     APPROVAL_EXPIRED: 'This approval request has expired.',
+    PRIVACY_REQUEST_NOT_FOUND: 'This privacy request is no longer available. Refresh the queue and try again.',
   };
   return messages[error.code] || `The server rejected this request (${error.code}).`;
 }
@@ -806,15 +808,16 @@ function NotificationBell({ user }: { user: User }) {
   const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [items, setItems] = useState<any[]>([]);
+  const [notificationError, setNotificationError] = useState('');
 
   const loadNotifs = useCallback(() => {
     adminApi.unreadNotificationsCount(user)
       .then(res => setUnreadCount(res.count))
-      .catch(() => {});
+      .catch(error => setNotificationError(errorMessage(error)));
     if (open) {
       adminApi.notifications(user, 1)
-        .then(res => setItems(res.items))
-        .catch(() => {});
+        .then(res => { setItems(res.items); setNotificationError(''); })
+        .catch(error => setNotificationError(errorMessage(error)));
     }
   }, [user, open]);
 
@@ -829,7 +832,9 @@ function NotificationBell({ user }: { user: User }) {
       await adminApi.markAllNotificationsRead(user);
       setItems(prev => prev.map(i => ({ ...i, read: true })));
       setUnreadCount(0);
-    } catch {}
+    } catch (error) {
+      setNotificationError(errorMessage(error));
+    }
   };
 
   const markRead = async (id: string) => {
@@ -837,7 +842,9 @@ function NotificationBell({ user }: { user: User }) {
       await adminApi.markNotificationRead(user, id);
       setItems(prev => prev.map(i => i.id === id ? { ...i, read: true } : i));
       setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch {}
+    } catch (error) {
+      setNotificationError(errorMessage(error));
+    }
   };
 
   return (
@@ -849,7 +856,7 @@ function NotificationBell({ user }: { user: User }) {
         onClick={() => { setOpen(!open); }}
         title="Notifications"
       >
-        <span style={{ fontSize: '16px' }}>🔔</span>
+        <Icon name="bell" />
         {unreadCount > 0 && (
           <span style={{ position: 'absolute', top: '-2px', right: '-2px', background: 'var(--red, #EF4444)', color: '#fff', borderRadius: '10px', fontSize: '10px', fontWeight: 800, padding: '1px 5px' }}>
             {unreadCount > 9 ? '9+' : unreadCount}
@@ -867,6 +874,11 @@ function NotificationBell({ user }: { user: User }) {
               </button>
             )}
           </div>
+          {notificationError && (
+            <div className="alert error" role="alert" style={{ marginBottom: '8px', fontSize: '12px' }}>
+              {notificationError} <button type="button" className="text-button" onClick={loadNotifs}>Retry</button>
+            </div>
+          )}
           {items.length === 0 ? (
             <p style={{ color: 'var(--muted, #8899A6)', fontSize: '12px', textAlign: 'center', padding: '16px 0' }}>No notifications</p>
           ) : (
@@ -2076,6 +2088,10 @@ function RequestExportDialog({ user, onClose, onDone }: { user: User; onClose: (
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if ((status === 'COMPLETED' || status === 'REJECTED') && !resolution.trim()) {
+      setError('Record a resolution note before completing or rejecting this privacy request.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -2161,6 +2177,7 @@ function SupportPage({ user, actor }: { user: User; actor: AdminActor }) {
   const [data, setData] = useState<SupportCasePage | null>(null);
   const [privacyData, setPrivacyData] = useState<PrivacyRequestPage | null>(null);
   const [status, setStatus] = useState('');
+  const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
   const [selectedCase, setSelectedCase] = useState<SupportCase | null>(null);
   const [selectedPrivacy, setSelectedPrivacy] = useState<PrivacyRequest | null>(null);
@@ -2170,7 +2187,7 @@ function SupportPage({ user, actor }: { user: User; actor: AdminActor }) {
   useEffect(() => {
     setError('');
     if (tab === 'cases') {
-      adminApi.supportCases(user, page, status || undefined)
+      adminApi.supportCases(user, page, status || undefined, search.trim() || undefined)
         .then(setData)
         .catch(err => setError(errorMessage(err)));
     } else {
@@ -2178,7 +2195,7 @@ function SupportPage({ user, actor }: { user: User; actor: AdminActor }) {
         .then(setPrivacyData)
         .catch(err => setError(errorMessage(err)));
     }
-  }, [user, tab, page, status, reload]);
+  }, [user, tab, page, status, search, reload]);
 
   return (
     <>
@@ -2199,6 +2216,10 @@ function SupportPage({ user, actor }: { user: User; actor: AdminActor }) {
       {tab === 'cases' && (
         <>
           <section className="panel filters">
+            <label>
+              Find case
+              <input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Reference, subject, customer or email" maxLength={120} />
+            </label>
             <label>
               Status
               <select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}>
@@ -2411,12 +2432,13 @@ function PrivacyRequestDialog({ user, request, onClose, onDone }: { user: User; 
             </select>
           </label>
           <label>
-            Resolution Note
+            Resolution Note {(status === 'COMPLETED' || status === 'REJECTED') && <span aria-hidden="true">*</span>}
             <textarea
               name="resolution"
               value={resolution}
               onChange={e => setResolution(e.target.value)}
               maxLength={1000}
+              required={status === 'COMPLETED' || status === 'REJECTED'}
               placeholder="Record the actions taken to satisfy or reject this privacy request."
             />
           </label>

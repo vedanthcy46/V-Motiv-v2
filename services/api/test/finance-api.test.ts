@@ -319,6 +319,38 @@ describe('Finance Portal Engine & REST API', () => {
     expect(financeStore.allocateReceipt).toHaveBeenCalled();
   });
 
+  it('normalizes the Finance Portal refund form while preserving a linked customer-payment source', async () => {
+    const requestRefund = vi.fn().mockResolvedValue({
+      id: 'refund-1',
+      refundNumber: 'REF-2026-0001',
+      status: 'APPROVAL_PENDING',
+      requestedAmountPaise: '250000',
+    });
+    const { app } = setupFinanceApp(officerActor, { requestRefund } as any);
+
+    const res = await request(app)
+      .post('/api/v2/finance/refunds')
+      .set('Authorization', 'Bearer valid-officer-token')
+      .send({
+        obligationId: OBLIGATION_ID,
+        beneficiaryName: 'Rahul Verma',
+        beneficiaryAccountMasked: 'XXXX 4321',
+        refundAmountPaise: '250000',
+        reason: 'BOOKING_CANCELLATION',
+        notes: 'The booking was cancelled before delivery.',
+      });
+
+    expect(res.status).toBe(201);
+    expect(requestRefund).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        obligationId: OBLIGATION_ID,
+        requestedAmountPaise: '250000',
+        reason: 'CANCELLED_RESERVATION',
+      })
+    );
+  });
+
   it('enforces balanced double-entry accounting: rejects unbalanced journal entry', async () => {
     const { app } = setupFinanceApp(officerActor);
 
@@ -338,6 +370,31 @@ describe('Finance Portal Engine & REST API', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.code).toBe('UNBALANCED_JOURNAL_ENTRY_DEBITS_MUST_EQUAL_CREDITS');
+  });
+
+  it('executes payout instruction and accepts optional company bank account and notes', async () => {
+    const { app, financeStore } = setupFinanceApp(approverActor);
+
+    const res = await request(app)
+      .post(`/api/v2/finance/payout-instructions/${PAYOUT_ID}/execute`)
+      .set('Authorization', 'Bearer approver-token')
+      .send({
+        version: 1,
+        bankReference: 'UTR-987654321',
+        companyBankAccountId: '',
+        notes: 'Disbursed via HDFC portal',
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.bankReference).toBe('UTR-123456');
+    expect(financeStore.executePayout).toHaveBeenCalledWith(
+      expect.anything(),
+      PAYOUT_ID,
+      1,
+      'UTR-987654321',
+      'Disbursed via HDFC portal',
+      undefined
+    );
   });
 
   it('computes unit-level vehicle profitability comparing acquisition, refurbishment and realized sale', async () => {

@@ -124,6 +124,7 @@ const inventoryQuery = pagination.extend({
 }).strip();
 
 const testDriveQuery = pagination.extend({
+  search: z.string().trim().max(80).optional(),
   status: z.preprocess(v => {
     if (typeof v === 'string' && ['REQUESTED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW'].includes(v)) return v;
     return undefined;
@@ -139,7 +140,11 @@ const createTestDriveInput = z.object({
   locationPreference: z.enum(['HUB', 'HOME']).optional(),
   serviceCity: z.string().trim().max(80).optional(),
   customerNotes: z.string().trim().max(500).optional(),
-}).strict();
+}).strict().superRefine((value, ctx) => {
+  if (value.requestedDate && value.requestedDate < new Date(new Date().toISOString().slice(0, 10))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, path: ['requestedDate'], message: 'Test drives cannot be scheduled in the past.' });
+  }
+});
 
 const updateTestDriveInput = z.object({
   status: z.enum(['REQUESTED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),

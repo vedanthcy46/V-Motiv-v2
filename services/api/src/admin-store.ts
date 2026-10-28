@@ -996,7 +996,11 @@ export class PrismaAdminStore implements AdminStore {
 
   async privacyRequests(actor: AdminActor, query: PrivacyRequestListQuery) {
     requirePermission(actor, 'privacy.request.manage');
-    const where: Prisma.PrivacyRequestWhereInput = query.status ? { status: query.status } : {};
+    const cities = actor.branches.map(branch => branch.city);
+    const where: Prisma.PrivacyRequestWhereInput = {
+      ...(actor.roles.includes('SUPER_ADMIN') ? {} : { user: { preferredCity: { in: cities } } }),
+      ...(query.status ? { status: query.status } : {}),
+    };
     const [total, items] = await this.db.$transaction([
       this.db.privacyRequest.count({ where }),
       this.db.privacyRequest.findMany({
@@ -1014,19 +1018,28 @@ export class PrismaAdminStore implements AdminStore {
 
   async updatePrivacyRequest(actor: AdminActor, id: string, status: string, resolution?: string) {
     requirePermission(actor, 'privacy.request.manage');
+    const request = await this.db.privacyRequest.findUnique({
+      where: { id },
+      include: { user: { select: { preferredCity: true } } },
+    });
+    if (!request) throw new HttpError(404, 'PRIVACY_REQUEST_NOT_FOUND');
+    if (!actor.roles.includes('SUPER_ADMIN') && (!request.user.preferredCity || !actor.branches.some(branch => branch.city === request.user.preferredCity))) {
+      throw new HttpError(403, 'BRANCH_SCOPE_DENIED');
+    }
+    const resolved = status === 'COMPLETED' || status === 'REJECTED';
     const updated = await this.db.privacyRequest.update({
       where: { id },
       data: {
         status,
-        resolution: resolution?.trim(),
-        resolvedAt: new Date(),
-        resolvedById: actor.userId,
+        resolution: resolution?.trim() || null,
+        resolvedAt: resolved ? new Date() : null,
+        resolvedById: resolved ? actor.userId : null,
       },
     });
     await this.db.auditEvent.create({
       data: {
         actorId: actor.userId,
-        action: 'PRIVACY_REQUEST_RESOLVED',
+        action: resolved ? 'PRIVACY_REQUEST_RESOLVED' : 'PRIVACY_REQUEST_STATUS_CHANGED',
         entityType: 'PrivacyRequest',
         entityId: id,
         details: { status, resolution },

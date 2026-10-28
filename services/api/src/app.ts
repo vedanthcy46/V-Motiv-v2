@@ -493,9 +493,29 @@ export function createApp(deps: {
       return;
     }
 
-    if (error instanceof ZodError) {
-      console.error('INVALID_INPUT_ISSUES', JSON.stringify(error.issues.map(e => ({ path: e.path, message: e.message }))));
-      res.status(400).json({ code: 'INVALID_INPUT', issues: error.issues });
+    if (error instanceof ZodError || (error as any)?.name === 'ZodError') {
+      const issues = (error as any).issues || [];
+      console.error('INVALID_INPUT_ISSUES', JSON.stringify(issues.map((e: any) => ({ path: e.path, message: e.message }))));
+      res.status(400).json({ code: 'INVALID_INPUT', issues });
+      return;
+    }
+
+    if ((error as any)?.code === 'P2002') {
+      const target = (error as any)?.meta?.target;
+      const targetStr = Array.isArray(target) ? target.join(', ') : target ? String(target) : 'identifier';
+      const isBankRef = targetStr.toLowerCase().includes('bankreference');
+      res.status(409).json({
+        code: isBankRef ? 'BANK_REFERENCE_ALREADY_EXISTS' : 'RESOURCE_CONFLICT',
+        message: `A record with this ${targetStr} already exists.`,
+      });
+      return;
+    }
+
+    if ((error as any)?.code === 'P2025') {
+      res.status(404).json({
+        code: 'RESOURCE_NOT_FOUND',
+        message: 'The requested resource was not found.',
+      });
       return;
     }
 

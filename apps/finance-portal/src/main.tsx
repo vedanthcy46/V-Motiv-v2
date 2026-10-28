@@ -163,6 +163,14 @@ const errorMessage = (error: unknown): string => {
       BRANCH_SCOPE_DENIED: 'This record is outside your assigned branch scope.',
       CONCURRENT_MODIFICATION: 'This record was modified by another user. Please refresh and try again.',
       ALREADY_PROCESSED: 'This instruction has already been executed or cancelled.',
+      PAYOUT_EXECUTION_SEPARATION_REQUIRED: 'Maker-checker policy: the officer who requested or approved this payout cannot execute the transfer.',
+      PAYOUT_NOT_EXECUTABLE: 'This payout instruction is not in an executable (Approved) state.',
+      BANK_REFERENCE_ALREADY_EXISTS: 'This bank transfer reference/UTR is already recorded in the system.',
+      REFUND_CUSTOMER_SOURCE_REQUIRED: 'A customer obligation or receipt must be selected to originate this refund.',
+      REFUND_NOT_EXECUTABLE: 'This refund is not in an approved, executable state.',
+      REFUND_SELF_APPROVAL_DENIED: 'Maker-checker policy: the officer who requested this refund cannot approve it.',
+      INVALID_INPUT: 'One or more required fields are invalid or missing.',
+      RESOURCE_CONFLICT: 'A record with this identifier or reference already exists.',
     };
     return messages[error.code] || `Error: ${text(error.code)}`;
   }
@@ -222,6 +230,13 @@ function App() {
 
   const loadFinanceData = async (currentUser: User) => {
     try {
+      const unavailable: string[] = [];
+      const load = <T,>(label: string, request: Promise<T>, fallback: T) =>
+        request.catch(loadError => {
+          console.warn(`[FINANCE PORTAL] ${label} unavailable`, loadError);
+          unavailable.push(label);
+          return fallback;
+        });
       const [
         dash,
         settle,
@@ -240,22 +255,22 @@ function App() {
         prof,
         logs,
       ] = await Promise.all([
-        financeApi.dashboard(currentUser).catch(() => null),
-        financeApi.settlements(currentUser).catch(() => []),
-        financeApi.obligations(currentUser).catch(() => []),
-        financeApi.receipts(currentUser).catch(() => []),
-        financeApi.refunds(currentUser).catch(() => []),
-        financeApi.expenses(currentUser).catch(() => []),
-        financeApi.vendors(currentUser).catch(() => []),
-        financeApi.bankAccounts(currentUser).catch(() => []),
-        financeApi.bankStatements(currentUser).catch(() => []),
-        financeApi.exceptions(currentUser).catch(() => []),
-        financeApi.chartOfAccounts(currentUser).catch(() => []),
-        financeApi.accountingPeriods(currentUser).catch(() => []),
-        financeApi.journals(currentUser).catch(() => []),
-        financeApi.invoices(currentUser).catch(() => []),
-        financeApi.profitability(currentUser).catch(() => []),
-        financeApi.auditTrail(currentUser).catch(() => []),
+        load('Treasury overview', financeApi.dashboard(currentUser), null),
+        load('Seller settlements', financeApi.settlements(currentUser), []),
+        load('Buyer collections', financeApi.obligations(currentUser), []),
+        load('Incoming receipts', financeApi.receipts(currentUser), []),
+        load('Refunds', financeApi.refunds(currentUser), []),
+        load('Vehicle expenses', financeApi.expenses(currentUser), []),
+        load('Vendors', financeApi.vendors(currentUser), []),
+        load('Bank accounts', financeApi.bankAccounts(currentUser), []),
+        load('Bank statements', financeApi.bankStatements(currentUser), []),
+        load('Reconciliation exceptions', financeApi.exceptions(currentUser), []),
+        load('Chart of accounts', financeApi.chartOfAccounts(currentUser), []),
+        load('Accounting periods', financeApi.accountingPeriods(currentUser), []),
+        load('Journal entries', financeApi.journals(currentUser), []),
+        load('Tax invoices', financeApi.invoices(currentUser), []),
+        load('Unit profitability', financeApi.profitability(currentUser), []),
+        load('Audit trail', financeApi.auditTrail(currentUser), []),
       ]);
 
       if (dash) setDashboard(dash);
@@ -274,6 +289,9 @@ function App() {
       setInvoices(invs);
       setProfitability(prof);
       setAuditTrail(logs);
+      setError(unavailable.length
+        ? `${unavailable.join(', ')} could not be loaded. Confirm the assigned finance permissions, then refresh.`
+        : '');
     } catch (e: any) {
       setError(errorMessage(e));
     }
@@ -2263,12 +2281,13 @@ function PayoutManageDialog({
   const execute = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const bankAccountId = String(fd.get('companyBankAccountId') || '').trim();
     onAction(() =>
       financeApi.executePayout(user, payout!.id, {
         version: payout!.version,
-        bankReference: String(fd.get('bankReference')),
-        companyBankAccountId: String(fd.get('companyBankAccountId') || ''),
-        notes: String(fd.get('notes') || 'Controlled transfer executed via corporate netbanking.'),
+        bankReference: String(fd.get('bankReference')).trim(),
+        companyBankAccountId: bankAccountId || undefined,
+        notes: String(fd.get('notes') || '').trim() || 'Controlled transfer executed via corporate netbanking.',
       })
     );
   };
@@ -2895,15 +2914,21 @@ function RequestRefundDialog({
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const amountPaise = BigInt(Math.round(Number(fd.get('amountRupees')) * 100)).toString();
+    const obligationId = String(fd.get('obligationId') || '') || undefined;
+    const selectedObligation = obligations.find(o => o.id === obligationId);
+    const rawNotes = String(fd.get('notes') || '').trim();
 
     onAction(() =>
       financeApi.requestRefund(user, {
-        beneficiaryName: String(fd.get('beneficiaryName')),
-        beneficiaryAccountMasked: String(fd.get('beneficiaryAccountMasked')),
+        beneficiaryName: String(fd.get('beneficiaryName')).trim(),
+        beneficiaryAccountMasked: String(fd.get('beneficiaryAccountMasked')).trim(),
         reason: String(fd.get('reason')),
         refundAmountPaise: amountPaise,
+        requestedAmountPaise: amountPaise,
+        customerId: selectedObligation?.customerId || selectedObligation?.buyerUserId,
         receiptId: String(fd.get('receiptId') || '') || undefined,
-        obligationId: String(fd.get('obligationId') || '') || undefined,
+        obligationId,
+        notes: rawNotes.length >= 5 ? rawNotes : 'Customer refund requested via finance portal.',
       })
     );
   };
@@ -2942,11 +2967,33 @@ function RequestRefundDialog({
             <label>
               Refund Reason
               <select name="reason">
-                <option value="BOOKING_CANCELLATION">Booking Cancellation</option>
+                <option value="BOOKING_CANCELLATION">Booking Cancellation / Reservation Retracted</option>
                 <option value="EXCESS_PAYMENT">Excess Payment Received</option>
                 <option value="LOAN_REJECTION">Customer Loan Rejection</option>
-                <option value="VEHICLE_UNAVAILABLE">Vehicle Quality Failure</option>
+                <option value="VEHICLE_UNAVAILABLE">Vehicle Quality Failure / Contractual Adjustment</option>
+                <option value="DUPLICATE_PAYMENT">Duplicate Payment</option>
+                <option value="DISPUTE_RESOLUTION">Dispute Resolution</option>
               </select>
+            </label>
+          </div>
+          <div className="full">
+            <label>
+              Source customer payment <span aria-hidden="true">*</span>
+              <select name="obligationId" required defaultValue="">
+                <option value="" disabled>Select the buyer obligation being refunded</option>
+                {obligations.map(obligation => (
+                  <option key={obligation.id} value={obligation.id}>
+                    {obligation.obligationNumber} — {obligation.buyerName} ({money(obligation.remainingBalancePaise)} remaining)
+                  </option>
+                ))}
+              </select>
+              <small className="helper">A refund must be linked to a real customer obligation for audit and approval.</small>
+            </label>
+          </div>
+          <div className="full">
+            <label>
+              Reason and supporting note <span aria-hidden="true">*</span>
+              <textarea name="notes" required minLength={5} rows={3} placeholder="Explain why the customer is entitled to this refund." />
             </label>
           </div>
         </div>
@@ -2989,13 +3036,24 @@ function ManageRefundDialog({
   const execute = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
+    const bankAccountId = String(fd.get('companyBankAccountId') || '').trim();
     onAction(() =>
       financeApi.executeRefund(user, refund.id, {
-        bankReference: String(fd.get('bankReference')),
-        companyBankAccountId: String(fd.get('companyBankAccountId') || ''),
+        bankReference: String(fd.get('bankReference')).trim(),
+        companyBankAccountId: bankAccountId || undefined,
         notes: 'Customer refund disbursed.',
       })
     );
+  };
+
+  const reconcile = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    onAction(() => financeApi.reconcileRefund(user, refund.id, {
+      kind: 'MANUAL_BANK_CONFIRMATION',
+      reference: String(fd.get('reference')),
+      observedAt: new Date().toISOString(),
+    }));
   };
 
   return (
@@ -3059,7 +3117,26 @@ function ManageRefundDialog({
           </form>
         )}
 
-        {['RECONCILED', 'EXECUTED', 'REJECTED'].includes(refund.status) && (
+        {refund.status === 'PROCESSING' && (
+          <form onSubmit={reconcile}>
+            <div className="alert info" style={{ marginTop: '1rem' }}>
+              Transfer has been recorded. A separate finance user must verify it against the bank statement before this refund is final.
+            </div>
+            <div className="form-grid" style={{ marginTop: '1rem' }}>
+              <div className="full">
+                <label>
+                  Bank statement / reconciliation reference
+                  <input name="reference" required defaultValue={refund.bankReference || ''} placeholder="Statement entry or confirmation reference" />
+                </label>
+              </div>
+            </div>
+            <footer>
+              <button type="submit" className="button primary" disabled={busy}>Verify Refund Against Bank</button>
+            </footer>
+          </form>
+        )}
+
+        {['REFUNDED_VERIFIED', 'RECONCILED', 'EXECUTED', 'REJECTED'].includes(refund.status) && (
           <footer>
             <button type="button" className="button secondary" onClick={onClose}>Close</button>
           </footer>

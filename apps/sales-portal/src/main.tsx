@@ -415,6 +415,12 @@ function App() {
     if (!currentUser) return;
     setError('');
     try {
+      const unavailable: string[] = [];
+      const optional = <T,>(label: string, request: Promise<T>, fallback: T) => request.catch(loadError => {
+        console.warn(`[SALES PORTAL] ${label} unavailable`, loadError);
+        unavailable.push(label);
+        return fallback;
+      });
       const [actorData, dashData, notifData] = await Promise.all([
         salesApi.me(currentUser),
         salesApi.dashboard(currentUser),
@@ -431,7 +437,7 @@ function App() {
           salesApi.sellerLeads(currentUser, { limit: 10 }),
           salesApi.tasks(currentUser, { overdue: true }),
           salesApi.testDrives(currentUser, { status: 'REQUESTED' }),
-          salesApi.reviewRequests(currentUser).catch(() => null),
+          optional('review requests', salesApi.reviewRequests(currentUser), null),
         ]);
         setSellerLeads(sellersRes.items);
         setTasks(tasksRes);
@@ -466,7 +472,7 @@ function App() {
       } else if (page === 'inventory') {
         const [invRes, custRes] = await Promise.all([
           salesApi.inventory(currentUser, { search }),
-          salesApi.customers(currentUser, { limit: 100 }).catch(() => ({ items: [] })),
+          optional('customers', salesApi.customers(currentUser, { limit: 100 }), { items: [], total: 0, page: 1, totalPages: 1 }),
         ]);
         setInventory(invRes.items);
         if (custRes?.items) setCustomers(custRes.items);
@@ -474,7 +480,7 @@ function App() {
         const [tdRes, invRes, custRes] = await Promise.all([
           salesApi.testDrives(currentUser, { search, status: statusFilter || undefined }),
           salesApi.inventory(currentUser, {}),
-          salesApi.customers(currentUser, { limit: 100 }).catch(() => ({ items: [] })),
+          optional('customers', salesApi.customers(currentUser, { limit: 100 }), { items: [], total: 0, page: 1, totalPages: 1 }),
         ]);
         setTestDrives(tdRes.items);
         setInventory(invRes.items);
@@ -484,7 +490,7 @@ function App() {
           salesApi.quotations(currentUser, { search, status: statusFilter || undefined }),
           salesApi.reservations(currentUser, {}),
           salesApi.inventory(currentUser, {}),
-          salesApi.customers(currentUser, { limit: 100 }).catch(() => ({ items: [] })),
+          optional('customers', salesApi.customers(currentUser, { limit: 100 }), { items: [], total: 0, page: 1, totalPages: 1 }),
         ]);
         setQuotations(quotesRes.items);
         setReservations(reserveRes.items);
@@ -493,7 +499,7 @@ function App() {
       } else if (page === 'tasks') {
         const [res, sellersRes] = await Promise.all([
           salesApi.tasks(currentUser, { status: statusFilter || undefined }),
-          salesApi.sellerLeads(currentUser, { limit: 100 }).catch(() => ({ items: [] })),
+          optional('seller leads', salesApi.sellerLeads(currentUser, { limit: 100 }), { items: [], total: 0, page: 1, totalPages: 1 }),
         ]);
         setTasks(res);
         if (sellersRes?.items) setSellerLeads(sellersRes.items);
@@ -503,6 +509,9 @@ function App() {
       } else if (page === 'reports') {
         const rep = await salesApi.reports(currentUser);
         setReports(rep);
+      }
+      if (unavailable.length) {
+        setError(`${unavailable.join(', ')} could not be loaded. Your saved work is intact; check sales permissions and refresh.`);
       }
     } catch (err: any) {
       if (err instanceof ApiError && err.status === 403) {
@@ -767,7 +776,7 @@ function App() {
                   <div className="metric-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>Offers Pending Review</span>
                     {Boolean(dashboard?.pendingValuationsCount) && (
-                      <span className="badge badge-amber">🟡 Pending</span>
+                      <span className="badge badge-amber">Pending</span>
                     )}
                   </div>
                   <div className="metric-value" style={{ color: dashboard?.pendingValuationsCount ? 'var(--warning)' : undefined }}>
@@ -779,7 +788,7 @@ function App() {
                   <div className="metric-label" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                     <span>Discount Approvals</span>
                     {Boolean(dashboard?.pendingDiscountsCount) && (
-                      <span className="badge badge-amber">🟡 Pending</span>
+                      <span className="badge badge-amber">Pending</span>
                     )}
                   </div>
                   <div className="metric-value" style={{ color: dashboard?.pendingDiscountsCount ? 'var(--warning)' : undefined }}>
@@ -4728,7 +4737,7 @@ function ScheduleTestDriveModal({
               />
               <div className="form-group">
                 <label className="form-label">Appointment Date *</label>
-                <input required type="date" className="form-input" value={form.requestedDate} onChange={e => setForm({ ...form, requestedDate: e.target.value })} />
+                <input required type="date" min={new Date().toISOString().slice(0, 10)} className="form-input" value={form.requestedDate} onChange={e => setForm({ ...form, requestedDate: e.target.value })} />
               </div>
               <div className="form-group">
                 <label className="form-label">Time Slot *</label>

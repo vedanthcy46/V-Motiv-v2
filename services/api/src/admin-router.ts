@@ -79,7 +79,11 @@ const privacyQuery = pagination.extend({
 const privacyUpdateInput = z.object({
   status: z.enum(['PENDING', 'PROCESSING', 'COMPLETED', 'REJECTED']),
   resolution: z.string().trim().max(1000).optional(),
-}).strict();
+}).strict().superRefine((value, context) => {
+  if ((value.status === 'COMPLETED' || value.status === 'REJECTED') && !value.resolution) {
+    context.addIssue({ code: 'custom', message: 'A terminal privacy decision requires a resolution note.', path: ['resolution'] });
+  }
+});
 
 const exportCreateInput = z.object({
   resourceType: z.enum(['INVENTORY', 'AUDIT', 'EMPLOYEES', 'CUSTOMERS']),
