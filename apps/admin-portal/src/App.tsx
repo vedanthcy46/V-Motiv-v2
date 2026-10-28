@@ -2088,10 +2088,6 @@ function RequestExportDialog({ user, onClose, onDone }: { user: User; onClose: (
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if ((status === 'COMPLETED' || status === 'REJECTED') && !resolution.trim()) {
-      setError('Record a resolution note before completing or rejecting this privacy request.');
-      return;
-    }
     setBusy(true);
     setError('');
     try {
@@ -2381,6 +2377,10 @@ function PrivacyRequestDialog({ user, request, onClose, onDone }: { user: User; 
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if ((status === 'COMPLETED' || status === 'REJECTED') && !resolution.trim()) {
+      setError('Record a resolution note before completing or rejecting this privacy request.');
+      return;
+    }
     setBusy(true);
     setError('');
     try {

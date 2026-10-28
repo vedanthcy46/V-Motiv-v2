@@ -69,7 +69,8 @@ function needsQualityControl(stock: VehicleStockUnit) {
   const hasCompletedWorkOrder = stock.workOrders?.some(workOrder => workOrder.status === 'COMPLETED') ?? false;
   const hasPassedQualityControl = stock.qualityControlReports?.some(report => report.status === 'PASSED') ?? false;
   const canRecoverStaleWorkflow = !['LISTED', 'RESERVED', 'SOLD', 'RETIRED'].includes(stock.status);
-  return stock.status === 'QC_PENDING' || (canRecoverStaleWorkflow && hasCompletedWorkOrder && !hasPassedQualityControl);
+  const receivedWithoutRepair = stock.status === 'RECEIVED' && (stock.workOrders?.length ?? 0) === 0;
+  return stock.status === 'QC_PENDING' || receivedWithoutRepair || (canRecoverStaleWorkflow && hasCompletedWorkOrder && !hasPassedQualityControl);
 }
 
 // ============================================================================
@@ -405,6 +406,7 @@ export const App: FC = () => {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [loadWarning, setLoadWarning] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
 
   // Data states
@@ -515,15 +517,25 @@ export const App: FC = () => {
     if (!u) return;
     setLoading(true);
     setError(null);
+    setLoadWarning(null);
     try {
+      const unavailable: string[] = [];
+      const load = async <T,>(label: string, request: Promise<T>, fallback: T): Promise<T> => {
+        try {
+          return await request;
+        } catch {
+          unavailable.push(label);
+          return fallback;
+        }
+      };
       const [m, r, ins, c, inv, td, br] = await Promise.all([
-        api.dashboard(u).catch(e => { console.warn('[Ops] Dashboard fetch:', e); return null; }),
-        api.inspectionRequests(u).catch(e => { console.warn('[Ops] Requests fetch:', e); return []; }),
-        api.inspectors(u).catch(e => { console.warn('[Ops] Inspectors fetch:', e); return []; }),
-        api.acquisitions(u).catch(e => { console.warn('[Ops] Acquisitions fetch:', e); return []; }),
-        api.inventory(u).catch(e => { console.warn('[Ops] Inventory fetch:', e); return []; }),
-        api.testDrives(u).catch(e => { console.warn('[Ops] TestDrives fetch:', e); return { items: [] }; }),
-        api.branches(u).catch(e => { console.warn('[Ops] Branches fetch:', e); return []; }),
+        load('dashboard', api.dashboard(u), null),
+        load('inspection dispatch', api.inspectionRequests(u), []),
+        load('inspector availability', api.inspectors(u), []),
+        load('acquisitions', api.acquisitions(u), []),
+        load('inventory', api.inventory(u), []),
+        load('test drives', api.testDrives(u), { items: [] }),
+        load('branches', api.branches(u), []),
       ]);
       setMetrics(m);
       setRequests(r);
@@ -532,6 +544,7 @@ export const App: FC = () => {
       setInventory(inv);
       setTestDrives(Array.isArray(td) ? td : td?.items || []);
       setBranches(br || []);
+      if (unavailable.length) setLoadWarning(`Some live data could not be loaded: ${unavailable.join(', ')}. Retry after checking the API connection.`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load operations data');
     } finally {
@@ -814,6 +827,7 @@ export const App: FC = () => {
     setError(null);
     try {
       const qcReport = (await api.startQualityControl(user, qcModal.stockItem.id, {
+        workOrderId: qcModal.stockItem.workOrders?.find(workOrder => workOrder.status === 'COMPLETED')?.id,
         findings: qcFindings,
       })) as { id: string; version: number };
 
@@ -1177,17 +1191,27 @@ export const App: FC = () => {
         {error ? (
           <aside className="alert-error" role="alert">
             <span>{error}</span>
-            <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }} onClick={() => setError(null)}>
-              ✕
+            <button type="button" aria-label="Dismiss error" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }} onClick={() => setError(null)}>
+              <IconCross />
             </button>
+          </aside>
+        ) : null}
+
+        {loadWarning ? (
+          <aside className="alert-warning" role="status">
+            <span>{loadWarning}</span>
+            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+              <button type="button" className="btn-secondary btn-sm" onClick={() => void loadAllData()} disabled={loading}>Retry</button>
+              <button type="button" aria-label="Dismiss loading warning" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }} onClick={() => setLoadWarning(null)}><IconCross /></button>
+            </div>
           </aside>
         ) : null}
 
         {successMsg ? (
           <aside className="alert-success" role="status">
-            <span>✓ {successMsg}</span>
-            <button style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }} onClick={() => setSuccessMsg(null)}>
-              ✕
+            <span><IconCheck /> {successMsg}</span>
+            <button type="button" aria-label="Dismiss success message" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }} onClick={() => setSuccessMsg(null)}>
+              <IconCross />
             </button>
           </aside>
         ) : null}
@@ -2166,7 +2190,9 @@ export const App: FC = () => {
             <div className="detail-grid">
               {inventory
                 .filter(s => needsQualityControl(s) || (s.qualityControlReports && s.qualityControlReports.length > 0))
-                .map(s => (
+                .map(s => {
+                  const qcInProgress = s.qualityControlReports?.some(report => report.status === 'IN_PROGRESS');
+                  return (
                   <article className="detail-card" key={s.id}>
                     <div className="card-header">
                       <div>
@@ -2196,7 +2222,9 @@ export const App: FC = () => {
                     </div>
 
                     <div className="card-footer">
-                      {needsQualityControl(s) ? (
+                      {qcInProgress ? (
+                        <span style={{ fontSize: '0.8rem', color: 'var(--warning)', fontWeight: 600 }}>QC report is already in progress</span>
+                      ) : needsQualityControl(s) ? (
                         <button
                           className="btn-gold"
                           style={{ fontSize: '0.8rem' }}
@@ -2209,7 +2237,8 @@ export const App: FC = () => {
                       )}
                     </div>
                   </article>
-                ))}
+                  );
+                })}
               {!inventory.some(s => needsQualityControl(s) || (s.qualityControlReports && s.qualityControlReports.length > 0)) ? (
                 <div className="empty-state" style={{ gridColumn: '1 / -1' }}>
                   <h3>No vehicles awaiting QC sign-off</h3>
@@ -2237,14 +2266,14 @@ export const App: FC = () => {
                     onClick={() => setStudioFilter('ALL')}
                     style={{ border: 'none' }}
                   >
-                    All Studio Units ({inventory.filter(s => ['LISTING_PREPARATION', 'LISTING_READY', 'QC_PENDING', 'RECEIVED', 'REFURBISHMENT_PENDING', 'LISTED'].includes(s.status)).length})
+                    All Studio Units ({inventory.filter(s => ['LISTING_PREPARATION', 'LISTING_READY', 'LISTED'].includes(s.status)).length})
                   </button>
                   <button
                     className={`btn-sm ${studioFilter === 'PREPARATION' ? 'btn-primary' : 'btn-outline'}`}
                     onClick={() => setStudioFilter('PREPARATION')}
                     style={{ border: 'none' }}
                   >
-                    Preparation Required ({inventory.filter(s => ['LISTING_PREPARATION', 'QC_PENDING', 'RECEIVED', 'REFURBISHMENT_PENDING'].includes(s.status)).length})
+                    Preparation Required ({inventory.filter(s => s.status === 'LISTING_PREPARATION').length})
                   </button>
                   <button
                     className={`btn-sm ${studioFilter === 'READY' ? 'btn-primary' : 'btn-outline'}`}
@@ -2271,7 +2300,7 @@ export const App: FC = () => {
               {(() => {
                 const filteredStudioUnits = inventory.filter(s => {
                   if (studioFilter === 'PREPARATION') {
-                    return ['LISTING_PREPARATION', 'QC_PENDING', 'RECEIVED', 'REFURBISHMENT_PENDING'].includes(s.status);
+                    return s.status === 'LISTING_PREPARATION';
                   }
                   if (studioFilter === 'READY') {
                     return s.status === 'LISTING_READY';
@@ -2279,7 +2308,7 @@ export const App: FC = () => {
                   if (studioFilter === 'LISTED') {
                     return s.status === 'LISTED';
                   }
-                  return ['LISTING_PREPARATION', 'LISTING_READY', 'QC_PENDING', 'RECEIVED', 'REFURBISHMENT_PENDING', 'LISTED'].includes(s.status);
+                  return ['LISTING_PREPARATION', 'LISTING_READY', 'LISTED'].includes(s.status);
                 });
 
                 if (filteredStudioUnits.length === 0) {

@@ -22,6 +22,19 @@ plugins {
   id("expo-autolinking-settings")
 }
 
+// Invalidate stale cross-platform autolinking cache (e.g. Windows vs WSL/Linux)
+def cachedAutolinking = new File(rootDir, "build/generated/autolinking/autolinking.json")
+if (cachedAutolinking.exists()) {
+  try {
+    def content = cachedAutolinking.text
+    boolean isWindows = System.getProperty("os.name").toLowerCase().contains("windows")
+    boolean hasWindowsPaths = content.contains(":\\") || content.contains(":/")
+    if ((!isWindows && hasWindowsPaths) || (isWindows && content.contains("/mnt/"))) {
+      new File(rootDir, "build/generated/autolinking").deleteDir()
+    }
+  } catch (Exception ignored) {}
+}
+
 extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
   if (System.getenv('EXPO_USE_COMMUNITY_AUTOLINKING') == '1') {
     ex.autolinkLibrariesFromCommand()
@@ -29,6 +42,25 @@ extensions.configure(com.facebook.react.ReactSettingsExtension) { ex ->
     ex.autolinkLibrariesFromCommand(expoAutolinking.rnConfigCommand)
   }
 }
+
+// Secondary safety net for cross-platform drive mapping under WSL/Linux
+if (!System.getProperty("os.name").toLowerCase().contains("windows")) {
+  rootProject.children.each { child ->
+    if (!child.projectDir.exists()) {
+      def fullPath = child.projectDir.absolutePath
+      def matcher = (fullPath =~ /(?i)[\\\/]([a-z]):[\\\/](.*)/)
+      if (matcher.find()) {
+        def drive = matcher.group(1).toLowerCase()
+        def rest = matcher.group(2).replace('\\', '/')
+        def candidate = new File("/mnt/${drive}/${rest}")
+        if (candidate.exists()) {
+          child.projectDir = candidate
+        }
+      }
+    }
+  }
+}
+
 expoAutolinking.useExpoModules()
 
 rootProject.name = 'V MOTIV'

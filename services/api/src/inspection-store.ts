@@ -1252,13 +1252,15 @@ export class PrismaInspectionStore {
       select: {
         id: true,
         status: true,
-        workOrders: { select: { status: true } },
+        workOrders: { select: { id: true, status: true, createdByEmployeeId: true } },
         qualityControlReports: { select: { status: true } },
       },
     });
     if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
     const hasCompletedWorkOrder = stock.workOrders.some(workOrder => workOrder.status === 'COMPLETED');
     const hasPassedQualityControl = stock.qualityControlReports.some(report => report.status === 'PASSED');
+    const hasQualityControlInProgress = stock.qualityControlReports.some(report => report.status === 'IN_PROGRESS');
+    const receivedWithoutRepair = stock.status === 'RECEIVED' && stock.workOrders.length === 0;
     // A completed repair without a passing QC report must be actionable from
     // the QC queue, whatever non-terminal workflow state an older/manual
     // transition left it in. Keep published/reserved/sold/retired stock out.
@@ -1266,17 +1268,19 @@ export class PrismaInspectionStore {
       !['LISTED', 'RESERVED', 'SOLD', 'RETIRED'].includes(stock.status) &&
       hasCompletedWorkOrder &&
       !hasPassedQualityControl;
-    if (stock.status !== 'QC_PENDING' && !isRecoverableStaleStatus) throw new HttpError(409, 'STOCK_NOT_QC_ELIGIBLE');
-    const workOrder = input.workOrderId ? await this.db.refurbishmentWorkOrder.findFirst({ where: { id: input.workOrderId, stockUnitId: stockId } }) : null;
+    if (hasQualityControlInProgress) throw new HttpError(409, 'QC_ALREADY_IN_PROGRESS');
+    if (stock.status !== 'QC_PENDING' && !isRecoverableStaleStatus && !receivedWithoutRepair) throw new HttpError(409, 'STOCK_NOT_QC_ELIGIBLE');
+    const selectedWorkOrderId = input.workOrderId || stock.workOrders.find(workOrder => workOrder.status === 'COMPLETED')?.id;
+    const workOrder = selectedWorkOrderId ? await this.db.refurbishmentWorkOrder.findFirst({ where: { id: selectedWorkOrderId, stockUnitId: stockId } }) : null;
     if (input.workOrderId && !workOrder) throw new HttpError(404, 'WORK_ORDER_NOT_FOUND');
     if (workOrder && workOrder.status !== 'COMPLETED') throw new HttpError(409, 'WORK_ORDER_NOT_COMPLETED');
     if (workOrder?.createdByEmployeeId === actor.userId) throw new HttpError(403, 'QC_SELF_REVIEW_DENIED');
     return this.db.$transaction(async tx => {
-      if (isRecoverableStaleStatus) {
+      if (isRecoverableStaleStatus || receivedWithoutRepair) {
         await tx.vehicleStockUnit.update({ where: { id: stockId }, data: { status: 'QC_PENDING', version: { increment: 1 } } });
       }
-      const report = await tx.qualityControlReport.create({ data: { stockUnitId: stockId, workOrderId: input.workOrderId, reviewerEmployeeId: actor.userId, status: 'IN_PROGRESS', findings: input.findings, evidenceNotes: input.evidenceNotes } });
-      await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'QUALITY_CONTROL_STARTED', entityType: 'QualityControlReport', entityId: report.id, details: { stockUnitId: stockId, workOrderId: input.workOrderId, restoredFromStaleStatus: isRecoverableStaleStatus } } });
+      const report = await tx.qualityControlReport.create({ data: { stockUnitId: stockId, workOrderId: selectedWorkOrderId, reviewerEmployeeId: actor.userId, status: 'IN_PROGRESS', findings: input.findings, evidenceNotes: input.evidenceNotes } });
+      await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'QUALITY_CONTROL_STARTED', entityType: 'QualityControlReport', entityId: report.id, details: { stockUnitId: stockId, workOrderId: selectedWorkOrderId, restoredFromStaleStatus: isRecoverableStaleStatus, receivedWithoutRepair } } });
       return report;
     });
   }
@@ -1331,7 +1335,7 @@ export class PrismaInspectionStore {
     });
     if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
     if (stock.version !== input.expectedVersion) throw new HttpError(409, 'STOCK_VERSION_CONFLICT');
-    if (!['LISTING_PREPARATION', 'LISTING_READY', 'QC_PENDING', 'RECEIVED', 'REFURBISHMENT_PENDING'].includes(stock.status)) {
+    if (!['LISTING_PREPARATION', 'LISTING_READY'].includes(stock.status)) {
       throw new HttpError(409, 'STOCK_NOT_IN_LISTING_PREPARATION');
     }
 
