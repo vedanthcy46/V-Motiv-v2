@@ -448,4 +448,34 @@ describe('V MOTIV V2 — Connect Integration API Suite', () => {
     expect(answered.status).toBe(200);
     expect(answered.body.status).toBe('ACCEPTED');
   });
+
+  it('13. POST /api/v2/public/connect/:token/alerts supports photos and POST /:token/photos uploads image', async () => {
+    const { app, alerts } = setupApp();
+    const issue = await request(app)
+      .post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/issue`)
+      .set('Authorization', 'Bearer valid-customer-token')
+      .send({});
+    const token = issue.body.stickerUrl.split('/').pop();
+
+    // 1. Upload photo via public endpoint
+    const photoUpload = await request(app)
+      .post(`/api/v2/public/connect/${token}/photos`)
+      .send({ base64Data: 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', mimeType: 'image/png' });
+    expect(photoUpload.status).toBe(201);
+    expect(photoUpload.body.url).toBeDefined();
+
+    // 2. Send alert with photos
+    const alert = await request(app)
+      .post(`/api/v2/public/connect/${token}/alerts`)
+      .send({
+        reason: 'DAMAGE_OR_ACCIDENT',
+        message: 'Scratch on rear bumper',
+        photos: [photoUpload.body.url, 'https://images.unsplash.com/photo-1542282088-72c9c27ed0cd'],
+      });
+    expect(alert.status).toBe(201);
+    expect(alerts.length).toBeGreaterThanOrEqual(1);
+    const lastAlert = alerts[alerts.length - 1];
+    expect(lastAlert.reason).toBe('DAMAGE_OR_ACCIDENT');
+    expect(lastAlert.photoUrls).toHaveLength(2);
+  });
 });

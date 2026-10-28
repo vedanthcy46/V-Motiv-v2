@@ -20,6 +20,7 @@ import { auth, firebaseConfigured } from './firebase';
 import { api, ApiError } from './api';
 import type {
   AcquisitionCase,
+  Branch,
   DashboardMetrics,
   InspectionRequest,
   InspectorEmployee,
@@ -451,15 +452,37 @@ export const App: FC = () => {
   const [qcFindings, setQcFindings] = useState('');
   const [qcDecision, setQcDecision] = useState<'PASS' | 'REWORK_REQUIRED' | 'FAIL'>('PASS');
 
+  const [branches, setBranches] = useState<Branch[]>([]);
   const [studioModal, setStudioModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
   const [studioFilter, setStudioFilter] = useState<'ALL' | 'PREPARATION' | 'READY' | 'LISTED'>('ALL');
   const [studioTitle, setStudioTitle] = useState('');
   const [studioColor, setStudioColor] = useState('');
   const [studioSummary, setStudioSummary] = useState('');
   const [studioPhotos, setStudioPhotos] = useState('');
+  const [studioBranchId, setStudioBranchId] = useState('');
 
   const [publishModal, setPublishModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
   const [publishRetailPrice, setPublishRetailPrice] = useState<string>('');
+  const [publishBranchId, setPublishBranchId] = useState('');
+
+  const openStudioModal = (stockItem: VehicleStockUnit) => {
+    setStudioTitle(stockItem.vehicle?.listing?.title || `${stockItem.manufacturingYear} ${stockItem.make} ${stockItem.model} ${stockItem.variant || ''}`.trim());
+    setStudioColor(stockItem.vehicle?.color || '');
+    setStudioSummary(stockItem.vehicle?.conditionSummary || '');
+    setStudioBranchId(stockItem.branchId || stockItem.branch?.id || (branches[0]?.id ?? ''));
+    setStudioPhotos((stockItem.vehicle?.listing?.media || []).map(m => m.url).join('\n'));
+    setStudioModal({ open: true, stockItem });
+  };
+
+  const openPublishModal = (stockItem: VehicleStockUnit) => {
+    setPublishRetailPrice(
+      stockItem.vehicle?.listing?.pricePaise
+        ? String(Number(BigInt(stockItem.vehicle.listing.pricePaise) / 100n))
+        : ''
+    );
+    setPublishBranchId(stockItem.branchId || stockItem.branch?.id || (branches[0]?.id ?? ''));
+    setPublishModal({ open: true, stockItem });
+  };
 
   // Edit & resubmit cost after rejection
   const [editCostModal, setEditCostModal] = useState<{ open: boolean; wo?: RefurbishmentWorkOrder }>({ open: false });
@@ -493,13 +516,14 @@ export const App: FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const [m, r, ins, c, inv, td] = await Promise.all([
+      const [m, r, ins, c, inv, td, br] = await Promise.all([
         api.dashboard(u).catch(e => { console.warn('[Ops] Dashboard fetch:', e); return null; }),
         api.inspectionRequests(u).catch(e => { console.warn('[Ops] Requests fetch:', e); return []; }),
         api.inspectors(u).catch(e => { console.warn('[Ops] Inspectors fetch:', e); return []; }),
         api.acquisitions(u).catch(e => { console.warn('[Ops] Acquisitions fetch:', e); return []; }),
         api.inventory(u).catch(e => { console.warn('[Ops] Inventory fetch:', e); return []; }),
         api.testDrives(u).catch(e => { console.warn('[Ops] TestDrives fetch:', e); return { items: [] }; }),
+        api.branches(u).catch(e => { console.warn('[Ops] Branches fetch:', e); return []; }),
       ]);
       setMetrics(m);
       setRequests(r);
@@ -507,6 +531,7 @@ export const App: FC = () => {
       setCases(c);
       setInventory(inv);
       setTestDrives(Array.isArray(td) ? td : td?.items || []);
+      setBranches(br || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to load operations data');
     } finally {
@@ -825,6 +850,7 @@ export const App: FC = () => {
         color: studioColor || undefined,
         conditionSummary: studioSummary || undefined,
         mediaUrls: urls.length ? urls : undefined,
+        branchId: studioBranchId || undefined,
         expectedVersion: studioModal.stockItem.version,
       });
 
@@ -847,11 +873,16 @@ export const App: FC = () => {
       setError('Please enter a valid retail price in Rupees.');
       return;
     }
+    if (!publishBranchId) {
+      setError('Please select a showroom / branch to list this vehicle.');
+      return;
+    }
     setLoading(true);
     setError(null);
     try {
       await api.publishListing(user, publishModal.stockItem.id, {
         retailPricePaise: price.toString(),
+        branchId: publishBranchId,
         expectedVersion: publishModal.stockItem.version,
       });
       setSuccessMsg(`Vehicle published to customer marketplace! Stock code: ${publishModal.stockItem.stockCode}`);
@@ -1861,7 +1892,7 @@ export const App: FC = () => {
                           <div>{s.registrationNumber || 'N/A'}</div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{s.odometerKm.toLocaleString()} km</div>
                         </td>
-                        <td>{s.physicalLocation}</td>
+                        <td>{s.branch?.name ? `${s.branch.name} (${s.branch.city})` : (branches.find(b => b.id === s.branchId)?.name || s.physicalLocation || 'Main Hub')}</td>
                         <td>{formatRupees(s.acquisitionCostPaise)}</td>
                         <td>
                           <span className={`badge ${
@@ -1905,12 +1936,7 @@ export const App: FC = () => {
                               <button
                                 className="btn-secondary"
                                 style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
-                                onClick={() => {
-                                  setStudioModal({ open: true, stockItem: s });
-                                  setStudioTitle(s.vehicle?.listing?.title || `${s.manufacturingYear} ${s.make} ${s.model} ${s.variant || ''}`.trim());
-                                  setStudioColor(s.vehicle?.color || '');
-                                  setStudioSummary(s.vehicle?.conditionSummary || '');
-                                }}
+                                onClick={() => openStudioModal(s)}
                               >
                                 Studio Specs
                               </button>
@@ -1920,9 +1946,7 @@ export const App: FC = () => {
                               <button
                                 className="btn-gold"
                                 style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
-                                onClick={() => {
-                                  setPublishModal({ open: true, stockItem: s });
-                                }}
+                                onClick={() => openPublishModal(s)}
                               >
                                 Approve & Publish
                               </button>
@@ -2318,13 +2342,7 @@ export const App: FC = () => {
                         <button
                           className="btn-gold"
                           style={{ fontSize: '0.8rem' }}
-                          onClick={() => {
-                            setStudioModal({ open: true, stockItem: s });
-                            setStudioTitle(s.vehicle?.listing?.title || `${s.manufacturingYear} ${s.make} ${s.model} ${s.variant || ''}`.trim());
-                            setStudioColor(s.vehicle?.color || '');
-                            setStudioSummary(s.vehicle?.conditionSummary || '');
-                            setStudioPhotos((s.vehicle?.listing?.media || []).map(m => m.url).join('\n'));
-                          }}
+                          onClick={() => openStudioModal(s)}
                         >
                           <IconStudio /> {s.vehicle?.listing ? 'Edit Studio Specs & Photos' : 'Prepare Listing'}
                         </button>
@@ -2362,7 +2380,10 @@ export const App: FC = () => {
                       <div className="card-header">
                         <div>
                           <strong className="card-title">{s.vehicle?.listing?.title || `${s.manufacturingYear} ${s.make} ${s.model}`}</strong>
-                          <div className="card-subtitle">Stock: {s.stockCode} · Reg: {s.registrationNumber || 'N/A'}</div>
+                          <div className="card-subtitle">
+                            Stock: {s.stockCode} · Reg: {s.registrationNumber || 'N/A'}
+                            {s.branch?.name ? ` · 📍 ${s.branch.name}` : (branches.find(b => b.id === s.branchId)?.name ? ` · 📍 ${branches.find(b => b.id === s.branchId)?.name}` : '')}
+                          </div>
                         </div>
                         <span className={`badge ${isPublished ? 'badge-success' : 'badge-info'}`}>
                           {s.status}
@@ -2387,10 +2408,7 @@ export const App: FC = () => {
                           <button
                             className="btn-gold"
                             style={{ fontSize: '0.8rem' }}
-                            onClick={() => {
-                              setPublishModal({ open: true, stockItem: s });
-                              setPublishRetailPrice(s.vehicle?.listing?.pricePaise ? String(Number(BigInt(s.vehicle.listing.pricePaise) / 100n)) : '');
-                            }}
+                            onClick={() => openPublishModal(s)}
                           >
                             <IconPublish /> Approve Price & Publish
                           </button>
@@ -3041,6 +3059,24 @@ export const App: FC = () => {
             <form onSubmit={handleStudioSubmit}>
               <div className="modal-body">
                 <div className="form-group">
+                  <label>Showroom Hub / Branch *</label>
+                  <select
+                    className="form-select"
+                    value={studioBranchId}
+                    onChange={e => setStudioBranchId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select Showroom Branch *</option>
+                    {branches.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.city}) {b.code ? `· [${b.code}]` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <small style={{ color: 'var(--muted)' }}>Branch where this vehicle is physically housed and listed.</small>
+                </div>
+
+                <div className="form-group">
                   <label>Public Vehicle Title</label>
                   <input
                     type="text"
@@ -3127,6 +3163,26 @@ export const App: FC = () => {
                       Formatted: {new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(Number(publishRetailPrice))}
                     </small>
                   ) : null}
+                </div>
+
+                <div className="form-group">
+                  <label>Showroom Hub / Branch for Marketplace Listing *</label>
+                  <select
+                    className="form-select"
+                    value={publishBranchId}
+                    onChange={e => setPublishBranchId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select Showroom Branch *</option>
+                    {branches.map(b => (
+                      <option key={b.id} value={b.id}>
+                        {b.name} ({b.city}) {b.code ? `· [${b.code}]` : ''}
+                      </option>
+                    ))}
+                  </select>
+                  <small style={{ color: 'var(--muted)' }}>
+                    This vehicle will be published to the customer marketplace and tied to this showroom branch.
+                  </small>
                 </div>
 
                 <div style={{ padding: '0.75rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '0.8rem', color: 'var(--muted)' }}>

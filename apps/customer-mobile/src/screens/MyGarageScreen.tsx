@@ -110,6 +110,7 @@ export function MyGarageScreen() {
   const [deliveryCity, setDeliveryCity] = useState('');
   const [deliveryPincode, setDeliveryPincode] = useState('');
   const [deliveryInstructions, setDeliveryInstructions] = useState('');
+  const [enlargedPhotoUrl, setEnlargedPhotoUrl] = useState<string | null>(null);
 
   const modalScrollRef = useRef<ScrollView>(null);
   const { keyboardHeight, isKeyboardVisible } = useKeyboard();
@@ -1569,6 +1570,26 @@ export function MyGarageScreen() {
                               </Text>
                             ) : null}
 
+                            {alert.photoUrls && Array.isArray(alert.photoUrls) && alert.photoUrls.length > 0 ? (
+                              <View style={styles.alertPhotosWrap}>
+                                <Text style={[styles.alertPhotosLabel, { color: c.textMuted }]}>
+                                  Attached evidence photo{alert.photoUrls.length > 1 ? 's' : ''}:
+                                </Text>
+                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.alertPhotosRow}>
+                                  {alert.photoUrls.map((pUrl, pIdx) => (
+                                    <TouchableOpacity
+                                      key={pIdx}
+                                      activeOpacity={0.8}
+                                      onPress={() => setEnlargedPhotoUrl(pUrl)}
+                                      style={[styles.alertPhotoThumbWrap, { borderColor: isDark ? '#1F3F6D' : '#CBD5E1' }]}
+                                    >
+                                      <Image source={{ uri: pUrl }} style={styles.alertPhotoThumb} resizeMode="cover" />
+                                    </TouchableOpacity>
+                                  ))}
+                                </ScrollView>
+                              </View>
+                            ) : null}
+
                             {!alert.isRead && (
                               <TouchableOpacity
                                 onPress={() => handleMarkAlertRead(alert.id)}
@@ -1615,6 +1636,25 @@ export function MyGarageScreen() {
             )}
           </View>
         </KeyboardAvoidingView>
+      </View>
+    </Modal>
+
+    {/* Modal for viewing enlarged alert photo */}
+    <Modal visible={Boolean(enlargedPhotoUrl)} transparent animationType="fade" onRequestClose={() => setEnlargedPhotoUrl(null)}>
+      <View style={styles.photoModalBackdrop}>
+        <TouchableOpacity
+          style={[styles.photoModalCloseBtn, { top: insets.top + 16 }]}
+          onPress={() => setEnlargedPhotoUrl(null)}
+        >
+          <X size={24} color="#FFFFFF" />
+        </TouchableOpacity>
+        {enlargedPhotoUrl ? (
+          <Image
+            source={{ uri: enlargedPhotoUrl }}
+            style={styles.photoModalImage}
+            resizeMode="contain"
+          />
+        ) : null}
       </View>
     </Modal>
     </View>
@@ -2288,6 +2328,51 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontStyle: 'italic',
     lineHeight: 18,
+  },
+  alertPhotosWrap: {
+    marginTop: 6,
+    gap: 6,
+  },
+  alertPhotosLabel: {
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  alertPhotosRow: {
+    flexDirection: 'row',
+    gap: 8,
+  },
+  alertPhotoThumbWrap: {
+    width: 60,
+    height: 60,
+    borderRadius: radius.md,
+    overflow: 'hidden',
+    borderWidth: 1,
+  },
+  alertPhotoThumb: {
+    width: '100%',
+    height: '100%',
+  },
+  photoModalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.92)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 16,
+  },
+  photoModalCloseBtn: {
+    position: 'absolute',
+    right: 20,
+    zIndex: 10,
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  photoModalImage: {
+    width: '100%',
+    height: '80%',
   },
   markReadBtn: {
     flexDirection: 'row',

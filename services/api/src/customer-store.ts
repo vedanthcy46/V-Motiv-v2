@@ -72,7 +72,15 @@ export interface CustomerStore {
 }
 
 const listingInclude = {
-  vehicle: true,
+  vehicle: {
+    include: {
+      stockUnit: {
+        include: {
+          branch: true,
+        },
+      },
+    },
+  },
   media: { orderBy: { displayOrder: 'asc' as const } },
   reservations: {
     where: { status: 'CONFIRMED' as const },
@@ -176,11 +184,21 @@ function getInspectionDetailsForVehicle(vehicle: any, listingId: string) {
 function listingJson(listing: any, wished: boolean) {
   const activeRes = listing.reservations?.[0];
   const isHeld = listing.status === 'RESERVED' || Boolean(activeRes && new Date(activeRes.expiresAt) > new Date());
+  const rawBranch = listing.vehicle?.stockUnit?.branch;
+  const branch = rawBranch ? {
+    id: rawBranch.id,
+    code: rawBranch.code,
+    name: rawBranch.name,
+    city: rawBranch.city,
+    address: rawBranch.address,
+  } : null;
+
   return {
     ...listing,
     pricePaise: listing.pricePaise.toString(),
     isWishlisted: wished,
     isHeld,
+    branch,
     holdDetails: isHeld ? {
       isHeld: true,
       status: 'RESERVED',

@@ -263,7 +263,9 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
             <h2 id="vehicle-modal-title" className="modal-vehicle-title">
               {vehicle.title || `${car.manufacturingYear} ${car.make} ${car.model}`}
             </h2>
-            <div className="modal-vehicle-city">📍 Located in {car.city}</div>
+            <div className="modal-vehicle-city">
+              📍 {(vehicle as any).branch?.name ? `${(vehicle as any).branch.name} (${(vehicle as any).branch.city})` : `Located in ${car.city}`}
+            </div>
 
             {successMsg && (
               <div className="alert-box alert-success" role="alert">

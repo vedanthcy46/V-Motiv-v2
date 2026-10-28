@@ -84,6 +84,15 @@ export type InspectionRequest = {
   }[];
 };
 
+export type Branch = {
+  id: string;
+  code: string;
+  name: string;
+  city: string;
+  address?: string | null;
+  active: boolean;
+};
+
 export type InspectorEmployee = {
   userId: string;
   email: string;
@@ -174,6 +183,7 @@ export type VehicleStockUnit = {
   acquisitionCaseId: string;
   vehicleId?: string | null;
   branchId?: string | null;
+  branch?: Branch | null;
   status: 'RECEIVED' | 'REFURBISHMENT_PENDING' | 'IN_REFURBISHMENT' | 'QC_PENDING' | 'LISTING_PREPARATION' | 'LISTING_READY' | 'LISTED' | 'RESERVED' | 'SOLD' | 'ON_HOLD' | 'RETIRED';
   physicalLocation: string;
   registrationNumber?: string | null;

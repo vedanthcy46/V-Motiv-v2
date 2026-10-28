@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import crypto from 'node:crypto';
+import path from 'node:path';
+import fs from 'node:fs';
 import QRCode from 'qrcode';
 import { HttpError } from './errors.js';
 import type { NotificationService } from './notification/notification-service.js';
@@ -34,6 +36,8 @@ export interface RequestStickerInput {
 export type PublicConnectAlertInput = {
   reason: 'BLOCKING_ACCESS' | 'LIGHTS_ON' | 'DAMAGE_OR_ACCIDENT' | 'SAFETY_CONCERN' | 'OTHER';
   message?: string;
+  photoUrls?: string[];
+  photos?: string[];
   visitorIp?: string;
 };
 
@@ -354,6 +358,42 @@ export class PrismaConnectStore {
     };
   }
 
+  async uploadPublicAlertPhoto(rawToken: string, base64Data: string, mimeType = 'image/jpeg') {
+    const link = await this.db.customerGarageConnectLink.findFirst({
+      where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' },
+    });
+    if (!link) throw new HttpError(404, 'CONNECT_STICKER_NOT_FOUND');
+
+    const cleanBase64 = base64Data.replace(/^data:image\/[a-z]+;base64,/, '');
+    const buffer = Buffer.from(cleanBase64, 'base64');
+    if (buffer.length > 8 * 1024 * 1024) {
+      throw new HttpError(400, 'FILE_TOO_LARGE');
+    }
+
+    if (isCloudinaryConfigured()) {
+      try {
+        const uploaded = await uploadToCloudinary({
+          buffer,
+          folder: 'vmotiv/connect-alerts',
+          mimeType,
+        });
+        return { url: uploaded.url, secureUrl: uploaded.secureUrl };
+      } catch (e) {
+        console.warn('[CONNECT_CLOUDINARY_UPLOAD_FALLBACK]', e);
+      }
+    }
+
+    const storageBase = process.env.STORAGE_LOCAL_DIR || process.cwd();
+    const filename = `connect-alert-${Date.now()}-${Math.random().toString(36).slice(2, 8)}.jpg`;
+    const uploadDir = path.resolve(storageBase, 'storage/uploads/connect');
+    await fs.promises.mkdir(uploadDir, { recursive: true });
+    await fs.promises.writeFile(path.join(uploadDir, filename), buffer);
+    return {
+      url: `/storage/uploads/connect/${filename}`,
+      secureUrl: `/storage/uploads/connect/${filename}`,
+    };
+  }
+
   async createPublicAlert(rawToken: string, input: PublicConnectAlertInput) {
     const link = await this.db.customerGarageConnectLink.findFirst({
       where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' },
@@ -371,6 +411,23 @@ export class PrismaConnectStore {
     });
     if (recent) return { success: true, alertId: recent.id, deduplicated: true };
 
+    const rawPhotos = input.photoUrls || input.photos || [];
+    const resolvedPhotoUrls: string[] = [];
+    for (const item of rawPhotos) {
+      if (typeof item !== 'string' || !item.trim()) continue;
+      const trimmed = item.trim();
+      if (trimmed.startsWith('http://') || trimmed.startsWith('https://') || trimmed.startsWith('/storage/')) {
+        resolvedPhotoUrls.push(trimmed);
+      } else if (trimmed.startsWith('data:image/') || trimmed.length > 100) {
+        try {
+          const uploaded = await this.uploadPublicAlertPhoto(rawToken, trimmed);
+          resolvedPhotoUrls.push(uploaded.secureUrl || uploaded.url);
+        } catch (e) {
+          console.warn('[CONNECT_ALERT_PHOTO_UPLOAD_ERROR]', e);
+        }
+      }
+    }
+
     const record = await this.db.connectNotificationReference.create({
       data: {
         linkId: link.id,
@@ -379,9 +436,14 @@ export class PrismaConnectStore {
         eventType: 'CONNECT_OWNER_ALERT_CREATED',
         reason: input.reason,
         messagePreview: input.message?.trim().slice(0, 300) || null,
+        photoUrls: resolvedPhotoUrls.length ? resolvedPhotoUrls : undefined,
         visitorIpHash: input.visitorIp ? sha256(input.visitorIp).slice(0, 16) : null,
       },
     });
+
+    const photoBadge = resolvedPhotoUrls.length > 0
+      ? ` (📷 ${resolvedPhotoUrls.length} photo${resolvedPhotoUrls.length > 1 ? 's' : ''} attached)`
+      : '';
 
     await this.dispatchOwnerNotification({
       type: 'CONNECT_OWNER_ALERT_CREATED',
@@ -389,7 +451,9 @@ export class PrismaConnectStore {
       vehicleId: link.vehicleId,
       referenceId: record.id,
       title: `V MOTIV Connect: ${input.reason.replace(/_/g, ' ').toLowerCase()}`,
-      body: input.message?.trim() || `A passerby needs your attention for your ${link.vehicle.make} ${link.vehicle.model}.`,
+      body: input.message?.trim()
+        ? `${input.message.trim()}${photoBadge}`
+        : `A passerby needs your attention for your ${link.vehicle.make} ${link.vehicle.model}.${photoBadge}`,
       priority: input.reason === 'SAFETY_CONCERN' ? 'URGENT' : 'HIGH',
     });
 

@@ -70,10 +70,26 @@ export async function sendPublicConnectAlert(
   token: string,
   reason: PublicAlertReason,
   message?: string,
+  photos?: string[],
 ): Promise<{ success: boolean; alertId: string; deduplicated?: boolean }> {
   return request(`/${encodeURIComponent(token)}/alerts`, {
     method: 'POST',
-    body: JSON.stringify({ reason, message: message?.trim() || undefined }),
+    body: JSON.stringify({
+      reason,
+      message: message?.trim() || undefined,
+      photos: photos && photos.length > 0 ? photos : undefined,
+    }),
+  });
+}
+
+export async function uploadPublicConnectPhoto(
+  token: string,
+  base64Data: string,
+  mimeType = 'image/jpeg',
+): Promise<{ url: string; secureUrl: string }> {
+  return request(`/${encodeURIComponent(token)}/photos`, {
+    method: 'POST',
+    body: JSON.stringify({ base64Data, mimeType }),
   });
 }
 

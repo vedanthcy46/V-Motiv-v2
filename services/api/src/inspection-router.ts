@@ -126,6 +126,7 @@ const prepareListingInput = z.object({
   inspectionSummary: z.string().trim().max(2_000).optional(),
   verifiedTags: z.array(z.string().trim()).optional(),
   mediaUrls: z.array(z.string().trim().min(5)).optional(),
+  branchId: z.string().uuid().optional(),
   expectedVersion: z.number().int().positive(),
 }).strict();
 
@@ -133,6 +134,7 @@ const publishListingInput = z.object({
   retailPricePaise: z.coerce.bigint().positive(),
   expectedVersion: z.number().int().positive(),
   title: z.string().trim().max(200).optional(),
+  branchId: z.string().uuid().optional(),
 }).strict();
 
 const deliverVehicleInput = z.object({
@@ -378,6 +380,11 @@ export function createOperationsInspectionRouter(deps: { verify: VerifyToken; st
 
   router.post('/acquisitions/:id/stock-inward', async (req, res, next) => {
     try { res.status(201).json(await deps.store.stockInward(res.locals.inspectionActor, uuid.parse(req.params.id), stockInwardInput.parse(req.body))); }
+    catch (e) { next(e); }
+  });
+
+  router.get('/branches', async (_req, res, next) => {
+    try { res.json(await deps.store.getBranches()); }
     catch (e) { next(e); }
   });
 

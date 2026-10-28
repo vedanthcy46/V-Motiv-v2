@@ -246,8 +246,8 @@ export function VehicleScreen({ route, navigation }: Props) {
             <View style={styles.specItem}>
               <MapPin size={16} color={colors.brandAccent} />
               <View>
-                <Text style={styles.specLabel}>Registered City</Text>
-                <Text style={styles.specValue}>{v.city || 'Available'}</Text>
+                <Text style={styles.specLabel}>Showroom Hub</Text>
+                <Text style={styles.specValue}>{(item as any).branch?.name ? `${(item as any).branch.name}` : (v.city || 'Available')}</Text>
               </View>
             </View>
           </View>

@@ -2093,6 +2093,7 @@ model ConnectNotificationReference {
   eventType String
   reason String?
   messagePreview String?
+  photoUrls Json?
   callSessionId String?
   visitorIpHash String?
   isRead Boolean @default(false)

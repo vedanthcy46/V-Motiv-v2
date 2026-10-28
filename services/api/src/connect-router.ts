@@ -44,6 +44,13 @@ const requestStickerSchema = z.object({
 const publicAlertSchema = z.object({
   reason: z.enum(['BLOCKING_ACCESS', 'LIGHTS_ON', 'DAMAGE_OR_ACCIDENT', 'SAFETY_CONCERN', 'OTHER']),
   message: z.string().trim().min(1).max(300).optional(),
+  photoUrls: z.array(z.string().min(5)).max(5).optional(),
+  photos: z.array(z.string().min(5)).max(5).optional(),
+}).strict();
+
+const publicPhotoUploadSchema = z.object({
+  base64Data: z.string().min(10),
+  mimeType: z.string().max(100).optional(),
 }).strict();
 
 const callRequestSchema = z.object({
@@ -214,6 +221,15 @@ export function createConnectPublicRouter(deps: { store: PrismaConnectStore }) {
     try {
       const input = parse(publicAlertSchema, req.body);
       res.status(201).json(await deps.store.createPublicAlert(token.parse(req.params.token), { ...input, visitorIp: req.ip }));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.post('/:token/photos', async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const input = parse(publicPhotoUploadSchema, req.body);
+      res.status(201).json(await deps.store.uploadPublicAlertPhoto(token.parse(req.params.token), input.base64Data, input.mimeType));
     } catch (e) {
       next(e);
     }

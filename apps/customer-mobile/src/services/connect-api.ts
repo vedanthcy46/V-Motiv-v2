@@ -7,6 +7,7 @@ export interface ConnectNotificationItem {
   eventType: string;
   reason?: string | null;
   messagePreview?: string | null;
+  photoUrls?: string[] | null;
   callSessionId?: string | null;
   isRead: boolean;
   createdAt: string;

@@ -218,6 +218,9 @@ function setupApp(activeActor: InspectionActor, overrides: Partial<PrismaInspect
       stockId: '88888888-8888-4888-8888-888888888888',
       status: 'SOLD',
     }),
+    getBranches: vi.fn().mockResolvedValue([
+      { id: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', code: 'BLR-KOR', name: 'Koramangala Hub', city: 'Bengaluru', active: true },
+    ]),
     ...overrides,
   } as unknown as PrismaInspectionStore;
 
@@ -442,12 +445,20 @@ describe('Operations scheduling & assignment APIs', () => {
     expect(resDash.body.unassigned).toBe(1);
     expect(resDash.body.acquisitions.completed).toBe(5);
 
+    const resBranches = await request(app)
+      .get('/api/v2/operations/branches')
+      .set('Authorization', 'Bearer ops-token');
+    expect(resBranches.status).toBe(200);
+    expect(resBranches.body[0].code).toBe('BLR-KOR');
+    expect(store.getBranches).toHaveBeenCalledTimes(1);
+
     const resPrepare = await request(app)
       .post('/api/v2/operations/inventory/88888888-8888-4888-8888-888888888888/prepare-listing')
       .set('Authorization', 'Bearer ops-token')
       .send({
         title: '2022 Hyundai Creta SX',
         color: 'Polar White',
+        branchId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
         expectedVersion: 1,
       });
     expect(resPrepare.status).toBe(200);
@@ -458,6 +469,7 @@ describe('Operations scheduling & assignment APIs', () => {
       .set('Authorization', 'Bearer ops-token')
       .send({
         retailPricePaise: 125000000,
+        branchId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
         expectedVersion: 2,
       });
     expect(resPublish.status).toBe(200);

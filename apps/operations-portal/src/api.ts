@@ -2,6 +2,7 @@ import type { User } from 'firebase/auth';
 import type {
   AcquisitionCase,
   AcquisitionOfferItem,
+  Branch,
   DashboardMetrics,
   InspectionRequest,
   InspectorEmployee,
@@ -242,6 +243,9 @@ export const api = {
     body: { expectedVersion: number; decision: 'PASS' | 'REWORK_REQUIRED' | 'FAIL'; findings?: string; evidenceNotes?: string }
   ) => call<unknown>(u, `/operations/quality-control/${reportId}/decision`, { method: 'POST', body: JSON.stringify(body) }),
 
+  // --- Branches & Showrooms ---
+  branches: (u: User) => call<Branch[]>(u, '/operations/branches'),
+
   // --- Listing Studio & Publication Readiness ---
   prepareListing: (
     u: User,
@@ -254,6 +258,7 @@ export const api = {
       inspectionSummary?: string;
       verifiedTags?: string[];
       mediaUrls?: string[];
+      branchId?: string;
       expectedVersion: number;
     }
   ) => call<unknown>(u, `/operations/inventory/${stockId}/prepare-listing`, { method: 'POST', body: JSON.stringify(body) }),
@@ -261,7 +266,7 @@ export const api = {
   publishListing: (
     u: User,
     stockId: string,
-    body: { retailPricePaise: string | number; expectedVersion: number; title?: string }
+    body: { retailPricePaise: string | number; branchId?: string; expectedVersion: number; title?: string }
   ) => call<unknown>(u, `/operations/inventory/${stockId}/publish-listing`, { method: 'POST', body: JSON.stringify(body) }),
 
   // --- Buyer Delivery ---

@@ -1298,6 +1298,21 @@ export class PrismaInspectionStore {
     });
   }
 
+  async getBranches() {
+    return this.db.branch.findMany({
+      where: { active: true },
+      orderBy: [{ city: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true,
+        code: true,
+        name: true,
+        city: true,
+        address: true,
+        active: true,
+      },
+    });
+  }
+
   async prepareListing(actor: InspectionActor, stockId: string, input: {
     title: string;
     features?: string[];
@@ -1306,6 +1321,7 @@ export class PrismaInspectionStore {
     inspectionSummary?: string;
     verifiedTags?: string[];
     mediaUrls?: string[];
+    branchId?: string;
     expectedVersion: number;
   }) {
     checkRole(actor, listingRoles);
@@ -1319,10 +1335,21 @@ export class PrismaInspectionStore {
       throw new HttpError(409, 'STOCK_NOT_IN_LISTING_PREPARATION');
     }
 
+    let branchId = input.branchId || stock.branchId;
+    let branchName = stock.branch?.name;
+    let branchCity = stock.branch?.city;
+    if (input.branchId && input.branchId !== stock.branchId) {
+      const selectedBranch = await this.db.branch.findFirst({ where: { id: input.branchId, active: true } });
+      if (!selectedBranch) throw new HttpError(400, 'INVALID_BRANCH');
+      branchId = selectedBranch.id;
+      branchName = selectedBranch.name;
+      branchCity = selectedBranch.city;
+    }
+
     return this.db.$transaction(async tx => {
       let vehicleId = stock.vehicleId;
+      const vehicleCity = branchCity || stock.branch?.city || stock.acquisitionCase?.lead?.city || (stock.physicalLocation?.includes('Bengaluru') ? 'Bengaluru' : stock.physicalLocation) || 'Bengaluru';
       if (!vehicleId) {
-        const vehicleCity = stock.branch?.city || stock.acquisitionCase?.lead?.city || (stock.physicalLocation?.includes('Bengaluru') ? 'Bengaluru' : stock.physicalLocation) || 'Bengaluru';
         const createdVehicle = await tx.vehicle.create({
           data: {
             make: stock.make,
@@ -1343,12 +1370,19 @@ export class PrismaInspectionStore {
         vehicleId = createdVehicle.id;
         await tx.vehicleStockUnit.update({
           where: { id: stockId },
-          data: { vehicleId, status: 'LISTING_READY', version: { increment: 1 } },
+          data: {
+            vehicleId,
+            branchId: branchId || undefined,
+            physicalLocation: branchName || undefined,
+            status: 'LISTING_READY',
+            version: { increment: 1 },
+          },
         });
       } else {
         await tx.vehicle.update({
           where: { id: vehicleId },
           data: {
+            city: vehicleCity,
             color: input.color,
             conditionSummary: input.conditionSummary,
             inspectionSummary: input.inspectionSummary,
@@ -1358,7 +1392,12 @@ export class PrismaInspectionStore {
         });
         await tx.vehicleStockUnit.update({
           where: { id: stockId },
-          data: { status: 'LISTING_READY', version: { increment: 1 } },
+          data: {
+            branchId: branchId || undefined,
+            physicalLocation: branchName || undefined,
+            status: 'LISTING_READY',
+            version: { increment: 1 },
+          },
         });
       }
 
@@ -1390,7 +1429,7 @@ export class PrismaInspectionStore {
           action: 'VEHICLE_LISTING_PREPARED',
           entityType: 'VehicleStockUnit',
           entityId: stockId,
-          details: { vehicleId, listingId: listing.id, title: input.title },
+          details: { vehicleId, listingId: listing.id, title: input.title, branchId },
         },
       });
 
@@ -1402,6 +1441,7 @@ export class PrismaInspectionStore {
     retailPricePaise: bigint;
     expectedVersion: number;
     title?: string;
+    branchId?: string;
   }) {
     checkRole(actor, publishRoles);
     const stock = await this.db.vehicleStockUnit.findFirst({
@@ -1410,11 +1450,23 @@ export class PrismaInspectionStore {
         vehicle: { include: { listing: { include: { media: true } } } },
         workOrders: { include: { costApproval: true } },
         qualityControlReports: true,
+        branch: true,
       },
     });
     if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
     if (stock.version !== input.expectedVersion) throw new HttpError(409, 'STOCK_VERSION_CONFLICT');
     if (input.retailPricePaise <= 0n) throw new HttpError(400, 'INVALID_RETAIL_PRICE');
+
+    const effectiveBranchId = input.branchId || stock.branchId;
+    if (!effectiveBranchId) {
+      throw new HttpError(400, 'BRANCH_SELECTION_REQUIRED');
+    }
+    const branch = await this.db.branch.findFirst({
+      where: { id: effectiveBranchId, active: true },
+    });
+    if (!branch) {
+      throw new HttpError(400, 'INVALID_BRANCH');
+    }
 
     // A work order is "blocking" if it is not COMPLETED/CANCELLED AND its cost
     // approval has not been REJECTED (cost-rejected DRAFTs mean the work was
@@ -1449,8 +1501,22 @@ export class PrismaInspectionStore {
 
       await tx.vehicleStockUnit.update({
         where: { id: stockId },
-        data: { status: 'LISTED', version: { increment: 1 } },
+        data: {
+          branchId: branch.id,
+          physicalLocation: branch.name,
+          status: 'LISTED',
+          version: { increment: 1 },
+        },
       });
+
+      if (stock.vehicleId) {
+        await tx.vehicle.update({
+          where: { id: stock.vehicleId },
+          data: {
+            city: branch.city,
+          },
+        });
+      }
 
       await tx.auditEvent.create({
         data: {
@@ -1458,7 +1524,14 @@ export class PrismaInspectionStore {
           action: 'VEHICLE_LISTING_PUBLISHED',
           entityType: 'VehicleListing',
           entityId: listing.id,
-          details: { stockCode: stock.stockCode, pricePaise: input.retailPricePaise.toString() },
+          details: {
+            stockCode: stock.stockCode,
+            pricePaise: input.retailPricePaise.toString(),
+            branchId: branch.id,
+            branchCode: branch.code,
+            branchName: branch.name,
+            branchCity: branch.city,
+          },
         },
       });
 
