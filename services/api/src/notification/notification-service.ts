@@ -207,6 +207,12 @@ export class NotificationService {
       }
     }
 
+    if (pushTicketsCount > 0 && !txClient && typeof this.db?.$transaction === 'function') {
+      void this.drainPushTickets(25).catch(err => {
+        console.error('[AUTO_DRAIN_PUSH_ERROR]', err?.message || err);
+      });
+    }
+
     return {
       notificationsCount: recipientIds.length,
       pushTicketsCount,
@@ -499,6 +505,7 @@ export class NotificationService {
       data: typeof row.data === 'object' && row.data ? row.data : {},
       sound: 'default',
       priority: 'high',
+      channelId: 'default',
     }));
 
     const responses = await this.pushClient.sendPushNotifications(messages);

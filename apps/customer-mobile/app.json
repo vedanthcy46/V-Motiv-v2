@@ -22,7 +22,8 @@
       "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": true,
       "permissions": [
-        "CAMERA"
+        "CAMERA",
+        "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {
         "backgroundColor": "#020B18",
@@ -32,6 +33,14 @@
       }
     },
     "plugins": [
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#061A38",
+          "defaultChannel": "default"
+        }
+      ],
       [
         "expo-camera",
         {

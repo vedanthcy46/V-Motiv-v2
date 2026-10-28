@@ -88,6 +88,12 @@ const employeePortalOrigins = {
 
 const verifyToken = (token: string, revoked: boolean) => getAuth(firebase).verifyIdToken(token, revoked);
 const notificationService = new NotificationService(db);
+const pushInterval = setInterval(async () => {
+  try {
+    await notificationService.drainPushTickets(50);
+  } catch {}
+}, 4000);
+pushInterval.unref();
 const notificationRouter = createNotificationRouter({
   verify: verifyToken,
   db,

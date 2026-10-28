@@ -151,6 +151,58 @@ export function createNotificationRouter(deps: {
     }
   });
 
+  router.get('/notifications/devices', auth, resolveUser, async (_req, res, next) => {
+    try {
+      const userId = res.locals.userId as string;
+      const devices = await deps.db.pushDevice.findMany({
+        where: { userId },
+        orderBy: { updatedAt: 'desc' },
+      });
+      res.json({
+        devices: devices.map(d => ({
+          id: d.id,
+          app: d.app,
+          platform: d.platform,
+          active: d.active,
+          environment: d.environment,
+          lastSeenAt: d.lastSeenAt,
+          tokenPreview: d.token.length > 20 ? `${d.token.slice(0, 15)}...${d.token.slice(-5)}` : d.token,
+          createdAt: d.createdAt,
+        })),
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.post('/notifications/test-push', auth, resolveUser, async (req, res, next) => {
+    try {
+      const userId = res.locals.userId as string;
+      const title = typeof req.body?.title === 'string' ? req.body.title : 'V MOTIV Test Notification';
+      const body = typeof req.body?.body === 'string' ? req.body.body : 'Your push notifications are configured and working properly!';
+
+      const result = await deps.service.dispatchDomainEvent({
+        type: 'SYSTEM_NOTIFICATION',
+        recipientUserIds: [userId],
+        title,
+        body,
+        priority: 'HIGH',
+        category: 'GENERAL',
+      });
+
+      const drained = await deps.service.drainPushTickets(10);
+
+      res.json({
+        success: true,
+        notificationsCreated: result.notificationsCount,
+        pushTicketsQueued: result.pushTicketsCount,
+        pushTicketsDispatched: drained,
+      });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   // --- User Preferences ---
 
   router.get('/notification-preferences', auth, resolveUser, async (_req, res, next) => {

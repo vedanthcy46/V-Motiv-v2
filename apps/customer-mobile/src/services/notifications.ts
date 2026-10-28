@@ -15,6 +15,19 @@ Notifications.setNotificationHandler({
   }),
 });
 
+// Configure default Android notification channel
+if (Platform.OS === 'android') {
+  void Notifications.setNotificationChannelAsync('default', {
+    name: 'V MOTIV Notifications',
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 250, 250, 250],
+    lightColor: '#061A38',
+    sound: 'default',
+    enableVibrate: true,
+    showBadge: true,
+  });
+}
+
 export interface InAppNotification {
   id: string;
   eventType: string;

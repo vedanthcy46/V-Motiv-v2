@@ -85,7 +85,9 @@ export type DomainEventType =
   | 'CONNECT_CALL_COMPLETED'
   | 'CONNECT_QR_DEACTIVATED'
   | 'CONNECT_QR_REISSUED'
-  | 'CONNECT_ABUSE_REPORTED';
+  | 'CONNECT_ABUSE_REPORTED'
+  // General & System
+  | 'SYSTEM_NOTIFICATION';
 
 export type TargetApp = 'CUSTOMER' | 'INSPECTOR' | 'ADMIN' | 'SALES' | 'OPS' | 'REVIEW' | 'FINANCE';
 
