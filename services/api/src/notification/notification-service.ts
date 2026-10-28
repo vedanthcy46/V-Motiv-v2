@@ -517,7 +517,7 @@ export class NotificationService {
           },
         });
       } else {
-        const errorDetail = resp?.details?.error || resp?.message || 'UNKNOWN_ERROR';
+        const errorDetail = (resp as any)?.details?.error || (resp as any)?.message || 'UNKNOWN_ERROR';
         const isUnregistered = errorDetail === 'DeviceNotRegistered';
 
         await this.db.pushTicket.update({
@@ -525,7 +525,7 @@ export class NotificationService {
           data: {
             status: isUnregistered ? 'DISABLED' : 'FAILED',
             receiptMessage: errorDetail,
-            receiptDetails: resp?.details ? (resp.details as Prisma.InputJsonValue) : undefined,
+            receiptDetails: (resp as any)?.details ? ((resp as any).details as Prisma.InputJsonValue) : undefined,
           },
         });
 

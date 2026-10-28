@@ -11,7 +11,7 @@ const customerToken = {
   name: 'Car Owner',
   email_verified: true,
   firebase: { sign_in_provider: 'google.com' },
-} as DecodedIdToken;
+} as unknown as DecodedIdToken;
 
 const otherCustomerToken = {
   uid: 'cust-other-456',
@@ -19,7 +19,7 @@ const otherCustomerToken = {
   name: 'Stranger',
   email_verified: true,
   firebase: { sign_in_provider: 'google.com' },
-} as DecodedIdToken;
+} as unknown as DecodedIdToken;
 
 const VEHICLE_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_VEHICLE_ID = '22222222-2222-4222-8222-222222222222';

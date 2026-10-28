@@ -339,8 +339,9 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
           input.version,
           {
             ...input,
+            observedAt: input.observedAt || new Date(),
             evidenceUri: input.evidenceUri || 'https://private-evidence.vmotiv.in/manual-confirmation',
-          }
+          } as any
         )
       );
     } catch (error) {
@@ -420,7 +421,7 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
         ...input,
         paymentMethod: input.paymentMethod || 'MANUAL_BANK_TRANSFER',
         transactionReference: input.transactionReference || `TXN-${Date.now()}`,
-      }));
+      } as any));
     } catch (error) {
       next(error);
     }
@@ -481,7 +482,7 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
   router.post('/refunds', async (req, res, next) => {
     try {
       const input = requestRefundInput.parse(req.body);
-      res.status(201).json(await deps.store.requestRefund(res.locals.financeActor, input));
+      res.status(201).json(await deps.store.requestRefund(res.locals.financeActor, input as any));
     } catch (error) {
       next(error);
     }
@@ -590,7 +591,7 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
           vendorId,
           invoiceAmountPaise,
           description,
-        })
+        } as any)
       );
     } catch (error) {
       next(error);

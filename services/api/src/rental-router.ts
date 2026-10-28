@@ -159,7 +159,7 @@ export function createRentalCustomerRouter(deps: {
     try {
       const filter = parse(searchFilterSchema, req.query);
       const isTest = req.headers['x-test-immediate-booking'] === 'true';
-      const results = await deps.store.searchVehicles(filter, isTest);
+      const results = await deps.store.searchVehicles(filter as any, isTest);
       res.json(results);
     } catch (e) {
       next(e);
@@ -215,7 +215,7 @@ export function createRentalCustomerRouter(deps: {
       const userId = await deps.store.resolveUserId(identity.uid);
       const input = parse(holdCreateSchema, req.body);
       const isTest = req.headers['x-test-immediate-booking'] === 'true';
-      const hold = await deps.store.createHold(userId, input, isTest);
+      const hold = await deps.store.createHold(userId, input as any, isTest);
       res.status(201).json(hold);
     } catch (e) {
       next(e);
@@ -264,7 +264,7 @@ export function createRentalCustomerRouter(deps: {
       const userId = await deps.store.resolveUserId(identity.uid);
       const bookingId = uuid.parse(req.params.id);
       const input = parse(driverKycSchema, req.body);
-      const result = await deps.store.submitDriverKyc(userId, bookingId, input);
+      const result = await deps.store.submitDriverKyc(userId, bookingId, input as any);
       res.status(201).json(result);
     } catch (e) {
       next(e);
@@ -317,7 +317,7 @@ export function createRentalCustomerRouter(deps: {
       const userId = await deps.store.resolveUserId(identity.uid);
       const bookingId = uuid.parse(req.params.id);
       const input = parse(extensionRequestSchema, req.body);
-      const extension = await deps.store.requestExtension(userId, bookingId, input);
+      const extension = await deps.store.requestExtension(userId, bookingId, input as any);
       res.status(201).json(extension);
     } catch (e) {
       next(e);
@@ -419,7 +419,7 @@ export function createRentalOperationsRouter(deps: {
   router.post('/fleet', requireRentalRole(['RENTAL_MANAGER', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
     try {
       const input = parse(fleetCreateSchema, req.body);
-      const vehicle = await deps.store.createFleetVehicle(input);
+      const vehicle = await deps.store.createFleetVehicle(input as any);
       res.status(201).json(vehicle);
     } catch (e) {
       next(e);
@@ -432,7 +432,7 @@ export function createRentalOperationsRouter(deps: {
       const vehicleId = uuid.parse(req.params.id);
       const input = parse(blockCreateSchema, req.body);
       const employee = res.locals.employee;
-      const block = await deps.store.addVehicleBlock(vehicleId, { ...input, createdById: employee.userId });
+      const block = await deps.store.addVehicleBlock(vehicleId, { ...input, createdById: employee.userId } as any);
       res.status(201).json(block);
     } catch (e) {
       next(e);

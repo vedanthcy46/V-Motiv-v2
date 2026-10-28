@@ -12,7 +12,7 @@ const customerToken = {
   name: 'Rental Customer',
   email_verified: true,
   firebase: { sign_in_provider: 'google.com' },
-} as DecodedIdToken;
+} as unknown as DecodedIdToken;
 
 const otherCustomerToken = {
   uid: 'cust-999',
@@ -20,7 +20,7 @@ const otherCustomerToken = {
   name: 'Other Customer',
   email_verified: true,
   firebase: { sign_in_provider: 'google.com' },
-} as DecodedIdToken;
+} as unknown as DecodedIdToken;
 
 const dispatchToken = {
   uid: 'dispatch-456',
@@ -28,7 +28,7 @@ const dispatchToken = {
   name: 'Rental Dispatch Officer',
   email_verified: true,
   firebase: { sign_in_provider: 'google.com' },
-} as DecodedIdToken;
+} as unknown as DecodedIdToken;
 
 const managerToken = {
   uid: 'manager-101',
@@ -36,7 +36,7 @@ const managerToken = {
   name: 'Rental Manager',
   email_verified: true,
   firebase: { sign_in_provider: 'google.com' },
-} as DecodedIdToken;
+} as unknown as DecodedIdToken;
 
 const financeToken = {
   uid: 'finance-789',
@@ -44,7 +44,7 @@ const financeToken = {
   name: 'Finance Executive',
   email_verified: true,
   firebase: { sign_in_provider: 'google.com' },
-} as DecodedIdToken;
+} as unknown as DecodedIdToken;
 
 const VEHICLE_ID = '11111111-1111-4111-8111-111111111111';
 const HUB_ID = '22222222-2222-4222-8222-222222222222';

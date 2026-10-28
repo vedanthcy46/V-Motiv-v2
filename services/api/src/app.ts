@@ -261,6 +261,8 @@ export function createApp(deps: {
     const serviceCustomerRouter = createServiceCustomerRouter({ verify: deps.verify, store: deps.service });
     app.use('/api/v2/customer', serviceLimiter, serviceCustomerRouter);
     app.use('/api/v2/service', serviceLimiter, serviceCustomerRouter);
+    app.use('/api/customer', serviceLimiter, serviceCustomerRouter);
+    app.use('/customer', serviceLimiter, serviceCustomerRouter);
 
     if (deps.db) {
       const serviceOpsRouter = createServiceOperationsRouter({ verify: deps.verify, db: deps.db, store: deps.service });
@@ -273,6 +275,8 @@ export function createApp(deps: {
     const rentalCustomerRouter = createRentalCustomerRouter({ verify: deps.verify, store: deps.rental, db: deps.db });
     app.use('/api/v2/rentals', rentalLimiter, rentalCustomerRouter);
     app.use('/api/v2/customer/rentals', rentalLimiter, rentalCustomerRouter);
+    app.use('/api/rentals', rentalLimiter, rentalCustomerRouter);
+    app.use('/rentals', rentalLimiter, rentalCustomerRouter);
 
     const rentalOpsRouter = createRentalOperationsRouter({ verify: deps.verify, store: deps.rental, db: deps.db });
     app.use('/api/v2/operations/rentals', rentalLimiter, rentalOpsRouter);
@@ -286,6 +290,8 @@ export function createApp(deps: {
     const connectCustomerRouter = createConnectCustomerRouter({ verify: deps.verify, store: deps.connect });
     app.use('/api/v2/customer', connectLimiter, connectCustomerRouter);
     app.use('/api/v2/connect', connectLimiter, connectCustomerRouter);
+    app.use('/api/customer', connectLimiter, connectCustomerRouter);
+    app.use('/customer', connectLimiter, connectCustomerRouter);
 
     // Scanner endpoints intentionally sit outside authentication. They carry no
     // owner contact information and have their own tighter abuse limit.

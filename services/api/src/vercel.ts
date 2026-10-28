@@ -10,6 +10,8 @@ import { PrismaAdminStore } from './admin-store.js';
 import { PrismaSalesStore } from './sales-store.js';
 import { PrismaInspectionStore } from './inspection-store.js';
 import { PrismaFinanceStore } from './finance-store.js';
+import { PrismaServiceStore } from './service-store.js';
+import { PrismaRentalStore } from './rental-store.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
 import { PrismaConnectStore } from './connect-store.js';
 
@@ -95,8 +97,11 @@ export default createApp({
   admin: new PrismaAdminStore(db),
   sales: new PrismaSalesStore(db),
   inspection: new PrismaInspectionStore(db, undefined, notificationService),
-  finance: new PrismaFinanceStore(db),
+  finance: new PrismaFinanceStore(db, notificationService),
+  service: new PrismaServiceStore(db, notificationService),
+  rental: new PrismaRentalStore(db, notificationService),
   connect: new PrismaConnectStore(db, notificationService),
+  db,
   notificationRouter,
   notificationService,
   revokeTokens: firebaseUid => {
