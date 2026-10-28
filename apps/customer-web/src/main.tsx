@@ -34,7 +34,55 @@ import { SellCarModal } from './components/SellCarModal';
 import { VehicleDetailModal } from './components/VehicleDetailModal';
 import { LegalModal } from './components/LegalModal';
 
-function App() {
+type ConnectVehicle = { nickname: string; make?: string; model?: string; year?: number; messagingEnabled: boolean; callingEnabled: boolean };
+
+function connectApiUrl(path: string) {
+  const configured = (import.meta.env.VITE_API_BASE || 'https://api.vmotiv.in/api/v1').replace(/\/$/, '');
+  const origin = configured.replace(/\/api\/v[0-9]+$/, '');
+  return `${origin}/api/v2/public/connect${path}`;
+}
+
+function PublicConnectPage({ token }: { token: string }) {
+  const [vehicle, setVehicle] = useState<ConnectVehicle | null>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [reason, setReason] = useState('BLOCKING_ACCESS');
+  const [message, setMessage] = useState('');
+
+  useEffect(() => {
+    void fetch(connectApiUrl(`/${encodeURIComponent(token)}`))
+      .then(async response => {
+        const body = await response.json().catch(() => ({}));
+        if (!response.ok || !body.active) throw new Error(body.code || 'This sticker is not active.');
+        setVehicle(body.vehicle);
+      })
+      .catch(() => setError('This V MOTIV Connect sticker is unavailable or has been paused by its owner.'));
+  }, [token]);
+
+  const send = async (path: string, body: unknown, success: string) => {
+    setBusy(true);
+    try {
+      const response = await fetch(connectApiUrl(`/${encodeURIComponent(token)}${path}`), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
+      if (!response.ok) throw new Error();
+      window.alert(success);
+      setMessage('');
+    } catch {
+      window.alert('We could not send that request. Please try again shortly.');
+    } finally { setBusy(false); }
+  };
+
+  const openApp = () => {
+    const deepLink = `vmotiv://connect/scan?token=${encodeURIComponent(token)}`;
+    window.location.assign(deepLink);
+    const ua = navigator.userAgent.toLowerCase();
+    const store = ua.includes('android') ? import.meta.env.VITE_ANDROID_APP_URL : /iphone|ipad|ipod/.test(ua) ? import.meta.env.VITE_IOS_APP_URL : undefined;
+    if (store) window.setTimeout(() => window.location.assign(store), 1400);
+  };
+
+  return <main className="connect-public-page"><section className="connect-public-card"><img src="/brand/vmotiv-logo.svg" alt="V MOTIV" className="connect-logo" /><p className="connect-kicker">V MOTIV CONNECT</p><h1>{vehicle ? vehicle.nickname : 'Secure vehicle alert'}</h1><p className="connect-lead">Send an owner a privacy-protected alert. Their name, number, and address are never displayed.</p>{error ? <p className="connect-error">{error}</p> : !vehicle ? <p className="connect-lead">Checking the secure sticker…</p> : <><div className="connect-actions"><button type="button" onClick={openApp}>Open in V MOTIV app</button><button type="button" className="connect-secondary" disabled={busy} onClick={() => void send('/call-requests', { consentGiven: true }, 'Your call request was sent to the vehicle owner. Their contact details remain private.')}>Request a private call</button></div><label htmlFor="connect-reason">What do you need to report?</label><select id="connect-reason" value={reason} onChange={event => setReason(event.target.value)}><option value="BLOCKING_ACCESS">Vehicle is blocking access</option><option value="LIGHTS_ON">Lights are left on</option><option value="DAMAGE_OR_ACCIDENT">Damage or accident concern</option><option value="SAFETY_CONCERN">Safety concern</option><option value="OTHER">Other concern</option></select><label htmlFor="connect-message">Optional message</label><textarea id="connect-message" value={message} onChange={event => setMessage(event.target.value)} maxLength={300} placeholder="Example: Your headlights appear to be on." /><button type="button" disabled={busy} onClick={() => void send('/alerts', { reason, message: message.trim() || undefined }, 'Your private alert has been sent to the owner.')}>{busy ? 'Sending…' : 'Send private alert'}</button></>}</section></main>;
+}
+
+function MarketingApp() {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<Profile | null>(null);
   const [authBusy, setAuthBusy] = useState(configured);
@@ -369,6 +417,11 @@ function App() {
       />
     </div>
   );
+}
+
+function App() {
+  const match = window.location.pathname.match(/^\/connect\/([A-Za-z0-9_-]{32,128})\/?$/i);
+  return match ? <PublicConnectPage token={match[1]} /> : <MarketingApp />;
 }
 
 createRoot(document.getElementById('root')!).render(

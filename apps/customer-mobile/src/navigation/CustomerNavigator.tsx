@@ -26,6 +26,7 @@ import { PrivacySettingsScreen } from '../screens/PrivacySettingsScreen';
 import { AddressesScreen } from '../screens/AddressesScreen';
 import { SupportCaseDetailsScreen } from '../screens/SupportCaseDetailsScreen';
 import { MyGarageScreen } from '../screens/MyGarageScreen';
+import { ConnectGuestScreen } from '../screens/ConnectGuestScreen';
 import { ServiceHomeScreen } from '../screens/ServiceHomeScreen';
 import { ServiceRequestDetailsScreen } from '../screens/ServiceRequestDetailsScreen';
 import { RentalHomeScreen } from '../screens/RentalHomeScreen';
@@ -170,6 +171,11 @@ export function CustomerNavigator() {
       <Stack.Screen
         name="MyGarage"
         component={MyGarageScreen}
+        options={{ presentation: 'card', animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
+        name="ConnectGuest"
+        component={ConnectGuestScreen}
         options={{ presentation: 'card', animation: 'slide_from_right' }}
       />
       <Stack.Screen

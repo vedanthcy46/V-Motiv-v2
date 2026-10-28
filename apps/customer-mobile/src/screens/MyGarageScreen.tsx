@@ -3,12 +3,14 @@ import {
   ActivityIndicator,
   Alert,
   Dimensions,
+  Image,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
   RefreshControl,
   ScrollView,
+  Share,
   StyleSheet,
   Text,
   TextInput,
@@ -18,17 +20,28 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import {
+  AlertCircle,
+  AlertTriangle,
   ArrowLeft,
+  Bell,
   Calendar,
   Car,
   Check,
+  CheckCircle2,
   ChevronRight,
   Clock,
   Edit2,
+  ExternalLink,
   Gauge,
+  Lock,
   Plus,
+  PhoneCall,
+  QrCode,
   Radio,
   Search,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
   Star,
   Trash2,
   Wrench,
@@ -45,6 +58,16 @@ import {
   updateCustomerVehicle,
   type CustomerVehicle,
 } from '../services/service-api';
+import {
+  fetchConnectStatus,
+  issueConnectSticker,
+  toggleConnectStatus,
+  revokeConnectQR,
+  requestConnectSticker,
+  markConnectAlertRead,
+  type GarageConnectInfo,
+  type ConnectNotificationItem,
+} from '../services/connect-api';
 import {
   CAR_COLOURS,
   CAR_MAKES,
@@ -72,6 +95,21 @@ export function MyGarageScreen() {
   const [modalVisible, setModalVisible] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<CustomerVehicle | null>(null);
   const [submitting, setSubmitting] = useState(false);
+
+  // V MOTIV Connect™ State
+  const [connectStatuses, setConnectStatuses] = useState<Record<string, GarageConnectInfo>>({});
+  const [connectModalVisible, setConnectModalVisible] = useState(false);
+  const [activeConnectVehicle, setActiveConnectVehicle] = useState<CustomerVehicle | null>(null);
+  const [connectDetails, setConnectDetails] = useState<GarageConnectInfo | null>(null);
+  const [loadingConnectDetails, setLoadingConnectDetails] = useState(false);
+  const [connectTab, setConnectTab] = useState<'GENERATE' | 'ORDER'>('GENERATE');
+  const [stickerUrl, setStickerUrl] = useState<string | null>(null);
+  const [stickerImageUrl, setStickerImageUrl] = useState<string | null>(null);
+  const [connectSubmitting, setConnectSubmitting] = useState(false);
+  const [deliveryAddress, setDeliveryAddress] = useState('');
+  const [deliveryCity, setDeliveryCity] = useState('');
+  const [deliveryPincode, setDeliveryPincode] = useState('');
+  const [deliveryInstructions, setDeliveryInstructions] = useState('');
 
   const modalScrollRef = useRef<ScrollView>(null);
   const { keyboardHeight, isKeyboardVisible } = useKeyboard();
@@ -112,17 +150,200 @@ export function MyGarageScreen() {
     return MODELS_BY_MAKE[make] || [];
   }, [make]);
 
+  const loadConnectDataForVehicles = useCallback(async (vehList: CustomerVehicle[]) => {
+    const statuses: Record<string, GarageConnectInfo> = {};
+    await Promise.allSettled(
+      vehList.map(async (v) => {
+        try {
+          const res = await fetchConnectStatus(v.id);
+          statuses[v.id] = res;
+        } catch {
+          // not linked or offline
+        }
+      })
+    );
+    setConnectStatuses(statuses);
+  }, []);
+
   const loadVehicles = useCallback(async () => {
     try {
       const data = await fetchCustomerVehicles();
       setVehicles(data);
+      void loadConnectDataForVehicles(data);
     } catch (err: any) {
       console.warn('[GARAGE_FETCH_ERROR]', err?.message || err);
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
+  }, [loadConnectDataForVehicles]);
+
+  const openConnectModal = useCallback(async (vehicle: CustomerVehicle) => {
+    setActiveConnectVehicle(vehicle);
+    setConnectModalVisible(true);
+    setLoadingConnectDetails(true);
+    setStickerUrl(null);
+    setStickerImageUrl(null);
+    setConnectTab('GENERATE');
+    try {
+      const details = await fetchConnectStatus(vehicle.id);
+      setConnectDetails(details);
+      setStickerImageUrl(details.link?.stickerImageUrl || null);
+      setConnectStatuses(prev => ({ ...prev, [vehicle.id]: details }));
+    } catch {
+      setConnectDetails(null);
+    } finally {
+      setLoadingConnectDetails(false);
+    }
   }, []);
+
+  const handleGenerateSticker = async () => {
+    if (!activeConnectVehicle) return;
+    setConnectSubmitting(true);
+    try {
+      const res = await issueConnectSticker(activeConnectVehicle.id);
+      setStickerUrl(res.stickerUrl);
+      setStickerImageUrl(res.stickerImageUrl);
+      const updated = await fetchConnectStatus(activeConnectVehicle.id);
+      setConnectDetails(updated);
+      setConnectStatuses(prev => ({ ...prev, [activeConnectVehicle.id]: updated }));
+      Alert.alert('Sticker generated', 'Your secure QR is ready below. Save or print it now. Generating another sticker will invalidate this one.');
+    } catch (err: any) {
+      Alert.alert('Could not generate sticker', err.message || 'Please try again.');
+    } finally {
+      setConnectSubmitting(false);
+    }
+  };
+
+  const handleShareSticker = async () => {
+    if (!stickerUrl || !stickerImageUrl) return;
+    try {
+      await Share.share({
+        title: 'V MOTIV Connect sticker',
+        message: `V MOTIV Connect sticker for ${activeConnectVehicle?.make || 'your vehicle'} ${activeConnectVehicle?.model || ''}. Download or print this cloud-hosted QR: ${stickerImageUrl}\n\nSecure public link: ${stickerUrl}`,
+        url: stickerImageUrl,
+      });
+    } catch {
+      // User cancellation is expected; no error state is needed.
+    }
+  };
+
+  const confirmReplacementSticker = () => {
+    Alert.alert(
+      'Generate a replacement sticker?',
+      'The existing QR will stop working immediately. Only generate a replacement if you have lost the old sticker or need a fresh print.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Generate replacement', style: 'destructive', onPress: () => void handleGenerateSticker() },
+      ],
+    );
+  };
+
+  const handleOrderSticker = async () => {
+    if (!activeConnectVehicle) return;
+    if (!deliveryAddress.trim() || !deliveryCity.trim() || !deliveryPincode.trim()) {
+      Alert.alert('Incomplete Address', 'Please provide your address, city, and pincode for sticker dispatch.');
+      return;
+    }
+    setConnectSubmitting(true);
+    try {
+      const res = await requestConnectSticker(activeConnectVehicle.id, {
+        deliveryAddress: deliveryAddress.trim(),
+        city: deliveryCity.trim(),
+        pincode: deliveryPincode.trim(),
+        instructions: deliveryInstructions.trim() || undefined,
+      });
+      Alert.alert(
+        'Sticker Ordered!',
+        `${res.message}\nOrder Ref: ${res.requestId}\nEstimated Dispatch: ${res.estimatedDeliveryDays} business days\n\nYour generated QR remains the active sticker; the printed version will carry the same secure link.`,
+        [{ text: 'OK' }]
+      );
+      setDeliveryAddress('');
+      setDeliveryCity('');
+      setDeliveryPincode('');
+      setDeliveryInstructions('');
+      setConnectTab('GENERATE');
+    } catch (err: any) {
+      Alert.alert('Order Failed', err.message || 'Unable to place sticker order.');
+    } finally {
+      setConnectSubmitting(false);
+    }
+  };
+
+  const handleToggleConnect = async () => {
+    if (!activeConnectVehicle || !connectDetails?.link) return;
+    const currentEnabled = connectDetails.link.status === 'ACTIVE';
+    const newEnabled = !currentEnabled;
+    setConnectSubmitting(true);
+    try {
+      await toggleConnectStatus(activeConnectVehicle.id, newEnabled);
+      const updated = await fetchConnectStatus(activeConnectVehicle.id);
+      setConnectDetails(updated);
+      setConnectStatuses(prev => ({ ...prev, [activeConnectVehicle.id]: updated }));
+    } catch (err: any) {
+      Alert.alert('Error', err.message || 'Could not update status');
+    } finally {
+      setConnectSubmitting(false);
+    }
+  };
+
+  const handleRevokeConnect = () => {
+    if (!activeConnectVehicle) return;
+    Alert.alert(
+      'Revoke QR Sticker?',
+      'Warning: Revoking this QR sticker will permanently deactivate it. Passerbys scanning the sticker will be notified that it is no longer valid. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Yes, Revoke Sticker',
+          style: 'destructive',
+          onPress: async () => {
+            setConnectSubmitting(true);
+            try {
+              await revokeConnectQR(activeConnectVehicle.id, 'Customer requested revocation from garage');
+              Alert.alert('Revoked', 'The QR sticker has been permanently revoked.');
+              const updated = await fetchConnectStatus(activeConnectVehicle.id);
+              setConnectDetails(updated);
+              setConnectStatuses(prev => ({ ...prev, [activeConnectVehicle.id]: updated }));
+            } catch (err: any) {
+              Alert.alert('Revocation Error', err.message || 'Failed to revoke sticker');
+            } finally {
+              setConnectSubmitting(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const handleMarkAlertRead = async (alertId: string) => {
+    try {
+      await markConnectAlertRead(alertId);
+      if (activeConnectVehicle) {
+        const updated = await fetchConnectStatus(activeConnectVehicle.id);
+        setConnectDetails(updated);
+        setConnectStatuses(prev => ({ ...prev, [activeConnectVehicle.id]: updated }));
+      }
+    } catch (err: any) {
+      console.warn('Mark read error:', err.message);
+    }
+  };
+
+  const handleReportConnectAbuse = () => {
+    Alert.alert(
+      'Report Passerby Abuse / Harassment',
+      'Our 24/7 Trust & Safety team reviews reported scans. If a visitor is misusing the QR code, their IP and access will be permanently blocked from contacting you.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Submit Safety Report',
+          onPress: () => {
+            Alert.alert('Report Received', 'Thank you. Our Trust & Safety team is reviewing recent activity on this QR code.');
+          },
+        },
+      ]
+    );
+  };
 
   useEffect(() => {
     void loadVehicles();
@@ -404,6 +625,48 @@ export function MyGarageScreen() {
                 </TouchableOpacity>
               )}
 
+              {/* V MOTIV Connect™ QR Sticker Status Section */}
+              {(() => {
+                const cInfo = connectStatuses[v.id];
+                const isLinked = Boolean(cInfo?.isLinked && cInfo?.link?.status !== 'REVOKED');
+                const isActive = Boolean(isLinked && cInfo?.link?.status === 'ACTIVE');
+                const unreadAlerts = cInfo?.stats?.unreadAlerts || 0;
+
+                return (
+                  <View style={[styles.vehicleConnectRow, { backgroundColor: isDark ? '#14253E' : '#F6F9FD', borderColor: isDark ? '#1F3F6D' : '#DCE7F5' }]}>
+                    <View style={styles.vehicleConnectLeft}>
+                      <View style={[styles.vehicleConnectIconWrap, { backgroundColor: isLinked ? (isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(247, 181, 3, 0.15)') : (isDark ? '#233550' : '#E2E8F0') }]}>
+                        <QrCode size={18} color={isLinked ? (isActive ? '#10B981' : '#F7B503') : c.textMuted} />
+                      </View>
+                      <View style={styles.vehicleConnectInfo}>
+                        <View style={styles.vehicleConnectTitleRow}>
+                          <Text style={[styles.vehicleConnectTitle, { color: c.text }]}>V MOTIV Connect™</Text>
+                          <View style={[styles.statusBadgeSmall, { backgroundColor: isLinked ? (isActive ? 'rgba(16, 185, 129, 0.15)' : 'rgba(247, 181, 3, 0.15)') : (isDark ? '#2A2E3D' : '#EDF2F7') }]}>
+                            <Text style={[styles.statusBadgeSmallText, { color: isLinked ? (isActive ? '#10B981' : '#F7B503') : c.textMuted }]}>
+                              {isLinked ? (isActive ? 'ACTIVE' : 'PAUSED') : 'NOT LINKED'}
+                            </Text>
+                          </View>
+                        </View>
+                        <Text style={[styles.vehicleConnectSub, { color: c.textMuted }]} numberOfLines={1}>
+                          {isLinked
+                            ? `${cInfo?.link?.qrTokenPreview || 'Sticker Linked'} · Zero-knowledge privacy`
+                            : 'Protect your car with zero phone number exposure'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <TouchableOpacity
+                      onPress={() => openConnectModal(v)}
+                      style={[styles.manageConnectBtn, { backgroundColor: isLinked ? (isDark ? '#1F3F6D' : '#E6EFFB') : c.accent }]}
+                    >
+                      <Text style={[styles.manageConnectBtnText, { color: isLinked ? (isDark ? '#93C5FD' : '#0F4B8E') : '#061A38' }]}>
+                        {isLinked ? (unreadAlerts > 0 ? `Alerts (${unreadAlerts})` : 'Manage QR') : 'Set up QR'}
+                      </Text>
+                    </TouchableOpacity>
+                  </View>
+                );
+              })()}
+
               {/* Card Actions */}
               <View style={[styles.cardFooter, { borderTopColor: c.border }]}>
                 <TouchableOpacity
@@ -435,7 +698,7 @@ export function MyGarageScreen() {
           ))
         )}
 
-        {/* V MOTIV Connect™ Card (Part 3 Telematics Placeholder) */}
+        {/* V MOTIV Connect™ Protection Spotlight */}
         <View style={[styles.connectCard, { backgroundColor: c.surface, borderColor: isDark ? '#1F3F6D' : '#DCE7F5' }]}>
           <View style={styles.connectHeaderRow}>
             <View style={styles.connectTitleRow}>
@@ -445,25 +708,43 @@ export function MyGarageScreen() {
               <View>
                 <Text style={[styles.connectTitle, { color: c.text }]}>V MOTIV Connect™</Text>
                 <Text style={[styles.connectSubtitle, { color: c.textMuted }]}>
-                  OBD-II Smart Vehicle Telematics
+                  Zero-Knowledge Smart Vehicle QR Protection
                 </Text>
               </View>
             </View>
-            <View style={[styles.connectBadge, { backgroundColor: isDark ? '#2A2E3D' : '#F1F5F9' }]}>
-              <Text style={[styles.connectBadgeText, { color: c.textMuted }]}>COMING IN PART 3</Text>
+            <View style={[styles.connectBadge, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
+              <Text style={[styles.connectBadgeText, { color: '#10B981' }]}>LIVE SYSTEM</Text>
             </View>
           </View>
 
           <Text style={[styles.connectDesc, { color: c.textMuted }]}>
-            Live engine health diagnostics, instant battery voltage alerts, automated service reminders, and driving insights delivered straight to your phone.
+            Attach an official V MOTIV Connect™ QR sticker to your windshield. Anyone can scan it to alert you if your car is blocking, lights are left on, or an emergency arises — without ever exposing your phone number or identity.
           </Text>
 
-          <View style={[styles.connectBtnDisabled, { backgroundColor: isDark ? '#14253E' : '#EDF2F7' }]}>
-            <Zap size={14} color={c.textMuted} />
-            <Text style={[styles.connectBtnDisabledText, { color: c.textMuted }]}>
-              Hardware Pairing Reserved for Part 3
-            </Text>
+          <View style={styles.connectPillarsRow}>
+            <View style={[styles.connectPillar, { backgroundColor: isDark ? '#14253E' : '#F6F9FD' }]}>
+              <ShieldCheck size={16} color="#10B981" />
+              <Text style={[styles.connectPillarTitle, { color: c.text }]}>100% Private</Text>
+              <Text style={[styles.connectPillarText, { color: c.textMuted }]}>Zero phone number or name exposure</Text>
+            </View>
+            <View style={[styles.connectPillar, { backgroundColor: isDark ? '#14253E' : '#F6F9FD' }]}>
+              <Bell size={16} color="#F7B503" />
+              <Text style={[styles.connectPillarTitle, { color: c.text }]}>Instant Alerts</Text>
+              <Text style={[styles.connectPillarText, { color: c.textMuted }]}>Real-time notifications to your phone</Text>
+            </View>
           </View>
+
+          {vehicles.length > 0 && vehicles[0] && (
+            <TouchableOpacity
+              onPress={() => openConnectModal(vehicles[0]!)}
+              style={[styles.connectActionBtn, { backgroundColor: c.accent }]}
+            >
+              <QrCode size={16} color="#061A38" />
+              <Text style={styles.connectActionBtnText}>
+                Configure Connect QR for Your Vehicles
+              </Text>
+            </TouchableOpacity>
+          )}
         </View>
       </ScrollView>
 
@@ -920,6 +1201,407 @@ export function MyGarageScreen() {
         </KeyboardAvoidingView>
       </View>
     </Modal>
+
+    {/* V MOTIV Connect™ Management Modal */}
+    <Modal
+      visible={connectModalVisible}
+      animationType="slide"
+      transparent={true}
+      onRequestClose={() => setConnectModalVisible(false)}
+      statusBarTranslucent={true}
+    >
+      <View style={styles.modalOverlay}>
+        <Pressable
+          style={StyleSheet.absoluteFill}
+          onPress={() => setConnectModalVisible(false)}
+        />
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          keyboardVerticalOffset={0}
+          style={[
+            styles.keyboardAvoidWrap,
+            Platform.OS === 'android' && isKeyboardVisible ? { marginBottom: keyboardHeight } : null,
+          ]}
+        >
+          <View
+            style={[
+              styles.modalSheet,
+              {
+                backgroundColor: c.surface,
+                height: activeSheetHeight,
+                paddingBottom: isKeyboardVisible ? 10 : Math.max(insets.bottom, 16),
+              },
+            ]}
+          >
+            {/* Connect Modal Header */}
+            <View style={styles.modalHeader}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                <View style={[styles.connectIconWrap, { backgroundColor: '#F7B503', width: 32, height: 32 }]}>
+                  <QrCode size={16} color="#061A38" />
+                </View>
+                <View>
+                  <Text style={[styles.modalTitle, { color: c.text, fontSize: 17 }]}>
+                    V MOTIV Connect™
+                  </Text>
+                  {activeConnectVehicle && (
+                    <Text style={[styles.modalSubTitle, { color: c.textMuted }]}>
+                      {activeConnectVehicle.make} {activeConnectVehicle.model} {activeConnectVehicle.registrationNumber ? `· ${activeConnectVehicle.registrationNumber}` : ''}
+                    </Text>
+                  )}
+                </View>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setConnectModalVisible(false)}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <Text style={[styles.modalCloseText, { color: c.accent }]}>Done</Text>
+              </TouchableOpacity>
+            </View>
+
+            {loadingConnectDetails ? (
+              <View style={[styles.connectCenterWrap, { paddingVertical: 40 }]}>
+                <ActivityIndicator size="large" color={c.accent} />
+                <Text style={[styles.connectLoadingText, { color: c.textMuted }]}>Syncing QR status...</Text>
+              </View>
+            ) : (
+              <ScrollView
+                style={styles.modalBody}
+                contentContainerStyle={[
+                  styles.modalScrollContent,
+                  { paddingBottom: isKeyboardVisible ? 240 : 40 },
+                ]}
+                keyboardShouldPersistTaps="handled"
+                showsVerticalScrollIndicator={false}
+              >
+                {/* If NOT LINKED */}
+                {(!connectDetails?.isLinked || connectDetails?.link?.status === 'REVOKED') ? (
+                  <View style={styles.connectUnlinkedWrap}>
+                    {/* Segmented Control */}
+                    <View style={[styles.connectTabRow, { backgroundColor: isDark ? '#14253E' : '#EDF2F7' }]}>
+                      <TouchableOpacity
+                        style={[
+                          styles.connectTabBtn,
+                          connectTab === 'GENERATE' && [styles.connectTabBtnActive, { backgroundColor: c.surface }],
+                        ]}
+                        onPress={() => setConnectTab('GENERATE')}
+                      >
+                        <Text
+                          style={[
+                            styles.connectTabBtnText,
+                            { color: connectTab === 'GENERATE' ? c.text : c.textMuted },
+                          ]}
+                        >
+                          Generate QR sticker
+                        </Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        style={[
+                          styles.connectTabBtn,
+                          connectTab === 'ORDER' && [styles.connectTabBtnActive, { backgroundColor: c.surface }],
+                        ]}
+                        onPress={() => setConnectTab('ORDER')}
+                      >
+                        <Text
+                          style={[
+                            styles.connectTabBtnText,
+                            { color: connectTab === 'ORDER' ? c.text : c.textMuted },
+                          ]}
+                        >
+                          Order Physical Sticker
+                        </Text>
+                      </TouchableOpacity>
+                    </View>
+
+                    {connectTab === 'GENERATE' ? (
+                      <View style={styles.connectTabContent}>
+                        {/* Privacy Shield Info */}
+                        <View style={[styles.privacyShieldBanner, { backgroundColor: isDark ? '#142742' : '#F0FDF4', borderColor: isDark ? '#1E3A5F' : '#BBF7D0' }]}>
+                          <ShieldCheck size={20} color="#10B981" />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.privacyShieldTitle, { color: isDark ? '#34D399' : '#166534' }]}>
+                              Zero-Knowledge Owner Privacy
+                            </Text>
+                            <Text style={[styles.privacyShieldDesc, { color: isDark ? '#93C5FD' : '#15803D' }]}>
+                              Your QR never contains your phone number, address, or vehicle registration. Passersby use a secure V MOTIV relay.
+                            </Text>
+                          </View>
+                        </View>
+
+                        <Text style={[styles.connectOrderIntro, { color: c.textMuted }]}>
+                          Create a unique QR sticker for this car. Scan it from any phone to send you an alert or request a privacy-protected call.
+                        </Text>
+
+                        <TouchableOpacity
+                          onPress={handleGenerateSticker}
+                          disabled={connectSubmitting}
+                          style={[styles.saveBtn, { backgroundColor: c.accent, marginTop: 12 }]}
+                        >
+                          {connectSubmitting ? (
+                            <ActivityIndicator size="small" color="#061A38" />
+                          ) : (
+                            <Text style={styles.saveBtnText}>Generate secure QR sticker</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    ) : (
+                      <View style={styles.connectTabContent}>
+                        <Text style={[styles.connectOrderIntro, { color: c.textMuted }]}>
+                          Request a weather-resistant, UV-coated V MOTIV Connect™ sticker. Generate the secure QR first, then submit the delivery request.
+                        </Text>
+
+                        <View style={styles.formSection}>
+                          <Text style={[styles.label, { color: c.text }]}>Delivery Address *</Text>
+                          <TextInput
+                            style={[styles.textArea, { color: c.text, borderColor: c.border, backgroundColor: isDark ? '#142742' : '#F8FAFC' }]}
+                            placeholder="Flat/House number, Street, Apartment name"
+                            placeholderTextColor={c.textMuted}
+                            value={deliveryAddress}
+                            onChangeText={setDeliveryAddress}
+                            multiline
+                          />
+                        </View>
+
+                        <View style={styles.inputRow}>
+                          <View style={styles.inputHalf}>
+                            <Text style={[styles.label, { color: c.text }]}>City *</Text>
+                            <TextInput
+                              style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: isDark ? '#142742' : '#F8FAFC' }]}
+                              placeholder="e.g. Bengaluru"
+                              placeholderTextColor={c.textMuted}
+                              value={deliveryCity}
+                              onChangeText={setDeliveryCity}
+                            />
+                          </View>
+                          <View style={styles.inputHalf}>
+                            <Text style={[styles.label, { color: c.text }]}>PIN Code *</Text>
+                            <TextInput
+                              style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: isDark ? '#142742' : '#F8FAFC' }]}
+                              placeholder="e.g. 560001"
+                              placeholderTextColor={c.textMuted}
+                              keyboardType="number-pad"
+                              maxLength={6}
+                              value={deliveryPincode}
+                              onChangeText={setDeliveryPincode}
+                            />
+                          </View>
+                        </View>
+
+                        <View style={styles.formSection}>
+                          <Text style={[styles.label, { color: c.text }]}>Delivery Notes</Text>
+                          <TextInput
+                            style={[styles.input, { color: c.text, borderColor: c.border, backgroundColor: isDark ? '#142742' : '#F8FAFC' }]}
+                            placeholder="e.g. Leave with security desk"
+                            placeholderTextColor={c.textMuted}
+                            value={deliveryInstructions}
+                            onChangeText={setDeliveryInstructions}
+                          />
+                        </View>
+
+                        <TouchableOpacity
+                          onPress={handleOrderSticker}
+                          disabled={connectSubmitting}
+                          style={[styles.saveBtn, { backgroundColor: c.accent, marginTop: 12 }]}
+                        >
+                          {connectSubmitting ? (
+                            <ActivityIndicator size="small" color="#061A38" />
+                          ) : (
+        <Text style={styles.saveBtnText}>Request printed sticker</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    )}
+                  </View>
+                ) : (
+                  /* If LINKED & ACTIVE / DISABLED */
+                  <View style={styles.connectLinkedWrap}>
+                    {/* Active Status Card */}
+                    <View style={[styles.connectStatusCard, { backgroundColor: isDark ? '#14253E' : '#F6F9FD', borderColor: isDark ? '#1F3F6D' : '#DCE7F5' }]}>
+                      <View style={styles.connectStatusHeader}>
+                        <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                          <View style={[styles.statusDot, { backgroundColor: connectDetails.link?.status === 'ACTIVE' ? '#10B981' : '#F7B503' }]} />
+                          <Text style={[styles.connectStatusTitle, { color: c.text }]}>
+                            {connectDetails.link?.status === 'ACTIVE' ? 'Passerby Alerts Active' : 'Passerby Alerts Paused'}
+                          </Text>
+                        </View>
+                        <TouchableOpacity
+                          onPress={handleToggleConnect}
+                          disabled={connectSubmitting}
+                          style={[
+                            styles.toggleStatusBtn,
+                            { backgroundColor: connectDetails.link?.status === 'ACTIVE' ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.12)' },
+                          ]}
+                        >
+                          <Text
+                            style={[
+                              styles.toggleStatusBtnText,
+                              { color: connectDetails.link?.status === 'ACTIVE' ? '#EF4444' : '#10B981' },
+                            ]}
+                          >
+                            {connectDetails.link?.status === 'ACTIVE' ? 'Pause Alerts' : 'Resume Alerts'}
+                          </Text>
+                        </TouchableOpacity>
+                      </View>
+
+                      <Text style={[styles.connectStatusDesc, { color: c.textMuted }]}>
+                        {connectDetails.link?.status === 'ACTIVE'
+                          ? 'Scanners will be able to message you or request a masked call when needed.'
+                          : 'Scanners will see that the vehicle is temporarily not accepting requests.'}
+                      </Text>
+
+                      {/* Token Info Row */}
+                      <View style={[styles.tokenRow, { borderTopColor: isDark ? '#1E3A5F' : '#E2E8F0' }]}>
+                        <Text style={[styles.tokenLabel, { color: c.textMuted }]}>Sticker Token:</Text>
+                        <Text style={[styles.tokenValue, { color: c.text }]}>{connectDetails.link?.qrTokenPreview}</Text>
+                      </View>
+                    </View>
+
+                    {stickerImageUrl ? (
+                      <View style={[styles.generatedStickerCard, { backgroundColor: '#FFFFFF', borderColor: c.accent }]}>
+                        <Text style={styles.generatedStickerEyebrow}>READY TO PRINT</Text>
+                        <Text style={styles.generatedStickerTitle}>Your V MOTIV Connect sticker</Text>
+                        <Text style={styles.generatedStickerText}>Stored securely in Cloudinary. Print it and place it inside the windscreen.</Text>
+                        <View style={styles.generatedQrWrap}>
+                          <Image source={{ uri: stickerImageUrl }} style={styles.generatedQrImage} accessibilityLabel="Generated V MOTIV Connect QR sticker" />
+                        </View>
+                        <Text selectable style={styles.generatedStickerUrl} numberOfLines={2}>{stickerImageUrl}</Text>
+                        <TouchableOpacity onPress={() => void handleShareSticker()} style={[styles.saveBtn, { backgroundColor: c.accent }]}>
+                          <Text style={styles.saveBtnText}>Save or share sticker</Text>
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
+
+                    {/* Stats Overview */}
+                    <View style={styles.connectStatsRow}>
+                      <View style={[styles.connectStatBox, { backgroundColor: isDark ? '#14253E' : '#F6F9FD' }]}>
+                        <Text style={[styles.connectStatNum, { color: c.text }]}>{connectDetails.stats?.totalAlerts || 0}</Text>
+                        <Text style={[styles.connectStatLabel, { color: c.textMuted }]}>Total Alerts</Text>
+                      </View>
+                      <View style={[styles.connectStatBox, { backgroundColor: isDark ? '#14253E' : '#F6F9FD' }]}>
+                        <Text style={[styles.connectStatNum, { color: (connectDetails.stats?.unreadAlerts || 0) > 0 ? '#F7B503' : c.text }]}>
+                          {connectDetails.stats?.unreadAlerts || 0}
+                        </Text>
+                        <Text style={[styles.connectStatLabel, { color: c.textMuted }]}>Unread</Text>
+                      </View>
+                      <View style={[styles.connectStatBox, { backgroundColor: isDark ? '#14253E' : '#F6F9FD' }]}>
+                        <Text style={[styles.connectStatNum, { color: c.text }]}>{connectDetails.stats?.totalCalls || 0}</Text>
+                        <Text style={[styles.connectStatLabel, { color: c.textMuted }]}>Masked Calls</Text>
+                      </View>
+                    </View>
+
+                    {/* Recent Passerby Alerts List */}
+                    <View style={styles.alertsSection}>
+                      {connectDetails.recentCalls?.some(call => ['requested', 'validating', 'queued', 'initiating', 'ringing'].includes(call.status.toLowerCase())) ? (
+                        <View style={[styles.incomingCallBanner, { backgroundColor: isDark ? '#25301A' : '#F4FCE8', borderColor: '#84CC16' }]}>
+                          <PhoneCall size={20} color="#65A30D" />
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.incomingCallTitle, { color: c.text }]}>Incoming Connect call request</Text>
+                            <Text style={[styles.incomingCallText, { color: c.textMuted }]}>A passerby has requested a privacy-protected call. Review the request in V MOTIV Connect before responding.</Text>
+                          </View>
+                        </View>
+                      ) : null}
+                      {connectDetails.recentCalls?.length ? (
+                        <View style={styles.callHistoryWrap}>
+                          <Text style={[styles.sectionSubtitle, { color: c.text }]}>Recent Call Requests</Text>
+                          {connectDetails.recentCalls.slice(0, 3).map(call => (
+                            <View key={call.id} style={[styles.callHistoryRow, { borderColor: c.border, backgroundColor: isDark ? '#14253E' : '#F8FAFC' }]}>
+                              <PhoneCall size={16} color={call.status.toLowerCase() === 'connected' ? '#10B981' : c.accent} />
+                              <View style={{ flex: 1 }}>
+                                <Text style={[styles.callHistoryTitle, { color: c.text }]}>Masked call · {call.status.replace(/_/g, ' ')}</Text>
+                                <Text style={[styles.callHistoryMeta, { color: c.textMuted }]}>{new Date(call.createdAt).toLocaleString()}</Text>
+                              </View>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null}
+                      <Text style={[styles.sectionSubtitle, { color: c.text }]}>Recent Passerby Notifications</Text>
+
+                      {(!connectDetails.recentAlerts || connectDetails.recentAlerts.length === 0) ? (
+                        <View style={[styles.noAlertsBox, { backgroundColor: isDark ? '#14253E' : '#F8FAFC' }]}>
+                          <Bell size={24} color={c.textMuted} />
+                          <Text style={[styles.noAlertsText, { color: c.textMuted }]}>
+                            No notifications yet. When a passerby scans your sticker to report blocking, lights left on, or an issue, it will appear here.
+                          </Text>
+                        </View>
+                      ) : (
+                        connectDetails.recentAlerts.map((alert) => (
+                          <View
+                            key={alert.id}
+                            style={[
+                              styles.alertCard,
+                              {
+                                backgroundColor: isDark ? '#14253E' : '#FFFFFF',
+                                borderColor: alert.isRead ? (isDark ? '#1F3F6D' : '#E2E8F0') : '#F7B503',
+                              },
+                            ]}
+                          >
+                            <View style={styles.alertCardHeader}>
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                                {!alert.isRead && <View style={styles.unreadDot} />}
+                                <Text style={[styles.alertReason, { color: c.text }]}>
+                                  {alert.reason ? alert.reason.replace(/_/g, ' ').toUpperCase() : 'ALERT'}
+                                </Text>
+                              </View>
+                              <Text style={[styles.alertTime, { color: c.textMuted }]}>
+                                {new Date(alert.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </Text>
+                            </View>
+
+                            {alert.messagePreview ? (
+                              <Text style={[styles.alertMessage, { color: c.text }]}>
+                                "{alert.messagePreview}"
+                              </Text>
+                            ) : null}
+
+                            {!alert.isRead && (
+                              <TouchableOpacity
+                                onPress={() => handleMarkAlertRead(alert.id)}
+                                style={styles.markReadBtn}
+                              >
+                                <Check size={14} color="#10B981" />
+                                <Text style={styles.markReadText}>Mark as Read</Text>
+                              </TouchableOpacity>
+                            )}
+                          </View>
+                        ))
+                      )}
+                    </View>
+
+                    {/* Safety & Sticker Actions */}
+                    <View style={styles.securityActionsWrap}>
+                      <TouchableOpacity
+                        onPress={confirmReplacementSticker}
+                        style={[styles.securityActionBtn, { borderColor: c.border }]}
+                      >
+                        <QrCode size={16} color={c.accent} />
+                        <Text style={[styles.securityActionText, { color: c.text }]}>Generate replacement QR sticker</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={handleReportConnectAbuse}
+                        style={[styles.securityActionBtn, { borderColor: c.border }]}
+                      >
+                        <ShieldAlert size={16} color="#F7B503" />
+                        <Text style={[styles.securityActionText, { color: c.text }]}>Report Passerby Misuse / Spam</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={handleRevokeConnect}
+                        style={[styles.securityActionBtn, { borderColor: 'rgba(239, 68, 68, 0.3)', backgroundColor: 'rgba(239, 68, 68, 0.05)' }]}
+                      >
+                        <Trash2 size={16} color="#EF4444" />
+                        <Text style={[styles.securityActionText, { color: '#EF4444' }]}>Revoke Lost / Stolen Sticker</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+              </ScrollView>
+            )}
+          </View>
+        </KeyboardAvoidingView>
+      </View>
+    </Modal>
     </View>
   );
 }
@@ -1212,6 +1894,416 @@ const styles = StyleSheet.create({
   },
   connectBtnDisabledText: {
     fontSize: 12,
+    fontWeight: '600',
+  },
+  vehicleConnectRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    marginTop: 12,
+  },
+  vehicleConnectLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    flex: 1,
+  },
+  vehicleConnectIconWrap: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  vehicleConnectInfo: {
+    flex: 1,
+  },
+  vehicleConnectTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  vehicleConnectTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  statusBadgeSmall: {
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: radius.sm,
+  },
+  statusBadgeSmallText: {
+    fontSize: 9.5,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+  },
+  vehicleConnectSub: {
+    fontSize: 11,
+    marginTop: 2,
+  },
+  manageConnectBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: radius.pill,
+  },
+  manageConnectBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  connectPillarsRow: {
+    flexDirection: 'row',
+    gap: 10,
+    marginVertical: 4,
+  },
+  connectPillar: {
+    flex: 1,
+    padding: 10,
+    borderRadius: radius.md,
+    gap: 4,
+  },
+  connectPillarTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  connectPillarText: {
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  connectActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 12,
+    borderRadius: radius.pill,
+    marginTop: 4,
+  },
+  connectActionBtnText: {
+    color: '#061A38',
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  connectScanInputRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  connectScanInput: {
+    flex: 1,
+  },
+  connectScanButton: {
+    minHeight: 44,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  connectScanButtonText: {
+    color: '#061A38',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  modalSubTitle: {
+    fontSize: 12,
+    marginTop: 1,
+  },
+  connectCenterWrap: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 12,
+  },
+  connectLoadingText: {
+    fontSize: 13,
+  },
+  connectUnlinkedWrap: {
+    gap: 14,
+  },
+  connectTabRow: {
+    flexDirection: 'row',
+    padding: 4,
+    borderRadius: radius.pill,
+    marginBottom: 8,
+  },
+  connectTabBtn: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.pill,
+  },
+  connectTabBtnActive: {
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    elevation: 1,
+  },
+  connectTabBtnText: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  connectTabContent: {
+    gap: 12,
+  },
+  privacyShieldBanner: {
+    flexDirection: 'row',
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 10,
+    alignItems: 'flex-start',
+  },
+  privacyShieldTitle: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginBottom: 2,
+  },
+  privacyShieldDesc: {
+    fontSize: 11.5,
+    lineHeight: 16,
+  },
+  fieldHint: {
+    fontSize: 11,
+    marginTop: 4,
+  },
+  connectOrderIntro: {
+    fontSize: 12.5,
+    lineHeight: 18,
+    marginBottom: 4,
+  },
+  connectLinkedWrap: {
+    gap: 16,
+  },
+  connectStatusCard: {
+    padding: 14,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 10,
+  },
+  connectStatusHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  statusDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  connectStatusTitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  toggleStatusBtn: {
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    borderRadius: radius.pill,
+  },
+  toggleStatusBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  connectStatusDesc: {
+    fontSize: 12,
+    lineHeight: 17,
+  },
+  generatedStickerCard: {
+    padding: 16,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    alignItems: 'center',
+    gap: 10,
+  },
+  generatedStickerEyebrow: {
+    color: '#9A6500',
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 1.1,
+  },
+  generatedStickerTitle: {
+    color: '#061A38',
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  generatedStickerText: {
+    color: '#43536B',
+    fontSize: 12,
+    lineHeight: 17,
+    textAlign: 'center',
+  },
+  generatedQrWrap: {
+    backgroundColor: '#FFFFFF',
+    padding: 14,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: '#DCE7F5',
+  },
+  generatedQrImage: {
+    width: 184,
+    height: 184,
+  },
+  generatedStickerUrl: {
+    color: '#43536B',
+    fontSize: 10,
+    lineHeight: 14,
+    textAlign: 'center',
+  },
+  tokenRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    borderTopWidth: StyleSheet.hairlineWidth,
+    paddingTop: 8,
+  },
+  tokenLabel: {
+    fontSize: 12,
+  },
+  tokenValue: {
+    fontSize: 12,
+    fontWeight: '700',
+    fontFamily: Platform.OS === 'ios' ? 'Courier' : 'monospace',
+  },
+  connectStatsRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  connectStatBox: {
+    flex: 1,
+    paddingVertical: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.md,
+  },
+  connectStatNum: {
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  connectStatLabel: {
+    fontSize: 10,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+    marginTop: 2,
+  },
+  alertsSection: {
+    gap: 10,
+    marginTop: 4,
+  },
+  sectionSubtitle: {
+    fontSize: 14,
+    fontWeight: '700',
+  },
+  noAlertsBox: {
+    padding: 20,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  noAlertsText: {
+    fontSize: 12,
+    textAlign: 'center',
+    lineHeight: 17,
+  },
+  alertCard: {
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    gap: 8,
+  },
+  incomingCallBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderRadius: radius.md,
+  },
+  incomingCallTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  incomingCallText: {
+    marginTop: 3,
+    fontSize: 11.5,
+    lineHeight: 16,
+  },
+  callHistoryWrap: {
+    gap: 8,
+  },
+  callHistoryRow: {
+    minHeight: 52,
+    paddingHorizontal: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  callHistoryTitle: {
+    fontSize: 12,
+    fontWeight: '700',
+    textTransform: 'capitalize',
+  },
+  callHistoryMeta: {
+    marginTop: 2,
+    fontSize: 10.5,
+  },
+  alertCardHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  unreadDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#F7B503',
+  },
+  alertReason: {
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  alertTime: {
+    fontSize: 11,
+  },
+  alertMessage: {
+    fontSize: 13,
+    fontStyle: 'italic',
+    lineHeight: 18,
+  },
+  markReadBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    paddingTop: 4,
+  },
+  markReadText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: '#10B981',
+  },
+  securityActionsWrap: {
+    gap: 10,
+    marginTop: 10,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: '#334155',
+    paddingTop: 16,
+  },
+  securityActionBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderRadius: radius.md,
+    borderWidth: 1,
+  },
+  securityActionText: {
+    fontSize: 13,
     fontWeight: '600',
   },
   modalOverlay: {

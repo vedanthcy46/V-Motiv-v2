@@ -9,13 +9,18 @@ import { InspectorScreen } from './src/screens/InspectorScreen';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { ThemeProvider, useAppTheme } from './src/theme';
 import { BrandRevealScreen } from './src/components/BrandRevealScreen';
+import { ConnectIncomingCallOverlay } from './src/components/ConnectIncomingCallOverlay';
 import type { RootStack } from './src/navigation/types';
 
 const linking: LinkingOptions<RootStack> = {
   prefixes: ['vmotiv://'],
   config: {
     screens: {
-      Tabs: { screens: { Home: '', Explore: 'explore', Saved: 'saved', Activity: 'activity', Account: 'account' } },
+      Tabs: { screens: { Home: '', Explore: 'explore', Saved: 'saved', Garage: 'garage/:vehicleId?', Activity: 'activity', Account: 'account' } },
+      ConnectGuest: {
+        path: 'connect/scan',
+        parse: { token: (token: string) => token },
+      },
       Vehicle: 'vehicles/:listingId',
       Support: 'support',
       PrivacySettings: 'privacy',
@@ -45,7 +50,12 @@ function Root() {
     return <OnboardingScreen />;
   }
 
-  return <CustomerNavigator />;
+  return (
+    <>
+      <CustomerNavigator />
+      {state === 'signed-in' ? <ConnectIncomingCallOverlay /> : null}
+    </>
+  );
 }
 
 function MainContent({ onFinishReveal }: { onFinishReveal: () => void }) {

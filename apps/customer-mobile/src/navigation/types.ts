@@ -34,6 +34,7 @@ export type RootStack = {
   Addresses: undefined;
   SupportCaseDetails: { caseId: string };
   MyGarage: undefined;
+  ConnectGuest: { token?: string } | undefined;
   ServiceHome: { preselectedVehicleId?: string } | undefined;
   ServiceRequestDetails: { requestId: string };
   Wishlist: undefined;

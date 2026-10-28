@@ -13,17 +13,21 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import {
+  Bell,
   Calendar,
   CarFront,
   CheckCircle,
   ChevronRight,
   IndianRupee,
   MapPin,
+  QrCode,
+  ShieldCheck,
   Wrench,
   XCircle,
 } from 'lucide-react-native';
 import { customer } from '../services/customer';
 import { fetchCustomerServiceRequests, type ServiceRequestSummary } from '../services/service-api';
+import { fetchConnectAlerts, markConnectAlertRead, type ConnectNotificationItem } from '../services/connect-api';
 import { useAuth } from '../auth/AuthProvider';
 import { BrandLogo } from '../components/BrandLogo';
 import { AuthScreen } from './AuthScreen';
@@ -31,7 +35,7 @@ import { useAppTheme, radius, space } from '../theme';
 import { formatPaise, friendlyError } from '../format';
 import type { ActivityItem, PurchaseEnquiry, SellingRequest, SupportCase, TestDrive } from '../types';
 
-type FilterTab = 'ALL' | 'SELLING' | 'TEST_DRIVES' | 'PURCHASES' | 'SUPPORT' | 'SERVICE';
+type FilterTab = 'ALL' | 'CONNECT' | 'SERVICE' | 'SELLING' | 'TEST_DRIVES' | 'PURCHASES' | 'SUPPORT';
 
 export function RequestsScreen() {
   const insets = useSafeAreaInsets();
@@ -46,6 +50,7 @@ export function RequestsScreen() {
   const [purchases, setPurchases] = useState<PurchaseEnquiry[]>([]);
   const [cases, setCases] = useState<SupportCase[]>([]);
   const [serviceRequests, setServiceRequests] = useState<ServiceRequestSummary[]>([]);
+  const [connectAlerts, setConnectAlerts] = useState<ConnectNotificationItem[]>([]);
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const [activityTotal, setActivityTotal] = useState(0);
   const [activityPage, setActivityPage] = useState(1);
@@ -60,19 +65,21 @@ export function RequestsScreen() {
     if (state !== 'signed-in') return;
     try {
       setError('');
-      const [d, s, p, cs, activity, sr] = await Promise.all([
+      const [d, s, p, cs, activity, sr, ca] = await Promise.all([
         customer.testDrives(),
         customer.sellingRequests(),
         customer.purchaseEnquiries(),
         customer.supportCases(),
         customer.activity(),
         fetchCustomerServiceRequests().catch(() => []),
+        fetchConnectAlerts().catch(() => ({ items: [], total: 0, page: 1, limit: 20, totalPages: 1 })),
       ]);
       setDrives(d);
       setSelling(s);
       setPurchases(p);
       setCases(cs);
       setServiceRequests(sr);
+      setConnectAlerts(ca.items || []);
       setActivityItems(activity.items);
       setActivityTotal(activity.total);
       setActivityPage(activity.page);
@@ -142,7 +149,18 @@ export function RequestsScreen() {
     );
   }
 
-  const totalCount = activityTotal;
+  async function handleMarkConnectAlertRead(alertId: string) {
+    try {
+      await markConnectAlertRead(alertId);
+      setConnectAlerts((prev) =>
+        prev.map((a) => (a.id === alertId ? { ...a, isRead: true } : a))
+      );
+    } catch (e: any) {
+      console.warn('Mark read failed:', e?.message || e);
+    }
+  }
+
+  const totalCount = activityTotal + connectAlerts.length;
 
   function openActivity(item: ActivityItem) {
     if (item.kind === 'SELLING') {
@@ -199,6 +217,7 @@ export function RequestsScreen() {
         >
           {[
             { key: 'ALL', label: `All (${totalCount})` },
+            { key: 'CONNECT', label: `Connect (${connectAlerts.length})` },
             { key: 'SERVICE', label: `Service (${serviceRequests.length})` },
             { key: 'SELLING', label: `Selling (${selling.length})` },
             { key: 'TEST_DRIVES', label: `Test Drives (${drives.length})` },
@@ -260,6 +279,62 @@ export function RequestsScreen() {
           renderItem={renderActivityItem}
           onEndReached={() => void loadOlderActivity()}
           onEndReachedThreshold={0.3}
+          ListHeaderComponent={
+            connectAlerts.length > 0 ? (
+              <View style={[styles.section, { marginBottom: space.sm }]}>
+                <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Recent Passerby Alerts</Text>
+                {connectAlerts.slice(0, 3).map((alert) => (
+                  <View
+                    key={alert.id}
+                    style={[
+                      styles.card,
+                      {
+                        backgroundColor: c.surface,
+                        borderColor: alert.isRead ? c.border : c.brandAccent,
+                        borderWidth: alert.isRead ? 1 : 1.5,
+                      },
+                    ]}
+                  >
+                    <View style={styles.cardHeader}>
+                      <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                        <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: alert.isRead ? (isDark ? '#1F3F6D' : '#E2E8F0') : 'rgba(247, 181, 3, 0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                          <QrCode size={15} color={alert.isRead ? c.textMuted : c.brandAccent} />
+                        </View>
+                        <View>
+                          <Text style={[styles.cardTitle, { color: c.textPrimary }]}>
+                            {alert.reason ? alert.reason.replace(/_/g, ' ').toUpperCase() : 'PASSERBY ALERT'}
+                          </Text>
+                          <Text style={[styles.cardSubtitle, { color: c.textMuted }]}>
+                            {new Date(alert.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+                          </Text>
+                        </View>
+                      </View>
+                      <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.sm, backgroundColor: alert.isRead ? (isDark ? '#1F2937' : '#F1F5F9') : 'rgba(247, 181, 3, 0.15)' }}>
+                        <Text style={{ fontSize: 10, fontWeight: '700', color: alert.isRead ? c.textMuted : c.brandAccent }}>
+                          {alert.isRead ? 'READ' : 'NEW'}
+                        </Text>
+                      </View>
+                    </View>
+
+                    {alert.messagePreview ? (
+                      <Text style={[styles.metaText, { color: c.textPrimary, fontStyle: 'italic', marginVertical: 6, fontSize: 13 }]}>
+                        "{alert.messagePreview}"
+                      </Text>
+                    ) : null}
+
+                    {!alert.isRead && (
+                      <TouchableOpacity
+                        onPress={() => handleMarkConnectAlertRead(alert.id)}
+                        style={{ alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 8, borderRadius: radius.pill, backgroundColor: 'rgba(16, 185, 129, 0.12)', marginTop: 4 }}
+                      >
+                        <Text style={{ fontSize: 11, fontWeight: '700', color: '#10B981' }}>Mark Acknowledged</Text>
+                      </TouchableOpacity>
+                    )}
+                  </View>
+                ))}
+              </View>
+            ) : null
+          }
           ListFooterComponent={
             activityPage < activityPages ? (
               <TouchableOpacity
@@ -291,6 +366,74 @@ export function RequestsScreen() {
           keyExtractor={() => 'activity-content'}
           renderItem={() => (
             <View style={{ gap: space.md }}>
+              {/* V MOTIV Connect™ Passerby Alerts */}
+              {filter === 'CONNECT' && (
+                <View style={styles.section}>
+                  <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>
+                    V MOTIV Connect™ Passerby Alerts
+                  </Text>
+                  {connectAlerts.length === 0 ? (
+                    <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border, alignItems: 'center', paddingVertical: 32 }]}>
+                      <ShieldCheck size={36} color="#10B981" />
+                      <Text style={[styles.cardTitle, { color: c.textPrimary, marginTop: 8 }]}>All Clear — No Alerts</Text>
+                      <Text style={[styles.cardSubtitle, { color: c.textMuted, textAlign: 'center', paddingHorizontal: 20, marginTop: 4 }]}>
+                        When a passerby scans your vehicle's QR sticker to alert you about parking, lights left on, or an issue, the notification appears here.
+                      </Text>
+                    </View>
+                  ) : (
+                    connectAlerts.map((alert) => (
+                      <View
+                        key={alert.id}
+                        style={[
+                          styles.card,
+                          {
+                            backgroundColor: c.surface,
+                            borderColor: alert.isRead ? c.border : c.brandAccent,
+                            borderWidth: alert.isRead ? 1 : 1.5,
+                          },
+                        ]}
+                      >
+                        <View style={styles.cardHeader}>
+                          <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                            <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: alert.isRead ? (isDark ? '#1F3F6D' : '#E2E8F0') : 'rgba(247, 181, 3, 0.15)', alignItems: 'center', justifyContent: 'center' }}>
+                              <QrCode size={15} color={alert.isRead ? c.textMuted : c.brandAccent} />
+                            </View>
+                            <View>
+                              <Text style={[styles.cardTitle, { color: c.textPrimary }]}>
+                                {alert.reason ? alert.reason.replace(/_/g, ' ').toUpperCase() : 'PASSERBY ALERT'}
+                              </Text>
+                              <Text style={[styles.cardSubtitle, { color: c.textMuted }]}>
+                                {new Date(alert.createdAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+                              </Text>
+                            </View>
+                          </View>
+                          <View style={{ paddingHorizontal: 8, paddingVertical: 3, borderRadius: radius.sm, backgroundColor: alert.isRead ? (isDark ? '#1F2937' : '#F1F5F9') : 'rgba(247, 181, 3, 0.15)' }}>
+                            <Text style={{ fontSize: 10, fontWeight: '700', color: alert.isRead ? c.textMuted : c.brandAccent }}>
+                              {alert.isRead ? 'READ' : 'NEW'}
+                            </Text>
+                          </View>
+                        </View>
+
+                        {alert.messagePreview ? (
+                          <Text style={[styles.metaText, { color: c.textPrimary, fontStyle: 'italic', marginVertical: 6, fontSize: 13 }]}>
+                            "{alert.messagePreview}"
+                          </Text>
+                        ) : null}
+
+                        {!alert.isRead && (
+                          <TouchableOpacity
+                            onPress={() => handleMarkConnectAlertRead(alert.id)}
+                            style={{ alignSelf: 'flex-start', paddingVertical: 4, paddingHorizontal: 8, borderRadius: radius.pill, backgroundColor: 'rgba(16, 185, 129, 0.12)', marginTop: 4 }}
+                          >
+                            <Text style={{ fontSize: 11, fontWeight: '700', color: '#10B981' }}>Mark Acknowledged</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                    ))
+                  )}
+                </View>
+              )}
+
               {/* Selling Requests */}
               {filter === 'SELLING' && selling.length > 0 && (
                 <View style={styles.section}>

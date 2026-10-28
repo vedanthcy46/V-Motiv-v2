@@ -11,13 +11,19 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "in.vmotiv.customer",
-      "icon": "./assets/icon.png"
+      "icon": "./assets/icon.png",
+      "infoPlist": {
+        "NSCameraUsageDescription": "V MOTIV uses the camera only when you choose to scan a V MOTIV Connect QR sticker."
+      }
     },
     "android": {
       "package": "in.vmotiv.customer",
       "googleServicesFile": "./google-services.json",
       "softwareKeyboardLayoutMode": "resize",
       "predictiveBackGestureEnabled": true,
+      "permissions": [
+        "CAMERA"
+      ],
       "adaptiveIcon": {
         "backgroundColor": "#020B18",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -26,6 +32,12 @@
       }
     },
     "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow V MOTIV to use your camera to scan V MOTIV Connect QR stickers."
+        }
+      ],
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
       "@react-native-google-signin/google-signin",

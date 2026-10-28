@@ -40,6 +40,8 @@ import type { PrismaServiceStore } from './service-store.js';
 import { createServiceCustomerRouter, createServiceOperationsRouter } from './service-router.js';
 import type { PrismaRentalStore } from './rental-store.js';
 import { createRentalCustomerRouter, createRentalOperationsRouter, createRentalWebhookRouter } from './rental-router.js';
+import type { PrismaConnectStore } from './connect-store.js';
+import { createConnectCustomerRouter, createConnectPublicRouter, createConnectWebhookRouter } from './connect-router.js';
 
 const uuid = z.string().uuid();
 const profileInput = z.object({ displayName: z.string().trim().min(1).max(80).optional(), phone: z.string().regex(/^\+91[6-9]\d{9}$/).optional(), marketingConsent: z.boolean().optional(), preferredCity: z.string().trim().min(2).max(100).optional(), termsVersion: z.string().trim().min(1).max(40).optional() }).strict().refine(value => Object.keys(value).length > 0);
@@ -100,6 +102,7 @@ export function createApp(deps: {
   notificationService?: NotificationService;
   service?: PrismaServiceStore;
   rental?: PrismaRentalStore;
+  connect?: PrismaConnectStore;
   db?: PrismaClient;
   revokeTokens?: (firebaseUid: string) => Promise<void>;
   onEmailQueued?: () => Promise<unknown> | unknown;
@@ -277,6 +280,20 @@ export function createApp(deps: {
 
     const rentalWebhookRouter = createRentalWebhookRouter({ store: deps.rental, db: deps.db });
     app.use('/api/v2/webhooks/rentals', rentalLimiter, rentalWebhookRouter);
+  }
+  if (deps.connect) {
+    const connectLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+    const connectCustomerRouter = createConnectCustomerRouter({ verify: deps.verify, store: deps.connect });
+    app.use('/api/v2/customer', connectLimiter, connectCustomerRouter);
+    app.use('/api/v2/connect', connectLimiter, connectCustomerRouter);
+
+    // Scanner endpoints intentionally sit outside authentication. They carry no
+    // owner contact information and have their own tighter abuse limit.
+    const connectPublicLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
+    app.use('/api/v2/public/connect', connectPublicLimiter, createConnectPublicRouter({ store: deps.connect }));
+
+    const connectWebhookRouter = createConnectWebhookRouter({ store: deps.connect });
+    app.use('/api/v2/webhooks/connect', connectLimiter, connectWebhookRouter);
   }
   // Published inventory is deliberately public. Every account-linked mutation remains below authentication.
   if (deps.customer) {

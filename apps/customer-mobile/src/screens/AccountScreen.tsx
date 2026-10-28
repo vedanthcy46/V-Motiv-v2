@@ -13,6 +13,7 @@ import {
   Bell,
   Bookmark,
   Car,
+  QrCode,
   CheckCircle2,
   ChevronRight,
   Headphones,
@@ -83,6 +84,13 @@ export function AccountScreen() {
       const event = (n.eventType || '').toUpperCase();
       const cat = (n.category || '').toUpperCase();
       const entityId = n.entityId || (n.deepLink ? n.deepLink.split('/').pop() : undefined);
+
+      // Connect notifications (including a call request) always land in the
+      // Garage where the owner can see the relevant QR and request history.
+      if (event.includes('CONNECT') || cat.includes('CONNECT') || n.deepLink?.includes('://garage/')) {
+        navigation.navigate('Tabs', { screen: 'Garage' });
+        return;
+      }
 
       if (n.deepLink) {
         if (n.deepLink.includes('/selling/') && entityId) {
@@ -320,6 +328,23 @@ export function AccountScreen() {
               <View style={styles.menuText}>
                 <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Wishlist</Text>
                 <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Shortlisted vehicles & saved searches</Text>
+              </View>
+              <ChevronRight size={16} color={c.textMuted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              style={[styles.menuItem, { borderBottomColor: c.divider }]}
+              activeOpacity={0.7}
+              onPress={() => navigation.navigate('ConnectGuest')}
+              accessibilityRole="button"
+              accessibilityLabel="Scan V MOTIV Connect QR code"
+            >
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <QrCode size={19} color={c.brandAccent} />
+              </View>
+              <View style={styles.menuText}>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Scan V MOTIV Connect QR</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Alert a vehicle owner privately — no sign-in needed</Text>
               </View>
               <ChevronRight size={16} color={c.textMuted} />
             </TouchableOpacity>

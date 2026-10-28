@@ -13,6 +13,7 @@ import {
   View,
 } from 'react-native';
 import { CheckCircle2, RotateCcw, ShieldCheck, Sparkles } from 'lucide-react-native';
+import { useNavigation } from '@react-navigation/native';
 import { useAuth } from '../auth/AuthProvider';
 import { BrandLogo } from '../components/BrandLogo';
 import { PrimaryButton, Screen, common, useKeyboard } from '../components/ui';
@@ -27,6 +28,7 @@ export function AuthScreen({
   includeTopInset = true,
   showHeader = true,
 }: AuthScreenProps = {}) {
+  const navigation = useNavigation<any>();
   const expoGo = Constants.appOwnership === 'expo' || (Constants.executionEnvironment as string) === 'storeClient';
   const { configured, busy, error, signIn, clearSessionData, mfaChallenge, confirmMfaCode, sendMfaCode, cancelMfa } = useAuth();
   const { colors, isDark } = useAppTheme();
@@ -226,6 +228,16 @@ export function AuthScreen({
                 busy={busy}
                 disabled={!configured}
               />
+
+              <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Scan a V MOTIV Connect vehicle QR code without signing in"
+                style={styles.connectGuestButton}
+                activeOpacity={0.72}
+                onPress={() => navigation.navigate('ConnectGuest')}
+              >
+                <Text style={styles.connectGuestText}>Scan a V MOTIV Connect QR without signing in</Text>
+              </TouchableOpacity>
 
               <TouchableOpacity
                 style={styles.switchSessionBtn}
@@ -455,6 +467,21 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       paddingVertical: space.xs,
       paddingHorizontal: space.sm,
       alignSelf: 'center',
+    },
+    connectGuestButton: {
+      minHeight: 48,
+      borderWidth: 1,
+      borderColor: colors.brandAccent,
+      borderRadius: radius.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+      paddingHorizontal: space.lg,
+    },
+    connectGuestText: {
+      color: isDark ? colors.brandAccent : colors.brandNavy,
+      fontSize: 13,
+      fontWeight: '800',
+      textAlign: 'center',
     },
     switchSessionText: {
       color: colors.textMuted,

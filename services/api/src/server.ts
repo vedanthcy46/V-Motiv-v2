@@ -14,6 +14,7 @@ import { PrismaInspectionStore } from './inspection-store.js';
 import { PrismaFinanceStore } from './finance-store.js';
 import { PrismaServiceStore } from './service-store.js';
 import { PrismaRentalStore } from './rental-store.js';
+import { PrismaConnectStore } from './connect-store.js';
 import { processEmail, resendSender } from './email.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
 
@@ -105,6 +106,7 @@ const app = createApp({
   finance: new PrismaFinanceStore(db, notificationService),
   service: new PrismaServiceStore(db, notificationService),
   rental: new PrismaRentalStore(db, notificationService),
+  connect: new PrismaConnectStore(db, notificationService),
   db,
   notificationRouter,
   notificationService,

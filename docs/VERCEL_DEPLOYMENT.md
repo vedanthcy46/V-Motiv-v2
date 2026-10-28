@@ -32,9 +32,12 @@ Set these in Vercel before building:
 - `NODE_ENV=production`
 - `DATABASE_URL`: dedicated V2 Neon pooled PostgreSQL URL with SSL
 - `WEB_ORIGIN`: exact HTTPS website origin, without trailing slash (e.g. `https://www.vmotiv.in`)
+- `CONNECT_PUBLIC_WEB_URL=https://www.vmotiv.in`: canonical public origin encoded in newly issued V MOTIV Connect stickers. This value can be omitted only when the default is correct.
 - `FIREBASE_PROJECT_ID`: Firebase project ID
 - `FIREBASE_SERVICE_ACCOUNT_JSON`: complete Firebase Admin service-account JSON stored as a secret, never a `VITE_` variable
 - `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_APP_ID`: Firebase public web configuration
+- `VITE_API_BASE=https://api.vmotiv.in/api/v1`: customer-web API origin when the web frontend and API are deployed separately.
+- `VITE_ANDROID_APP_URL` and `VITE_IOS_APP_URL`: optional public store URLs. Connect QR pages first attempt `vmotiv://connect/scan`; these values provide the platform-specific store fallback once the listings are live.
 - `RESEND_API_KEY`: Resend API key (`re_...`) for transactional customer emails
 - `EMAIL_FROM`: Verified sender address (`noreply@vmotiv.in`)
 - `EMAIL_DELIVERY_ENABLED=true`: Enables transactional email delivery. Vercel serverless requests automatically drain the transactional outbox inline upon customer actions (test drive booking, enquiries, sell car, support tickets, and welcome onboarding).

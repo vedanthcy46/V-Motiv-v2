@@ -11,6 +11,7 @@ import { PrismaSalesStore } from './sales-store.js';
 import { PrismaInspectionStore } from './inspection-store.js';
 import { PrismaFinanceStore } from './finance-store.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
+import { PrismaConnectStore } from './connect-store.js';
 
 const config = readConfig(process.env);
 
@@ -95,6 +96,7 @@ export default createApp({
   sales: new PrismaSalesStore(db),
   inspection: new PrismaInspectionStore(db, undefined, notificationService),
   finance: new PrismaFinanceStore(db),
+  connect: new PrismaConnectStore(db, notificationService),
   notificationRouter,
   notificationService,
   revokeTokens: firebaseUid => {
