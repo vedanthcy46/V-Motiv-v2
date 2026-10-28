@@ -50,6 +50,8 @@ Keep development dependencies installed during the build, even with `NODE_ENV=pr
 
 Apply migrations separately before releasing against a new database: `npm run db:deploy`. Use the deployment database URL and optionally `DIRECT_DATABASE_URL`. Migrations intentionally do not run during every preview build. Preview deployments should use a separate Neon branch and matching Firebase/environment settings.
 
+If an already-deployed database is missing the V MOTIV Connect tables and Prisma is blocked by an unrelated historical failed migration, run `npm run db:repair-connect` once using that deployment database's `DATABASE_URL` / `DIRECT_DATABASE_URL`. It is idempotent and creates only the `CustomerVehicle` Connect columns and V MOTIV Connect persistence tables; it does not reset or delete data. Resolve the historical Prisma migration afterwards and run `npm run db:deploy` normally.
+
 The API persists transactional emails to the PostgreSQL `EmailOutbox` table. In the Vercel serverless deployment, mutation requests immediately drain and deliver pending emails via Resend before returning the HTTP response, guaranteeing instant delivery to the customer's inbox. Additionally, `/api/v1/health/drain-emails` is available for manual or cron triggers to flush any retryable emails. For standalone worker deployments outside Vercel, `npm run email:worker` remains available.
 
 After deployment check `/api/v1/health/ready`, public inventory and Google sign-in. Set the mobile `EXPO_PUBLIC_API_URL` to `https://YOUR_DOMAIN/api/v1` and rebuild the mobile app to use the deployed backend.

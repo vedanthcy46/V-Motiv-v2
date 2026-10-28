@@ -33,6 +33,7 @@
     "test": "npm run test --workspaces --if-present",
     "db:generate": "npm run db:generate -w @vmotiv/api",
     "db:deploy": "npm run db:deploy -w @vmotiv/api",
+    "db:repair-connect": "npm run db:repair-connect -w @vmotiv/api",
     "db:seed": "npm run db:seed -w @vmotiv/api",
     "db:unseed": "npm run db:unseed -w @vmotiv/api",
     "seed:admin": "npm run seed:admin -w @vmotiv/api",

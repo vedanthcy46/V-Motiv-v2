@@ -69,14 +69,14 @@ export interface RequestStickerInput {
 }
 
 export async function fetchConnectStatus(vehicleId: string): Promise<GarageConnectInfo> {
-  return api<GarageConnectInfo>(`/customer/garage/${vehicleId}/connect`);
+  return api<GarageConnectInfo>(`/api/v2/customer/garage/${vehicleId}/connect`);
 }
 
 export async function linkConnectQR(
   vehicleId: string,
   input: LinkConnectInput
 ): Promise<{ success: boolean; link: any; message: string }> {
-  return api(`/customer/garage/${vehicleId}/connect/link`, {
+  return api(`/api/v2/customer/garage/${vehicleId}/connect/link`, {
     method: 'POST',
     body: jsonBody(input),
   });
@@ -89,14 +89,14 @@ export async function issueConnectSticker(vehicleId: string): Promise<{
   stickerImageUrl: string;
   message: string;
 }> {
-  return api(`/customer/garage/${vehicleId}/connect/issue`, { method: 'POST' });
+  return api(`/api/v2/customer/garage/${vehicleId}/connect/issue`, { method: 'POST' });
 }
 
 export async function toggleConnectStatus(
   vehicleId: string,
   enabled: boolean
 ): Promise<{ success: boolean; status: string; connectStatus: string }> {
-  return api(`/customer/garage/${vehicleId}/connect/toggle`, {
+  return api(`/api/v2/customer/garage/${vehicleId}/connect/toggle`, {
     method: 'POST',
     body: jsonBody({ enabled }),
   });
@@ -106,7 +106,7 @@ export async function revokeConnectQR(
   vehicleId: string,
   reason?: string
 ): Promise<{ success: boolean; revoked: boolean; message: string }> {
-  return api(`/customer/garage/${vehicleId}/connect/revoke`, {
+  return api(`/api/v2/customer/garage/${vehicleId}/connect/revoke`, {
     method: 'POST',
     body: jsonBody({ reason }),
   });
@@ -122,7 +122,7 @@ export async function requestConnectSticker(
   message: string;
   estimatedDeliveryDays: number;
 }> {
-  return api(`/customer/garage/${vehicleId}/connect/request-sticker`, {
+  return api(`/api/v2/customer/garage/${vehicleId}/connect/request-sticker`, {
     method: 'POST',
     body: jsonBody(input),
   });
@@ -140,23 +140,23 @@ export async function fetchConnectAlerts(
   totalPages: number;
 }> {
   const url = vehicleId
-    ? `/customer/garage/${vehicleId}/connect/alerts?page=${page}&limit=${limit}`
-    : `/customer/connect/alerts?page=${page}&limit=${limit}`;
+    ? `/api/v2/customer/garage/${vehicleId}/connect/alerts?page=${page}&limit=${limit}`
+    : `/api/v2/customer/connect/alerts?page=${page}&limit=${limit}`;
   return api(url);
 }
 
 export async function markConnectAlertRead(alertId: string): Promise<ConnectNotificationItem> {
-  return api(`/customer/connect/alerts/${alertId}/read`, {
+  return api(`/api/v2/customer/connect/alerts/${alertId}/read`, {
     method: 'PATCH',
   });
 }
 
 export async function fetchIncomingConnectCalls(): Promise<{ items: IncomingConnectCall[] }> {
-  return api('/customer/connect/calls/incoming');
+  return api('/api/v2/customer/connect/calls/incoming');
 }
 
 export async function respondToIncomingConnectCall(callSessionId: string, decision: 'ACCEPT' | 'DECLINE') {
-  return api<{ callSessionId: string; status: string }>(`/customer/connect/calls/${callSessionId}/respond`, {
+  return api<{ callSessionId: string; status: string }>(`/api/v2/customer/connect/calls/${callSessionId}/respond`, {
     method: 'POST',
     body: jsonBody({ decision }),
   });
