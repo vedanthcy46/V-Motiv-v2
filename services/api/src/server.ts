@@ -1,4 +1,14 @@
 import 'dotenv/config';
+
+// Suppress Node.js DEP0169 deprecation warning from third-party middlewares so loggers do not flag healthy requests as errors
+const originalEmitWarning = process.emitWarning;
+process.emitWarning = function (warning: any, ...args: any[]) {
+  if (typeof warning === 'string' && warning.includes('url.parse')) return;
+  if (typeof args[0] === 'object' && args[0]?.code === 'DEP0169') return;
+  if (args[1] === 'DEP0169') return;
+  return (originalEmitWarning as any).call(process, warning, ...args);
+};
+
 import fs from 'node:fs';
 import path from 'node:path';
 import { applicationDefault, cert, initializeApp } from 'firebase-admin/app';
