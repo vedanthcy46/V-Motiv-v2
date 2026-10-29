@@ -150,20 +150,21 @@ export function ConnectVoiceCall({
           }
         };
 
+        const hasMic = await ensureMicrophonePermission();
+
         pc.onconnectionstatechange = () => {
           if (pc?.connectionState === 'connected') {
-            setState('Connected · private audio');
+            setState(hasMic ? 'Connected · private audio' : 'Connected · Hearing caller (Chat to reply)');
           }
         };
 
         pc.oniceconnectionstatechange = () => {
           if (pc?.iceConnectionState === 'connected' || pc?.iceConnectionState === 'completed') {
-            setState('Connected · private audio');
+            setState(hasMic ? 'Connected · private audio' : 'Connected · Hearing caller (Chat to reply)');
           }
         };
 
         // 2. Request and attach microphone audio stream
-        const hasMic = await ensureMicrophonePermission();
         if (hasMic) {
           setMicPermissionDenied(false);
           try {
@@ -179,16 +180,8 @@ export function ConnectVoiceCall({
           }
         } else {
           setMicPermissionDenied(true);
-          setState('Microphone permission required for voice calls.');
-          Alert.alert(
-            'Microphone Permission Required',
-            'Microphone access is needed for the caller to hear you. Please enable Microphone in device settings.',
-            [
-              { text: 'Chat Instead', onPress: () => setChatOpen(true) },
-              { text: 'Open Settings', onPress: () => void Linking.openSettings() },
-              { text: 'Dismiss', style: 'cancel' },
-            ]
-          );
+          setChatOpen(true);
+          setState('Listen & Chat Mode · Visitor audio active');
         }
 
         // 3. Fetch realtime ticket & join Socket.IO room
@@ -355,13 +348,14 @@ export function ConnectVoiceCall({
           <View style={styles.statusBox}>
             <Text style={styles.description}>{state}</Text>
             {micPermissionDenied ? (
-              <Pressable
-                onPress={() => void Linking.openSettings()}
-                style={styles.enableMicBtn}
-              >
-                <Mic size={16} color="#061A38" />
-                <Text style={styles.enableMicBtnText}>Enable Microphone in Settings</Text>
-              </Pressable>
+              <View style={styles.micDeniedBox}>
+                <Text style={styles.micDeniedNotice}>
+                  Microphone is disabled or not in this build.
+                </Text>
+                <Text style={styles.micDeniedSub}>
+                  You can still hear the caller live. Type in the Chat below to reply.
+                </Text>
+              </View>
             ) : state.includes('Connecting') || state.includes('Waiting') ? (
               <ActivityIndicator color="#F7B503" style={{ marginTop: 8 }} />
             ) : (
@@ -452,8 +446,9 @@ const styles = StyleSheet.create({
   privacyBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(16,185,129,0.15)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
   privacyText: { color: '#10B981', fontSize: 11, fontWeight: '700' },
   statusBox: { alignItems: 'center', marginVertical: 6 },
-  enableMicBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F7B503', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, marginTop: 10 },
-  enableMicBtnText: { color: '#061A38', fontSize: 13, fontWeight: '700' },
+  micDeniedBox: { alignItems: 'center', marginTop: 6, paddingHorizontal: 12 },
+  micDeniedNotice: { color: '#F7B503', fontSize: 13, fontWeight: '700', textAlign: 'center' },
+  micDeniedSub: { color: '#C7D6EA', fontSize: 12, textAlign: 'center', marginTop: 2, lineHeight: 16 },
   description: { color: '#C7D6EA', textAlign: 'center', fontSize: 14, lineHeight: 20 },
   timerText: { color: '#F7B503', fontSize: 20, fontWeight: '800', marginTop: 6, letterSpacing: 1 },
   controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8, width: '100%', justifyContent: 'center' },

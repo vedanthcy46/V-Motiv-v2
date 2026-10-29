@@ -90,42 +90,14 @@ export function ConnectIncomingCallOverlay() {
     return () => Vibration.cancel();
   }, [call]);
 
-  const respond = async (decision: 'ACCEPT' | 'DECLINE') => {
+  const respond = async (decision: 'ACCEPT' | 'DECLINE', forceChat = false) => {
     if (!call) return;
     setBusy(true);
     try {
-      if (decision === 'ACCEPT' && call.callerType !== 'visitor_chat') {
-        const hasMic = await checkAndRequestMicPermission();
-        if (!hasMic) {
-          Alert.alert(
-            'Microphone Permission Required',
-            'Microphone access is needed for private voice calls. Please enable Microphone in device settings, or chat with the caller instead.',
-            [
-              {
-                text: 'Chat Instead',
-                onPress: async () => {
-                  try {
-                    await respondToIncomingConnectCall(call.callSessionId, 'ACCEPT');
-                    Vibration.cancel();
-                    setActiveChatCall(call);
-                    setCall(null);
-                  } catch (e: any) {
-                    Alert.alert('Unable to accept', e?.message || 'Please try again.');
-                  }
-                },
-              },
-              {
-                text: 'Open Settings',
-                onPress: () => {
-                  void Linking.openSettings();
-                },
-              },
-              { text: 'Cancel', style: 'cancel' },
-            ]
-          );
-          setBusy(false);
-          return;
-        }
+      if (decision === 'ACCEPT' && call.callerType !== 'visitor_chat' && !forceChat) {
+        // Attempt mic permission non-blockingly; if not in APK or denied,
+        // voice call still connects in Receive-Only (Listen & Chat) mode
+        await checkAndRequestMicPermission().catch(() => false);
       }
 
       await respondToIncomingConnectCall(call.callSessionId, decision);
@@ -133,7 +105,7 @@ export function ConnectIncomingCallOverlay() {
       const currentCall = call;
       setCall(null);
       if (decision === 'ACCEPT') {
-        if (currentCall.callerType === 'visitor_chat') {
+        if (currentCall.callerType === 'visitor_chat' || forceChat) {
           setActiveChatCall(currentCall);
         } else {
           setActiveCallId(currentCall.callSessionId);
@@ -267,9 +239,27 @@ export function ConnectIncomingCallOverlay() {
               onPress={() => void respond('DECLINE')}
               style={({ pressed }) => [styles.callButton, styles.decline, (pressed || busy) && styles.pressed]}
             >
-              {busy ? <ActivityIndicator color="#FFFFFF" /> : <PhoneOff size={25} color="#FFFFFF" />}
+              {busy ? <ActivityIndicator color="#FFFFFF" /> : <PhoneOff size={24} color="#FFFFFF" />}
               <Text style={styles.actionText}>{isChat ? 'Dismiss' : 'Decline'}</Text>
             </Pressable>
+
+            {!isChat && (
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Chat with caller instead"
+                disabled={busy}
+                onPress={() => void respond('ACCEPT', true)}
+                style={({ pressed }) => [
+                  styles.callButton,
+                  { backgroundColor: 'rgba(255,255,255,0.12)', borderColor: theme.colors.border, borderWidth: 1 },
+                  (pressed || busy) && styles.pressed,
+                ]}
+              >
+                <MessageSquare size={24} color="#FFFFFF" />
+                <Text style={[styles.actionText, { color: '#FFFFFF' }]}>Chat</Text>
+              </Pressable>
+            )}
+
             <Pressable
               accessibilityRole="button"
               accessibilityLabel="Accept incoming V MOTIV Connect request"
@@ -280,9 +270,9 @@ export function ConnectIncomingCallOverlay() {
               {busy ? (
                 <ActivityIndicator color="#061A38" />
               ) : isChat ? (
-                <MessageSquare size={25} color="#061A38" />
+                <MessageSquare size={24} color="#061A38" />
               ) : (
-                <Phone size={25} color="#061A38" />
+                <Phone size={24} color="#061A38" />
               )}
               <Text style={[styles.actionText, { color: '#061A38' }]}>{isChat ? 'Open Chat' : 'Pick up'}</Text>
             </Pressable>
