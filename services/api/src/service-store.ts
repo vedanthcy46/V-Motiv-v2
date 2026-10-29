@@ -801,32 +801,55 @@ export class PrismaServiceStore {
     const vehicles = await this.db.customerVehicle.findMany({
       where: { userId: user.id, isArchived: false },
       orderBy: [{ isPreferred: 'desc' }, { createdAt: 'desc' }],
-      include: {
-        serviceRequests: {
+    });
+
+    // A customer's Garage is core data and must remain available even while an
+    // optional service-history migration is being rolled out. Keeping this
+    // query independent from ServiceRequest prevents a missing service table
+    // from making already-saved vehicles appear to disappear after an app
+    // restart.
+    const activeRequestByVehicleId = new Map<string, ServiceRequest>();
+    if (vehicles.length > 0) {
+      try {
+        const activeRequests = await this.db.serviceRequest.findMany({
           where: {
+            vehicleId: { in: vehicles.map(vehicle => vehicle.id) },
             status: { notIn: [ServiceRequestStatus.COMPLETED, ServiceRequestStatus.CANCELLED] },
           },
           orderBy: { createdAt: 'desc' },
-          take: 1,
-        },
-      },
-    });
+        });
 
-    return vehicles.map(v =>
-      formatCustomerVehicleRecord(
-        v,
-        v.serviceRequests[0]
+        for (const request of activeRequests) {
+          if (!activeRequestByVehicleId.has(request.vehicleId)) {
+            activeRequestByVehicleId.set(request.vehicleId, request);
+          }
+        }
+      } catch (error) {
+        // P2021 means the service module has not yet been migrated. Do not hide
+        // the Garage itself; the service card can simply be unavailable until
+        // that independent deployment is complete.
+        if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2021')) {
+          throw error;
+        }
+      }
+    }
+
+    return vehicles.map(vehicle => {
+      const request = activeRequestByVehicleId.get(vehicle.id);
+      return formatCustomerVehicleRecord(
+        vehicle,
+        request
           ? {
-              id: v.serviceRequests[0].id,
-              requestNumber: v.serviceRequests[0].requestNumber,
-              categoryKey: v.serviceRequests[0].categoryKey,
-              status: v.serviceRequests[0].status,
-              scheduledDate: v.serviceRequests[0].scheduledDate,
-              scheduledTimeSlot: v.serviceRequests[0].scheduledTimeSlot,
+              id: request.id,
+              requestNumber: request.requestNumber,
+              categoryKey: request.categoryKey,
+              status: request.status,
+              scheduledDate: request.scheduledDate,
+              scheduledTimeSlot: request.scheduledTimeSlot,
             }
           : null
-      )
-    );
+      );
+    });
   }
 
   async getCustomerVehicle(firebaseUid: string, vehicleId: string) {

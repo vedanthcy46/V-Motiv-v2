@@ -91,6 +91,7 @@ export function MyGarageScreen() {
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [vehicles, setVehicles] = useState<CustomerVehicle[]>([]);
   const [modalVisible, setModalVisible] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<CustomerVehicle | null>(null);
@@ -171,9 +172,11 @@ export function MyGarageScreen() {
       const data = await fetchCustomerVehicles();
       const list = Array.isArray(data) ? data : ((data as any)?.vehicles || (data as any)?.data || []);
       setVehicles(list);
+      setLoadError(null);
       void loadConnectDataForVehicles(list);
     } catch (err: any) {
       console.warn('[GARAGE_FETCH_ERROR]', err?.message || err);
+      setLoadError('We could not refresh your Garage. Your saved cars have not been removed. Please retry in a moment.');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -528,6 +531,20 @@ export function MyGarageScreen() {
           <View style={styles.loadingBox}>
             <ActivityIndicator size="large" color={c.accent} />
             <Text style={[styles.loadingText, { color: c.textMuted }]}>Loading your garage...</Text>
+          </View>
+        ) : loadError && vehicles.length === 0 ? (
+          <View style={[styles.emptyBox, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <View style={[styles.emptyIconCircle, { backgroundColor: isDark ? '#3A2630' : '#FFF1F1' }]}>
+              <AlertCircle size={40} color="#D84A4A" />
+            </View>
+            <Text style={[styles.emptyTitle, { color: c.text }]}>Garage temporarily unavailable</Text>
+            <Text style={[styles.emptyDesc, { color: c.textMuted }]}>{loadError}</Text>
+            <TouchableOpacity
+              onPress={() => void loadVehicles()}
+              style={[styles.primaryActionBtn, { backgroundColor: c.accent }]}
+            >
+              <Text style={styles.primaryActionText}>Try again</Text>
+            </TouchableOpacity>
           </View>
         ) : vehicles.length === 0 ? (
           <View style={[styles.emptyBox, { backgroundColor: c.surface, borderColor: c.border }]}>
