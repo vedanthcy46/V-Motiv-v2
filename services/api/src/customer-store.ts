@@ -824,16 +824,6 @@ export class PrismaCustomerStore implements CustomerStore {
     const reply = rows[0];
     if (!reply) throw new HttpError(500, 'FAILED_TO_RECORD_REPLY');
     await this.db.supportCase.update({ where: { id }, data: { status: 'OPEN' } });
-    await this.db.emailOutbox.create({
-      data: {
-        userId: user.id,
-        eventKey: `support-reply/${reply.id}`,
-        recipient: user.email,
-        templateVersion: 'support-reply-v1',
-        subject: `Update on Case [${support.referenceCode}] · ${support.subject}`,
-        text: `A new message was added to your support case ${support.referenceCode}:\n\n"${body}"\n\nView the full conversation and reply anytime in the V MOTIV mobile app.`,
-      },
-    }).catch(() => undefined);
     return reply;
   }
   async activity(uid: string, page: number, limit: number) {

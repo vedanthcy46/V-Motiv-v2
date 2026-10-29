@@ -316,9 +316,20 @@ export class PrismaAdminStore implements AdminStore {
       const support = await tx.supportCase.findUnique({ where: { id }, include: { user: { select: { email: true, preferredCity: true } } } });
       if (!support) throw new HttpError(404, 'SUPPORT_CASE_NOT_FOUND');
       if (!actor.roles.includes('SUPER_ADMIN') && (!support.user.preferredCity || !actor.branches.some(branch => branch.city === support.user.preferredCity))) throw new HttpError(403, 'BRANCH_SCOPE_DENIED');
+      const previousSupportReplies = await tx.supportCaseReply.count({ where: { caseId: id, authorType: 'SUPPORT' } });
       const reply = await tx.supportCaseReply.create({ data: { caseId: id, authorType: 'SUPPORT', body }, select: { id: true, authorType: true, body: true, createdAt: true } });
       await tx.supportCase.update({ where: { id }, data: { status: 'IN_PROGRESS' } });
-      await tx.emailOutbox.create({ data: { eventKey: `support-agent-reply/${reply.id}`, recipient: support.user.email, templateVersion: 'support-reply-v1', subject: `Update on Case [${support.referenceCode}] · ${support.subject}`, text: `A V MOTIV support representative replied to case ${support.referenceCode}:\n\n${body}\n\nOpen the V MOTIV app to view and reply securely.` } });
+      if (previousSupportReplies === 0) {
+        await tx.emailOutbox.create({
+          data: {
+            eventKey: `support-agent-first-reply/${id}`,
+            recipient: support.user.email,
+            templateVersion: 'support-reply-v1',
+            subject: `Update on Case [${support.referenceCode}] · ${support.subject}`,
+            text: `A V MOTIV support representative replied to case ${support.referenceCode}:\n\n${body}\n\nOpen the V MOTIV app to view and reply securely.`,
+          },
+        }).catch(() => undefined);
+      }
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'SUPPORT_CASE_REPLIED', entityType: 'SupportCase', entityId: id } });
       return reply;
     });
