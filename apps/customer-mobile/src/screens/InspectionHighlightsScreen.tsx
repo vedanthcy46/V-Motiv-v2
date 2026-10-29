@@ -39,7 +39,7 @@ type Props = NativeStackScreenProps<RootStack, 'InspectionHighlights'>;
 type TabKey = 'DEFECTS' | 'SYSTEMS' | 'DIAGNOSTICS';
 
 export function InspectionHighlightsScreen({ route, navigation }: Props) {
-  const { inspectionSummary, conditionSummary, verifiedTags, features, reportUrl, inspectionDetails } = route.params;
+  const { verifiedTags, features, reportUrl, inspectionDetails, customerProfile } = route.params;
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
@@ -48,92 +48,29 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
   const [selectedPhoto, setSelectedPhoto] = useState<InspectionDefectItem | null>(null);
   const [defectFilter, setDefectFilter] = useState<string>('ALL');
 
-  // Fallback defaults if inspectionDetails wasn't passed directly
-  const audit: InspectionAuditDetails = inspectionDetails || {
-    certificationBadge: 'V MOTIV 200-POINT CERTIFIED',
-    certificationScore: '9.2 / 10',
-    overallStatus: 'PASSED',
-    totalChecksCount: 200,
-    passedChecksCount: 197,
-    imperfectionsCount: 3,
-    inspectedDate: 'Recently Certified',
-    leadInspector: 'V MOTIV Master Quality Engineer',
-    engineerSummary: inspectionSummary || 'Comprehensive 200-point inspection passed with zero structural damage. All factory pillars intact and OBD clear.',
-    conditionSummary: conditionSummary || 'Powertrain, steering, and electrical components tested optimal.',
-    reportUrl: reportUrl || null,
-    systems: [
-      {
-        name: 'Engine & Transmission',
-        pointsCount: 45,
-        status: 'PASSED',
-        highlights: 'Engine oil level & quality optimal, zero abnormal noise, clutch play smooth, turbo boost verified.',
-        rating: 'EXCELLENT',
-      },
-      {
-        name: 'Body & Exterior Frame',
-        pointsCount: 55,
-        status: 'PASSED',
-        highlights: 'Pillars A, B, C original factory weld. Paint thickness 110-125µm. 2 minor cosmetic blemishes noted.',
-        rating: 'GOOD',
-      },
-      {
-        name: 'Steering & Suspension',
-        pointsCount: 35,
-        status: 'PASSED',
-        highlights: 'Shock absorbers rebound tested, tie-rod ends tight, brake pads at 75% life remaining.',
-        rating: 'EXCELLENT',
-      },
-      {
-        name: 'Interior & Air Conditioning',
-        pointsCount: 40,
-        status: 'PASSED',
-        highlights: 'AC cooling temperature down to 6.8°C. Power windows, audio, and all dashboard controls tested.',
-        rating: 'EXCELLENT',
-      },
-      {
-        name: 'Tyres & Wheels',
-        pointsCount: 25,
-        status: 'PASSED',
-        highlights: 'Remaining tread depth 4.8mm average (~70% life). Spare wheel and complete toolkit present.',
-        rating: 'GOOD',
-      },
-    ],
-    defects: [
-      {
-        id: 'defect-1',
-        title: 'Minor Surface Scratch',
-        category: 'Body & Paint',
-        location: 'Left Front Door',
-        severity: 'MINOR',
-        repaired: false,
-        actionTaken: 'Cosmetic clear-coat polish applied. Factory paint layer 100% intact (112 microns).',
-        description: 'Superficial 3cm clear-coat scuff. Zero metal distortion or primer exposure.',
-        photoUrl: 'https://images.unsplash.com/photo-1619642751034-765dfdf7c58e?auto=format&fit=crop&w=800&q=80',
-      },
-      {
-        id: 'defect-2',
-        title: 'Front Bumper Lower Scuff',
-        category: 'Body & Paint',
-        location: 'Front Bumper Lower Lip',
-        severity: 'MINOR',
-        repaired: false,
-        actionTaken: 'Plastic edge smoothed and conditioned. No clip breakage or sensor misalignment.',
-        description: 'Minor parking curb contact mark on lower composite apron.',
-        photoUrl: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80',
-      },
-      {
-        id: 'defect-3',
-        title: 'Alloy Wheel Rim Scuff',
-        category: 'Tyres & Wheels',
-        location: 'Right Rear Alloy Wheel',
-        severity: 'MINOR',
-        repaired: true,
-        actionTaken: 'Wheel balanced and true-run tested. Zero runout or steering vibration.',
-        description: 'Cosmetic curb graze along outer alloy lip. Structural alloy tested 100% true.',
-        photoUrl: 'https://images.unsplash.com/photo-1578844251758-2f71da64c96f?auto=format&fit=crop&w=800&q=80',
-      },
-    ],
-  };
+  if (!inspectionDetails) {
+    return (
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn} accessibilityLabel="Go back">
+            <ArrowLeft size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Inspection report</Text>
+          <View style={{ width: 40 }} />
+        </View>
+        <View style={[styles.content, { flex: 1, justifyContent: 'center' }]}>
+          <View style={styles.emptyCard}>
+            <FileText size={32} color={colors.brandAccent} />
+            <Text style={styles.emptyTitle}>Report not published yet</Text>
+            <Text style={styles.emptySub}>The vehicle can be viewed, but its approved inspection report is not available for customer viewing yet.</Text>
+          </View>
+        </View>
+      </SafeAreaView>
+    );
+  }
+
+  // This screen only presents the approved report returned by the API.
+  const audit: InspectionAuditDetails = inspectionDetails;
 
   const filteredDefects = audit.defects.filter(d => {
     if (defectFilter === 'ALL') return true;
@@ -148,7 +85,7 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
         <TouchableOpacity onPress={() => navigation.goBack()} style={styles.backBtn}>
           <ArrowLeft size={22} color={colors.textPrimary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>200-Point Inspection</Text>
+        <Text style={styles.headerTitle}>Inspection report</Text>
         <View style={{ width: 40 }} />
       </View>
 
@@ -173,9 +110,9 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
             </View>
           </View>
 
-          <Text style={styles.scoreSummaryTitle}>Transparent Spinny-Grade Inspection</Text>
+          <Text style={styles.scoreSummaryTitle}>Approved V MOTIV inspection</Text>
           <Text style={styles.scoreSummarySub}>
-            Every defect is photographed in high definition with location and severity tags. 100% non-accidental guarantee.
+            This report shows only checks and findings that were approved for customer viewing.
           </Text>
 
           <View style={styles.metricRow}>
@@ -254,20 +191,27 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
             {filteredDefects.map((defect) => (
               <View key={defect.id} style={styles.defectCard}>
                 {/* Defect Photo with tap zoom */}
-                <TouchableOpacity
-                  activeOpacity={0.9}
-                  style={styles.defectImageWrapper}
-                  onPress={() => setSelectedPhoto(defect)}
-                >
-                  <Image source={{ uri: defect.photoUrl }} style={styles.defectImage} resizeMode="cover" />
-                  <View style={styles.defectImageOverlay}>
-                    <Eye size={14} color="#FFFFFF" />
-                    <Text style={styles.defectImageOverlayText}>Tap to zoom</Text>
+                {defect.photoUrl ? (
+                  <TouchableOpacity
+                    activeOpacity={0.9}
+                    style={styles.defectImageWrapper}
+                    onPress={() => setSelectedPhoto(defect)}
+                  >
+                    <Image source={{ uri: defect.photoUrl }} style={styles.defectImage} resizeMode="cover" />
+                    <View style={styles.defectImageOverlay}>
+                      <Eye size={14} color="#FFFFFF" />
+                      <Text style={styles.defectImageOverlayText}>Tap to zoom</Text>
+                    </View>
+                    <View style={styles.defectSeverityPill}>
+                      <Text style={styles.defectSeverityText}>{defect.severity}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ) : (
+                  <View style={styles.defectImageWrapper}>
+                    <FileText size={28} color={colors.textMuted} />
+                    <Text style={styles.defectImageOverlayText}>No photo was published for this finding</Text>
                   </View>
-                  <View style={styles.defectSeverityPill}>
-                    <Text style={styles.defectSeverityText}>{defect.severity}</Text>
-                  </View>
-                </TouchableOpacity>
+                )}
 
                 {/* Defect Details */}
                 <View style={styles.defectInfo}>
@@ -309,7 +253,7 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
         {activeTab === 'SYSTEMS' && (
           <View style={styles.section}>
             <Text style={styles.tabSectionKicker}>
-              Full 200-point diagnostic audit conducted across powertrain, body, and chassis.
+              Recorded check groups approved for customer viewing.
             </Text>
 
             {audit.systems.map((sys, idx) => (
@@ -327,6 +271,13 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
                 <Text style={styles.systemHighlights}>{sys.highlights}</Text>
               </View>
             ))}
+            {audit.systems.length === 0 && (
+              <View style={styles.emptyCard}>
+                <FileText size={28} color={colors.brandAccent} />
+                <Text style={styles.emptyTitle}>Check groups not published</Text>
+                <Text style={styles.emptySub}>The approved report includes the overall check count and any recorded findings above.</Text>
+              </View>
+            )}
           </View>
         )}
 
@@ -336,7 +287,7 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
             <View style={styles.summaryCard}>
               <View style={styles.summaryCardHeader}>
                 <ShieldCheck size={20} color={colors.brandAccent} />
-                <Text style={styles.cardTitle}>Master Engineer Verdict</Text>
+              <Text style={styles.cardTitle}>Inspection summary</Text>
               </View>
               <Text style={styles.summaryText}>{audit.engineerSummary}</Text>
             </View>
@@ -344,10 +295,42 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
             <View style={styles.summaryCard}>
               <View style={styles.summaryCardHeader}>
                 <Gauge size={20} color={colors.brandAccent} />
-                <Text style={styles.cardTitle}>Dynamic Road Test Evaluation</Text>
+              <Text style={styles.cardTitle}>Vehicle condition summary</Text>
               </View>
               <Text style={styles.summaryText}>{audit.conditionSummary}</Text>
             </View>
+
+            {customerProfile?.qualityControl?.status === 'PASSED' && (
+              <View style={styles.summaryCard}>
+                <View style={styles.summaryCardHeader}>
+                  <ShieldCheck size={20} color="#10B981" />
+                  <Text style={styles.cardTitle}>Independent QC Certification</Text>
+                </View>
+                <Text style={styles.summaryText}>
+                  {customerProfile.qualityControl.findings || 'Vehicle has completed independent road test and multi-system quality control verification.'}
+                </Text>
+              </View>
+            )}
+
+            {customerProfile?.refurbishment && customerProfile.refurbishment.length > 0 && (
+              <View style={styles.summaryCard}>
+                <View style={styles.summaryCardHeader}>
+                  <Wrench size={20} color={colors.brandAccent} />
+                  <Text style={styles.cardTitle}>Refurbishment & Workshop Completed</Text>
+                </View>
+                <View style={{ gap: 8, marginTop: 4 }}>
+                  {customerProfile.refurbishment.map((rf, idx) => (
+                    <View key={idx} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
+                      <CheckCircle2 size={14} color="#22C55E" style={{ marginTop: 2 }} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ color: colors.textPrimary, fontSize: 13, fontWeight: '700' }}>{rf.category}</Text>
+                        <Text style={{ color: colors.textSecondary, fontSize: 12 }}>{rf.action}</Text>
+                      </View>
+                    </View>
+                  ))}
+                </View>
+              </View>
+            )}
 
             {verifiedTags && verifiedTags.length > 0 && (
               <View style={styles.summaryCard}>

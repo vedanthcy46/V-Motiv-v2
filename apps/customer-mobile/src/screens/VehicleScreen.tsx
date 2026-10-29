@@ -13,6 +13,7 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import {
   ArrowLeft,
+  Award,
   Bookmark,
   Calendar,
   CheckCircle2,
@@ -27,6 +28,7 @@ import {
   MapPin,
   MessageSquare,
   ShieldCheck,
+  Wrench,
   Zap,
 } from 'lucide-react-native';
 import { customer } from '../services/customer';
@@ -247,11 +249,23 @@ export function VehicleScreen({ route, navigation }: Props) {
               <MapPin size={16} color={colors.brandAccent} />
               <View>
                 <Text style={styles.specLabel}>Showroom Hub</Text>
-                <Text style={styles.specValue}>{(item as any).branch?.name ? `${(item as any).branch.name}` : (v.city || 'Available')}</Text>
+                <Text style={styles.specValue}>{item.branch?.name ? `${item.branch.name}` : (v.city || 'Available')}</Text>
               </View>
             </View>
           </View>
         </View>
+
+        {/* Experience Hub / Branch Location */}
+        {item.branch && (
+          <View style={styles.branchCard}>
+            <View style={styles.branchHeader}>
+              <MapPin size={16} color={colors.brandAccent} />
+              <Text style={styles.branchTitle}>{item.branch.name}</Text>
+            </View>
+            <Text style={styles.branchAddress}>{item.branch.address || item.branch.city}</Text>
+            <Text style={styles.branchBadge}>📍 Available for viewing & test drive at this hub</Text>
+          </View>
+        )}
 
         {/* Published inspection information */}
         <TouchableOpacity
@@ -264,6 +278,7 @@ export function VehicleScreen({ route, navigation }: Props) {
               features: v.features,
               reportUrl: v.inspectionReportUrl,
               inspectionDetails: item.inspectionDetails,
+              customerProfile: item.customerProfile,
             });
           }}
         >
@@ -271,15 +286,17 @@ export function VehicleScreen({ route, navigation }: Props) {
             <ShieldCheck size={32} color={colors.brandAccent} />
             <View style={styles.inspectionTextContainer}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-                <Text style={styles.inspectionTitle}>200-Point Quality Inspection</Text>
+                <Text style={styles.inspectionTitle}>Approved Quality Inspection</Text>
                 <View style={styles.scorePill}>
-                  <Text style={styles.scorePillText}>{item.inspectionDetails?.certificationScore || '9.2 / 10'}</Text>
+                  <Text style={styles.scorePillText}>{item.inspectionDetails?.certificationScore || 'Pending'}</Text>
                 </View>
               </View>
               <Text style={styles.inspectionSnippet} numberOfLines={2}>
-                {item.inspectionDetails?.imperfectionsCount
-                  ? `${item.inspectionDetails.imperfectionsCount} minor cosmetic imperfections documented with defect photos. All powertrain and structural checks PASSED.`
-                  : v.inspectionSummary || 'Comprehensive 200-point inspection passed with zero structural damage.'}
+                {item.inspectionDetails
+                  ? item.inspectionDetails.imperfectionsCount
+                    ? `${item.inspectionDetails.imperfectionsCount} documented inspection finding${item.inspectionDetails.imperfectionsCount === 1 ? '' : 's'}. Open the report for details.`
+                    : `${item.inspectionDetails.passedChecksCount} of ${item.inspectionDetails.totalChecksCount} recorded checks passed.`
+                  : 'The customer-facing inspection report has not been published yet.'}
               </Text>
             </View>
           </View>
@@ -287,17 +304,55 @@ export function VehicleScreen({ route, navigation }: Props) {
         </TouchableOpacity>
 
         {/* Verified Features */}
-        {v.features.length > 0 && (
+        {(item.customerProfile?.topFeatures?.length || v.features.length) > 0 && (
           <View style={styles.featuresCard}>
             <Text style={styles.sectionTitle}>Features & Highlights</Text>
             <View style={styles.featureChips}>
-              {v.features.map((f, i) => (
+              {(item.customerProfile?.topFeatures && item.customerProfile.topFeatures.length > 0 ? item.customerProfile.topFeatures : v.features).map((f, i) => (
                 <View key={i} style={styles.featureChip}>
                   <CheckCircle2 size={13} color="#22C55E" />
                   <Text style={styles.featureText}>{f}</Text>
                 </View>
               ))}
             </View>
+          </View>
+        )}
+
+        {/* Refurbishment Completed */}
+        {item.customerProfile?.refurbishment && item.customerProfile.refurbishment.length > 0 && (
+          <View style={styles.refurbCard}>
+            <View style={styles.cardHeaderRow}>
+              <Wrench size={18} color="#3B82F6" />
+              <Text style={styles.sectionTitle}>Refurbishment & Workshop Services</Text>
+            </View>
+            <Text style={styles.cardSubtitle}>
+              Every vehicle undergoes certified reconditioning before retail publication.
+            </Text>
+            <View style={styles.refurbList}>
+              {item.customerProfile.refurbishment.map((rf, idx) => (
+                <View key={idx} style={styles.refurbItem}>
+                  <CheckCircle2 size={15} color="#22C55E" style={{ marginTop: 2 }} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.refurbCategory}>{rf.category}</Text>
+                    <Text style={styles.refurbAction}>{rf.action}</Text>
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* Independent QC Certification */}
+        {item.customerProfile?.qualityControl?.status === 'PASSED' && (
+          <View style={styles.qcCard}>
+            <View style={styles.cardHeaderRow}>
+              <Award size={18} color="#10B981" />
+              <Text style={styles.sectionTitle}>Independent Quality Control</Text>
+            </View>
+            <Text style={styles.qcBadge}>✓ Certified QC Passed</Text>
+            <Text style={styles.qcFindings}>
+              {item.customerProfile.qualityControl.findings || 'Vehicle has completed independent road test and multi-system quality control verification.'}
+            </Text>
           </View>
         )}
       </ScrollView>
@@ -621,6 +676,97 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
     featureText: {
       color: colors.textPrimary,
       fontSize: 11,
+    },
+    branchCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginTop: space.md,
+    },
+    branchHeader: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space.xs,
+      marginBottom: 4,
+    },
+    branchTitle: {
+      color: colors.textPrimary,
+      fontSize: 14,
+      fontWeight: '700',
+    },
+    branchAddress: {
+      color: colors.textMuted,
+      fontSize: 12,
+      lineHeight: 16,
+      marginBottom: 6,
+    },
+    branchBadge: {
+      color: isDark ? colors.brandAccent : '#9A6500',
+      fontSize: 11,
+      fontWeight: '600',
+    },
+    cardHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 8,
+      marginBottom: 4,
+    },
+    cardSubtitle: {
+      color: colors.textMuted,
+      fontSize: 12,
+      lineHeight: 16,
+      marginBottom: space.sm,
+    },
+    refurbCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginTop: space.md,
+    },
+    refurbList: {
+      gap: space.sm,
+    },
+    refurbItem: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: space.sm,
+      backgroundColor: colors.surfaceSecondary,
+      padding: space.sm,
+      borderRadius: radius.sm,
+    },
+    refurbCategory: {
+      color: colors.textPrimary,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    refurbAction: {
+      color: colors.textSecondary,
+      fontSize: 11,
+      marginTop: 1,
+      lineHeight: 15,
+    },
+    qcCard: {
+      backgroundColor: isDark ? 'rgba(16, 185, 129, 0.08)' : '#ECFDF5',
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(16, 185, 129, 0.25)' : '#A7F3D0',
+      marginTop: space.md,
+    },
+    qcBadge: {
+      color: isDark ? '#34D399' : '#047857',
+      fontSize: 12,
+      fontWeight: '700',
+      marginBottom: 4,
+    },
+    qcFindings: {
+      color: colors.textSecondary,
+      fontSize: 11,
+      lineHeight: 16,
     },
     bottomBar: {
       position: 'absolute',

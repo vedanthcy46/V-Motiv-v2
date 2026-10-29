@@ -461,6 +461,7 @@ export const App: FC = () => {
   const [studioColor, setStudioColor] = useState('');
   const [studioSummary, setStudioSummary] = useState('');
   const [studioPhotos, setStudioPhotos] = useState('');
+  const [studioUploading, setStudioUploading] = useState(false);
   const [studioBranchId, setStudioBranchId] = useState('');
 
   const [publishModal, setPublishModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
@@ -877,6 +878,23 @@ export const App: FC = () => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const handleStudioPhotoUpload = async (files: FileList | null) => {
+    if (!user || !studioModal.stockItem || !files?.length) return;
+    setStudioUploading(true); setError(null);
+    try {
+      const uploaded: string[] = [];
+      for (const file of Array.from(files)) {
+        if (!file.type.startsWith('image/')) throw new Error('Only image files can be added to a retail listing.');
+        if (file.size > 12 * 1024 * 1024) throw new Error(`${file.name} is larger than the 12 MB upload limit.`);
+        const base64Data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error(`Could not read ${file.name}.`)); reader.onload = () => resolve(String(reader.result).split(',')[1] || ''); reader.readAsDataURL(file); });
+        const result = await api.uploadListingPhoto(user, { base64Data, mimeType: file.type, filename: file.name.replace(/\.[^.]+$/, ''), folder: `vmotiv/listings/${studioModal.stockItem.stockCode}` });
+        const url = result.secureUrl || result.url; if (!url) throw new Error(`Cloud upload did not return a URL for ${file.name}.`); uploaded.push(url);
+      }
+      setStudioPhotos(current => [...current.split('\n').filter(Boolean), ...uploaded].join('\n'));
+      setSuccessMsg(`${uploaded.length} photo${uploaded.length === 1 ? '' : 's'} uploaded securely to Cloudinary.`);
+    } catch (err) { setError(err instanceof Error ? err.message : 'Could not upload listing photos.'); } finally { setStudioUploading(false); }
   };
 
   const handlePublishSubmit = async (e: FormEvent) => {
@@ -2367,14 +2385,37 @@ export const App: FC = () => {
                         </div>
                       </div>
 
-                      <div className="card-footer">
-                        <button
-                          className="btn-gold"
-                          style={{ fontSize: '0.8rem' }}
-                          onClick={() => openStudioModal(s)}
-                        >
-                          <IconStudio /> {s.vehicle?.listing ? 'Edit Studio Specs & Photos' : 'Prepare Listing'}
-                        </button>
+                      <div className="card-footer" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                        {s.status === 'LISTED' ? (
+                          <>
+                            <button
+                              className="btn-secondary"
+                              style={{ fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                              onClick={() => openStudioModal(s)}
+                            >
+                              🔒 View Specs (Read-Only)
+                            </button>
+                            {s.vehicle?.listing?.id ? (
+                              <a
+                                href={`https://www.vmotiv.in/buy/${s.vehicle.listing.id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="btn-outline"
+                                style={{ fontSize: '0.8rem', padding: '0.35rem 0.65rem', display: 'inline-flex', alignItems: 'center', gap: '0.3rem', textDecoration: 'none' }}
+                              >
+                                ↗ Live Listing
+                              </a>
+                            ) : null}
+                          </>
+                        ) : (
+                          <button
+                            className="btn-gold"
+                            style={{ fontSize: '0.8rem' }}
+                            onClick={() => openStudioModal(s)}
+                          >
+                            <IconStudio /> {s.vehicle?.listing ? 'Edit Studio Specs & Photos' : 'Prepare Listing'}
+                          </button>
+                        )}
                       </div>
                     </article>
                   );
@@ -2432,7 +2473,7 @@ export const App: FC = () => {
                         ) : null}
                       </div>
 
-                      <div className="card-footer">
+                      <div className="card-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '0.5rem' }}>
                         {!isPublished ? (
                           <button
                             className="btn-gold"
@@ -2442,7 +2483,20 @@ export const App: FC = () => {
                             <IconPublish /> Approve Price & Publish
                           </button>
                         ) : (
-                          <span style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: 600 }}>Live Marketplace Listing</span>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', width: '100%', justifyContent: 'space-between', flexWrap: 'wrap' }}>
+                            <span style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: 600 }}>✓ Live Marketplace Listing</span>
+                            {s.vehicle?.listing?.id ? (
+                              <a
+                                href={`https://www.vmotiv.in/buy/${s.vehicle.listing.id}`}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="btn-outline"
+                                style={{ fontSize: '0.75rem', padding: '0.25rem 0.6rem', textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.3rem' }}
+                              >
+                                ↗ Open in Marketplace
+                              </a>
+                            ) : null}
+                          </div>
                         )}
                       </div>
                     </article>
@@ -3078,21 +3132,34 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {/* MODAL: LISTING STUDIO                                    */}
       {/* ======================================================== */}
-      {studioModal.open && studioModal.stockItem ? (
+      {studioModal.open && studioModal.stockItem ? (() => {
+        const isStudioListed = studioModal.stockItem.status === 'LISTED';
+        return (
         <div className="modal-overlay">
           <div className="modal-dialog">
             <div className="modal-header">
-              <h3>Listing Studio Specifications</h3>
+              <h3>Listing Studio Specifications {isStudioListed ? '🔒 (Locked)' : ''}</h3>
               <button className="btn-close" onClick={() => setStudioModal({ open: false })}>✕</button>
             </div>
             <form onSubmit={handleStudioSubmit}>
               <div className="modal-body">
+                {isStudioListed ? (
+                  <div style={{ padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px', color: '#FCA5A5', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.85rem' }}>
+                    <span style={{ fontSize: '1.2rem' }}>🔒</span>
+                    <div>
+                      <strong>Published Marketplace Listing (Read-Only)</strong>
+                      <div>This vehicle is live on the retail marketplace. Once a vehicle is listed, its specifications, showroom location, and curated photos cannot be altered.</div>
+                    </div>
+                  </div>
+                ) : null}
+
                 <div className="form-group">
                   <label>Showroom Hub / Branch *</label>
                   <select
                     className="form-select"
                     value={studioBranchId}
                     onChange={e => setStudioBranchId(e.target.value)}
+                    disabled={isStudioListed}
                     required
                   >
                     <option value="">Select Showroom Branch *</option>
@@ -3112,6 +3179,7 @@ export const App: FC = () => {
                     className="form-input"
                     value={studioTitle}
                     onChange={e => setStudioTitle(e.target.value)}
+                    disabled={isStudioListed}
                     required
                   />
                 </div>
@@ -3124,6 +3192,7 @@ export const App: FC = () => {
                     placeholder="e.g. Polar White, Phantom Black"
                     value={studioColor}
                     onChange={e => setStudioColor(e.target.value)}
+                    disabled={isStudioListed}
                   />
                 </div>
 
@@ -3134,29 +3203,80 @@ export const App: FC = () => {
                     placeholder="Enter vehicle highlight summary for prospective buyers..."
                     value={studioSummary}
                     onChange={e => setStudioSummary(e.target.value)}
+                    disabled={isStudioListed}
                   />
                 </div>
 
                 <div className="form-group">
-                  <label>Curated Photo URLs (one per line)</label>
-                  <textarea
-                    className="form-textarea"
-                    placeholder="https://res.cloudinary.com/...&#10;https://res.cloudinary.com/..."
-                    value={studioPhotos}
-                    onChange={e => setStudioPhotos(e.target.value)}
-                    style={{ minHeight: '100px' }}
-                  />
-                  <small style={{ color: 'var(--muted)' }}>Front, rear, interior, odometer and engine photos.</small>
+                  <label htmlFor="listing-photos">Retail vehicle photos</label>
+                  <input id="listing-photos" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={e => void handleStudioPhotoUpload(e.target.files)} disabled={isStudioListed || studioUploading || loading} />
+                  <small style={{ color: 'var(--muted)' }}>{isStudioListed ? 'Photos are locked for published marketplace vehicles.' : studioUploading ? 'Uploading securely to Cloudinary…' : 'Upload front, rear, interior, odometer and engine photos. JPEG, PNG or WebP; maximum 12 MB each.'}</small>
+                  {studioPhotos ? (
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
+                      {studioPhotos.split('\n').filter(Boolean).map((url, index) => (
+                        <div key={url} style={{ position: 'relative' }}>
+                          <img src={url} alt={`Listing photo ${index + 1}`} style={{ width: 92, height: 64, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
+                          {!isStudioListed ? (
+                            <button
+                              type="button"
+                              aria-label={`Remove listing photo ${index + 1}`}
+                              onClick={() => setStudioPhotos(current => current.split('\n').filter(item => item !== url).join('\n'))}
+                              style={{ position: 'absolute', top: -7, right: -7, borderRadius: 99, border: 0, width: 22, height: 22, cursor: 'pointer', background: 'var(--red, #EF4444)', color: '#fff', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                            >
+                              ×
+                            </button>
+                          ) : null}
+                          {!isStudioListed && index > 0 ? (
+                            <button
+                              type="button"
+                              title="Make Primary / Hero Photo"
+                              onClick={() => {
+                                const photos = studioPhotos.split('\n').filter(Boolean);
+                                const reordered = [url, ...photos.filter(p => p !== url)];
+                                setStudioPhotos(reordered.join('\n'));
+                              }}
+                              style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(2, 11, 24, 0.85)', color: 'var(--yellow)', border: '1px solid var(--border)', borderRadius: 4, fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}
+                            >
+                              ★ Cover
+                            </button>
+                          ) : index === 0 ? (
+                            <span style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(247, 181, 3, 0.9)', color: '#000', fontWeight: 700, borderRadius: 4, fontSize: '0.65rem', padding: '1px 5px' }}>
+                              Cover
+                            </span>
+                          ) : null}
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
                 </div>
               </div>
-              <div className="modal-footer">
-                <button type="button" className="btn-secondary" onClick={() => setStudioModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading}>Save Studio Specifications</button>
+              <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <button type="button" className="btn-secondary" onClick={() => setStudioModal({ open: false })}>
+                  {isStudioListed ? 'Close' : 'Cancel'}
+                </button>
+                {isStudioListed ? (
+                  studioModal.stockItem.vehicle?.listing?.id ? (
+                    <a
+                      href={`https://www.vmotiv.in/buy/${studioModal.stockItem.vehicle.listing.id}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="btn-primary"
+                      style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                    >
+                      ↗ View on Marketplace
+                    </a>
+                  ) : null
+                ) : (
+                  <button type="submit" className="btn-gold" disabled={loading || studioUploading}>
+                    Save Studio Specifications
+                  </button>
+                )}
               </div>
             </form>
           </div>
         </div>
-      ) : null}
+        );
+      })() : null}
 
       {/* ======================================================== */}
       {/* MODAL: PUBLISH LISTING                                   */}

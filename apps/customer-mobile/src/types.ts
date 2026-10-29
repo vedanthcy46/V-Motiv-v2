@@ -53,6 +53,61 @@ export type InspectionAuditDetails = {
   defects: InspectionDefectItem[];
 };
 
+export type CustomerVehicleProfile = {
+  version?: number;
+  generatedAt?: string;
+  basicInformation?: {
+    registrationNumber?: string | null;
+    manufacturingYear?: number;
+    odometerKm?: number;
+    fuelType?: string;
+    transmission?: string;
+    variant?: string | null;
+  };
+  specifications?: {
+    color?: string | null;
+    bodyType?: string | null;
+    engineCapacityCc?: number | null;
+  };
+  topFeatures?: string[];
+  qualityReport?: {
+    source?: string;
+    inspectedAt?: string | null;
+    overallStatus: string;
+    totalChecksCount: number;
+    passedChecksCount: number;
+    defects?: Array<{
+      category: string;
+      severity: string;
+      description: string;
+      location?: string | null;
+    }>;
+    evidence?: Array<{ mimeType: string; url: string }>;
+    summary?: string | null;
+  } | null;
+  refurbishment?: Array<{
+    category: string;
+    action: string;
+    completedAt?: string | null;
+    notes?: string | null;
+  }>;
+  qualityControl?: {
+    status: string;
+    findings?: string | null;
+    evidenceNotes?: string | null;
+    reviewedAt?: string | null;
+  } | null;
+  customerConditionSummary?: string | null;
+};
+
+export type ShowroomBranch = {
+  id: string;
+  code?: string;
+  name: string;
+  city: string;
+  address?: string;
+};
+
 export type VehicleSummary = {
   id: string;
   title: string;
@@ -69,6 +124,8 @@ export type VehicleSummary = {
     message: string;
   } | null;
   inspectionDetails?: InspectionAuditDetails | null;
+  customerProfile?: CustomerVehicleProfile | null;
+  branch?: ShowroomBranch | null;
   vehicle: {
     id: string;
     make: string;

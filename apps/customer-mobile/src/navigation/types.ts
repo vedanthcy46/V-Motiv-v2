@@ -19,6 +19,7 @@ export type RootStack = {
     features: string[];
     reportUrl: string | null;
     inspectionDetails?: import('../types').InspectionAuditDetails | null;
+    customerProfile?: import('../types').CustomerVehicleProfile | null;
   };
   CitySelection: undefined;
   TestDrive: { listingId: string; title: string };
