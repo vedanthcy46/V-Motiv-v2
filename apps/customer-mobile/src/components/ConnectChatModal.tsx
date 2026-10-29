@@ -3,17 +3,18 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
-  SafeAreaView,
   StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CheckCircle2, MessageSquare, Send, ShieldCheck, User, X } from 'lucide-react-native';
 import { io, type Socket } from 'socket.io-client';
 import {
@@ -46,15 +47,37 @@ const QUICK_REPLIES = [
 ];
 
 export function ConnectChatModal({ call, onClose }: Props) {
+  const insets = useSafeAreaInsets();
   const { theme, isDark } = useAppTheme();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [inputText, setInputText] = useState('');
   const [busy, setBusy] = useState(false);
   const [closing, setClosing] = useState(false);
   const [isResolved, setIsResolved] = useState(false);
+  const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
 
   const socketRef = useRef<Socket | null>(null);
   const listRef = useRef<FlatList>(null);
+
+  useEffect(() => {
+    const showSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow',
+      () => {
+        setIsKeyboardVisible(true);
+        setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
+      }
+    );
+    const hideSub = Keyboard.addListener(
+      Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide',
+      () => {
+        setIsKeyboardVisible(false);
+      }
+    );
+    return () => {
+      showSub.remove();
+      hideSub.remove();
+    };
+  }, []);
 
   // Poll fallback to ensure signals are never missed
   const refreshSignals = useCallback(async () => {
@@ -199,8 +222,17 @@ export function ConnectChatModal({ call, onClose }: Props) {
   const vehicle = call.link.vehicle;
 
   return (
-    <Modal visible transparent animationType="slide" onRequestClose={onClose}>
-      <SafeAreaView style={[styles.container, { backgroundColor: theme.colors.background }]}>
+    <Modal
+      visible
+      transparent
+      animationType="slide"
+      statusBarTranslucent
+      onRequestClose={onClose}
+    >
+      <SafeAreaView
+        style={[styles.container, { backgroundColor: theme.colors.background }]}
+        edges={['top', 'left', 'right']}
+      >
         {/* Header */}
         <View style={[styles.header, { backgroundColor: theme.colors.surface, borderBottomColor: theme.colors.border }]}>
           <View style={styles.headerLeft}>
@@ -247,15 +279,17 @@ export function ConnectChatModal({ call, onClose }: Props) {
 
         {/* Message Thread */}
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={{ flex: 1 }}
-          keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.keyboardAvoid}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
         >
           <FlatList
             ref={listRef}
             data={messages}
             keyExtractor={item => item.id}
             contentContainerStyle={styles.messageList}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="interactive"
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: true })}
             renderItem={({ item }) => {
               const isOwner = item.from === 'OWNER';
@@ -301,6 +335,7 @@ export function ConnectChatModal({ call, onClose }: Props) {
               <FlatList
                 horizontal
                 showsHorizontalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
                 data={QUICK_REPLIES}
                 keyExtractor={(item, idx) => String(idx)}
                 contentContainerStyle={{ paddingHorizontal: space.md, gap: space.xs }}
@@ -318,7 +353,16 @@ export function ConnectChatModal({ call, onClose }: Props) {
 
           {/* Input Bar */}
           {!isResolved ? (
-            <View style={[styles.inputBar, { backgroundColor: theme.colors.surface, borderTopColor: theme.colors.border }]}>
+            <View
+              style={[
+                styles.inputBar,
+                {
+                  backgroundColor: theme.colors.surface,
+                  borderTopColor: theme.colors.border,
+                  paddingBottom: isKeyboardVisible ? space.xs : Math.max(insets.bottom, space.sm),
+                },
+              ]}
+            >
               <TextInput
                 value={inputText}
                 onChangeText={setInputText}
@@ -327,6 +371,7 @@ export function ConnectChatModal({ call, onClose }: Props) {
                 style={[styles.textInput, { backgroundColor: theme.colors.background, color: theme.colors.textPrimary, borderColor: theme.colors.border }]}
                 maxLength={500}
                 returnKeyType="send"
+                onFocus={() => setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 120)}
                 onSubmitEditing={() => void handleSend()}
               />
               <TouchableOpacity
@@ -345,7 +390,16 @@ export function ConnectChatModal({ call, onClose }: Props) {
               </TouchableOpacity>
             </View>
           ) : (
-            <View style={[styles.inputBar, { backgroundColor: theme.colors.surface, justifyContent: 'center' }]}>
+            <View
+              style={[
+                styles.inputBar,
+                {
+                  backgroundColor: theme.colors.surface,
+                  justifyContent: 'center',
+                  paddingBottom: Math.max(insets.bottom, space.md),
+                },
+              ]}
+            >
               <TouchableOpacity onPress={onClose} style={[styles.closeDoneBtn, { backgroundColor: theme.colors.brandAccent }]}>
                 <Text style={styles.closeDoneBtnText}>Dismiss</Text>
               </TouchableOpacity>
@@ -359,6 +413,7 @@ export function ConnectChatModal({ call, onClose }: Props) {
 
 const styles = StyleSheet.create({
   container: { flex: 1 },
+  keyboardAvoid: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
