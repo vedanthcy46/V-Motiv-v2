@@ -3,7 +3,7 @@ import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, Vibration
 import { MessageSquare, Phone, PhoneOff, ShieldCheck } from 'lucide-react-native';
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../auth/AuthProvider';
-import { fetchIncomingConnectCalls, respondToIncomingConnectCall, type IncomingConnectCall } from '../services/connect-api';
+import { closeConnectCall, fetchIncomingConnectCalls, respondToIncomingConnectCall, type IncomingConnectCall } from '../services/connect-api';
 import { radius, space, useAppTheme } from '../theme';
 import { ConnectVoiceCall } from './ConnectVoiceCall';
 import { ConnectChatModal } from './ConnectChatModal';
@@ -17,6 +17,7 @@ export function ConnectIncomingCallOverlay() {
   const { state } = useAuth();
   const { theme } = useAppTheme();
   const [call, setCall] = useState<IncomingConnectCall | null>(null);
+  const [resumableCall, setResumableCall] = useState<IncomingConnectCall | null>(null);
   const [busy, setBusy] = useState(false);
   const [activeCallId, setActiveCallId] = useState<string | null>(null);
   const [activeChatCall, setActiveChatCall] = useState<IncomingConnectCall | null>(null);
@@ -24,11 +25,15 @@ export function ConnectIncomingCallOverlay() {
   const refresh = useCallback(async () => {
     if (state !== 'signed-in') {
       setCall(null);
+      setResumableCall(null);
       return;
     }
     try {
       const response = await fetchIncomingConnectCalls();
       setCall(response.items.find(item => item.status === 'RINGING') || null);
+      // Track ACCEPTED calls so the owner can resume a dismissed chat/call
+      // instead of being locked out with no way back in.
+      setResumableCall(response.items.find(item => item.status === 'ACCEPTED') || null);
     } catch {
       // Background polling must not interrupt normal app use when offline.
     }
@@ -105,7 +110,71 @@ export function ConnectIncomingCallOverlay() {
     );
   }
 
-  if (activeCallId) return <ConnectVoiceCall callSessionId={activeCallId} onClose={() => setActiveCallId(null)} />;
+  const handleCloseVoiceCall = useCallback(() => {
+    setActiveCallId(null);
+    void refresh();
+  }, [refresh]);
+
+  if (activeCallId) return <ConnectVoiceCall callSessionId={activeCallId} onClose={handleCloseVoiceCall} />;
+
+  // If no ringing call but an ACCEPTED session exists, show a resume banner
+  // so the owner can get back into a chat/call they dismissed with the X
+  // button instead of being locked out with no way back in.
+  if (!call && resumableCall) {
+    const rVehicle = resumableCall.link.vehicle;
+    const rIsChat = resumableCall.callerType === 'visitor_chat';
+    return (
+      <Modal transparent statusBarTranslucent animationType="slide" onRequestClose={() => setResumableCall(null)}>
+        <View style={styles.resumeWrap}>
+          <View style={[styles.resumeCard, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
+            {rIsChat ? (
+              <MessageSquare size={18} color={theme.colors.brandAccent} />
+            ) : (
+              <Phone size={18} color={theme.colors.brandAccent} />
+            )}
+            <View style={styles.resumeInfo}>
+              <Text style={[styles.resumeTitle, { color: theme.colors.textPrimary }]} numberOfLines={1}>
+                Active {rIsChat ? 'chat' : 'call'} · {rVehicle.make} {rVehicle.model}
+              </Text>
+              <Text style={[styles.resumeSub, { color: theme.colors.textSecondary }]}>
+                Tap resume to continue
+              </Text>
+            </View>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel={`Resume active ${rIsChat ? 'chat' : 'call'}`}
+              onPress={() => {
+                if (rIsChat) {
+                  setActiveChatCall(resumableCall);
+                } else {
+                  setActiveCallId(resumableCall.callSessionId);
+                }
+                setResumableCall(null);
+              }}
+              style={[styles.resumeBtn, { backgroundColor: theme.colors.brandAccent }]}
+            >
+              <Text style={styles.resumeBtnText}>Resume</Text>
+            </Pressable>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="End active session"
+              onPress={async () => {
+                try {
+                  await closeConnectCall(resumableCall.callSessionId, 'Closed by owner');
+                } catch { /* non-fatal */ }
+                setResumableCall(null);
+                void refresh();
+              }}
+              style={styles.resumeCloseBtn}
+            >
+              <PhoneOff size={16} color="#EF4444" />
+            </Pressable>
+          </View>
+        </View>
+      </Modal>
+    );
+  }
+
   if (!call) return null;
   const vehicle = call.link.vehicle;
   const isChat = call.callerType === 'visitor_chat';
@@ -185,4 +254,12 @@ const styles = StyleSheet.create({
   previewText: { fontSize: 13, fontStyle: 'italic', lineHeight: 18 },
   privacy: { width: '100%', borderWidth: 1, borderRadius: radius.md, padding: 12, flexDirection: 'row', gap: 9, marginTop: 8 }, privacyText: { flex: 1, fontSize: 12, lineHeight: 17 },
   actions: { flexDirection: 'row', gap: 18, marginTop: 16 }, callButton: { width: 112, minHeight: 94, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center', gap: 7 }, accept: { backgroundColor: '#10B981' }, decline: { backgroundColor: '#EF4444' }, actionText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' }, pressed: { opacity: 0.72 },
+  resumeWrap: { flex: 1, justifyContent: 'flex-start', paddingTop: 50 },
+  resumeCard: { marginHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: radius.lg, padding: 12, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.18, shadowRadius: 6 },
+  resumeInfo: { flex: 1, gap: 2 },
+  resumeTitle: { fontSize: 14, fontWeight: '700' },
+  resumeSub: { fontSize: 12 },
+  resumeBtn: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: radius.md },
+  resumeBtnText: { color: '#061A38', fontSize: 13, fontWeight: '800' },
+  resumeCloseBtn: { padding: 8 },
 });

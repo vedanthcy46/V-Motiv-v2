@@ -199,6 +199,22 @@ function setupApp() {
         callSessions[index] = { ...callSessions[index], ...data, updatedAt: new Date() };
         return Promise.resolve(callSessions[index]);
       }),
+      updateMany: vi.fn().mockImplementation(({ where, data }) => {
+        let count = 0;
+        callSessions.forEach((c, i) => {
+          if (where.linkId && c.linkId !== where.linkId) return;
+          if (where.link?.userId) {
+            const link = links.find((item) => item.id === c.linkId);
+            if (link?.userId !== where.link.userId) return;
+          }
+          if (where.status?.in && !where.status.in.includes(c.status)) return;
+          if (where.status && !where.status.in && c.status !== where.status) return;
+          if (where.createdAt?.lt && new Date(c.createdAt) >= new Date(where.createdAt.lt)) return;
+          callSessions[i] = { ...c, ...data };
+          count++;
+        });
+        return Promise.resolve({ count });
+      }),
     },
     connectIntegrationAuditEvent: {
       create: vi.fn().mockImplementation(({ data }) => {

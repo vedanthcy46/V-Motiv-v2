@@ -1,9 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   FlatList,
   KeyboardAvoidingView,
   Modal,
+  PermissionsAndroid,
   Platform,
   Pressable,
   StyleSheet,
@@ -44,6 +46,29 @@ interface ChatItem {
   sentAt: string;
 }
 
+async function ensureMicrophonePermission(): Promise<boolean> {
+  if (Platform.OS === 'android') {
+    try {
+      const check = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      if (check) return true;
+      const granted = await PermissionsAndroid.request(
+        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+        {
+          title: 'Microphone Permission',
+          message: 'V MOTIV needs access to your microphone so the visitor can hear you during this private call.',
+          buttonPositive: 'Allow',
+          buttonNegative: 'Deny',
+        }
+      );
+      return granted === PermissionsAndroid.RESULTS.GRANTED;
+    } catch (e) {
+      console.warn('[ConnectVoiceCall] Permission check error:', e);
+      return false;
+    }
+  }
+  return true;
+}
+
 export function ConnectVoiceCall({
   callSessionId,
   onClose,
@@ -51,6 +76,9 @@ export function ConnectVoiceCall({
   callSessionId: string;
   onClose: () => void;
 }) {
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   const peer = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
   const socketRef = useRef<Socket | null>(null);
@@ -93,35 +121,54 @@ export function ConnectVoiceCall({
 
     const start = async () => {
       try {
-        // 1. Initialize WebRTC
-        let pc: RTCPeerConnection | null = null;
-        try {
-          pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
-          peer.current = pc;
+        // 1. Initialize WebRTC peer connection
+        const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
+        peer.current = pc;
 
-          const stream = await mediaDevices.getUserMedia({ audio: true, video: false });
-          localStream.current = stream;
-          stream.getTracks().forEach(track => pc?.addTrack(track, stream));
+        pc.onicecandidate = (event: any) => {
+          const candidate = event.candidate;
+          if (candidate) {
+            const payload = candidate.toJSON() as Record<string, unknown>;
+            socketRef.current?.emit('webrtc:signal', { kind: 'ICE', payload });
+            void sendOwnerCallSignal(callSessionId, 'ICE', payload).catch(() => undefined);
+          }
+        };
 
-          pc.onicecandidate = (event: any) => {
-            const candidate = event.candidate;
-            if (candidate) {
-              const payload = candidate.toJSON() as Record<string, unknown>;
-              socketRef.current?.emit('webrtc:signal', { kind: 'ICE', payload });
-              void sendOwnerCallSignal(callSessionId, 'ICE', payload);
+        pc.onconnectionstatechange = () => {
+          if (pc?.connectionState === 'connected') {
+            setState('Connected · private audio');
+          }
+        };
+
+        pc.oniceconnectionstatechange = () => {
+          if (pc?.iceConnectionState === 'connected' || pc?.iceConnectionState === 'completed') {
+            setState('Connected · private audio');
+          }
+        };
+
+        // 2. Request and attach microphone audio stream
+        const hasMic = await ensureMicrophonePermission();
+        if (hasMic) {
+          try {
+            const stream = await mediaDevices.getUserMedia({ audio: true, video: false });
+            if (active) {
+              localStream.current = stream;
+              stream.getTracks().forEach(track => pc?.addTrack(track, stream));
+            } else {
+              stream.getTracks().forEach(t => t.stop());
             }
-          };
-
-          pc.onconnectionstatechange = () => {
-            if (pc?.connectionState === 'connected') {
-              setState('Connected · private audio');
-            }
-          };
-        } catch (webrtcErr) {
-          console.warn('[ConnectVoiceCall] WebRTC setup error:', webrtcErr);
+          } catch (micErr) {
+            console.warn('[ConnectVoiceCall] Mic getUserMedia error:', micErr);
+          }
+        } else {
+          Alert.alert(
+            'Microphone Access Needed',
+            'Microphone permission is required for private voice calls. You can still message the visitor using the Chat button below.',
+            [{ text: 'OK' }]
+          );
         }
 
-        // 2. Fetch realtime ticket & join Socket.IO room
+        // 3. Fetch realtime ticket & join Socket.IO room
         try {
           const ticketResp = await fetchOwnerRealtimeTicket(callSessionId);
           if (active && ticketResp.ticket) {
@@ -141,7 +188,7 @@ export function ConnectVoiceCall({
                   await pc.setLocalDescription(answer);
                   const payload = answer.toJSON() as Record<string, unknown>;
                   socket.emit('webrtc:signal', { kind: 'ANSWER', payload });
-                  void sendOwnerCallSignal(callSessionId, 'ANSWER', payload);
+                  void sendOwnerCallSignal(callSessionId, 'ANSWER', payload).catch(() => undefined);
                 } else if (message.kind === 'ICE' && message.payload) {
                   await pc.addIceCandidate(new RTCIceCandidate(message.payload));
                 }
@@ -163,29 +210,53 @@ export function ConnectVoiceCall({
             });
 
             socket.on('call:hangup', () => {
-              if (active) onClose();
+              if (active) onCloseRef.current?.();
             });
           }
         } catch (ticketErr) {
           console.warn('[ConnectVoiceCall] Socket ticket error, using HTTP signal fallback:', ticketErr);
         }
 
-        // 3. Fallback HTTP signal poller
+        // 4. Fallback HTTP signal poller
         const poll = async () => {
           try {
             const response = await fetchOwnerCallSignals(callSessionId, cursor.current);
+            if (response.status === 'CLOSED') {
+              if (active) onCloseRef.current?.();
+              return;
+            }
             for (const signal of response.items) {
               cursor.current = signal.createdAt;
-              if (!pc) continue;
+              if (!pc || signal.senderRole === 'OWNER') continue;
               if (signal.kind === 'OFFER' && !(pc as any).currentRemoteDescription) {
                 await pc.setRemoteDescription(new RTCSessionDescription(signal.payload as any));
                 const answer = await pc.createAnswer();
                 await pc.setLocalDescription(answer);
-                await sendOwnerCallSignal(callSessionId, 'ANSWER', answer.toJSON() as Record<string, unknown>);
-              } else if (signal.kind === 'ICE') {
+                const payload = answer.toJSON() as Record<string, unknown>;
+                socketRef.current?.emit('webrtc:signal', { kind: 'ANSWER', payload });
+                void sendOwnerCallSignal(callSessionId, 'ANSWER', payload).catch(() => undefined);
+              } else if (signal.kind === 'ICE' && signal.payload) {
                 await pc.addIceCandidate(new RTCIceCandidate(signal.payload as any));
-              } else if (signal.kind === 'HANGUP') {
-                onClose();
+              } else if (signal.kind === 'HANGUP' || signal.kind === 'CLOSE') {
+                if (active) onCloseRef.current?.();
+              } else if (signal.kind === 'CHAT' && signal.payload) {
+                const text = typeof (signal.payload as any).text === 'string' ? (signal.payload as any).text : '';
+                if (text) {
+                  setChatMessages(prev => {
+                    if (prev.some(m => m.text === text && Math.abs(new Date(m.sentAt).getTime() - new Date(signal.createdAt).getTime()) < 2000)) {
+                      return prev;
+                    }
+                    return [
+                      ...prev,
+                      {
+                        id: signal.id,
+                        from: 'VISITOR',
+                        text,
+                        sentAt: signal.createdAt,
+                      },
+                    ];
+                  });
+                }
               }
             }
           } catch {
@@ -199,14 +270,15 @@ export function ConnectVoiceCall({
         }, 1500);
 
         setState('Waiting for the caller…');
-      } catch {
+      } catch (err) {
+        console.warn('[ConnectVoiceCall] Start error:', err);
         setState('Microphone or secure call connection unavailable.');
       }
     };
 
     void start();
     return cleanup;
-  }, [callSessionId, onClose]);
+  }, [callSessionId]);
 
   const toggleMute = () => {
     if (!localStream.current) return;

@@ -6,6 +6,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Linking,
+  PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
@@ -283,6 +284,24 @@ export function ConnectGuestScreen() {
       if (mode === 'VOICE') {
         setPhase('CALLING');
         try {
+          if (Platform.OS === 'android') {
+            const hasCheck = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+            if (!hasCheck) {
+              const res = await PermissionsAndroid.request(
+                PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
+                {
+                  title: 'Microphone Permission',
+                  message: 'V MOTIV needs access to your microphone to speak with the vehicle owner.',
+                  buttonPositive: 'Allow',
+                  buttonNegative: 'Deny',
+                }
+              );
+              if (res !== PermissionsAndroid.RESULTS.GRANTED) {
+                throw new Error('MICROPHONE_PERMISSION_DENIED');
+              }
+            }
+          }
+
           const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
           peerRef.current = pc;
 

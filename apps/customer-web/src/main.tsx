@@ -76,6 +76,7 @@ function PublicConnectPage({ token }: { token: string }) {
   const chatBottomRef = useRef<HTMLDivElement | null>(null);
   const chatSessionIdRef = useRef<string | null>(null);
   const callDurationTimerRef = useRef<number | null>(null);
+  const voicePollTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
     chatSessionIdRef.current = chatSessionId;
@@ -269,6 +270,10 @@ function PublicConnectPage({ token }: { token: string }) {
       clearInterval(callDurationTimerRef.current);
       callDurationTimerRef.current = null;
     }
+    if (voicePollTimerRef.current) {
+      clearInterval(voicePollTimerRef.current);
+      voicePollTimerRef.current = null;
+    }
     localStreamRef.current?.getTracks().forEach(track => track.stop());
     localStreamRef.current = null;
     peerRef.current?.close();
@@ -287,7 +292,7 @@ function PublicConnectPage({ token }: { token: string }) {
       const ticket = await request(`/calls/${call.callSessionId}/realtime-ticket`);
       const realtimeUrl = getRealtimeUrl();
       const socket = io(realtimeUrl, {
-        transports: ['websocket'],
+        transports: ['websocket', 'polling'],
         auth: { ticket: ticket.ticket },
       });
       socketRef.current = socket;
@@ -303,7 +308,9 @@ function PublicConnectPage({ token }: { token: string }) {
 
       pc.onicecandidate = event => {
         if (event.candidate) {
-          socket.emit('webrtc:signal', { kind: 'ICE', payload: event.candidate.toJSON() });
+          const payload = event.candidate.toJSON();
+          socket.emit('webrtc:signal', { kind: 'ICE', payload });
+          void request(`/calls/${call.callSessionId}/signals`, { kind: 'ICE', payload }).catch(() => undefined);
         }
       };
 
@@ -317,12 +324,25 @@ function PublicConnectPage({ token }: { token: string }) {
       pc.onconnectionstatechange = () => {
         if (pc.connectionState === 'connected') {
           setCallPhase('CONNECTED');
-          callDurationTimerRef.current = window.setInterval(() => {
-            setCallDuration(prev => prev + 1);
-          }, 1000);
+          if (!callDurationTimerRef.current) {
+            callDurationTimerRef.current = window.setInterval(() => {
+              setCallDuration(prev => prev + 1);
+            }, 1000);
+          }
         } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
           setCallPhase('DECLINED');
           cleanupCall();
+        }
+      };
+
+      pc.oniceconnectionstatechange = () => {
+        if (pc.iceConnectionState === 'connected' || pc.iceConnectionState === 'completed') {
+          setCallPhase('CONNECTED');
+          if (!callDurationTimerRef.current) {
+            callDurationTimerRef.current = window.setInterval(() => {
+              setCallDuration(prev => prev + 1);
+            }, 1000);
+          }
         }
       };
 
@@ -349,7 +369,37 @@ function PublicConnectPage({ token }: { token: string }) {
 
       const offer = await pc.createOffer();
       await pc.setLocalDescription(offer);
-      socket.emit('webrtc:signal', { kind: 'OFFER', payload: offer });
+      const offerPayload = { type: offer.type, sdp: offer.sdp };
+      socket.emit('webrtc:signal', { kind: 'OFFER', payload: offerPayload });
+      void request(`/calls/${call.callSessionId}/signals`, { kind: 'OFFER', payload: offerPayload }).catch(() => undefined);
+
+      // HTTP Polling fallback for voice signals
+      const handledSignalIds = new Set<string>();
+      const pollTimer = window.setInterval(async () => {
+        if (!peerRef.current || peerRef.current.signalingState === 'closed') return;
+        try {
+          const res = await fetch(connectApiUrl(`/${encodeURIComponent(token)}/calls/${call.callSessionId}/signals`));
+          const data = await res.json().catch(() => ({}));
+          if (Array.isArray(data.items)) {
+            for (const sig of data.items) {
+              if (handledSignalIds.has(sig.id)) continue;
+              handledSignalIds.add(sig.id);
+              if (sig.senderRole !== 'OWNER') continue;
+              if (sig.kind === 'ANSWER' && pc.signalingState === 'have-local-offer') {
+                await pc.setRemoteDescription(new RTCSessionDescription(sig.payload));
+              } else if (sig.kind === 'ICE' && sig.payload && pc.signalingState !== 'closed') {
+                await pc.addIceCandidate(new RTCIceCandidate(sig.payload));
+              } else if (sig.kind === 'HANGUP' || sig.kind === 'CLOSE') {
+                setCallPhase('DECLINED');
+                cleanupCall();
+              }
+            }
+          }
+        } catch {
+          // Poll fallback non-fatal
+        }
+      }, 1500);
+      voicePollTimerRef.current = pollTimer;
     } catch {
       setCallPhase('ERROR');
       cleanupCall();

@@ -85,7 +85,7 @@ export class PrismaConnectStore {
     private readonly db: PrismaClient,
     private readonly notificationService?: NotificationService,
     private readonly uploadStickerAsset: (publicUrl: string) => Promise<StickerAsset> = uploadConnectStickerAsset,
-  ) {}
+  ) { }
 
   private async assertVehicleOwnership(userId: string, vehicleId: string) {
     const user = await this.db.user.findFirst({ where: { firebaseUid: userId }, select: { id: true } });
@@ -147,15 +147,15 @@ export class PrismaConnectStore {
       isLinked: Boolean(activeLink && activeLink.status === 'ACTIVE'),
       link: activeLink
         ? {
-            id: activeLink.id,
-            status: activeLink.status,
-            qrTokenPreview: activeLink.qrTokenPreview,
-            createdAt: activeLink.createdAt,
-            lastSyncedAt: activeLink.lastSyncedAt,
-            stickerImageUrl: typeof (activeLink.metadata as Record<string, unknown> | null)?.stickerImageUrl === 'string'
-              ? (activeLink.metadata as Record<string, unknown>).stickerImageUrl
-              : null,
-          }
+          id: activeLink.id,
+          status: activeLink.status,
+          qrTokenPreview: activeLink.qrTokenPreview,
+          createdAt: activeLink.createdAt,
+          lastSyncedAt: activeLink.lastSyncedAt,
+          stickerImageUrl: typeof (activeLink.metadata as Record<string, unknown> | null)?.stickerImageUrl === 'string'
+            ? (activeLink.metadata as Record<string, unknown>).stickerImageUrl
+            : null,
+        }
         : null,
       stats: {
         totalAlerts: alertCount,
@@ -476,20 +476,34 @@ export class PrismaConnectStore {
     const isChat = mode === 'CHAT';
     const initialText = options?.initialMessage?.trim();
 
+    // Auto-expire stale RINGING/ACCEPTED calls so a stuck previous session
+    // never blocks new requests forever. Calls older than the TTL are
+    // closed before the deduplication check runs.
+    const ACTIVE_CALL_TTL_MS = 5 * 60_000;
+    const staleBefore = new Date(Date.now() - ACTIVE_CALL_TTL_MS);
+    await this.db.connectCallSessionReference.updateMany({
+      where: { linkId: link.id, status: { in: ['RINGING', 'ACCEPTED'] }, createdAt: { lt: staleBefore } },
+      data: { status: 'CLOSED' },
+    });
+
     const existing = await this.db.connectCallSessionReference.findFirst({
       where: { linkId: link.id, status: { in: ['RINGING', 'ACCEPTED'] } },
       orderBy: { createdAt: 'desc' },
     });
     if (existing) {
       if (isChat && initialText) {
-        await this.db.connectCallSignal.create({
-          data: {
-            callId: existing.id,
-            senderRole: 'VISITOR',
-            kind: 'CHAT',
-            payload: { text: initialText },
-          },
-        });
+        try {
+          await this.db.connectCallSignal.create({
+            data: {
+              callId: existing.id,
+              senderRole: 'VISITOR',
+              kind: 'CHAT',
+              payload: { text: initialText },
+            },
+          });
+        } catch (e: any) {
+          if (e?.code !== 'P2021') throw e;
+        }
       }
       return { callSessionId: existing.callSessionId, status: existing.status, alreadyPending: true };
     }
@@ -543,8 +557,8 @@ export class PrismaConnectStore {
       body: initialText
         ? `Regarding ${link.vehicle.make} ${link.vehicle.model}: "${initialText}"`
         : isChat
-        ? `A passerby wants to chat about your ${link.vehicle.make} ${link.vehicle.model}.`
-        : `A passerby wants to call you privately about your ${link.vehicle.make} ${link.vehicle.model}.`,
+          ? `A passerby wants to chat about your ${link.vehicle.make} ${link.vehicle.model}.`
+          : `A passerby wants to call you privately about your ${link.vehicle.make} ${link.vehicle.model}.`,
       priority: 'URGENT',
       callSessionId,
     });
@@ -555,6 +569,17 @@ export class PrismaConnectStore {
   async listIncomingCalls(userId: string) {
     const user = await this.db.user.findFirst({ where: { firebaseUid: userId }, select: { id: true } });
     const internalUserId = user ? user.id : userId;
+
+    // Auto-close stale RINGING calls (owner didn't answer within 90s,
+    // visitor has likely left). Keeps the incoming list clean so the
+    // owner doesn't see phantom ringing calls from long ago.
+    const RINGING_TIMEOUT_MS = 90_000;
+    const staleRingingBefore = new Date(Date.now() - RINGING_TIMEOUT_MS);
+    await this.db.connectCallSessionReference.updateMany({
+      where: { link: { userId: internalUserId }, status: 'RINGING', createdAt: { lt: staleRingingBefore } },
+      data: { status: 'CLOSED' },
+    });
+
     try {
       return await this.db.connectCallSessionReference.findMany({
         where: { link: { userId: internalUserId }, status: { in: ['RINGING', 'ACCEPTED'] } },
