@@ -124,12 +124,10 @@ export function ConnectVoiceCall({
   useEffect(() => {
     let active = true;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
-    let autoOfferTimer: ReturnType<typeof setTimeout> | undefined;
 
     const cleanup = () => {
       active = false;
       if (pollTimer) clearInterval(pollTimer);
-      if (autoOfferTimer) clearTimeout(autoOfferTimer);
       localStream.current?.getTracks().forEach(t => t.stop());
       localStream.current = null;
       peer.current?.close();
@@ -311,20 +309,9 @@ export function ConnectVoiceCall({
           if (active) void poll();
         }, 1500);
 
-        // 5. Negotiation safety net: If caller's offer was missed, owner initiates an offer
-        autoOfferTimer = setTimeout(async () => {
-          if (!active || !pc || (pc as any).currentRemoteDescription || (pc as any).currentLocalDescription) return;
-          try {
-            const offer = await pc.createOffer();
-            await pc.setLocalDescription(offer);
-            const payload = offer.toJSON() as Record<string, unknown>;
-            socketRef.current?.emit('webrtc:signal', { kind: 'OFFER', payload });
-            void sendOwnerCallSignal(callSessionId, 'OFFER', payload).catch(() => undefined);
-          } catch (e) {
-            console.warn('[ConnectVoiceCall] Auto-offer error:', e);
-          }
-        }, 2200);
-
+        // The visitor is always the WebRTC offerer. The owner only answers;
+        // generating an owner offer here creates glare and leaves callers
+        // that correctly expect an ANSWER stuck in a waiting state.
         setState('Waiting for the caller…');
       } catch (err) {
         console.warn('[ConnectVoiceCall] Start error:', err);

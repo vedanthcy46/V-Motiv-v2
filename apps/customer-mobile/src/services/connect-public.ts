@@ -93,10 +93,14 @@ export async function uploadPublicConnectPhoto(
   });
 }
 
-export async function requestPublicConnectCall(token: string): Promise<{ callSessionId: string; status: string; alreadyPending?: boolean }> {
+export async function requestPublicConnectCall(
+  token: string,
+  mode: 'VOICE' | 'CHAT' = 'VOICE',
+  initialMessage?: string,
+): Promise<{ callSessionId: string; status: string; alreadyPending?: boolean }> {
   return request(`/${encodeURIComponent(token)}/call-requests`, {
     method: 'POST',
-    body: JSON.stringify({ consentGiven: true }),
+    body: JSON.stringify({ consentGiven: true, mode, initialMessage: initialMessage?.trim() || undefined }),
   });
 }
 

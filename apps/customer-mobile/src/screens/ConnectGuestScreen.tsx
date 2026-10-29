@@ -229,7 +229,7 @@ export function ConnectGuestScreen() {
 
     try {
       // 1. Request/create call session
-      const call = await requestPublicConnectCall(token);
+      const call = await requestPublicConnectCall(token, mode);
       const sessionId = call.callSessionId;
       setActiveCallSessionId(sessionId);
 
@@ -356,7 +356,9 @@ export function ConnectGuestScreen() {
           await pc.setLocalDescription(offer);
           const payload = offer.toJSON() as Record<string, unknown>;
           socket.emit('webrtc:signal', { kind: 'OFFER', payload });
-          void sendPublicCallSignal(token, sessionId, 'OFFER', payload);
+          // The owner must be able to read a durable offer even when the
+          // realtime socket is unavailable (for example behind serverless).
+          await sendPublicCallSignal(token, sessionId, 'OFFER', payload);
         } catch (webrtcErr: any) {
           console.warn('[ConnectGuest] WebRTC audio init warning:', webrtcErr?.message || webrtcErr);
           // If microphone is unavailable, keep session in chat mode

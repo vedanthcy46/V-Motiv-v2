@@ -407,7 +407,10 @@ function PublicConnectPage({ token }: { token: string }) {
       await pc.setLocalDescription(offer);
       const offerPayload = { type: offer.type, sdp: offer.sdp };
       socket.emit('webrtc:signal', { kind: 'OFFER', payload: offerPayload });
-      void request(`/calls/${call.callSessionId}/signals`, { kind: 'OFFER', payload: offerPayload }).catch(() => undefined);
+      // Persist the initiating offer before displaying the ringing state. A
+      // Vercel deployment may not have a resident Socket.IO process, whereas
+      // the durable signal API is always available to the owner app.
+      await request(`/calls/${call.callSessionId}/signals`, { kind: 'OFFER', payload: offerPayload });
 
       // HTTP Polling fallback for voice signals
       const handledSignalIds = new Set<string>();
