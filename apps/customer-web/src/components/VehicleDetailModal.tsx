@@ -347,6 +347,29 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
                   </div>
                 )}
 
+                {vehicle.customerProfile?.topFeatures?.length ? (
+                  <div className="condition-box">
+                    <h4>Top verified features</h4>
+                    <p>{vehicle.customerProfile.topFeatures.join(' · ')}</p>
+                  </div>
+                ) : null}
+
+                {vehicle.customerProfile?.qualityReport ? (
+                  <div className="inspection-box">
+                    <h4>V MOTIV Quality Report</h4>
+                    <p>{vehicle.customerProfile.qualityReport.overallStatus} · {vehicle.customerProfile.qualityReport.passedChecksCount} of {vehicle.customerProfile.qualityReport.totalChecksCount} inspection checks passed.</p>
+                    {vehicle.customerProfile.qualityReport.defects?.length ? <p>Disclosures: {vehicle.customerProfile.qualityReport.defects.map(defect => `${defect.category}: ${defect.description}`).join(' · ')}</p> : <p>No customer-facing defects were recorded in the approved inspection.</p>}
+                  </div>
+                ) : null}
+
+                {vehicle.customerProfile?.refurbishment?.length ? (
+                  <div className="condition-box"><h4>Refurbishment completed</h4><p>{vehicle.customerProfile.refurbishment.map(item => `${item.category}: ${item.action}`).join(' · ')}</p></div>
+                ) : null}
+
+                {vehicle.customerProfile?.qualityControl?.status === 'PASSED' ? (
+                  <div className="inspection-box"><h4>Independent QC certified</h4><p>{vehicle.customerProfile.qualityControl.findings || 'Final quality-control verification passed.'}</p></div>
+                ) : null}
+
                 {/* Active Test Drive Status Card */}
                 {hasTestDrive && (
                   <div className="status-booked-card">

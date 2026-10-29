@@ -18,7 +18,7 @@ const migrationFile = fileURLToPath(
 console.info('Applying the idempotent service and notification schema repair using a direct database connection (credentials hidden).');
 const child = spawn(
   process.execPath,
-  [require.resolve('prisma/build/index.js'), 'db', 'execute', '--file', migrationFile],
+  [require.resolve('prisma/build/index.js'), 'db', 'execute', '--url', databaseUrl, '--file', migrationFile],
   { stdio: 'inherit', env: { ...process.env, DATABASE_URL: databaseUrl } }
 );
 child.on('error', () => { console.error('Could not start the database repair command.'); process.exitCode = 1; });

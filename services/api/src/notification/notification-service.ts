@@ -503,7 +503,9 @@ export class NotificationService {
       title: row.title || 'V MOTIV',
       body: row.body || 'New Notification',
       data: typeof row.data === 'object' && row.data ? row.data : {},
-      sound: 'default',
+      // The mobile channel supplies vibration. A custom ringtone is sent only
+      // after its audio asset is bundled into the native application.
+      sound: null,
       priority: 'high',
       channelId: 'default',
     }));

@@ -246,6 +246,9 @@ export const api = {
   // --- Branches & Showrooms ---
   branches: (u: User) => call<Branch[]>(u, '/operations/branches'),
 
+  uploadListingPhoto: (u: User, body: { base64Data: string; mimeType: string; filename: string; folder: string }) =>
+    call<{ secureUrl?: string; url?: string }>(u, '/media/upload', { method: 'POST', body: JSON.stringify(body) }),
+
   // --- Listing Studio & Publication Readiness ---
   prepareListing: (
     u: User,

@@ -1331,13 +1331,39 @@ export class PrismaInspectionStore {
     checkRole(actor, listingRoles);
     const stock = await this.db.vehicleStockUnit.findFirst({
       where: this.stockScope(actor, stockId),
-      include: { vehicle: true, branch: true, acquisitionCase: { include: { lead: true } } },
+      include: { vehicle: true, branch: true, workOrders: true, qualityControlReports: true, acquisitionCase: { include: { lead: true } } },
     });
     if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
     if (stock.version !== input.expectedVersion) throw new HttpError(409, 'STOCK_VERSION_CONFLICT');
     if (!['LISTING_PREPARATION', 'LISTING_READY'].includes(stock.status)) {
       throw new HttpError(409, 'STOCK_NOT_IN_LISTING_PREPARATION');
     }
+
+    const approvedInspection = stock.acquisitionCase?.lead
+      ? await this.db.inspectionReport.findFirst({
+          where: { request: { leadId: stock.acquisitionCase.lead.id }, status: 'APPROVED' },
+          orderBy: { reviewedAt: 'desc' }, include: { answers: true, defects: true, media: true },
+        })
+      : null;
+    const completedWork = stock.workOrders.filter(workOrder => workOrder.status === 'COMPLETED');
+    const passedQc = stock.qualityControlReports.find(report => report.status === 'PASSED');
+    const customerProfile = {
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      basicInformation: { registrationNumber: stock.registrationNumber, manufacturingYear: stock.manufacturingYear, odometerKm: stock.odometerKm, fuelType: stock.fuelType, transmission: stock.transmission, variant: stock.variant || null },
+      specifications: { color: input.color || stock.vehicle?.color || null, bodyType: stock.vehicle?.bodyType || null, engineCapacityCc: stock.vehicle?.engineCapacityCc || null },
+      topFeatures: input.features || stock.vehicle?.features || [],
+      qualityReport: approvedInspection ? {
+        source: 'APPROVED_INSPECTION', inspectedAt: approvedInspection.reviewedAt?.toISOString() || approvedInspection.submittedAt?.toISOString() || null,
+        overallStatus: 'PASSED', totalChecksCount: approvedInspection.answers.length, passedChecksCount: approvedInspection.answers.filter(answer => answer.status === 'PASS').length,
+        defects: approvedInspection.defects.map(defect => ({ category: defect.category, severity: defect.severity, description: defect.description, location: defect.location })),
+        evidence: approvedInspection.media.map(media => ({ mimeType: media.mimeType, url: media.storageKey })),
+        summary: input.inspectionSummary || stock.vehicle?.inspectionSummary || null,
+      } : null,
+      refurbishment: completedWork.map(workOrder => ({ category: workOrder.category, action: workOrder.requiredAction, completedAt: workOrder.completedAt?.toISOString() || null, notes: workOrder.notes || null })),
+      qualityControl: passedQc ? { status: 'PASSED', findings: passedQc.findings || null, evidenceNotes: passedQc.evidenceNotes || null, reviewedAt: passedQc.reviewedAt?.toISOString() || null } : null,
+      customerConditionSummary: input.conditionSummary || stock.vehicle?.conditionSummary || null,
+    };
 
     let branchId = input.branchId || stock.branchId;
     let branchName = stock.branch?.name;
@@ -1412,12 +1438,14 @@ export class PrismaInspectionStore {
           title: input.title,
           pricePaise: 0n,
           status: 'DRAFT',
+          customerProfile: customerProfile as Prisma.InputJsonValue,
           media: input.mediaUrls && input.mediaUrls.length > 0 ? {
             create: input.mediaUrls.map((url, idx) => ({ url, mediaType: 'IMAGE', displayOrder: idx })),
           } : undefined,
         },
         update: {
           title: input.title,
+          customerProfile: customerProfile as Prisma.InputJsonValue,
           ...(input.mediaUrls && input.mediaUrls.length > 0 ? {
             media: {
               deleteMany: {},

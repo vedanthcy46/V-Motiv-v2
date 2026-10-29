@@ -40,6 +40,12 @@ export interface ListingItem {
   updatedAt: string;
   vehicle: VehicleDetail;
   media: VehicleMedia[];
+  customerProfile?: {
+    topFeatures?: string[];
+    qualityReport?: { overallStatus: string; totalChecksCount: number; passedChecksCount: number; inspectedAt?: string | null; defects?: Array<{ category: string; severity: string; description: string; location?: string | null }> } | null;
+    refurbishment?: Array<{ category: string; action: string; completedAt?: string | null }>;
+    qualityControl?: { status: string; findings?: string | null; reviewedAt?: string | null } | null;
+  } | null;
   isWishlisted?: boolean;
 }
 

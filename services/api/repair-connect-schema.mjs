@@ -13,7 +13,7 @@ const require = createRequire(import.meta.url);
 const migrationFile = fileURLToPath(new URL('./prisma/migrations/20261028153000_vmotiv_connect_persistence/migration.sql', import.meta.url));
 
 console.info('Applying idempotent V MOTIV Connect schema repair using a direct database connection (credentials hidden).');
-const child = spawn(process.execPath, [require.resolve('prisma/build/index.js'), 'db', 'execute', '--file', migrationFile], {
+const child = spawn(process.execPath, [require.resolve('prisma/build/index.js'), 'db', 'execute', '--url', databaseUrl, '--file', migrationFile], {
   stdio: 'inherit',
   env: { ...process.env, DATABASE_URL: databaseUrl },
 });

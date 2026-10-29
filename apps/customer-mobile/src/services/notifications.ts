@@ -22,7 +22,9 @@ if (Platform.OS === 'android') {
     importance: Notifications.AndroidImportance.MAX,
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#061A38',
-    sound: 'default',
+    // Do not name a sound unless it is bundled through the Expo config plugin.
+    // Android otherwise treats "default" as a missing custom asset.
+    sound: null,
     enableVibrate: true,
     showBadge: true,
   });

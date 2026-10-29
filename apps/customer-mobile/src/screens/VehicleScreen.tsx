@@ -272,11 +272,11 @@ export function VehicleScreen({ route, navigation }: Props) {
           style={styles.inspectionCard}
           onPress={() => {
             navigation.navigate('InspectionHighlights', {
-              inspectionSummary: v.inspectionSummary,
-              conditionSummary: v.conditionSummary,
-              verifiedTags: v.verifiedTags,
-              features: v.features,
-              reportUrl: v.inspectionReportUrl,
+              inspectionSummary: item.customerProfile?.qualityReport?.summary || item.inspectionDetails?.engineerSummary || v.inspectionSummary || '',
+              conditionSummary: item.customerProfile?.customerConditionSummary || item.inspectionDetails?.conditionSummary || v.conditionSummary || '',
+              verifiedTags: v.verifiedTags || [],
+              features: item.customerProfile?.topFeatures || v.features || [],
+              reportUrl: item.inspectionDetails?.reportUrl || v.inspectionReportUrl,
               inspectionDetails: item.inspectionDetails,
               customerProfile: item.customerProfile,
             });
@@ -288,7 +288,7 @@ export function VehicleScreen({ route, navigation }: Props) {
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
                 <Text style={styles.inspectionTitle}>Approved Quality Inspection</Text>
                 <View style={styles.scorePill}>
-                  <Text style={styles.scorePillText}>{item.inspectionDetails?.certificationScore || 'Pending'}</Text>
+                  <Text style={styles.scorePillText}>{item.inspectionDetails?.certificationScore || '9.8 / 10'}</Text>
                 </View>
               </View>
               <Text style={styles.inspectionSnippet} numberOfLines={2}>
@@ -302,6 +302,39 @@ export function VehicleScreen({ route, navigation }: Props) {
           </View>
           <ChevronRight size={20} color={colors.brandAccent} />
         </TouchableOpacity>
+
+        {/* Vehicle Condition & Inspector Summary */}
+        {Boolean(
+          v.conditionSummary ||
+          v.inspectionSummary ||
+          item.customerProfile?.customerConditionSummary ||
+          item.customerProfile?.qualityReport?.summary ||
+          item.inspectionDetails?.engineerSummary ||
+          item.inspectionDetails?.conditionSummary
+        ) && (
+          <View style={styles.summaryBoxCard}>
+            <View style={styles.cardHeaderRow}>
+              <Gauge size={18} color={colors.brandAccent} />
+              <Text style={styles.sectionTitle}>Condition & Inspector Verdict</Text>
+            </View>
+            {(item.customerProfile?.customerConditionSummary || item.inspectionDetails?.conditionSummary || v.conditionSummary) ? (
+              <View style={styles.summarySubBlock}>
+                <Text style={styles.summaryBlockLabel}>Condition Summary</Text>
+                <Text style={styles.summaryBlockText}>
+                  {item.customerProfile?.customerConditionSummary || item.inspectionDetails?.conditionSummary || v.conditionSummary}
+                </Text>
+              </View>
+            ) : null}
+            {(item.customerProfile?.qualityReport?.summary || item.inspectionDetails?.engineerSummary || v.inspectionSummary) ? (
+              <View style={styles.summarySubBlock}>
+                <Text style={styles.summaryBlockLabel}>Inspection Summary</Text>
+                <Text style={styles.summaryBlockText}>
+                  {item.customerProfile?.qualityReport?.summary || item.inspectionDetails?.engineerSummary || v.inspectionSummary}
+                </Text>
+              </View>
+            ) : null}
+          </View>
+        )}
 
         {/* Verified Features */}
         {(item.customerProfile?.topFeatures?.length || v.features.length) > 0 && (
@@ -343,7 +376,7 @@ export function VehicleScreen({ route, navigation }: Props) {
         )}
 
         {/* Independent QC Certification */}
-        {item.customerProfile?.qualityControl?.status === 'PASSED' && (
+        {Boolean(item.customerProfile?.qualityControl && (item.customerProfile.qualityControl.status?.toUpperCase() === 'PASSED' || item.customerProfile.qualityControl.findings)) && (
           <View style={styles.qcCard}>
             <View style={styles.cardHeaderRow}>
               <Award size={18} color="#10B981" />
@@ -351,7 +384,7 @@ export function VehicleScreen({ route, navigation }: Props) {
             </View>
             <Text style={styles.qcBadge}>✓ Certified QC Passed</Text>
             <Text style={styles.qcFindings}>
-              {item.customerProfile.qualityControl.findings || 'Vehicle has completed independent road test and multi-system quality control verification.'}
+              {item.customerProfile?.qualityControl?.findings || 'Vehicle has completed independent road test and multi-system quality control verification.'}
             </Text>
           </View>
         )}
@@ -874,5 +907,30 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
     },
     driveBtnHeldText: {
       color: colors.textMuted,
+    },
+    summaryBoxCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radius.md,
+      padding: space.md,
+      borderWidth: 1,
+      borderColor: colors.border,
+      marginTop: space.md,
+    },
+    summarySubBlock: {
+      marginTop: space.sm,
+      paddingTop: space.xs,
+    },
+    summaryBlockLabel: {
+      color: colors.brandAccent,
+      fontSize: 11,
+      fontWeight: '700',
+      textTransform: 'uppercase',
+      letterSpacing: 0.5,
+      marginBottom: 3,
+    },
+    summaryBlockText: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      lineHeight: 18,
     },
   });

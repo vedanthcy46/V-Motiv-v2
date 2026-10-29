@@ -32,7 +32,7 @@ import {
 } from 'lucide-react-native';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
-import type { InspectionAuditDetails, InspectionDefectItem } from '../types';
+import type { CustomerVehicleProfile, InspectionAuditDetails, InspectionDefectItem } from '../types';
 
 type Props = NativeStackScreenProps<RootStack, 'InspectionHighlights'>;
 
@@ -43,6 +43,9 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+
+  const effectiveProfile: CustomerVehicleProfile | null | undefined =
+    customerProfile || (inspectionDetails as any)?.customerProfile;
 
   const [activeTab, setActiveTab] = useState<TabKey>('DEFECTS');
   const [selectedPhoto, setSelectedPhoto] = useState<InspectionDefectItem | null>(null);
@@ -151,7 +154,7 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
           >
             <Wrench size={15} color={activeTab === 'SYSTEMS' ? '#061A38' : colors.textMuted} />
             <Text style={[styles.tabButtonText, activeTab === 'SYSTEMS' && styles.tabButtonTextActive]}>
-              Systems Audit
+              200-Pt Inspection
             </Text>
           </TouchableOpacity>
 
@@ -161,7 +164,7 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
           >
             <Gauge size={15} color={activeTab === 'DIAGNOSTICS' ? '#061A38' : colors.textMuted} />
             <Text style={[styles.tabButtonText, activeTab === 'DIAGNOSTICS' && styles.tabButtonTextActive]}>
-              Road Test
+              Summary & QC
             </Text>
           </TouchableOpacity>
         </View>
@@ -300,26 +303,26 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
               <Text style={styles.summaryText}>{audit.conditionSummary}</Text>
             </View>
 
-            {customerProfile?.qualityControl?.status === 'PASSED' && (
+            {effectiveProfile?.qualityControl && (effectiveProfile.qualityControl.status?.toUpperCase() === 'PASSED' || effectiveProfile.qualityControl.findings) && (
               <View style={styles.summaryCard}>
                 <View style={styles.summaryCardHeader}>
                   <ShieldCheck size={20} color="#10B981" />
                   <Text style={styles.cardTitle}>Independent QC Certification</Text>
                 </View>
                 <Text style={styles.summaryText}>
-                  {customerProfile.qualityControl.findings || 'Vehicle has completed independent road test and multi-system quality control verification.'}
+                  {effectiveProfile.qualityControl.findings || 'Vehicle has completed independent road test and multi-system quality control verification.'}
                 </Text>
               </View>
             )}
 
-            {customerProfile?.refurbishment && customerProfile.refurbishment.length > 0 && (
+            {effectiveProfile?.refurbishment && effectiveProfile.refurbishment.length > 0 && (
               <View style={styles.summaryCard}>
                 <View style={styles.summaryCardHeader}>
                   <Wrench size={20} color={colors.brandAccent} />
                   <Text style={styles.cardTitle}>Refurbishment & Workshop Completed</Text>
                 </View>
                 <View style={{ gap: 8, marginTop: 4 }}>
-                  {customerProfile.refurbishment.map((rf, idx) => (
+                  {effectiveProfile.refurbishment.map((rf: any, idx: number) => (
                     <View key={idx} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 8 }}>
                       <CheckCircle2 size={14} color="#22C55E" style={{ marginTop: 2 }} />
                       <View style={{ flex: 1 }}>

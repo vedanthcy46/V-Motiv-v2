@@ -567,6 +567,7 @@ model VehicleListing {
   currency String @default("INR")
   status VehicleListingStatus @default(DRAFT)
   publishedAt DateTime?
+  customerProfile Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   media VehicleMedia[]

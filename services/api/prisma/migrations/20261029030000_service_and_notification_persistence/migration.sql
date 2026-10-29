@@ -210,3 +210,5 @@ CREATE TABLE IF NOT EXISTS "ConnectCallSignal" (
 );
 CREATE INDEX IF NOT EXISTS "ConnectCallSignal_callId_createdAt_idx" ON "ConnectCallSignal"("callId", "createdAt");
 DO $$ BEGIN ALTER TABLE "ConnectCallSignal" ADD CONSTRAINT "ConnectCallSignal_callId_fkey" FOREIGN KEY ("callId") REFERENCES "ConnectCallSessionReference"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+ALTER TABLE "VehicleListing" ADD COLUMN IF NOT EXISTS "customerProfile" JSONB;
