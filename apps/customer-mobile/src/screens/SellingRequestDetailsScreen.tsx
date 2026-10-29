@@ -441,7 +441,10 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
         }}
         statusBarTranslucent
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() => {
@@ -451,30 +454,39 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
               }
             }}
           />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          <View
             style={[
-              styles.keyboardAvoidWrap,
-              Platform.OS === 'android' && isKeyboardVisible ? { marginBottom: keyboardHeight } : null,
+              styles.modalCard,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+              },
             ]}
           >
-            <View
-              style={[
-                styles.modalSheet,
-                {
-                  backgroundColor: colors.surface,
-                  paddingBottom: isKeyboardVisible
-                    ? space.md
-                    : Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16),
-                },
-              ]}
+            <ScrollView
+              bounces={false}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.modalScrollContent}
             >
-              <Text style={styles.modalTitle}>Cancel Selling Request?</Text>
-              <Text style={styles.modalSubtitle}>
-                Please share why you would like to cancel your selling request:
-              </Text>
+              <View style={styles.modalHeaderRow}>
+                <View style={styles.modalIconWrap}>
+                  <AlertCircle size={22} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
+                    Cancel Selling Request?
+                  </Text>
+                  <Text style={[styles.modalSubtitle, { color: colors.textMuted }]}>
+                    Please let us know why you are cancelling your selling request:
+                  </Text>
+                </View>
+              </View>
 
               {/* Quick reason chips */}
+              <Text style={[styles.reasonSectionLabel, { color: colors.textSecondary }]}>
+                Select a reason:
+              </Text>
               <View style={styles.reasonChipsRow}>
                 {CANCEL_REASONS.map((r) => {
                   const selected = cancelReason === r;
@@ -485,13 +497,23 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                       onPress={() => setCancelReason(r)}
                       style={[
                         styles.reasonChip,
-                        selected && styles.reasonChipSelected,
+                        {
+                          backgroundColor: selected
+                            ? (isDark ? 'rgba(247, 181, 3, 0.15)' : '#FFFBEB')
+                            : colors.surfaceSecondary,
+                          borderColor: selected ? colors.brandAccent : colors.border,
+                        },
                       ]}
                     >
                       <Text
                         style={[
                           styles.reasonChipText,
-                          selected && styles.reasonChipTextSelected,
+                          {
+                            color: selected
+                              ? (isDark ? '#F7B503' : '#9A6500')
+                              : colors.textSecondary,
+                            fontWeight: selected ? '700' : '600',
+                          },
                         ]}
                       >
                         {r}
@@ -501,9 +523,19 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                 })}
               </View>
 
+              <Text style={[styles.reasonSectionLabel, { color: colors.textSecondary }]}>
+                Additional details (optional):
+              </Text>
               <TextInput
-                style={styles.modalInput}
-                placeholder="Or type reason here (e.g. sold elsewhere)…"
+                style={[
+                  styles.modalInput,
+                  {
+                    backgroundColor: colors.surfaceSecondary,
+                    color: colors.textPrimary,
+                    borderColor: colors.border,
+                  },
+                ]}
+                placeholder="e.g. Sold elsewhere or reconsidering timing…"
                 placeholderTextColor={colors.textMuted}
                 multiline
                 numberOfLines={3}
@@ -513,14 +545,16 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
 
               <View style={styles.modalButtons}>
                 <TouchableOpacity
-                  style={styles.modalBackBtn}
+                  style={[styles.modalBackBtn, { borderColor: colors.border }]}
                   onPress={() => {
                     Keyboard.dismiss();
                     setCancelModalVisible(false);
                   }}
                   disabled={actionLoading}
                 >
-                  <Text style={styles.modalBackBtnText}>Keep Request</Text>
+                  <Text style={[styles.modalBackBtnText, { color: colors.textPrimary }]}>
+                    Keep Request
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.modalCancelConfirmBtn}
@@ -534,9 +568,9 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                   )}
                 </TouchableOpacity>
               </View>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Decline Feedback Modal */}
@@ -552,7 +586,10 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
         }}
         statusBarTranslucent
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalOverlay}
+        >
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() => {
@@ -562,47 +599,64 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
               }
             }}
           />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          <View
             style={[
-              styles.keyboardAvoidWrap,
-              Platform.OS === 'android' && isKeyboardVisible ? { marginBottom: keyboardHeight } : null,
+              styles.modalCard,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+              },
             ]}
           >
-            <View
-              style={[
-                styles.modalSheet,
-                {
-                  backgroundColor: colors.surface,
-                  paddingBottom: isKeyboardVisible
-                    ? space.md
-                    : Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16),
-                },
-              ]}
+            <ScrollView
+              bounces={false}
+              showsVerticalScrollIndicator={false}
+              keyboardShouldPersistTaps="handled"
+              contentContainerStyle={styles.modalScrollContent}
             >
-              <Text style={styles.modalTitle}>Decline Offer</Text>
-              <Text style={styles.modalSubtitle}>
-                Please tell us why you are declining so we can review alternative possibilities:
-              </Text>
+              <View style={styles.modalHeaderRow}>
+                <View style={[styles.modalIconWrap, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                  <ThumbsDown size={20} color="#EF4444" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
+                    Decline Acquisition Offer
+                  </Text>
+                  <Text style={[styles.modalSubtitle, { color: colors.textMuted }]}>
+                    Please tell us why you are declining so our valuation team can review:
+                  </Text>
+                </View>
+              </View>
+
               <TextInput
-                style={styles.modalInput}
-                placeholder="e.g. Expected a higher price, sold elsewhere"
+                style={[
+                  styles.modalInput,
+                  {
+                    backgroundColor: colors.surfaceSecondary,
+                    color: colors.textPrimary,
+                    borderColor: colors.border,
+                  },
+                ]}
+                placeholder="e.g. Expected a higher price, sold elsewhere…"
                 placeholderTextColor={colors.textMuted}
                 multiline
                 numberOfLines={3}
                 value={declineReason}
                 onChangeText={setDeclineReason}
               />
+
               <View style={styles.modalButtons}>
                 <TouchableOpacity
-                  style={styles.modalBackBtn}
+                  style={[styles.modalBackBtn, { borderColor: colors.border }]}
                   onPress={() => {
                     Keyboard.dismiss();
                     setDeclineModalVisible(false);
                   }}
                   disabled={actionLoading}
                 >
-                  <Text style={styles.modalBackBtnText}>Keep Offer</Text>
+                  <Text style={[styles.modalBackBtnText, { color: colors.textPrimary }]}>
+                    Keep Offer
+                  </Text>
                 </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.modalDeclineConfirmBtn}
@@ -616,9 +670,9 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                   )}
                 </TouchableOpacity>
               </View>
-            </View>
-          </KeyboardAvoidingView>
-        </View>
+            </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
     </SafeAreaView>
   );
@@ -1004,40 +1058,63 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
     modalOverlay: {
       flex: 1,
       backgroundColor: colors.overlay,
-      justifyContent: 'flex-end',
+      justifyContent: 'center',
+      alignItems: 'center',
+      padding: space.md,
     },
-    keyboardAvoidWrap: {
+    modalCard: {
       width: '100%',
-      justifyContent: 'flex-end',
-    },
-    modalSheet: {
-      backgroundColor: colors.surface,
-      borderTopLeftRadius: radius.card,
-      borderTopRightRadius: radius.card,
-      padding: space.lg,
-      width: '100%',
+      maxWidth: 440,
+      borderRadius: radius.card,
       borderWidth: 1,
-      borderBottomWidth: 0,
-      borderColor: colors.border,
-      maxHeight: '90%',
+      overflow: 'hidden',
+      elevation: 8,
+      shadowColor: '#000',
+      shadowOffset: { width: 0, height: 4 },
+      shadowOpacity: 0.25,
+      shadowRadius: 12,
+    },
+    modalScrollContent: {
+      padding: space.lg,
+    },
+    modalHeaderRow: {
+      flexDirection: 'row',
+      alignItems: 'flex-start',
+      gap: 12,
+      marginBottom: space.sm,
+    },
+    modalIconWrap: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: 'rgba(239, 68, 68, 0.12)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginTop: 2,
     },
     modalTitle: {
       color: colors.textPrimary,
-      fontSize: 16,
+      fontSize: 18,
       fontWeight: '700',
-      marginBottom: space.xs,
+      marginBottom: 2,
     },
     modalSubtitle: {
       color: colors.textMuted,
       fontSize: 13,
-      marginBottom: space.md,
       lineHeight: 18,
+    },
+    reasonSectionLabel: {
+      color: colors.textSecondary,
+      fontSize: 12,
+      fontWeight: '600',
+      marginTop: space.sm,
+      marginBottom: 6,
     },
     reasonChipsRow: {
       flexDirection: 'row',
       flexWrap: 'wrap',
       gap: 8,
-      marginBottom: space.md,
+      marginBottom: space.xs,
     },
     reasonChip: {
       paddingHorizontal: 12,
@@ -1070,28 +1147,30 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       borderColor: colors.border,
       textAlignVertical: 'top',
       minHeight: 72,
-      marginBottom: space.lg,
+      marginBottom: space.md,
     },
     modalButtons: {
       flexDirection: 'row',
       gap: space.md,
-      justifyContent: 'flex-end',
-      alignItems: 'center',
+      marginTop: space.xs,
     },
     modalBackBtn: {
-      paddingVertical: space.sm,
-      paddingHorizontal: space.md,
+      flex: 1,
+      paddingVertical: 12,
+      borderRadius: radius.md,
+      borderWidth: 1,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     modalBackBtnText: {
-      color: colors.textMuted,
       fontSize: 14,
       fontWeight: '600',
     },
     modalCancelConfirmBtn: {
+      flex: 1,
       backgroundColor: '#EF4444',
       borderRadius: radius.md,
-      paddingVertical: space.sm,
-      paddingHorizontal: space.md,
+      paddingVertical: 12,
       alignItems: 'center',
       justifyContent: 'center',
     },
@@ -1101,10 +1180,10 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       fontWeight: '700',
     },
     modalDeclineConfirmBtn: {
+      flex: 1,
       backgroundColor: '#EF4444',
       borderRadius: radius.md,
-      paddingVertical: space.sm,
-      paddingHorizontal: space.md,
+      paddingVertical: 12,
       alignItems: 'center',
       justifyContent: 'center',
     },

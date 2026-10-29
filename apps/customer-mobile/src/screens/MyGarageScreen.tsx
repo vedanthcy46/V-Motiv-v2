@@ -5,6 +5,7 @@ import {
   Dimensions,
   Image,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   Platform,
   Pressable,
@@ -221,16 +222,58 @@ export function MyGarageScreen() {
   };
 
   const handleShareSticker = async () => {
-    if (!stickerUrl || !stickerImageUrl) return;
-    try {
-      await Share.share({
-        title: 'V MOTIV Connect sticker',
-        message: `V MOTIV Connect sticker for ${activeConnectVehicle?.make || 'your vehicle'} ${activeConnectVehicle?.model || ''}. Download or print this cloud-hosted QR: ${stickerImageUrl}\n\nSecure public link: ${stickerUrl}`,
-        url: stickerImageUrl,
-      });
-    } catch {
-      // User cancellation is expected; no error state is needed.
+    const imgUrl = stickerImageUrl || connectDetails?.link?.stickerImageUrl;
+    if (!imgUrl) {
+      Alert.alert('No Sticker Found', 'Please generate a QR sticker first.');
+      return;
     }
+
+    const vehicleTitle = activeConnectVehicle
+      ? `${activeConnectVehicle.make} ${activeConnectVehicle.model}`
+      : 'vehicle';
+
+    Alert.alert(
+      'V MOTIV Connect Sticker',
+      'Choose an option for your vehicle sticker:',
+      [
+        {
+          text: 'Share Sticker via Apps',
+          onPress: async () => {
+            try {
+              const shareMessage = stickerUrl
+                ? `V MOTIV Connect™ QR sticker for ${vehicleTitle}.\n\nHigh-resolution sticker image: ${imgUrl}\n\nPublic link: ${stickerUrl}`
+                : `V MOTIV Connect™ QR sticker for ${vehicleTitle}.\n\nHigh-resolution sticker image: ${imgUrl}`;
+
+              await Share.share(
+                Platform.OS === 'ios'
+                  ? { title: `V MOTIV Connect - ${vehicleTitle}`, message: shareMessage, url: imgUrl }
+                  : { title: `V MOTIV Connect - ${vehicleTitle}`, message: shareMessage }
+              );
+            } catch (err: any) {
+              if (err?.message && !err.message.includes('dismiss') && !err.message.includes('cancel')) {
+                Alert.alert('Unable to Share', err.message || 'Share failed.');
+              }
+            }
+          },
+        },
+        {
+          text: 'Open & Save Image',
+          onPress: async () => {
+            try {
+              const supported = await Linking.canOpenURL(imgUrl);
+              if (supported) {
+                await Linking.openURL(imgUrl);
+              } else {
+                Alert.alert('Unable to Open', 'Cannot open image URL in browser.');
+              }
+            } catch (err: any) {
+              Alert.alert('Error', err.message || 'Could not open image.');
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
   };
 
   const confirmReplacementSticker = () => {
