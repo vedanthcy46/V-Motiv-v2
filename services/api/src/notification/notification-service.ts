@@ -498,17 +498,24 @@ export class NotificationService {
 
     if (!claimed.length) return 0;
 
-    const messages: ExpoPushMessage[] = claimed.map(row => ({
-      to: row.token,
-      title: row.title || 'V MOTIV',
-      body: row.body || 'New Notification',
-      data: typeof row.data === 'object' && row.data ? row.data : {},
-      // The mobile channel supplies vibration. A custom ringtone is sent only
-      // after its audio asset is bundled into the native application.
-      sound: null,
-      priority: 'high',
-      channelId: 'default',
-    }));
+    const messages: ExpoPushMessage[] = claimed.map(row => {
+      const data = typeof row.data === 'object' && row.data ? (row.data as Record<string, any>) : {};
+      const isUrgentConnect = Boolean(
+        data.callSessionId ||
+        data.type === 'CONNECT_CALL_REQUESTED' ||
+        data.type === 'CONNECT_OWNER_ALERT_CREATED' ||
+        data.type === 'CONNECT_CHAT_MESSAGE'
+      );
+      return {
+        to: row.token,
+        title: row.title || 'V MOTIV',
+        body: row.body || 'New Notification',
+        data,
+        sound: 'default',
+        priority: 'high',
+        channelId: isUrgentConnect ? 'connect-calls' : 'default',
+      };
+    });
 
     const responses = await this.pushClient.sendPushNotifications(messages);
 

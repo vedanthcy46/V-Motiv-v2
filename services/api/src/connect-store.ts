@@ -461,36 +461,72 @@ export class PrismaConnectStore {
     return { success: true, alertId: record.id, deduplicated: false };
   }
 
-  async requestPublicCall(rawToken: string, visitorIp?: string) {
+  async requestPublicCall(
+    rawToken: string,
+    visitorIp?: string,
+    options?: { mode?: 'VOICE' | 'CHAT'; initialMessage?: string }
+  ) {
     const link = await this.db.customerGarageConnectLink.findFirst({
       where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' },
       include: { vehicle: { select: { make: true, model: true } } },
     });
     if (!link) throw new HttpError(404, 'CONNECT_STICKER_NOT_FOUND');
 
+    const mode = options?.mode || 'VOICE';
+    const isChat = mode === 'CHAT';
+    const initialText = options?.initialMessage?.trim();
+
     const existing = await this.db.connectCallSessionReference.findFirst({
       where: { linkId: link.id, status: { in: ['RINGING', 'ACCEPTED'] } },
       orderBy: { createdAt: 'desc' },
     });
-    if (existing) return { callSessionId: existing.callSessionId, status: existing.status, alreadyPending: true };
+    if (existing) {
+      if (isChat && initialText) {
+        await this.db.connectCallSignal.create({
+          data: {
+            callId: existing.id,
+            senderRole: 'VISITOR',
+            kind: 'CHAT',
+            payload: { text: initialText },
+          },
+        });
+      }
+      return { callSessionId: existing.callSessionId, status: existing.status, alreadyPending: true };
+    }
 
     const callSessionId = crypto.randomUUID();
     const [call] = await this.db.$transaction(async (tx) => {
       const createdCall = await tx.connectCallSessionReference.create({
-        data: { linkId: link.id, callSessionId, provider: 'V_MOTIV_CONNECT', status: 'RINGING', callerType: 'visitor' },
+        data: {
+          linkId: link.id,
+          callSessionId,
+          provider: 'V_MOTIV_CONNECT',
+          status: 'RINGING',
+          callerType: isChat ? 'visitor_chat' : 'visitor',
+        },
       });
       await tx.connectNotificationReference.create({
         data: {
           linkId: link.id,
           userId: link.userId,
           vehicleId: link.vehicleId,
-          eventType: 'CONNECT_CALL_REQUESTED',
-          reason: 'CALL_REQUEST',
-          messagePreview: 'A passerby is requesting a privacy-protected call.',
+          eventType: isChat ? 'CONNECT_CHAT_REQUESTED' : 'CONNECT_CALL_REQUESTED',
+          reason: isChat ? 'CHAT_REQUEST' : 'CALL_REQUEST',
+          messagePreview: initialText || (isChat ? 'A passerby started a private chat.' : 'A passerby is requesting a privacy-protected call.'),
           callSessionId,
           visitorIpHash: visitorIp ? sha256(visitorIp).slice(0, 16) : null,
         },
       });
+      if (isChat && initialText) {
+        await tx.connectCallSignal.create({
+          data: {
+            callId: createdCall.id,
+            senderRole: 'VISITOR',
+            kind: 'CHAT',
+            payload: { text: initialText },
+          },
+        });
+      }
       return [createdCall];
     });
 
@@ -499,8 +535,12 @@ export class PrismaConnectStore {
       userId: link.userId,
       vehicleId: link.vehicleId,
       referenceId: call.id,
-      title: 'Incoming V MOTIV Connect request',
-      body: `A passerby wants to contact you about your ${link.vehicle.make} ${link.vehicle.model}.`,
+      title: isChat ? 'V MOTIV Connect: Message from passerby' : 'Incoming V MOTIV Connect call',
+      body: initialText
+        ? `Regarding ${link.vehicle.make} ${link.vehicle.model}: "${initialText}"`
+        : isChat
+        ? `A passerby wants to chat about your ${link.vehicle.make} ${link.vehicle.model}.`
+        : `A passerby wants to call you privately about your ${link.vehicle.make} ${link.vehicle.model}.`,
       priority: 'URGENT',
       callSessionId,
     });
@@ -513,7 +553,14 @@ export class PrismaConnectStore {
     const internalUserId = user ? user.id : userId;
     return this.db.connectCallSessionReference.findMany({
       where: { link: { userId: internalUserId }, status: { in: ['RINGING', 'ACCEPTED'] } },
-      include: { link: { select: { vehicleId: true, vehicle: { select: { make: true, model: true, year: true } } } } },
+      include: {
+        link: { select: { vehicleId: true, vehicle: { select: { make: true, model: true, year: true } } } },
+        signals: {
+          where: { kind: 'CHAT' },
+          orderBy: { createdAt: 'desc' },
+          take: 5,
+        },
+      },
       orderBy: { createdAt: 'asc' },
       take: 10,
     });
@@ -543,12 +590,54 @@ export class PrismaConnectStore {
     return { callSessionId: updated.callSessionId, status: updated.status };
   }
 
+  async closeCallSession(firebaseUid: string, callSessionId: string, reason?: string) {
+    const user = await this.db.user.findFirst({ where: { firebaseUid }, select: { id: true } });
+    const internalUserId = user ? user.id : firebaseUid;
+    const call = await this.db.connectCallSessionReference.findFirst({
+      where: { callSessionId, link: { userId: internalUserId } },
+    });
+    if (!call) throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
+    await this.db.connectCallSessionReference.update({ where: { id: call.id }, data: { status: 'CLOSED' } });
+    await this.db.connectCallSignal.create({
+      data: {
+        callId: call.id,
+        senderRole: 'OWNER',
+        kind: 'CLOSE',
+        payload: { reason: reason || 'Chat closed by owner' },
+      },
+    });
+    return { callSessionId, status: 'CLOSED' };
+  }
+
   async addPublicCallSignal(rawToken: string, callSessionId: string, kind: string, payload: Record<string, unknown>) {
-    const link = await this.db.customerGarageConnectLink.findFirst({ where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' } });
+    const link = await this.db.customerGarageConnectLink.findFirst({
+      where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' },
+      include: { vehicle: { select: { make: true, model: true } } },
+    });
     const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, linkId: link?.id } });
     if (!call) throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
     if (!['RINGING', 'ACCEPTED'].includes(call.status)) throw new HttpError(409, 'CONNECT_CALL_CLOSED');
+
+    if (kind === 'HANGUP' || kind === 'CLOSE') {
+      await this.db.connectCallSessionReference.update({ where: { id: call.id }, data: { status: 'CLOSED' } });
+    }
+
     await this.db.connectCallSignal.create({ data: { callId: call.id, senderRole: 'VISITOR', kind, payload: payload as Prisma.InputJsonValue } });
+
+    // When visitor sends a chat message, notify owner immediately with sound
+    if (kind === 'CHAT' && payload.text && link) {
+      void this.dispatchOwnerNotification({
+        type: 'CONNECT_CALL_REQUESTED',
+        userId: link.userId,
+        vehicleId: link.vehicleId,
+        referenceId: call.id,
+        title: `V MOTIV Connect: ${link.vehicle.make} ${link.vehicle.model}`,
+        body: String(payload.text),
+        priority: 'URGENT',
+        callSessionId,
+      }).catch(() => undefined);
+    }
+
     return { success: true };
   }
 
@@ -556,25 +645,62 @@ export class PrismaConnectStore {
     const link = await this.db.customerGarageConnectLink.findFirst({ where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' } });
     const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, linkId: link?.id } });
     if (!call) throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
-    const signals = await this.db.connectCallSignal.findMany({ where: { callId: call.id, senderRole: 'OWNER', ...(after ? { createdAt: { gt: after } } : {}) }, orderBy: { createdAt: 'asc' }, take: 100 });
-    return { status: call.status, items: signals };
+    const signals = await this.db.connectCallSignal.findMany({
+      where: { callId: call.id, ...(after ? { createdAt: { gt: after } } : {}) },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+    return {
+      status: call.status,
+      callerType: call.callerType,
+      items: signals.map(s => ({
+        id: s.id,
+        kind: s.kind,
+        senderRole: s.senderRole,
+        payload: s.payload,
+        createdAt: s.createdAt.toISOString(),
+      })),
+    };
   }
 
   async addOwnerCallSignal(firebaseUid: string, callSessionId: string, kind: string, payload: Record<string, unknown>) {
-    const user = await this.db.user.findUnique({ where: { firebaseUid }, select: { id: true } });
-    const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, link: { userId: user?.id } } });
+    const user = await this.db.user.findFirst({ where: { firebaseUid }, select: { id: true } });
+    const internalUserId = user ? user.id : firebaseUid;
+    const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, link: { userId: internalUserId } } });
     if (!call) throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
-    if (call.status !== 'ACCEPTED') throw new HttpError(409, 'CONNECT_CALL_NOT_ACCEPTED');
+    if (call.status === 'CLOSED' || call.status === 'DECLINED') throw new HttpError(409, 'CONNECT_CALL_CLOSED');
+
+    if (kind === 'HANGUP' || kind === 'CLOSE') {
+      await this.db.connectCallSessionReference.update({ where: { id: call.id }, data: { status: 'CLOSED' } });
+    } else if (call.status === 'RINGING') {
+      await this.db.connectCallSessionReference.update({ where: { id: call.id }, data: { status: 'ACCEPTED' } });
+    }
+
     await this.db.connectCallSignal.create({ data: { callId: call.id, senderRole: 'OWNER', kind, payload: payload as Prisma.InputJsonValue } });
     return { success: true };
   }
 
   async listOwnerCallSignals(firebaseUid: string, callSessionId: string, after?: Date) {
-    const user = await this.db.user.findUnique({ where: { firebaseUid }, select: { id: true } });
-    const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, link: { userId: user?.id } } });
+    const user = await this.db.user.findFirst({ where: { firebaseUid }, select: { id: true } });
+    const internalUserId = user ? user.id : firebaseUid;
+    const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, link: { userId: internalUserId } } });
     if (!call) throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
-    const signals = await this.db.connectCallSignal.findMany({ where: { callId: call.id, senderRole: 'VISITOR', ...(after ? { createdAt: { gt: after } } : {}) }, orderBy: { createdAt: 'asc' }, take: 100 });
-    return { status: call.status, items: signals };
+    const signals = await this.db.connectCallSignal.findMany({
+      where: { callId: call.id, ...(after ? { createdAt: { gt: after } } : {}) },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+    });
+    return {
+      status: call.status,
+      callerType: call.callerType,
+      items: signals.map(s => ({
+        id: s.id,
+        kind: s.kind,
+        senderRole: s.senderRole,
+        payload: s.payload,
+        createdAt: s.createdAt.toISOString(),
+      })),
+    };
   }
 
   async issuePublicRealtimeTicket(rawToken: string, callSessionId: string) {

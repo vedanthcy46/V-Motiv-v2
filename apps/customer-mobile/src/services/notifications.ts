@@ -15,18 +15,27 @@ Notifications.setNotificationHandler({
   }),
 });
 
-// Configure default Android notification channel
+// Configure Android notification channels
 if (Platform.OS === 'android') {
   void Notifications.setNotificationChannelAsync('default', {
     name: 'V MOTIV Notifications',
-    importance: Notifications.AndroidImportance.MAX,
+    importance: Notifications.AndroidImportance.HIGH,
     vibrationPattern: [0, 250, 250, 250],
     lightColor: '#061A38',
-    // Do not name a sound unless it is bundled through the Expo config plugin.
-    // Android otherwise treats "default" as a missing custom asset.
-    sound: null,
     enableVibrate: true,
     showBadge: true,
+  });
+
+  void Notifications.setNotificationChannelAsync('connect-calls', {
+    name: 'V MOTIV Connect Calls & Alerts',
+    importance: Notifications.AndroidImportance.MAX,
+    vibrationPattern: [0, 500, 250, 500, 250, 500],
+    lightColor: '#F7B503',
+    enableVibrate: true,
+    enableLights: true,
+    showBadge: true,
+    lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    bypassDnd: true,
   });
 }
 

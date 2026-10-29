@@ -77,6 +77,24 @@ body {
 .connect-public-card button:disabled { opacity: .55; cursor: wait; }
 .connect-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
 .connect-public-card .connect-secondary { border: 1px solid var(--color-border-dark); background: #fff; color: var(--color-primary-navy); }
+.connect-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; background: #eef2f6; padding: 4px; border-radius: 999px; margin-bottom: 6px; }
+.connect-tab-btn { min-height: 40px !important; padding: 8px 14px !important; border-radius: 999px !important; border: 0 !important; background: transparent !important; color: #475569 !important; font-size: 13px !important; font-weight: 700 !important; cursor: pointer; transition: all 0.2s; }
+.connect-tab-btn.active { background: #fff !important; color: #061a38 !important; box-shadow: 0 2px 6px rgba(0,0,0,.08); }
+.connect-vehicle-badge { display: flex; align-items: center; gap: 6px; background: #f0fdf4; border: 1px solid #bbf7d0; color: #166534; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: 600; }
+.connect-quick-chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.connect-chip { padding: 6px 12px; border-radius: 999px; border: 1px solid #cbd5e1; background: #fff; color: #334155; font-size: 12px; font-weight: 500; cursor: pointer; transition: all 0.15s; }
+.connect-chip:hover, .connect-chip.active { border-color: #f7b503; background: #fffbeb; color: #92400e; }
+.connect-chat-thread { display: flex; flex-direction: column; gap: 10px; max-height: 280px; overflow-y: auto; padding: 12px; border: 1px solid #e2e8f0; border-radius: 12px; background: #f8fafc; }
+.connect-chat-bubble { max-width: 85%; padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.45; }
+.connect-chat-bubble.visitor { align-self: flex-end; background: #f7b503; color: #061a38; border-bottom-right-radius: 2px; }
+.connect-chat-bubble.owner { align-self: flex-start; background: #fff; color: #061a38; border: 1px solid #e2e8f0; border-bottom-left-radius: 2px; }
+.connect-chat-sender { font-size: 10px; font-weight: 800; text-transform: uppercase; margin-bottom: 2px; opacity: 0.8; }
+.connect-status-banner { display: flex; align-items: center; gap: 8px; padding: 10px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; }
+.connect-status-banner.waiting { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+.connect-status-banner.resolved { background: #ecfdf5; color: #065f46; border: 1px solid #a7f3d0; }
+.connect-call-calling { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 24px 0; gap: 12px; text-align: center; }
+.connect-pulse-circle { width: 64px; height: 64px; border-radius: 32px; background: #fef3c7; display: grid; place-items: center; animation: pulseRing 1.8s infinite; }
+@keyframes pulseRing { 0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(247, 181, 3, 0.7); } 70% { transform: scale(1.05); box-shadow: 0 0 0 14px rgba(247, 181, 3, 0); } 100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(247, 181, 3, 0); } }
 @media (max-width: 440px) { .connect-public-card { padding: 24px; } .connect-actions { grid-template-columns: 1fr; } }
 
 /* Container */

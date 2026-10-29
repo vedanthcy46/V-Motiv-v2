@@ -55,10 +55,12 @@ const publicPhotoUploadSchema = z.object({
 
 const callRequestSchema = z.object({
   consentGiven: z.literal(true),
+  mode: z.enum(['VOICE', 'CHAT']).optional().default('VOICE'),
+  initialMessage: z.string().trim().max(500).optional(),
 }).strict();
 
 const callDecisionSchema = z.object({ decision: z.enum(['ACCEPT', 'DECLINE']) }).strict();
-const callSignalSchema = z.object({ kind: z.enum(['OFFER', 'ANSWER', 'ICE', 'HANGUP']), payload: z.record(z.string(), z.unknown()) }).strict();
+const callSignalSchema = z.object({ kind: z.enum(['OFFER', 'ANSWER', 'ICE', 'HANGUP', 'CHAT', 'CLOSE']), payload: z.record(z.string(), z.unknown()) }).strict();
 const signalCursorSchema = z.object({ after: z.string().datetime().optional() });
 
 const paginationSchema = z.object({
@@ -203,6 +205,16 @@ export function createConnectCustomerRouter(deps: {
     }
   });
 
+  router.post('/connect/calls/:callSessionId/close', auth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const identity = res.locals.identity as Identity;
+      const callSessionId = uuid.parse(req.params.callSessionId);
+      res.json(await deps.store.closeCallSession(identity.uid, callSessionId));
+    } catch (e) {
+      next(e);
+    }
+  });
+
   router.get('/connect/calls/:callSessionId/signals', auth, async (req, res, next) => {
     try { const identity = res.locals.identity as Identity; const { after } = parse(signalCursorSchema, req.query); res.json(await deps.store.listOwnerCallSignals(identity.uid, uuid.parse(req.params.callSessionId), after ? new Date(after) : undefined)); } catch (e) { next(e); }
   });
@@ -249,8 +261,8 @@ export function createConnectPublicRouter(deps: { store: PrismaConnectStore }) {
 
   router.post('/:token/call-requests', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      parse(callRequestSchema, req.body);
-      res.status(201).json(await deps.store.requestPublicCall(token.parse(req.params.token), req.ip));
+      const input = parse(callRequestSchema, req.body);
+      res.status(201).json(await deps.store.requestPublicCall(token.parse(req.params.token), req.ip, input));
     } catch (e) {
       next(e);
     }

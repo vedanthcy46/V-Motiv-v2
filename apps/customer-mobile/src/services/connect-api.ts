@@ -52,7 +52,9 @@ export interface IncomingConnectCall {
   callSessionId: string;
   provider: string;
   status: string;
+  callerType?: string;
   createdAt: string;
+  signals?: Array<{ id: string; kind: string; payload: any; createdAt: string }>;
   link: { vehicleId: string; vehicle: { make: string; model: string; year: number } };
 }
 
@@ -163,7 +165,13 @@ export async function respondToIncomingConnectCall(callSessionId: string, decisi
   });
 }
 
-export type WebRtcSignal = { id: string; kind: 'OFFER' | 'ANSWER' | 'ICE' | 'HANGUP'; payload: Record<string, unknown>; createdAt: string };
+export type WebRtcSignal = {
+  id: string;
+  kind: 'OFFER' | 'ANSWER' | 'ICE' | 'HANGUP' | 'CHAT' | 'CLOSE';
+  senderRole?: 'VISITOR' | 'OWNER';
+  payload: Record<string, unknown>;
+  createdAt: string;
+};
 
 export async function fetchOwnerCallSignals(callSessionId: string, after?: string): Promise<{ status: string; items: WebRtcSignal[] }> {
   return api(`/api/v2/customer/connect/calls/${callSessionId}/signals${after ? `?after=${encodeURIComponent(after)}` : ''}`);
@@ -171,6 +179,13 @@ export async function fetchOwnerCallSignals(callSessionId: string, after?: strin
 
 export async function sendOwnerCallSignal(callSessionId: string, kind: WebRtcSignal['kind'], payload: Record<string, unknown>) {
   return api(`/api/v2/customer/connect/calls/${callSessionId}/signals`, { method: 'POST', body: jsonBody({ kind, payload }) });
+}
+
+export async function closeConnectCall(callSessionId: string, reason?: string) {
+  return api<{ callSessionId: string; status: string }>(`/api/v2/customer/connect/calls/${callSessionId}/close`, {
+    method: 'POST',
+    body: jsonBody({ reason }),
+  });
 }
 
 export async function fetchOwnerRealtimeTicket(callSessionId: string): Promise<{ ticket: string; expiresAt: string }> {

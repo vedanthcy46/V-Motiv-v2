@@ -43,78 +43,555 @@ function connectApiUrl(path: string) {
   return `${origin}/api/v2/public/connect${path}`;
 }
 
-function LegacyPublicConnectPage({ token }: { token: string }) {
+const QUICK_CONCERN_CHIPS = [
+  'Vehicle is blocking access / driveway',
+  'Headlights or parking lights left on',
+  'Window open or car alarm sounding',
+  'Scratch or parking damage concern',
+  'Minor emergency / urgent attention',
+];
+
+function PublicConnectPage({ token }: { token: string }) {
   const [vehicle, setVehicle] = useState<ConnectVehicle | null>(null);
+  const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [reason, setReason] = useState('BLOCKING_ACCESS');
-  const [message, setMessage] = useState('');
+  const [tab, setTab] = useState<'chat' | 'call'>('chat');
+
+  // Chat State
+  const [chatSessionId, setChatSessionId] = useState<string | null>(null);
+  const [chatMessages, setChatMessages] = useState<Array<{ id: string; senderRole: 'VISITOR' | 'OWNER'; text: string; time: string }>>([]);
+  const [inputText, setInputText] = useState('');
+  const [isSending, setIsSending] = useState(false);
+  const [isClosed, setIsClosed] = useState(false);
+  const [selectedChip, setSelectedChip] = useState('');
+
+  // Call State
+  const [callPhase, setCallPhase] = useState<'READY' | 'CALLING' | 'CONNECTED' | 'DECLINED' | 'ERROR'>('READY');
+  const [callDuration, setCallDuration] = useState(0);
+
+  const socketRef = useRef<ReturnType<typeof io> | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const localStreamRef = useRef<MediaStream | null>(null);
+  const chatBottomRef = useRef<HTMLDivElement | null>(null);
+  const chatSessionIdRef = useRef<string | null>(null);
+  const callDurationTimerRef = useRef<number | null>(null);
 
   useEffect(() => {
+    chatSessionIdRef.current = chatSessionId;
+  }, [chatSessionId]);
+
+  useEffect(() => {
+    let unmounted = false;
+    setLoading(true);
     void fetch(connectApiUrl(`/${encodeURIComponent(token)}`))
-      .then(async response => {
-        const body = await response.json().catch(() => ({}));
-        if (!response.ok || !body.active) throw new Error(body.code || 'This sticker is not active.');
-        setVehicle(body.vehicle);
+      .then(async res => {
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.active) throw new Error(data.code || 'This sticker is not active.');
+        if (!unmounted) {
+          setVehicle(data.vehicle);
+          setError('');
+        }
       })
-      .catch(() => setError('This V MOTIV Connect sticker is unavailable or has been paused by its owner.'));
+      .catch(() => {
+        if (!unmounted) {
+          setError('This V MOTIV Connect sticker is inactive or has been paused by the vehicle owner.');
+        }
+      })
+      .finally(() => {
+        if (!unmounted) setLoading(false);
+      });
+    return () => {
+      unmounted = true;
+    };
   }, [token]);
 
-  const send = async (path: string, body: unknown, success: string) => {
-    setBusy(true);
+  useEffect(() => {
+    chatBottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [chatMessages]);
+
+  const request = async (path: string, body?: unknown) => {
+    const response = await fetch(connectApiUrl(`/${encodeURIComponent(token)}${path}`), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: body ? JSON.stringify(body) : undefined,
+    });
+    const value = await response.json().catch(() => ({}));
+    if (!response.ok) throw new Error(value.code || 'REQUEST_FAILED');
+    return value;
+  };
+
+  const getRealtimeUrl = () => {
+    const apiOrigin = (import.meta.env.VITE_API_BASE || 'https://api.vmotiv.in/api/v1')
+      .replace(/\/$/, '')
+      .replace(/\/api\/v[0-9]+$/, '');
+    return import.meta.env.VITE_REALTIME_URL || apiOrigin;
+  };
+
+  useEffect(() => {
+    if (!chatSessionId || isClosed) return;
+    const interval = window.setInterval(async () => {
+      const activeId = chatSessionIdRef.current;
+      if (!activeId) return;
+      try {
+        const res = await fetch(connectApiUrl(`/${encodeURIComponent(token)}/calls/${activeId}/signals`));
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.status === 'CLOSED' || data.status === 'DECLINED') {
+          setIsClosed(true);
+        }
+        if (Array.isArray(data.items)) {
+          const chatItems = data.items.filter((s: any) => s.kind === 'CHAT' && s.payload?.text);
+          if (chatItems.length > 0) {
+            setChatMessages(
+              chatItems.map((s: any) => ({
+                id: s.id,
+                senderRole: s.senderRole === 'VISITOR' ? 'VISITOR' : 'OWNER',
+                text: String(s.payload.text),
+                time: new Date(s.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+              }))
+            );
+          }
+          if (data.items.some((s: any) => s.kind === 'CLOSE' || s.kind === 'HANGUP')) {
+            setIsClosed(true);
+          }
+        }
+      } catch {
+        // Non-fatal polling error
+      }
+    }, 2500);
+
+    return () => clearInterval(interval);
+  }, [token, chatSessionId, isClosed]);
+
+  const connectChatSocket = async (sessionId: string) => {
     try {
-      const response = await fetch(connectApiUrl(`/${encodeURIComponent(token)}${path}`), { method: 'POST', headers: { 'Content-Type': 'application/json', Accept: 'application/json' }, body: JSON.stringify(body) });
-      if (!response.ok) throw new Error();
-      window.alert(success);
-      setMessage('');
+      const ticket = await request(`/calls/${sessionId}/realtime-ticket`);
+      const realtimeUrl = getRealtimeUrl();
+      const socket = io(realtimeUrl, {
+        transports: ['websocket', 'polling'],
+        auth: { ticket: ticket.ticket },
+      });
+      socketRef.current = socket;
+
+      socket.on('chat:message', (data: any) => {
+        const text = data?.text || data?.message?.text;
+        if (!text) return;
+        setChatMessages(prev => {
+          if (prev.some(m => m.text === text && m.senderRole === (data.from === 'OWNER' ? 'OWNER' : 'VISITOR'))) {
+            return prev;
+          }
+          return [
+            ...prev,
+            {
+              id: `msg-${Date.now()}-${Math.random()}`,
+              senderRole: data.from === 'OWNER' ? 'OWNER' : 'VISITOR',
+              text: String(text),
+              time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+            },
+          ];
+        });
+      });
+
+      socket.on('webrtc:signal', (signal: any) => {
+        if (signal?.kind === 'CLOSE' || signal?.kind === 'HANGUP') {
+          setIsClosed(true);
+        }
+      });
+
+      socket.on('call:closed', () => setIsClosed(true));
+      socket.on('call:declined', () => setIsClosed(true));
+      socket.on('call:hangup', () => setIsClosed(true));
     } catch {
-      window.alert('We could not send that request. Please try again shortly.');
-    } finally { setBusy(false); }
+      // Polling fallback active
+    }
+  };
+
+  const handleSendChat = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    const text = inputText.trim();
+    if (!text || isSending || isClosed) return;
+
+    setIsSending(true);
+    setInputText('');
+    setSelectedChip('');
+
+    try {
+      if (!chatSessionId) {
+        const call = await request('/call-requests', {
+          consentGiven: true,
+          mode: 'CHAT',
+          initialMessage: text,
+        });
+        setChatSessionId(call.callSessionId);
+        chatSessionIdRef.current = call.callSessionId;
+        setChatMessages([
+          {
+            id: `init-${Date.now()}`,
+            senderRole: 'VISITOR',
+            text,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          },
+        ]);
+        void connectChatSocket(call.callSessionId);
+      } else {
+        await request(`/calls/${chatSessionId}/signals`, {
+          kind: 'CHAT',
+          payload: { text, from: 'VISITOR' },
+        });
+        if (socketRef.current?.connected) {
+          socketRef.current.emit('chat:message', { text });
+        }
+        setChatMessages(prev => [
+          ...prev,
+          {
+            id: `local-${Date.now()}`,
+            senderRole: 'VISITOR',
+            text,
+            time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          },
+        ]);
+      }
+    } catch {
+      window.alert('Unable to send message right now. Please try again.');
+    } finally {
+      setIsSending(false);
+    }
+  };
+
+  const handleSelectChip = (chip: string) => {
+    setSelectedChip(chip);
+    setInputText(chip);
+  };
+
+  const cleanupCall = () => {
+    if (callDurationTimerRef.current) {
+      clearInterval(callDurationTimerRef.current);
+      callDurationTimerRef.current = null;
+    }
+    localStreamRef.current?.getTracks().forEach(track => track.stop());
+    localStreamRef.current = null;
+    peerRef.current?.close();
+    peerRef.current = null;
+    socketRef.current?.disconnect();
+    socketRef.current = null;
+  };
+
+  const startVoiceCall = async () => {
+    cleanupCall();
+    try {
+      setCallPhase('CALLING');
+      setCallDuration(0);
+
+      const call = await request('/call-requests', { consentGiven: true, mode: 'VOICE' });
+      const ticket = await request(`/calls/${call.callSessionId}/realtime-ticket`);
+      const realtimeUrl = getRealtimeUrl();
+      const socket = io(realtimeUrl, {
+        transports: ['websocket'],
+        auth: { ticket: ticket.ticket },
+      });
+      socketRef.current = socket;
+
+      const pc = new RTCPeerConnection({
+        iceServers: [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }],
+      });
+      peerRef.current = pc;
+
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      localStreamRef.current = stream;
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+
+      pc.onicecandidate = event => {
+        if (event.candidate) {
+          socket.emit('webrtc:signal', { kind: 'ICE', payload: event.candidate.toJSON() });
+        }
+      };
+
+      pc.ontrack = event => {
+        if (audioRef.current) {
+          audioRef.current.srcObject = event.streams[0];
+          void audioRef.current.play().catch(() => undefined);
+        }
+      };
+
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') {
+          setCallPhase('CONNECTED');
+          callDurationTimerRef.current = window.setInterval(() => {
+            setCallDuration(prev => prev + 1);
+          }, 1000);
+        } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+          setCallPhase('DECLINED');
+          cleanupCall();
+        }
+      };
+
+      socket.on('webrtc:signal', async ({ message }) => {
+        if (message?.kind === 'ANSWER' && pc.signalingState !== 'closed') {
+          await pc.setRemoteDescription(message.payload);
+        } else if (message?.kind === 'ICE' && pc.signalingState !== 'closed') {
+          await pc.addIceCandidate(message.payload);
+        } else if (message?.kind === 'HANGUP' || message?.kind === 'CLOSE') {
+          setCallPhase('DECLINED');
+          cleanupCall();
+        }
+      });
+
+      socket.on('call:declined', () => {
+        setCallPhase('DECLINED');
+        cleanupCall();
+      });
+
+      socket.on('call:hangup', () => {
+        setCallPhase('DECLINED');
+        cleanupCall();
+      });
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      socket.emit('webrtc:signal', { kind: 'OFFER', payload: offer });
+    } catch {
+      setCallPhase('ERROR');
+      cleanupCall();
+    }
+  };
+
+  const endVoiceCall = () => {
+    socketRef.current?.emit('call:hangup');
+    cleanupCall();
+    setCallPhase('READY');
   };
 
   const openApp = () => {
     const deepLink = `vmotiv://connect/scan?token=${encodeURIComponent(token)}`;
     window.location.assign(deepLink);
     const ua = navigator.userAgent.toLowerCase();
-    const store = ua.includes('android') ? import.meta.env.VITE_ANDROID_APP_URL : /iphone|ipad|ipod/.test(ua) ? import.meta.env.VITE_IOS_APP_URL : undefined;
+    const store = ua.includes('android')
+      ? import.meta.env.VITE_ANDROID_APP_URL
+      : /iphone|ipad|ipod/.test(ua)
+      ? import.meta.env.VITE_IOS_APP_URL
+      : undefined;
     if (store) window.setTimeout(() => window.location.assign(store), 1400);
   };
 
-  return <main className="connect-public-page"><section className="connect-public-card"><img src="../dist/brand/vmotiv-icon.png" alt="V MOTIV" className="connect-logo" /><p className="connect-kicker">V MOTIV CONNECT</p><h1>{vehicle ? vehicle.nickname : 'Secure vehicle alert'}</h1><p className="connect-lead">Send an owner a privacy-protected alert. Their name, number, and address are never displayed.</p>{error ? <p className="connect-error">{error}</p> : !vehicle ? <p className="connect-lead">Checking the secure sticker…</p> : <><div className="connect-actions"><button type="button" onClick={openApp}>Open in V MOTIV app</button><button type="button" className="connect-secondary" disabled={busy} onClick={() => void send('/call-requests', { consentGiven: true }, 'Your call request was sent to the vehicle owner. Their contact details remain private.')}>Request a private call</button></div><label htmlFor="connect-reason">What do you need to report?</label><select id="connect-reason" value={reason} onChange={event => setReason(event.target.value)}><option value="BLOCKING_ACCESS">Vehicle is blocking access</option><option value="LIGHTS_ON">Lights are left on</option><option value="DAMAGE_OR_ACCIDENT">Damage or accident concern</option><option value="SAFETY_CONCERN">Safety concern</option><option value="OTHER">Other concern</option></select><label htmlFor="connect-message">Optional message</label><textarea id="connect-message" value={message} onChange={event => setMessage(event.target.value)} maxLength={300} placeholder="Example: Your headlights appear to be on." /><button type="button" disabled={busy} onClick={() => void send('/alerts', { reason, message: message.trim() || undefined }, 'Your private alert has been sent to the owner.')}>{busy ? 'Sending…' : 'Send private alert'}</button></>}</section></main>;
-}
+  const formatDuration = (totalSeconds: number) => {
+    const mins = Math.floor(totalSeconds / 60).toString().padStart(2, '0');
+    const secs = (totalSeconds % 60).toString().padStart(2, '0');
+    return `${mins}:${secs}`;
+  };
 
-function PublicConnectPage({ token }: { token: string }) {
-  const [phase, setPhase] = useState<'READY' | 'CALLING' | 'CONNECTED' | 'ERROR'>('READY');
-  const [chat, setChat] = useState<{ from: string; text: string }[]>([]);
-  const [text, setText] = useState('');
-  const socketRef = useRef<ReturnType<typeof io> | null>(null);
-  const peerRef = useRef<RTCPeerConnection | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const request = async (path: string, body?: unknown) => {
-    const response = await fetch(connectApiUrl(`/${encodeURIComponent(token)}${path}`), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
-    const value = await response.json().catch(() => ({})); if (!response.ok) throw new Error(value.code || 'REQUEST_FAILED'); return value;
-  };
-  const startCall = async () => {
-    try {
-      const apiOrigin = (import.meta.env.VITE_API_BASE || 'https://api.vmotiv.in/api/v1').replace(/\/$/, '').replace(/\/api\/v[0-9]+$/, '');
-      const realtimeUrl = import.meta.env.VITE_REALTIME_URL || apiOrigin;
-      if (!realtimeUrl) throw new Error('REALTIME_NOT_CONFIGURED');
-      setPhase('CALLING'); const call = await request('/call-requests', { consentGiven: true });
-      const ticket = await request(`/calls/${call.callSessionId}/realtime-ticket`);
-      const socket = io(realtimeUrl, { transports: ['websocket'], auth: { ticket: ticket.ticket } }); socketRef.current = socket;
-      const pc = new RTCPeerConnection({ iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] }); peerRef.current = pc;
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.getTracks().forEach(track => pc.addTrack(track, stream));
-      pc.onicecandidate = event => { if (event.candidate) socket.emit('webrtc:signal', { kind: 'ICE', payload: event.candidate.toJSON() }); };
-      pc.ontrack = event => { if (audioRef.current) { audioRef.current.srcObject = event.streams[0]; void audioRef.current.play(); } };
-      pc.onconnectionstatechange = () => { if (pc.connectionState === 'connected') setPhase('CONNECTED'); };
-      socket.on('webrtc:signal', async ({ message }) => { if (message?.kind === 'ANSWER') await pc.setRemoteDescription(message.payload); else if (message?.kind === 'ICE') await pc.addIceCandidate(message.payload); });
-      socket.on('chat:message', item => setChat(current => [...current, { from: item.from, text: item.message?.text || '' }]));
-      const offer = await pc.createOffer(); await pc.setLocalDescription(offer); socket.emit('webrtc:signal', { kind: 'OFFER', payload: offer });
-    } catch { setPhase('ERROR'); }
-  };
-  const sendChat = () => { const value = text.trim(); if (!value || !socketRef.current) return; socketRef.current.emit('chat:message', { text: value }); setChat(current => [...current, { from: 'VISITOR', text: value }]); setText(''); };
-  const end = () => { socketRef.current?.emit('call:hangup'); socketRef.current?.disconnect(); peerRef.current?.close(); setPhase('READY'); };
-  return <main className="connect-public-page"><section className="connect-public-card"><img src="/brand/vmotiv-logo.svg" alt="V MOTIV" className="connect-logo"/><p className="connect-kicker">V MOTIV CONNECT</p><h1>Private vehicle contact</h1><p className="connect-lead">Contact the owner without seeing their number or identity.</p><audio ref={audioRef}/>{phase === 'READY' && <button type="button" onClick={() => void startCall()}>Call owner privately</button>}{phase === 'CALLING' && <p className="connect-lead">Calling securely… waiting for the owner to pick up.</p>}{phase === 'ERROR' && <><p className="connect-error">We could not start the private call. Allow microphone access and try again.</p><button type="button" onClick={() => void startCall()}>Try again</button></>}{phase === 'CONNECTED' && <><p className="connect-lead">Connected · Your number remains private</p><div className="connect-chat" aria-live="polite">{chat.map((item, index) => <p key={`${item.from}-${index}`}><strong>{item.from === 'VISITOR' ? 'You' : 'Owner'}:</strong> {item.text}</p>)}</div><label htmlFor="connect-chat-text">Private message</label><textarea id="connect-chat-text" value={text} onChange={event => setText(event.target.value)} maxLength={500}/><button type="button" onClick={sendChat}>Send message</button><button type="button" className="connect-secondary" onClick={end}>End call</button></>}</section></main>;
+  return (
+    <main className="connect-public-page">
+      <section className="connect-public-card">
+        <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" className="connect-logo" />
+          <div className="connect-vehicle-badge">
+            <span>🛡️ Verified Connect Sticker</span>
+          </div>
+        </div>
+
+        <p className="connect-kicker">V MOTIV CONNECT</p>
+        <h1>{vehicle ? vehicle.nickname : 'Secure Vehicle Contact'}</h1>
+        <p className="connect-lead">
+          Contact the vehicle owner without seeing their personal phone number or identity.
+        </p>
+
+        {loading ? (
+          <p className="connect-lead">Connecting securely to vehicle sticker…</p>
+        ) : error ? (
+          <p className="connect-error">{error}</p>
+        ) : (
+          <>
+            {/* Communication Tabs */}
+            <div className="connect-tabs">
+              <button
+                type="button"
+                className={`connect-tab-btn ${tab === 'chat' ? 'active' : ''}`}
+                onClick={() => setTab('chat')}
+              >
+                💬 Chat with Owner
+              </button>
+              <button
+                type="button"
+                className={`connect-tab-btn ${tab === 'call' ? 'active' : ''}`}
+                onClick={() => setTab('call')}
+              >
+                📞 Call Privately
+              </button>
+            </div>
+
+            {/* TAB: CHAT */}
+            {tab === 'chat' && (
+              <div style={{ display: 'grid', gap: '10px' }}>
+                {isClosed ? (
+                  <div className="connect-status-banner resolved">
+                    <span>✅ The vehicle owner has resolved this issue and closed the conversation. Thank you!</span>
+                  </div>
+                ) : chatSessionId ? (
+                  <div className="connect-status-banner waiting">
+                    <span>🟢 Connected · The owner receives alerts with sound and can reply here in real time.</span>
+                  </div>
+                ) : (
+                  <div>
+                    <label style={{ display: 'block', marginBottom: '4px' }}>Quick concerns:</label>
+                    <div className="connect-quick-chips">
+                      {QUICK_CONCERN_CHIPS.map(chip => (
+                        <button
+                          key={chip}
+                          type="button"
+                          className={`connect-chip ${selectedChip === chip ? 'active' : ''}`}
+                          onClick={() => handleSelectChip(chip)}
+                        >
+                          {chip}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Message thread */}
+                {chatMessages.length > 0 && (
+                  <div className="connect-chat-thread" aria-live="polite">
+                    {chatMessages.map(msg => (
+                      <div
+                        key={msg.id}
+                        className={`connect-chat-bubble ${msg.senderRole === 'VISITOR' ? 'visitor' : 'owner'}`}
+                      >
+                        <div className="connect-chat-sender">
+                          {msg.senderRole === 'VISITOR' ? 'You' : 'Owner'} · {msg.time}
+                        </div>
+                        <div>{msg.text}</div>
+                      </div>
+                    ))}
+                    <div ref={chatBottomRef} />
+                  </div>
+                )}
+
+                {/* Input area */}
+                {!isClosed ? (
+                  <form onSubmit={handleSendChat} style={{ display: 'grid', gap: '8px' }}>
+                    <label htmlFor="connect-chat-input">
+                      {chatSessionId ? 'Send reply' : 'Message to owner'}
+                    </label>
+                    <textarea
+                      id="connect-chat-input"
+                      value={inputText}
+                      onChange={e => setInputText(e.target.value)}
+                      maxLength={500}
+                      placeholder="e.g., Hi, your car is blocking our driveway, could you please move it?"
+                      disabled={isSending}
+                    />
+                    <button type="submit" disabled={isSending || !inputText.trim()}>
+                      {isSending ? 'Sending…' : chatSessionId ? 'Send Reply' : 'Send Private Message'}
+                    </button>
+                  </form>
+                ) : (
+                  <button
+                    type="button"
+                    className="connect-secondary"
+                    onClick={() => {
+                      setChatSessionId(null);
+                      setChatMessages([]);
+                      setIsClosed(false);
+                    }}
+                  >
+                    Start a New Message
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* TAB: CALL */}
+            {tab === 'call' && (
+              <div style={{ display: 'grid', gap: '12px' }}>
+                <audio ref={audioRef} autoPlay playsInline />
+
+                {callPhase === 'READY' && (
+                  <>
+                    <p className="connect-lead">
+                      Start a private voice call directly from your browser. The owner's phone will ring immediately with a high-priority sound alert.
+                    </p>
+                    <button type="button" onClick={() => void startVoiceCall()}>
+                      Start Private Voice Call
+                    </button>
+                  </>
+                )}
+
+                {callPhase === 'CALLING' && (
+                  <div className="connect-call-calling">
+                    <div className="connect-pulse-circle">
+                      <span style={{ fontSize: '26px' }}>📞</span>
+                    </div>
+                    <p style={{ fontWeight: 700, margin: 0 }}>Calling securely…</p>
+                    <p className="connect-lead" style={{ margin: 0, fontSize: '13px' }}>
+                      Waiting for the owner to pick up. Their phone is ringing.
+                    </p>
+                    <button type="button" className="connect-secondary" onClick={endVoiceCall} style={{ marginTop: '10px' }}>
+                      Cancel Call
+                    </button>
+                  </div>
+                )}
+
+                {callPhase === 'CONNECTED' && (
+                  <div className="connect-call-calling">
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#16a34a', fontWeight: 800 }}>
+                      <span>🟢 Connected</span>
+                      <span>•</span>
+                      <span>{formatDuration(callDuration)}</span>
+                    </div>
+                    <p className="connect-lead" style={{ margin: 0, fontSize: '13px' }}>
+                      Private voice call in progress. Audio is encrypted.
+                    </p>
+                    <button type="button" className="connect-secondary" onClick={endVoiceCall} style={{ marginTop: '10px' }}>
+                      End Call
+                    </button>
+                  </div>
+                )}
+
+                {callPhase === 'DECLINED' && (
+                  <div style={{ display: 'grid', gap: '8px', textAlign: 'center' }}>
+                    <p style={{ fontWeight: 600, color: '#334155' }}>The vehicle owner is currently unavailable or declined.</p>
+                    <button type="button" onClick={() => setTab('chat')}>
+                      💬 Send a Chat Message Instead
+                    </button>
+                    <button type="button" className="connect-secondary" onClick={() => setCallPhase('READY')}>
+                      Try Calling Again
+                    </button>
+                  </div>
+                )}
+
+                {callPhase === 'ERROR' && (
+                  <div style={{ display: 'grid', gap: '8px' }}>
+                    <p className="connect-error">
+                      We could not start the private call. Please ensure microphone permissions are allowed and try again.
+                    </p>
+                    <button type="button" onClick={() => void startVoiceCall()}>
+                      Try Again
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* App Deep Link Helper */}
+            <div style={{ marginTop: '14px', paddingTop: '14px', borderTop: '1px solid #e2e8f0', textAlign: 'center' }}>
+              <p style={{ fontSize: '12px', color: '#64748b', margin: '0 0 8px' }}>
+                Vehicle owner or using the V MOTIV app?
+              </p>
+              <button
+                type="button"
+                className="connect-secondary"
+                onClick={openApp}
+                style={{ fontSize: '13px', minHeight: '38px', padding: '0 16px' }}
+              >
+                Open in V MOTIV App
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+    </main>
+  );
 }
 
 function MarketingApp() {
