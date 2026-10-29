@@ -384,7 +384,7 @@ function PublicConnectPage({ token }: { token: string }) {
     <main className="connect-public-page">
       <section className="connect-public-card">
         <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" className="connect-logo" />
+          <img src="/brand/vmotiv-icon.png" alt="V MOTIV" className="connect-logo" />
           <div className="connect-vehicle-badge">
             <span>🛡️ Verified Connect Sticker</span>
           </div>
