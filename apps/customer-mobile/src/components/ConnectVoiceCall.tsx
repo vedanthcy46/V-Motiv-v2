@@ -2,8 +2,10 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   FlatList,
   KeyboardAvoidingView,
+  Linking,
   Modal,
   PermissionsAndroid,
   Platform,
@@ -51,15 +53,7 @@ async function ensureMicrophonePermission(): Promise<boolean> {
     try {
       const check = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
       if (check) return true;
-      const granted = await PermissionsAndroid.request(
-        PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-        {
-          title: 'Microphone Permission',
-          message: 'V MOTIV needs access to your microphone so the visitor can hear you during this private call.',
-          buttonPositive: 'Allow',
-          buttonNegative: 'Deny',
-        }
-      );
+      const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
       return granted === PermissionsAndroid.RESULTS.GRANTED;
     } catch (e) {
       console.warn('[ConnectVoiceCall] Permission check error:', e);
@@ -85,6 +79,7 @@ export function ConnectVoiceCall({
   const cursor = useRef<string | undefined>(undefined);
 
   const [state, setState] = useState('Connecting securely…');
+  const [micPermissionDenied, setMicPermissionDenied] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatItem[]>([]);
@@ -97,6 +92,27 @@ export function ConnectVoiceCall({
     const interval = setInterval(() => setCallDuration(d => d + 1), 1000);
     return () => clearInterval(interval);
   }, [state]);
+
+  // Listen for AppState changes (e.g. user toggles microphone permission in Settings and returns)
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', async nextState => {
+      if (nextState === 'active' && !localStream.current && peer.current) {
+        const hasMic = await ensureMicrophonePermission();
+        if (hasMic) {
+          try {
+            const stream = await mediaDevices.getUserMedia({ audio: true, video: false });
+            localStream.current = stream;
+            stream.getTracks().forEach(track => peer.current?.addTrack(track, stream));
+            setMicPermissionDenied(false);
+            setState(peer.current.connectionState === 'connected' ? 'Connected · private audio' : 'Waiting for the caller…');
+          } catch (e) {
+            console.warn('[ConnectVoiceCall] Re-acquiring mic error:', e);
+          }
+        }
+      }
+    });
+    return () => subscription.remove();
+  }, []);
 
   const formatTimer = (totalSeconds: number) => {
     const mins = Math.floor(totalSeconds / 60);
@@ -149,6 +165,7 @@ export function ConnectVoiceCall({
         // 2. Request and attach microphone audio stream
         const hasMic = await ensureMicrophonePermission();
         if (hasMic) {
+          setMicPermissionDenied(false);
           try {
             const stream = await mediaDevices.getUserMedia({ audio: true, video: false });
             if (active) {
@@ -161,10 +178,16 @@ export function ConnectVoiceCall({
             console.warn('[ConnectVoiceCall] Mic getUserMedia error:', micErr);
           }
         } else {
+          setMicPermissionDenied(true);
+          setState('Microphone permission required for voice calls.');
           Alert.alert(
-            'Microphone Access Needed',
-            'Microphone permission is required for private voice calls. You can still message the visitor using the Chat button below.',
-            [{ text: 'OK' }]
+            'Microphone Permission Required',
+            'Microphone access is needed for the caller to hear you. Please enable Microphone in device settings.',
+            [
+              { text: 'Chat Instead', onPress: () => setChatOpen(true) },
+              { text: 'Open Settings', onPress: () => void Linking.openSettings() },
+              { text: 'Dismiss', style: 'cancel' },
+            ]
           );
         }
 
@@ -331,7 +354,15 @@ export function ConnectVoiceCall({
 
           <View style={styles.statusBox}>
             <Text style={styles.description}>{state}</Text>
-            {state.includes('Connecting') || state.includes('Waiting') ? (
+            {micPermissionDenied ? (
+              <Pressable
+                onPress={() => void Linking.openSettings()}
+                style={styles.enableMicBtn}
+              >
+                <Mic size={16} color="#061A38" />
+                <Text style={styles.enableMicBtnText}>Enable Microphone in Settings</Text>
+              </Pressable>
+            ) : state.includes('Connecting') || state.includes('Waiting') ? (
               <ActivityIndicator color="#F7B503" style={{ marginTop: 8 }} />
             ) : (
               <Text style={styles.timerText}>{formatTimer(callDuration)}</Text>
@@ -421,6 +452,8 @@ const styles = StyleSheet.create({
   privacyBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(16,185,129,0.15)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
   privacyText: { color: '#10B981', fontSize: 11, fontWeight: '700' },
   statusBox: { alignItems: 'center', marginVertical: 6 },
+  enableMicBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F7B503', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 20, marginTop: 10 },
+  enableMicBtnText: { color: '#061A38', fontSize: 13, fontWeight: '700' },
   description: { color: '#C7D6EA', textAlign: 'center', fontSize: 14, lineHeight: 20 },
   timerText: { color: '#F7B503', fontSize: 20, fontWeight: '800', marginTop: 6, letterSpacing: 1 },
   controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8, width: '100%', justifyContent: 'center' },

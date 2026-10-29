@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Modal, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
 import { MessageSquare, Phone, PhoneOff, ShieldCheck } from 'lucide-react-native';
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../auth/AuthProvider';
@@ -13,6 +13,21 @@ import { ConnectChatModal } from './ConnectChatModal';
  * call state is server-owned and every decision is persisted; vibration stops
  * deterministically when the request is handled or disappears.
  */
+async function checkAndRequestMicPermission(): Promise<boolean> {
+  if (Platform.OS === 'android') {
+    try {
+      const isGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      if (isGranted) return true;
+      const status = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
+      return status === PermissionsAndroid.RESULTS.GRANTED;
+    } catch (e) {
+      console.warn('[ConnectOverlay] Mic permission error:', e);
+      return false;
+    }
+  }
+  return true;
+}
+
 export function ConnectIncomingCallOverlay() {
   const { state } = useAuth();
   const { theme } = useAppTheme();
@@ -79,6 +94,40 @@ export function ConnectIncomingCallOverlay() {
     if (!call) return;
     setBusy(true);
     try {
+      if (decision === 'ACCEPT' && call.callerType !== 'visitor_chat') {
+        const hasMic = await checkAndRequestMicPermission();
+        if (!hasMic) {
+          Alert.alert(
+            'Microphone Permission Required',
+            'Microphone access is needed for private voice calls. Please enable Microphone in device settings, or chat with the caller instead.',
+            [
+              {
+                text: 'Chat Instead',
+                onPress: async () => {
+                  try {
+                    await respondToIncomingConnectCall(call.callSessionId, 'ACCEPT');
+                    Vibration.cancel();
+                    setActiveChatCall(call);
+                    setCall(null);
+                  } catch (e: any) {
+                    Alert.alert('Unable to accept', e?.message || 'Please try again.');
+                  }
+                },
+              },
+              {
+                text: 'Open Settings',
+                onPress: () => {
+                  void Linking.openSettings();
+                },
+              },
+              { text: 'Cancel', style: 'cancel' },
+            ]
+          );
+          setBusy(false);
+          return;
+        }
+      }
+
       await respondToIncomingConnectCall(call.callSessionId, decision);
       Vibration.cancel();
       const currentCall = call;

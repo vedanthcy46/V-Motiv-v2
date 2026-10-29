@@ -287,15 +287,7 @@ export function ConnectGuestScreen() {
           if (Platform.OS === 'android') {
             const hasCheck = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
             if (!hasCheck) {
-              const res = await PermissionsAndroid.request(
-                PermissionsAndroid.PERMISSIONS.RECORD_AUDIO,
-                {
-                  title: 'Microphone Permission',
-                  message: 'V MOTIV needs access to your microphone to speak with the vehicle owner.',
-                  buttonPositive: 'Allow',
-                  buttonNegative: 'Deny',
-                }
-              );
+              const res = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
               if (res !== PermissionsAndroid.RESULTS.GRANTED) {
                 throw new Error('MICROPHONE_PERMISSION_DENIED');
               }
