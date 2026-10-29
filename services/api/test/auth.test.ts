@@ -91,6 +91,11 @@ describe('authentication boundary', () => {
     expect(trusted.headers['access-control-allow-origin']).toBe('https://admin.vmotiv.in');
     const vercelAdmin = await request(app).get('/api/v1/health/live').set('Origin', 'https://vmotiv-admin.vercel.app');
     expect(vercelAdmin.headers['access-control-allow-origin']).toBe('https://vmotiv-admin.vercel.app');
+    const vercelCustomerPreview = await request(app).options('/api/v2/public/connect/example/calls/example/signals')
+      .set('Origin', 'https://vmotiv-ih8dh83dx-vedanthh46-9191s-projects.vercel.app')
+      .set('Access-Control-Request-Method', 'POST')
+      .set('Access-Control-Request-Headers', 'content-type');
+    expect(vercelCustomerPreview.headers['access-control-allow-origin']).toBe('https://vmotiv-ih8dh83dx-vedanthh46-9191s-projects.vercel.app');
   });
 });
 describe('environment and retry guardrails', () => {

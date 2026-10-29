@@ -514,6 +514,14 @@ export class NotificationService {
         sound: 'default',
         priority: 'high',
         channelId: isUrgentConnect ? 'connect-calls' : 'default',
+        // The category is registered by the native customer app and presents
+        // Accept / Decline only for an actual, still-ringing Connect call.
+        categoryId: data.eventType === 'CONNECT_CALL_REQUESTED' && data.callSessionId
+          ? 'connect-call-actions'
+          : undefined,
+        // A call request is no longer actionable after the server's 90s
+        // ringing timeout, so never surface it late as a stale push.
+        ttl: data.eventType === 'CONNECT_CALL_REQUESTED' && data.callSessionId ? 90 : undefined,
       };
     });
 

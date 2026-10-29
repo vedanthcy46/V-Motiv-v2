@@ -4,6 +4,10 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { api } from '../api';
 
+export const CONNECT_CALL_NOTIFICATION_CATEGORY = 'connect-call-actions';
+export const CONNECT_CALL_ACCEPT_ACTION = 'CONNECT_CALL_ACCEPT';
+export const CONNECT_CALL_DECLINE_ACTION = 'CONNECT_CALL_DECLINE';
+
 // Configure foreground notification behavior
 Notifications.setNotificationHandler({
   handleNotification: async () => ({
@@ -38,6 +42,22 @@ if (Platform.OS === 'android') {
     bypassDnd: true,
   });
 }
+
+// These actions are available only while a caller is waiting. Once accepted,
+// the call screen owns speakerphone and hang-up controls because it has the
+// active WebRTC/audio session.
+void Notifications.setNotificationCategoryAsync(CONNECT_CALL_NOTIFICATION_CATEGORY, [
+  {
+    identifier: CONNECT_CALL_ACCEPT_ACTION,
+    buttonTitle: 'Accept',
+    options: { opensAppToForeground: true },
+  },
+  {
+    identifier: CONNECT_CALL_DECLINE_ACTION,
+    buttonTitle: 'Decline',
+    options: { isDestructive: true },
+  },
+]);
 
 export interface InAppNotification {
   id: string;

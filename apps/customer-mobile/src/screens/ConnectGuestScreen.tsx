@@ -33,6 +33,8 @@ import {
   PhoneOff,
   Send,
   ShieldCheck,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -58,6 +60,11 @@ import {
   sendPublicConnectAlert,
   type PublicConnectVehicle,
 } from '../services/connect-public';
+import {
+  setConnectCallSpeakerphone,
+  startConnectCallAudio,
+  stopConnectCallAudio,
+} from '../services/call-audio';
 import { radius, space, useAppTheme } from '../theme';
 
 const ICE_SERVERS = [
@@ -106,6 +113,7 @@ export function ConnectGuestScreen() {
   const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(null);
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
+  const [speakerphoneOn, setSpeakerphoneOn] = useState(true);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -215,8 +223,10 @@ export function ConnectGuestScreen() {
     setActiveCallSessionId(null);
     setCallDuration(0);
     setIsMuted(false);
+    setSpeakerphoneOn(true);
     setSessionError(null);
     signalCursor.current = undefined;
+    stopConnectCallAudio();
   }, []);
 
   // Start Realtime Session (either Voice Call or Private Chat)
@@ -228,6 +238,10 @@ export function ConnectGuestScreen() {
     setChatMessages([]);
 
     try {
+      if (mode === 'VOICE') {
+        startConnectCallAudio(true);
+        setSpeakerphoneOn(true);
+      }
       // 1. Request/create call session
       const call = await requestPublicConnectCall(token, mode);
       const sessionId = call.callSessionId;
@@ -397,6 +411,7 @@ export function ConnectGuestScreen() {
       }, 1500);
     } catch (err: any) {
       console.error('[ConnectGuest] Realtime start failed:', err);
+      if (mode === 'VOICE') stopConnectCallAudio();
       setPhase('ERROR');
       setSessionError(err?.message || 'Could not start private session. Please try again.');
     }
@@ -409,6 +424,12 @@ export function ConnectGuestScreen() {
       t.enabled = !nextMuted;
     });
     setIsMuted(nextMuted);
+  };
+
+  const toggleSpeakerphone = () => {
+    const nextSpeakerphoneOn = !speakerphoneOn;
+    setConnectCallSpeakerphone(nextSpeakerphoneOn);
+    setSpeakerphoneOn(nextSpeakerphoneOn);
   };
 
   const sendChatMessage = () => {
@@ -673,10 +694,13 @@ export function ConnectGuestScreen() {
                   </View>
 
                   {/* Voice Controls (when in Voice Call) */}
-                  {sessionMode === 'VOICE' && phase === 'CONNECTED' && (
+                  {sessionMode === 'VOICE' && (phase === 'CALLING' || phase === 'CONNECTED') && (
                     <View style={styles.voiceControlsRow}>
                       <Pressable
                         onPress={toggleMute}
+                        accessibilityRole="button"
+                        accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+                        accessibilityState={{ selected: isMuted }}
                         style={[
                           styles.controlBtn,
                           { backgroundColor: isMuted ? '#F7B503' : 'rgba(255,255,255,0.12)' },
@@ -685,6 +709,21 @@ export function ConnectGuestScreen() {
                         {isMuted ? <MicOff size={22} color="#061A38" /> : <Mic size={22} color="#FFFFFF" />}
                         <Text style={[styles.controlBtnLabel, { color: isMuted ? '#061A38' : '#C7D6EA' }]}>
                           {isMuted ? 'Unmute' : 'Mute'}
+                        </Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={toggleSpeakerphone}
+                        accessibilityRole="button"
+                        accessibilityLabel={speakerphoneOn ? 'Use earpiece' : 'Use speakerphone'}
+                        accessibilityState={{ selected: speakerphoneOn }}
+                        style={[
+                          styles.controlBtn,
+                          { backgroundColor: speakerphoneOn ? '#F7B503' : 'rgba(255,255,255,0.12)' },
+                        ]}
+                      >
+                        {speakerphoneOn ? <Volume2 size={22} color="#061A38" /> : <VolumeX size={22} color="#FFFFFF" />}
+                        <Text style={[styles.controlBtnLabel, { color: speakerphoneOn ? '#061A38' : '#C7D6EA' }]}>
+                          {speakerphoneOn ? 'Speaker' : 'Earpiece'}
                         </Text>
                       </Pressable>
                     </View>

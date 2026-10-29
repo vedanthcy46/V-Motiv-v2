@@ -117,6 +117,13 @@ export function createApp(deps: {
   }));
   const configuredWebHost = new URL(deps.webOrigin).hostname;
   const localDevelopmentOrigin = ['localhost', '127.0.0.1', '[::1]'].includes(configuredWebHost);
+  // Vercel generates a unique production/preview hostname for this project
+  // (for example vmotiv-<deployment>-<team>.vercel.app). These are first-
+  // party builds, unlike arbitrary *.vercel.app origins, and must be allowed
+  // to POST durable Connect WebRTC signals after browser preflight.
+  const isVmotivVercelDeployment = (origin?: string) => Boolean(
+    origin && /^https:\/\/vmotiv(?:-[a-z0-9-]+)?\.vercel\.app$/i.test(origin)
+  );
   const allowedOrigins = new Set([
     deps.webOrigin,
     deps.adminWebOrigin,
@@ -130,6 +137,7 @@ export function createApp(deps: {
         !origin ||
         allowedOrigins.has(origin) ||
         (normalizedOrigin && allowedOrigins.has(normalizedOrigin)) ||
+        isVmotivVercelDeployment(normalizedOrigin) ||
         (localDevelopmentOrigin && origin.startsWith('http://192.168.')) ||
         normalizedOrigin === 'http://localhost:3100' ||
         normalizedOrigin === 'http://127.0.0.1:3100' ||

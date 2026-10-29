@@ -17,6 +17,14 @@ import { MessageSquare, Phone, PhoneOff, ShieldCheck } from 'lucide-react-native
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../auth/AuthProvider';
 import { closeConnectCall, fetchIncomingConnectCalls, respondToIncomingConnectCall, type IncomingConnectCall } from '../services/connect-api';
+import {
+  CONNECT_CALL_ACCEPT_ACTION,
+  CONNECT_CALL_DECLINE_ACTION,
+} from '../services/notifications';
+import {
+  startConnectIncomingRingtone,
+  stopConnectIncomingRingtone,
+} from '../services/call-audio';
 import { radius, space, useAppTheme } from '../theme';
 import { ConnectVoiceCall } from './ConnectVoiceCall';
 import { ConnectChatModal } from './ConnectChatModal';
@@ -67,6 +75,47 @@ export function ConnectIncomingCallOverlay() {
     }
   }, [state]);
 
+  const handleNotificationAction = useCallback(async (response: Notifications.NotificationResponse) => {
+    const data = response.notification.request.content.data;
+    const callSessionId = typeof data?.callSessionId === 'string' ? data.callSessionId : null;
+    const action = response.actionIdentifier;
+    if (!callSessionId || (action !== CONNECT_CALL_ACCEPT_ACTION && action !== CONNECT_CALL_DECLINE_ACTION)) {
+      void refresh();
+      return;
+    }
+
+    try {
+      const incoming = await fetchIncomingConnectCalls();
+      const incomingCall = incoming.items.find(item => item.callSessionId === callSessionId);
+      if (!incomingCall || incomingCall.status !== 'RINGING') {
+        void refresh();
+        return;
+      }
+
+      if (action === CONNECT_CALL_DECLINE_ACTION) {
+        await respondToIncomingConnectCall(callSessionId, 'DECLINE');
+        Vibration.cancel();
+        setCall(current => current?.callSessionId === callSessionId ? null : current);
+        return;
+      }
+
+      if (incomingCall.callerType !== 'visitor_chat') {
+        await checkAndRequestMicPermission().catch(() => false);
+      }
+      await respondToIncomingConnectCall(callSessionId, 'ACCEPT');
+      Vibration.cancel();
+      setCall(null);
+      if (incomingCall.callerType === 'visitor_chat') {
+        setActiveChatCall(incomingCall);
+      } else {
+        setActiveCallId(callSessionId);
+      }
+    } catch (error) {
+      console.warn('[CONNECT_NOTIFICATION_ACTION_FAILED]', error);
+      void refresh();
+    }
+  }, [refresh]);
+
   useEffect(() => {
     void refresh();
     // Fast polling ensures immediate pickup modal
@@ -83,7 +132,7 @@ export function ConnectIncomingCallOverlay() {
     const sub2 = Notifications.addNotificationResponseReceivedListener(response => {
       const data = response.notification.request.content.data;
       if (data?.callSessionId || data?.type === 'CONNECT_CALL_REQUESTED' || data?.type === 'CONNECT_CHAT_MESSAGE') {
-        void refresh();
+        void handleNotificationAction(response);
       }
     });
 
@@ -92,7 +141,7 @@ export function ConnectIncomingCallOverlay() {
       sub1.remove();
       sub2.remove();
     };
-  }, [refresh]);
+  }, [handleNotificationAction, refresh]);
 
   useEffect(() => {
     if (!call) {
@@ -102,6 +151,15 @@ export function ConnectIncomingCallOverlay() {
     Vibration.vibrate([0, 900, 500, 900, 1_200], true);
     return () => Vibration.cancel();
   }, [call]);
+
+  useEffect(() => {
+    if (!call || call.callerType === 'visitor_chat') {
+      stopConnectIncomingRingtone();
+      return;
+    }
+    startConnectIncomingRingtone();
+    return () => stopConnectIncomingRingtone();
+  }, [call?.callSessionId, call?.callerType]);
 
   const respond = async (decision: 'ACCEPT' | 'DECLINE', forceChat = false) => {
     if (!call) return;

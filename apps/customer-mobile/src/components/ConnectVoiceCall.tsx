@@ -31,6 +31,8 @@ import {
   PhoneOff,
   Send,
   ShieldCheck,
+  Volume2,
+  VolumeX,
   X,
 } from 'lucide-react-native';
 import {
@@ -39,6 +41,11 @@ import {
   sendOwnerCallSignal,
 } from '../services/connect-api';
 import { resolveRealtimeSocketUrl } from '../services/connect-public';
+import {
+  setConnectCallSpeakerphone,
+  startConnectCallAudio,
+  stopConnectCallAudio,
+} from '../services/call-audio';
 
 const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
@@ -78,10 +85,12 @@ export function ConnectVoiceCall({
   const localStream = useRef<MediaStream | null>(null);
   const socketRef = useRef<Socket | null>(null);
   const cursor = useRef<string | undefined>(undefined);
+  const answeredOffer = useRef(false);
 
   const [state, setState] = useState('Connecting securely…');
   const [micPermissionDenied, setMicPermissionDenied] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
+  const [speakerphoneOn, setSpeakerphoneOn] = useState(true);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatItem[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -134,10 +143,14 @@ export function ConnectVoiceCall({
       peer.current = null;
       socketRef.current?.disconnect();
       socketRef.current = null;
+      answeredOffer.current = false;
+      stopConnectCallAudio();
     };
 
     const start = async () => {
       try {
+        startConnectCallAudio(true);
+        setSpeakerphoneOn(true);
         // 1. Initialize WebRTC peer connection
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         peer.current = pc;
@@ -200,19 +213,24 @@ export function ConnectVoiceCall({
         const handleSignal = async (kind: string, payload: any) => {
           if (!pc || !payload) return;
           try {
-            if (kind === 'OFFER' && !(pc as any).currentRemoteDescription) {
+            if (kind === 'OFFER' && !answeredOffer.current) {
+              setState('Answering caller…');
               await pc.setRemoteDescription(new RTCSessionDescription(payload));
               await flushPendingIce();
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
-              const answerPayload = answer.toJSON() as Record<string, unknown>;
+              const answerPayload = (pc.localDescription as any)?.toJSON?.()
+                || { type: pc.localDescription?.type, sdp: pc.localDescription?.sdp };
               socketRef.current?.emit('webrtc:signal', { kind: 'ANSWER', payload: answerPayload });
-              void sendOwnerCallSignal(callSessionId, 'ANSWER', answerPayload).catch(() => undefined);
-            } else if (kind === 'ANSWER' && !(pc as any).currentRemoteDescription) {
+              // Await the durable write. If the realtime socket is unavailable
+              // on serverless hosting, this is the caller's only answer path.
+              await sendOwnerCallSignal(callSessionId, 'ANSWER', answerPayload);
+              answeredOffer.current = true;
+            } else if (kind === 'ANSWER' && !(pc as any).remoteDescription) {
               await pc.setRemoteDescription(new RTCSessionDescription(payload));
               await flushPendingIce();
             } else if (kind === 'ICE' && payload) {
-              if ((pc as any).currentRemoteDescription) {
+              if ((pc as any).remoteDescription) {
                 await pc.addIceCandidate(new RTCIceCandidate(payload)).catch(() => undefined);
               } else {
                 pendingIceCandidates.push(payload);
@@ -220,6 +238,9 @@ export function ConnectVoiceCall({
             }
           } catch (e) {
             console.warn('[ConnectVoiceCall] Signal process error:', e);
+            if (kind === 'OFFER') {
+              setState('Could not answer the caller. Please end the call and try again.');
+            }
           }
         };
 
@@ -330,6 +351,12 @@ export function ConnectVoiceCall({
       t.enabled = !nextMuted;
     });
     setIsMuted(nextMuted);
+  };
+
+  const toggleSpeakerphone = () => {
+    const nextSpeakerphoneOn = !speakerphoneOn;
+    setConnectCallSpeakerphone(nextSpeakerphoneOn);
+    setSpeakerphoneOn(nextSpeakerphoneOn);
   };
 
   const sendChat = () => {
@@ -455,10 +482,26 @@ export function ConnectVoiceCall({
             <View style={styles.controlsRow}>
               <Pressable
                 onPress={toggleMute}
+                accessibilityRole="button"
+                accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
+                accessibilityState={{ selected: isMuted }}
                 style={[styles.circleBtn, isMuted && styles.circleBtnActive]}
               >
                 {isMuted ? <MicOff size={20} color="#FFFFFF" /> : <Mic size={20} color="#FFFFFF" />}
                 <Text style={styles.circleBtnLabel}>{isMuted ? 'Unmute' : 'Mute'}</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={toggleSpeakerphone}
+                accessibilityRole="button"
+                accessibilityLabel={speakerphoneOn ? 'Use earpiece' : 'Use speakerphone'}
+                accessibilityState={{ selected: speakerphoneOn }}
+                style={[styles.circleBtn, speakerphoneOn && styles.circleBtnActive]}
+              >
+                {speakerphoneOn ? <Volume2 size={20} color="#061A38" /> : <VolumeX size={20} color="#FFFFFF" />}
+                <Text style={[styles.circleBtnLabel, speakerphoneOn && { color: '#061A38' }]}>
+                  {speakerphoneOn ? 'Speaker' : 'Earpiece'}
+                </Text>
               </Pressable>
 
               <Pressable
