@@ -245,6 +245,37 @@ export function ConnectGuestScreen() {
       });
       socketRef.current = socket;
 
+      const pendingGuestIce: any[] = [];
+      const flushGuestIce = async () => {
+        const pc = peerRef.current;
+        if (!pc) return;
+        while (pendingGuestIce.length > 0) {
+          const cand = pendingGuestIce.shift();
+          try {
+            await pc.addIceCandidate(new RTCIceCandidate(cand));
+          } catch {
+            // Stale candidate
+          }
+        }
+      };
+
+      const resendGuestOffer = () => {
+        const pc = peerRef.current;
+        if (pc?.localDescription && pc.connectionState !== 'connected') {
+          const payload = (pc.localDescription as any).toJSON?.() || { type: pc.localDescription.type, sdp: pc.localDescription.sdp };
+          socket.emit('webrtc:signal', { kind: 'OFFER', payload });
+          void sendPublicCallSignal(token, sessionId, 'OFFER', payload);
+        }
+      };
+
+      socket.on('peer:joined', ({ from }: any) => {
+        if (from === 'OWNER') resendGuestOffer();
+      });
+
+      socket.on('call:ready', () => {
+        resendGuestOffer();
+      });
+
       // Socket.IO event listeners
       socket.on('webrtc:signal', async ({ message }: any) => {
         if (!message) return;
@@ -253,9 +284,14 @@ export function ConnectGuestScreen() {
         try {
           if (message.kind === 'ANSWER' && !(pc as any).currentRemoteDescription) {
             await pc.setRemoteDescription(new RTCSessionDescription(message.payload));
+            await flushGuestIce();
             setPhase('CONNECTED');
           } else if (message.kind === 'ICE' && message.payload) {
-            await pc.addIceCandidate(new RTCIceCandidate(message.payload));
+            if ((pc as any).currentRemoteDescription) {
+              await pc.addIceCandidate(new RTCIceCandidate(message.payload));
+            } else {
+              pendingGuestIce.push(message.payload);
+            }
           }
         } catch (e) {
           console.warn('[ConnectGuest] Signal process error:', e);

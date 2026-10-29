@@ -10,6 +10,7 @@ import {
   PermissionsAndroid,
   Platform,
   Pressable,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -123,10 +124,12 @@ export function ConnectVoiceCall({
   useEffect(() => {
     let active = true;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
+    let autoOfferTimer: ReturnType<typeof setTimeout> | undefined;
 
     const cleanup = () => {
       active = false;
       if (pollTimer) clearInterval(pollTimer);
+      if (autoOfferTimer) clearTimeout(autoOfferTimer);
       localStream.current?.getTracks().forEach(t => t.stop());
       localStream.current = null;
       peer.current?.close();
@@ -140,6 +143,18 @@ export function ConnectVoiceCall({
         // 1. Initialize WebRTC peer connection
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         peer.current = pc;
+
+        const pendingIceCandidates: any[] = [];
+        const flushPendingIce = async () => {
+          while (pendingIceCandidates.length > 0) {
+            const cand = pendingIceCandidates.shift();
+            try {
+              await pc.addIceCandidate(new RTCIceCandidate(cand));
+            } catch {
+              // Stale or duplicate candidate
+            }
+          }
+        };
 
         pc.onicecandidate = (event: any) => {
           const candidate = event.candidate;
@@ -184,6 +199,32 @@ export function ConnectVoiceCall({
           setState('Listen & Chat Mode · Visitor audio active');
         }
 
+        const handleSignal = async (kind: string, payload: any) => {
+          if (!pc || !payload) return;
+          try {
+            if (kind === 'OFFER' && !(pc as any).currentRemoteDescription) {
+              await pc.setRemoteDescription(new RTCSessionDescription(payload));
+              await flushPendingIce();
+              const answer = await pc.createAnswer();
+              await pc.setLocalDescription(answer);
+              const answerPayload = answer.toJSON() as Record<string, unknown>;
+              socketRef.current?.emit('webrtc:signal', { kind: 'ANSWER', payload: answerPayload });
+              void sendOwnerCallSignal(callSessionId, 'ANSWER', answerPayload).catch(() => undefined);
+            } else if (kind === 'ANSWER' && !(pc as any).currentRemoteDescription) {
+              await pc.setRemoteDescription(new RTCSessionDescription(payload));
+              await flushPendingIce();
+            } else if (kind === 'ICE' && payload) {
+              if ((pc as any).currentRemoteDescription) {
+                await pc.addIceCandidate(new RTCIceCandidate(payload)).catch(() => undefined);
+              } else {
+                pendingIceCandidates.push(payload);
+              }
+            }
+          } catch (e) {
+            console.warn('[ConnectVoiceCall] Signal process error:', e);
+          }
+        };
+
         // 3. Fetch realtime ticket & join Socket.IO room
         try {
           const ticketResp = await fetchOwnerRealtimeTicket(callSessionId);
@@ -195,22 +236,14 @@ export function ConnectVoiceCall({
             });
             socketRef.current = socket;
 
+            socket.on('connect', () => {
+              // Immediately announce presence to trigger caller to send OFFER
+              socket.emit('call:ready');
+            });
+
             socket.on('webrtc:signal', async ({ message }: any) => {
-              if (!message || !pc) return;
-              try {
-                if (message.kind === 'OFFER' && !(pc as any).currentRemoteDescription) {
-                  await pc.setRemoteDescription(new RTCSessionDescription(message.payload));
-                  const answer = await pc.createAnswer();
-                  await pc.setLocalDescription(answer);
-                  const payload = answer.toJSON() as Record<string, unknown>;
-                  socket.emit('webrtc:signal', { kind: 'ANSWER', payload });
-                  void sendOwnerCallSignal(callSessionId, 'ANSWER', payload).catch(() => undefined);
-                } else if (message.kind === 'ICE' && message.payload) {
-                  await pc.addIceCandidate(new RTCIceCandidate(message.payload));
-                }
-              } catch (e) {
-                console.warn('[ConnectVoiceCall] Socket WebRTC signal error:', e);
-              }
+              if (!message) return;
+              await handleSignal(message.kind, message.payload);
             });
 
             socket.on('chat:message', (item: any) => {
@@ -244,16 +277,7 @@ export function ConnectVoiceCall({
             for (const signal of response.items) {
               cursor.current = signal.createdAt;
               if (!pc || signal.senderRole === 'OWNER') continue;
-              if (signal.kind === 'OFFER' && !(pc as any).currentRemoteDescription) {
-                await pc.setRemoteDescription(new RTCSessionDescription(signal.payload as any));
-                const answer = await pc.createAnswer();
-                await pc.setLocalDescription(answer);
-                const payload = answer.toJSON() as Record<string, unknown>;
-                socketRef.current?.emit('webrtc:signal', { kind: 'ANSWER', payload });
-                void sendOwnerCallSignal(callSessionId, 'ANSWER', payload).catch(() => undefined);
-              } else if (signal.kind === 'ICE' && signal.payload) {
-                await pc.addIceCandidate(new RTCIceCandidate(signal.payload as any));
-              } else if (signal.kind === 'HANGUP' || signal.kind === 'CLOSE') {
+              if (signal.kind === 'HANGUP' || signal.kind === 'CLOSE') {
                 if (active) onCloseRef.current?.();
               } else if (signal.kind === 'CHAT' && signal.payload) {
                 const text = typeof (signal.payload as any).text === 'string' ? (signal.payload as any).text : '';
@@ -273,6 +297,8 @@ export function ConnectVoiceCall({
                     ];
                   });
                 }
+              } else {
+                await handleSignal(signal.kind, signal.payload);
               }
             }
           } catch {
@@ -284,6 +310,20 @@ export function ConnectVoiceCall({
         pollTimer = setInterval(() => {
           if (active) void poll();
         }, 1500);
+
+        // 5. Negotiation safety net: If caller's offer was missed, owner initiates an offer
+        autoOfferTimer = setTimeout(async () => {
+          if (!active || !pc || (pc as any).currentRemoteDescription || (pc as any).currentLocalDescription) return;
+          try {
+            const offer = await pc.createOffer();
+            await pc.setLocalDescription(offer);
+            const payload = offer.toJSON() as Record<string, unknown>;
+            socketRef.current?.emit('webrtc:signal', { kind: 'OFFER', payload });
+            void sendOwnerCallSignal(callSessionId, 'OFFER', payload).catch(() => undefined);
+          } catch (e) {
+            console.warn('[ConnectVoiceCall] Auto-offer error:', e);
+          }
+        }, 2200);
 
         setState('Waiting for the caller…');
       } catch (err) {
@@ -333,141 +373,163 @@ export function ConnectVoiceCall({
         style={styles.root}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        <View style={styles.card}>
-          <View style={styles.headerRow}>
-            <View>
-              <Text style={styles.kicker}>V MOTIV CONNECT</Text>
-              <Text style={styles.title}>Private Owner Call</Text>
-            </View>
-            <View style={styles.privacyBadge}>
-              <ShieldCheck size={14} color="#10B981" />
-              <Text style={styles.privacyText}>Number Masked</Text>
-            </View>
-          </View>
-
-          <View style={styles.statusBox}>
-            <Text style={styles.description}>{state}</Text>
-            {micPermissionDenied ? (
-              <View style={styles.micDeniedBox}>
-                <Text style={styles.micDeniedNotice}>
-                  Microphone is disabled or not in this build.
-                </Text>
-                <Text style={styles.micDeniedSub}>
-                  You can still hear the caller live. Type in the Chat below to reply.
-                </Text>
+        <ScrollView
+          contentContainerStyle={styles.scrollRoot}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          bounces={false}
+        >
+          <View style={styles.card}>
+            <View style={styles.headerRow}>
+              <View>
+                <Text style={styles.kicker}>V MOTIV CONNECT</Text>
+                <Text style={styles.title}>Private Owner Call</Text>
               </View>
-            ) : state.includes('Connecting') || state.includes('Waiting') ? (
-              <ActivityIndicator color="#F7B503" style={{ marginTop: 8 }} />
-            ) : (
-              <Text style={styles.timerText}>{formatTimer(callDuration)}</Text>
-            )}
-          </View>
-
-          {/* Chat Expandable Section */}
-          {chatOpen ? (
-            <View style={styles.chatContainer}>
-              <View style={styles.chatHeader}>
-                <Text style={styles.chatTitle}>Live Chat with Caller</Text>
-                <Pressable onPress={() => setChatOpen(false)} hitSlop={10}>
-                  <X size={18} color="#C7D6EA" />
-                </Pressable>
+              <View style={styles.privacyBadge}>
+                <ShieldCheck size={14} color="#10B981" />
+                <Text style={styles.privacyText}>Number Masked</Text>
               </View>
-              <FlatList
-                data={chatMessages}
-                keyExtractor={item => item.id}
-                style={styles.chatList}
-                contentContainerStyle={{ gap: 8, paddingVertical: 8 }}
-                renderItem={({ item }) => {
-                  const isMe = item.from === 'OWNER';
-                  return (
-                    <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
-                      <Text style={styles.bubbleAuthor}>{isMe ? 'You' : 'Caller'}</Text>
-                      <Text style={styles.bubbleText}>{item.text}</Text>
-                    </View>
-                  );
-                }}
-                ListEmptyComponent={
-                  <Text style={styles.chatEmpty}>No messages yet. Send a message below.</Text>
-                }
-              />
-              <View style={styles.chatInputRow}>
-                <TextInput
-                  value={chatInput}
-                  onChangeText={setChatInput}
-                  placeholder="Type a message…"
-                  placeholderTextColor="#7C92AE"
-                  style={styles.chatInput}
-                  onSubmitEditing={sendChat}
+            </View>
+
+            <View style={styles.statusBox}>
+              <Text style={styles.description}>{state}</Text>
+              {micPermissionDenied ? (
+                <View style={styles.micDeniedBox}>
+                  <Text style={styles.micDeniedNotice}>
+                    Microphone access needed for two-way voice.
+                  </Text>
+                  <Text style={styles.micDeniedSub}>
+                    You can hear the caller live. Tap below to enable microphone, or reply via Chat.
+                  </Text>
+                  <Pressable
+                    onPress={async () => {
+                      const granted = await ensureMicrophonePermission();
+                      if (!granted) {
+                        void Linking.openSettings();
+                      }
+                    }}
+                    style={styles.enableMicBtn}
+                  >
+                    <Mic size={14} color="#061A38" />
+                    <Text style={styles.enableMicBtnText}>Enable Microphone</Text>
+                  </Pressable>
+                </View>
+              ) : state.includes('Connecting') || state.includes('Waiting') ? (
+                <ActivityIndicator color="#F7B503" style={{ marginTop: 8 }} />
+              ) : (
+                <Text style={styles.timerText}>{formatTimer(callDuration)}</Text>
+              )}
+            </View>
+
+            {/* Chat Expandable Section */}
+            {chatOpen ? (
+              <View style={styles.chatContainer}>
+                <View style={styles.chatHeader}>
+                  <Text style={styles.chatTitle}>Live Chat with Caller</Text>
+                  <Pressable onPress={() => setChatOpen(false)} hitSlop={10}>
+                    <X size={18} color="#C7D6EA" />
+                  </Pressable>
+                </View>
+                <FlatList
+                  data={chatMessages}
+                  keyExtractor={item => item.id}
+                  style={styles.chatList}
+                  contentContainerStyle={{ gap: 8, paddingVertical: 8 }}
+                  renderItem={({ item }) => {
+                    const isMe = item.from === 'OWNER';
+                    return (
+                      <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
+                        <Text style={styles.bubbleAuthor}>{isMe ? 'You' : 'Caller'}</Text>
+                        <Text style={styles.bubbleText}>{item.text}</Text>
+                      </View>
+                    );
+                  }}
+                  ListEmptyComponent={
+                    <Text style={styles.chatEmpty}>No messages yet. Send a message below.</Text>
+                  }
                 />
-                <Pressable onPress={sendChat} disabled={!chatInput.trim()} style={styles.sendBtn}>
-                  <Send size={16} color="#061A38" />
-                </Pressable>
+                <View style={styles.chatInputRow}>
+                  <TextInput
+                    value={chatInput}
+                    onChangeText={setChatInput}
+                    placeholder="Type a message…"
+                    placeholderTextColor="#7C92AE"
+                    style={styles.chatInput}
+                    onSubmitEditing={sendChat}
+                  />
+                  <Pressable onPress={sendChat} disabled={!chatInput.trim()} style={styles.sendBtn}>
+                    <Send size={16} color="#061A38" />
+                  </Pressable>
+                </View>
               </View>
+            ) : null}
+
+            {/* Action buttons row */}
+            <View style={styles.controlsRow}>
+              <Pressable
+                onPress={toggleMute}
+                style={[styles.circleBtn, isMuted && styles.circleBtnActive]}
+              >
+                {isMuted ? <MicOff size={20} color="#FFFFFF" /> : <Mic size={20} color="#FFFFFF" />}
+                <Text style={styles.circleBtnLabel}>{isMuted ? 'Unmute' : 'Mute'}</Text>
+              </Pressable>
+
+              <Pressable
+                onPress={() => setChatOpen(prev => !prev)}
+                style={[styles.circleBtn, chatOpen && styles.circleBtnActive]}
+              >
+                <MessageSquare size={20} color="#FFFFFF" />
+                <Text style={styles.circleBtnLabel}>
+                  Chat{chatMessages.length > 0 ? ` (${chatMessages.length})` : ''}
+                </Text>
+              </Pressable>
+
+              <Pressable onPress={handleEndCall} style={styles.endBtn}>
+                <PhoneOff color="#FFFFFF" size={20} />
+                <Text style={styles.endText}>End Call</Text>
+              </Pressable>
             </View>
-          ) : null}
-
-          {/* Action buttons row */}
-          <View style={styles.controlsRow}>
-            <Pressable
-              onPress={toggleMute}
-              style={[styles.circleBtn, isMuted && styles.circleBtnActive]}
-            >
-              {isMuted ? <MicOff size={22} color="#FFFFFF" /> : <Mic size={22} color="#FFFFFF" />}
-              <Text style={styles.circleBtnLabel}>{isMuted ? 'Unmute' : 'Mute'}</Text>
-            </Pressable>
-
-            <Pressable
-              onPress={() => setChatOpen(prev => !prev)}
-              style={[styles.circleBtn, chatOpen && styles.circleBtnActive]}
-            >
-              <MessageSquare size={22} color="#FFFFFF" />
-              <Text style={styles.circleBtnLabel}>
-                Chat{chatMessages.length > 0 ? ` (${chatMessages.length})` : ''}
-              </Text>
-            </Pressable>
-
-            <Pressable onPress={handleEndCall} style={styles.endBtn}>
-              <PhoneOff color="#FFFFFF" size={24} />
-              <Text style={styles.endText}>End Call</Text>
-            </Pressable>
           </View>
-        </View>
+        </ScrollView>
       </KeyboardAvoidingView>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, justifyContent: 'center', padding: 20, backgroundColor: 'rgba(2,11,24,0.85)' },
-  card: { alignItems: 'center', gap: 16, borderRadius: 24, padding: 24, backgroundColor: '#0B2342', borderWidth: 1, borderColor: '#1F3C64', width: '100%', maxWidth: 460, alignSelf: 'center' },
+  root: { flex: 1, backgroundColor: 'rgba(2,11,24,0.85)' },
+  scrollRoot: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
+  card: { alignItems: 'center', gap: 12, borderRadius: 20, padding: 18, backgroundColor: '#0B2342', borderWidth: 1, borderColor: '#1F3C64', width: '100%', maxWidth: 400, maxHeight: '90%' },
   headerRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  kicker: { color: '#F7B503', fontWeight: '800', letterSpacing: 1, fontSize: 11 },
-  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '800' },
-  privacyBadge: { flexDirection: 'row', alignItems: 'center', gap: 5, backgroundColor: 'rgba(16,185,129,0.15)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
+  kicker: { color: '#F7B503', fontWeight: '800', letterSpacing: 1, fontSize: 10 },
+  title: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
+  privacyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(16,185,129,0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
   privacyText: { color: '#10B981', fontSize: 11, fontWeight: '700' },
-  statusBox: { alignItems: 'center', marginVertical: 6 },
-  micDeniedBox: { alignItems: 'center', marginTop: 6, paddingHorizontal: 12 },
-  micDeniedNotice: { color: '#F7B503', fontSize: 13, fontWeight: '700', textAlign: 'center' },
-  micDeniedSub: { color: '#C7D6EA', fontSize: 12, textAlign: 'center', marginTop: 2, lineHeight: 16 },
-  description: { color: '#C7D6EA', textAlign: 'center', fontSize: 14, lineHeight: 20 },
-  timerText: { color: '#F7B503', fontSize: 20, fontWeight: '800', marginTop: 6, letterSpacing: 1 },
-  controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginTop: 8, width: '100%', justifyContent: 'center' },
-  circleBtn: { alignItems: 'center', justifyContent: 'center', width: 68, height: 68, borderRadius: 34, backgroundColor: 'rgba(255,255,255,0.12)', gap: 4 },
+  statusBox: { alignItems: 'center', marginVertical: 4 },
+  micDeniedBox: { alignItems: 'center', marginTop: 6, paddingHorizontal: 8, gap: 6 },
+  micDeniedNotice: { color: '#F7B503', fontSize: 12, fontWeight: '700', textAlign: 'center' },
+  micDeniedSub: { color: '#C7D6EA', fontSize: 11, textAlign: 'center', lineHeight: 15 },
+  enableMicBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#F7B503', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, marginTop: 4 },
+  enableMicBtnText: { color: '#061A38', fontSize: 11, fontWeight: '800' },
+  description: { color: '#C7D6EA', textAlign: 'center', fontSize: 13, lineHeight: 18 },
+  timerText: { color: '#F7B503', fontSize: 18, fontWeight: '800', marginTop: 4, letterSpacing: 1 },
+  controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6, width: '100%', justifyContent: 'center' },
+  circleBtn: { alignItems: 'center', justifyContent: 'center', width: 54, height: 54, borderRadius: 27, backgroundColor: 'rgba(255,255,255,0.12)', gap: 2 },
   circleBtnActive: { backgroundColor: '#F7B503' },
-  circleBtnLabel: { color: '#C7D6EA', fontSize: 11, fontWeight: '600' },
-  endBtn: { minWidth: 130, height: 68, paddingHorizontal: 20, borderRadius: 34, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#DE3E49' },
-  endText: { color: '#FFFFFF', fontWeight: '800', fontSize: 15 },
-  chatContainer: { width: '100%', height: 260, backgroundColor: '#061A38', borderRadius: 16, padding: 12, borderWidth: 1, borderColor: '#1F3C64' },
-  chatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1F3C64', paddingBottom: 8 },
-  chatTitle: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
+  circleBtnLabel: { color: '#C7D6EA', fontSize: 10, fontWeight: '600' },
+  endBtn: { flex: 1, minWidth: 100, height: 54, paddingHorizontal: 14, borderRadius: 27, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#DE3E49' },
+  endText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
+  chatContainer: { width: '100%', height: 200, backgroundColor: '#061A38', borderRadius: 14, padding: 10, borderWidth: 1, borderColor: '#1F3C64' },
+  chatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1F3C64', paddingBottom: 6 },
+  chatTitle: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
   chatList: { flex: 1 },
-  chatEmpty: { color: '#7C92AE', fontSize: 12, textAlign: 'center', marginTop: 30 },
-  bubble: { maxWidth: '82%', borderRadius: 12, paddingHorizontal: 12, paddingVertical: 8 },
+  chatEmpty: { color: '#7C92AE', fontSize: 11, textAlign: 'center', marginTop: 24 },
+  bubble: { maxWidth: '82%', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
   bubbleMe: { alignSelf: 'flex-end', backgroundColor: '#F7B503' },
   bubbleThem: { alignSelf: 'flex-start', backgroundColor: '#1F3C64' },
-  bubbleAuthor: { fontSize: 10, fontWeight: '700', marginBottom: 2, color: '#061A38' },
-  bubbleText: { fontSize: 13, color: '#061A38' },
-  chatInputRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
-  chatInput: { flex: 1, height: 40, backgroundColor: '#0B2342', borderRadius: 20, paddingHorizontal: 14, color: '#FFFFFF', fontSize: 13, borderWidth: 1, borderColor: '#1F3C64' },
-  sendBtn: { width: 40, height: 40, borderRadius: 20, backgroundColor: '#F7B503', alignItems: 'center', justifyContent: 'center' },
+  bubbleAuthor: { fontSize: 9, fontWeight: '700', marginBottom: 2, color: '#061A38' },
+  bubbleText: { fontSize: 12, color: '#061A38' },
+  chatInputRow: { flexDirection: 'row', gap: 6, marginTop: 6 },
+  chatInput: { flex: 1, height: 36, backgroundColor: '#0B2342', borderRadius: 18, paddingHorizontal: 12, color: '#FFFFFF', fontSize: 12, borderWidth: 1, borderColor: '#1F3C64' },
+  sendBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F7B503', alignItems: 'center', justifyContent: 'center' },
 });

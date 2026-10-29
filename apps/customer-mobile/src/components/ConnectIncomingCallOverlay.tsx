@@ -1,5 +1,18 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, PermissionsAndroid, Platform, Pressable, StyleSheet, Text, Vibration, View } from 'react-native';
+import {
+  ActivityIndicator,
+  Alert,
+  Linking,
+  Modal,
+  PermissionsAndroid,
+  Platform,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  Vibration,
+  View,
+} from 'react-native';
 import { MessageSquare, Phone, PhoneOff, ShieldCheck } from 'lucide-react-native';
 import * as Notifications from 'expo-notifications';
 import { useAuth } from '../auth/AuthProvider';
@@ -119,6 +132,13 @@ export function ConnectIncomingCallOverlay() {
     }
   };
 
+  // Hooks must be declared before any conditional render branch. In
+  // particular, accepting a chat switches `activeChatCall` immediately.
+  const handleCloseVoiceCall = useCallback(() => {
+    setActiveCallId(null);
+    void refresh();
+  }, [refresh]);
+
   if (activeChatCall) {
     return (
       <ConnectChatModal
@@ -130,11 +150,6 @@ export function ConnectIncomingCallOverlay() {
       />
     );
   }
-
-  const handleCloseVoiceCall = useCallback(() => {
-    setActiveCallId(null);
-    void refresh();
-  }, [refresh]);
 
   if (activeCallId) return <ConnectVoiceCall callSessionId={activeCallId} onClose={handleCloseVoiceCall} />;
 
@@ -205,78 +220,84 @@ export function ConnectIncomingCallOverlay() {
     <Modal transparent visible animationType="fade" statusBarTranslucent onRequestClose={() => void respond('DECLINE')}>
       <View style={styles.scrim}>
         <View style={[styles.card, { backgroundColor: theme.colors.surface, borderColor: theme.colors.border }]}>
-          <View style={[styles.avatar, { backgroundColor: 'rgba(247,181,3,0.16)' }]}>
-            {isChat ? (
-              <MessageSquare size={34} color={theme.colors.brandAccent} />
-            ) : (
-              <Phone size={34} color={theme.colors.brandAccent} />
-            )}
-          </View>
-          <Text style={[styles.eyebrow, { color: theme.colors.brandAccent }]}>V MOTIV CONNECT</Text>
-          <Text style={[styles.title, { color: theme.colors.textPrimary }]}>
-            {isChat ? 'Passerby Chat Request' : 'Incoming vehicle call'}
-          </Text>
-          <Text style={[styles.vehicle, { color: theme.colors.textSecondary }]}>
-            {vehicle.year} {vehicle.make} {vehicle.model}
-          </Text>
-
-          {Boolean(initialMessage) && (
-            <View style={[styles.previewBox, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-              <Text style={[styles.previewLabel, { color: theme.colors.brandAccent }]}>Message:</Text>
-              <Text style={[styles.previewText, { color: theme.colors.textPrimary }]}>"{String(initialMessage)}"</Text>
+          <ScrollView
+            contentContainerStyle={styles.cardScroll}
+            showsVerticalScrollIndicator={false}
+            bounces={false}
+          >
+            <View style={[styles.avatar, { backgroundColor: 'rgba(247,181,3,0.16)' }]}>
+              {isChat ? (
+                <MessageSquare size={28} color={theme.colors.brandAccent} />
+              ) : (
+                <Phone size={28} color={theme.colors.brandAccent} />
+              )}
             </View>
-          )}
+            <Text style={[styles.eyebrow, { color: theme.colors.brandAccent }]}>V MOTIV CONNECT</Text>
+            <Text style={[styles.title, { color: theme.colors.textPrimary }]}>
+              {isChat ? 'Passerby Chat Request' : 'Incoming vehicle call'}
+            </Text>
+            <Text style={[styles.vehicle, { color: theme.colors.textSecondary }]}>
+              {vehicle.year} {vehicle.make} {vehicle.model}
+            </Text>
 
-          <View style={[styles.privacy, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
-            <ShieldCheck size={16} color="#10B981" />
-            <Text style={[styles.privacyText, { color: theme.colors.textSecondary }]}>The passerby cannot see your phone number or identity.</Text>
-          </View>
-          <View style={styles.actions}>
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Decline incoming V MOTIV Connect request"
-              disabled={busy}
-              onPress={() => void respond('DECLINE')}
-              style={({ pressed }) => [styles.callButton, styles.decline, (pressed || busy) && styles.pressed]}
-            >
-              {busy ? <ActivityIndicator color="#FFFFFF" /> : <PhoneOff size={24} color="#FFFFFF" />}
-              <Text style={styles.actionText}>{isChat ? 'Dismiss' : 'Decline'}</Text>
-            </Pressable>
+            {Boolean(initialMessage) && (
+              <View style={[styles.previewBox, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+                <Text style={[styles.previewLabel, { color: theme.colors.brandAccent }]}>Message:</Text>
+                <Text style={[styles.previewText, { color: theme.colors.textPrimary }]}>"{String(initialMessage)}"</Text>
+              </View>
+            )}
 
-            {!isChat && (
+            <View style={[styles.privacy, { backgroundColor: theme.colors.background, borderColor: theme.colors.border }]}>
+              <ShieldCheck size={14} color="#10B981" />
+              <Text style={[styles.privacyText, { color: theme.colors.textSecondary }]}>The passerby cannot see your phone number or identity.</Text>
+            </View>
+            <View style={styles.actions}>
               <Pressable
                 accessibilityRole="button"
-                accessibilityLabel="Chat with caller instead"
+                accessibilityLabel="Decline incoming V MOTIV Connect request"
                 disabled={busy}
-                onPress={() => void respond('ACCEPT', true)}
-                style={({ pressed }) => [
-                  styles.callButton,
-                  { backgroundColor: 'rgba(255,255,255,0.12)', borderColor: theme.colors.border, borderWidth: 1 },
-                  (pressed || busy) && styles.pressed,
-                ]}
+                onPress={() => void respond('DECLINE')}
+                style={({ pressed }) => [styles.callButton, styles.decline, (pressed || busy) && styles.pressed]}
               >
-                <MessageSquare size={24} color="#FFFFFF" />
-                <Text style={[styles.actionText, { color: '#FFFFFF' }]}>Chat</Text>
+                {busy ? <ActivityIndicator color="#FFFFFF" /> : <PhoneOff size={20} color="#FFFFFF" />}
+                <Text style={styles.actionText}>{isChat ? 'Dismiss' : 'Decline'}</Text>
               </Pressable>
-            )}
 
-            <Pressable
-              accessibilityRole="button"
-              accessibilityLabel="Accept incoming V MOTIV Connect request"
-              disabled={busy}
-              onPress={() => void respond('ACCEPT')}
-              style={({ pressed }) => [styles.callButton, styles.accept, (pressed || busy) && styles.pressed]}
-            >
-              {busy ? (
-                <ActivityIndicator color="#061A38" />
-              ) : isChat ? (
-                <MessageSquare size={24} color="#061A38" />
-              ) : (
-                <Phone size={24} color="#061A38" />
+              {!isChat && (
+                <Pressable
+                  accessibilityRole="button"
+                  accessibilityLabel="Chat with caller instead"
+                  disabled={busy}
+                  onPress={() => void respond('ACCEPT', true)}
+                  style={({ pressed }) => [
+                    styles.callButton,
+                    { backgroundColor: 'rgba(255,255,255,0.12)', borderColor: theme.colors.border, borderWidth: 1 },
+                    (pressed || busy) && styles.pressed,
+                  ]}
+                >
+                  <MessageSquare size={20} color="#FFFFFF" />
+                  <Text style={[styles.actionText, { color: '#FFFFFF' }]}>Chat</Text>
+                </Pressable>
               )}
-              <Text style={[styles.actionText, { color: '#061A38' }]}>{isChat ? 'Open Chat' : 'Pick up'}</Text>
-            </Pressable>
-          </View>
+
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Accept incoming V MOTIV Connect request"
+                disabled={busy}
+                onPress={() => void respond('ACCEPT')}
+                style={({ pressed }) => [styles.callButton, styles.accept, (pressed || busy) && styles.pressed]}
+              >
+                {busy ? (
+                  <ActivityIndicator color="#061A38" />
+                ) : isChat ? (
+                  <MessageSquare size={20} color="#061A38" />
+                ) : (
+                  <Phone size={20} color="#061A38" />
+                )}
+                <Text style={[styles.actionText, { color: '#061A38' }]}>{isChat ? 'Open Chat' : 'Pick up'}</Text>
+              </Pressable>
+            </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -284,15 +305,24 @@ export function ConnectIncomingCallOverlay() {
 }
 
 const styles = StyleSheet.create({
-  scrim: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.lg, backgroundColor: 'rgba(2,11,24,0.78)' },
-  card: { width: '100%', maxWidth: 420, borderRadius: radius.card, borderWidth: 1, padding: space.xl, alignItems: 'center', gap: 10 },
-  avatar: { width: 80, height: 80, borderRadius: 40, alignItems: 'center', justifyContent: 'center', marginBottom: 6 },
-  eyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 1.1 }, title: { fontSize: 23, fontWeight: '800', textAlign: 'center' }, vehicle: { fontSize: 14, textAlign: 'center' },
-  previewBox: { width: '100%', borderWidth: 1, borderRadius: radius.md, padding: 10, marginTop: 6, gap: 2 },
-  previewLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase' },
-  previewText: { fontSize: 13, fontStyle: 'italic', lineHeight: 18 },
-  privacy: { width: '100%', borderWidth: 1, borderRadius: radius.md, padding: 12, flexDirection: 'row', gap: 9, marginTop: 8 }, privacyText: { flex: 1, fontSize: 12, lineHeight: 17 },
-  actions: { flexDirection: 'row', gap: 18, marginTop: 16 }, callButton: { width: 112, minHeight: 94, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center', gap: 7 }, accept: { backgroundColor: '#10B981' }, decline: { backgroundColor: '#EF4444' }, actionText: { color: '#FFFFFF', fontSize: 13, fontWeight: '800' }, pressed: { opacity: 0.72 },
+  scrim: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: space.md, backgroundColor: 'rgba(2,11,24,0.78)' },
+  card: { width: '100%', maxWidth: 400, maxHeight: '88%', borderRadius: radius.card, borderWidth: 1, overflow: 'hidden' },
+  cardScroll: { alignItems: 'center', padding: space.lg, gap: 8 },
+  avatar: { width: 56, height: 56, borderRadius: 28, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
+  eyebrow: { fontSize: 11, fontWeight: '800', letterSpacing: 1.1 },
+  title: { fontSize: 20, fontWeight: '800', textAlign: 'center' },
+  vehicle: { fontSize: 13, textAlign: 'center' },
+  previewBox: { width: '100%', borderWidth: 1, borderRadius: radius.md, padding: 8, marginTop: 4, gap: 2 },
+  previewLabel: { fontSize: 10, fontWeight: '700', textTransform: 'uppercase' },
+  previewText: { fontSize: 12, fontStyle: 'italic', lineHeight: 16 },
+  privacy: { width: '100%', borderWidth: 1, borderRadius: radius.md, padding: 8, flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
+  privacyText: { flex: 1, fontSize: 11, lineHeight: 15 },
+  actions: { flexDirection: 'row', width: '100%', gap: 8, marginTop: 12 },
+  callButton: { flex: 1, minHeight: 52, height: 54, paddingVertical: 6, paddingHorizontal: 4, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center', gap: 4 },
+  accept: { backgroundColor: '#10B981' },
+  decline: { backgroundColor: '#EF4444' },
+  actionText: { color: '#FFFFFF', fontSize: 12, fontWeight: '800' },
+  pressed: { opacity: 0.72 },
   resumeWrap: { flex: 1, justifyContent: 'flex-start', paddingTop: 50 },
   resumeCard: { marginHorizontal: space.md, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderRadius: radius.lg, padding: 12, elevation: 4, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.18, shadowRadius: 6 },
   resumeInfo: { flex: 1, gap: 2 },

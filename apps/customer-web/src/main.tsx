@@ -346,11 +346,47 @@ function PublicConnectPage({ token }: { token: string }) {
         }
       };
 
+      const pendingIceCandidates: RTCIceCandidateInit[] = [];
+
+      const flushPendingIce = async () => {
+        while (pendingIceCandidates.length > 0) {
+          const cand = pendingIceCandidates.shift();
+          if (cand && pc.signalingState !== 'closed') {
+            try {
+              await pc.addIceCandidate(cand);
+            } catch {
+              // Ignore invalid or stale candidate
+            }
+          }
+        }
+      };
+
+      const resendOffer = () => {
+        if (pc.localDescription && pc.signalingState !== 'closed' && pc.connectionState !== 'connected') {
+          const offerPayload = { type: pc.localDescription.type, sdp: pc.localDescription.sdp };
+          socket.emit('webrtc:signal', { kind: 'OFFER', payload: offerPayload });
+          void request(`/calls/${call.callSessionId}/signals`, { kind: 'OFFER', payload: offerPayload }).catch(() => undefined);
+        }
+      };
+
+      socket.on('peer:joined', ({ from }) => {
+        if (from === 'OWNER') resendOffer();
+      });
+
+      socket.on('call:ready', () => {
+        resendOffer();
+      });
+
       socket.on('webrtc:signal', async ({ message }) => {
         if (message?.kind === 'ANSWER' && pc.signalingState !== 'closed') {
           await pc.setRemoteDescription(message.payload);
-        } else if (message?.kind === 'ICE' && pc.signalingState !== 'closed') {
-          await pc.addIceCandidate(message.payload);
+          await flushPendingIce();
+        } else if (message?.kind === 'ICE' && message.payload && pc.signalingState !== 'closed') {
+          if (pc.remoteDescription) {
+            await pc.addIceCandidate(message.payload).catch(() => undefined);
+          } else {
+            pendingIceCandidates.push(message.payload);
+          }
         } else if (message?.kind === 'HANGUP' || message?.kind === 'CLOSE') {
           setCallPhase('DECLINED');
           cleanupCall();
@@ -387,8 +423,13 @@ function PublicConnectPage({ token }: { token: string }) {
               if (sig.senderRole !== 'OWNER') continue;
               if (sig.kind === 'ANSWER' && pc.signalingState === 'have-local-offer') {
                 await pc.setRemoteDescription(new RTCSessionDescription(sig.payload));
+                await flushPendingIce();
               } else if (sig.kind === 'ICE' && sig.payload && pc.signalingState !== 'closed') {
-                await pc.addIceCandidate(new RTCIceCandidate(sig.payload));
+                if (pc.remoteDescription) {
+                  await pc.addIceCandidate(new RTCIceCandidate(sig.payload)).catch(() => undefined);
+                } else {
+                  pendingIceCandidates.push(sig.payload);
+                }
               } else if (sig.kind === 'HANGUP' || sig.kind === 'CLOSE') {
                 setCallPhase('DECLINED');
                 cleanupCall();

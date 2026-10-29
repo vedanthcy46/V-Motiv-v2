@@ -62,6 +62,7 @@ function setupApp() {
   let links: any[] = [];
   let alerts: any[] = [];
   let callSessions: any[] = [];
+  let callSignals: any[] = [];
   let auditEvents: any[] = [];
 
   const mockDb: any = {
@@ -166,6 +167,7 @@ function setupApp() {
         const found = callSessions.find((call) => {
           if (where.linkId && call.linkId !== where.linkId) return false;
           if (where.callSessionId && call.callSessionId !== where.callSessionId) return false;
+          if (where.callerType && call.callerType !== where.callerType) return false;
           if (where.status?.in && !where.status.in.includes(call.status)) return false;
           if (where.link?.userId) {
             const link = links.find((item) => item.id === call.linkId);
@@ -215,6 +217,16 @@ function setupApp() {
         });
         return Promise.resolve({ count });
       }),
+    },
+    connectCallSignal: {
+      create: vi.fn().mockImplementation(({ data }) => {
+        const signal = { id: crypto.randomUUID(), ...data, createdAt: new Date() };
+        callSignals.push(signal);
+        return Promise.resolve(signal);
+      }),
+      findMany: vi.fn().mockImplementation(({ where }) => Promise.resolve(
+        callSignals.filter(signal => signal.callId === where.callId)
+      )),
     },
     connectIntegrationAuditEvent: {
       create: vi.fn().mockImplementation(({ data }) => {
@@ -463,6 +475,35 @@ describe('V MOTIV V2 — Connect Integration API Suite', () => {
       .send({ decision: 'ACCEPT' });
     expect(answered.status).toBe(200);
     expect(answered.body.status).toBe('ACCEPTED');
+  });
+
+  it('12a. does not let an active passerby chat suppress a new voice call', async () => {
+    const { app } = setupApp();
+    const issue = await request(app)
+      .post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/issue`)
+      .set('Authorization', 'Bearer valid-customer-token')
+      .send({});
+    const token = issue.body.stickerUrl.split('/').pop();
+
+    const chat = await request(app)
+      .post(`/api/v2/public/connect/${token}/call-requests`)
+      .send({ consentGiven: true, mode: 'CHAT', initialMessage: 'Is this vehicle blocking the gate?' });
+    expect(chat.status).toBe(201);
+    expect(chat.body.status).toBe('RINGING');
+
+    const voice = await request(app)
+      .post(`/api/v2/public/connect/${token}/call-requests`)
+      .send({ consentGiven: true, mode: 'VOICE' });
+    expect(voice.status).toBe(201);
+    expect(voice.body.status).toBe('RINGING');
+    expect(voice.body.callSessionId).not.toBe(chat.body.callSessionId);
+
+    const incoming = await request(app)
+      .get('/api/v2/customer/connect/calls/incoming')
+      .set('Authorization', 'Bearer valid-customer-token');
+    expect(incoming.status).toBe(200);
+    expect(incoming.body.items).toHaveLength(2);
+    expect(incoming.body.items.some((item: { callerType: string }) => item.callerType === 'visitor')).toBe(true);
   });
 
   it('13. POST /api/v2/public/connect/:token/alerts supports photos and POST /:token/photos uploads image', async () => {

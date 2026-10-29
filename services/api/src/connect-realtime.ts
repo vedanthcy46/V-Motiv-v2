@@ -51,15 +51,36 @@ export function attachConnectRealtime(http: HttpServer) {
     next();
   });
 
+  const roomSignals = new Map<string, Array<{ from: 'OWNER' | 'VISITOR'; message: unknown; at: number }>>();
+
   io.on('connection', socket => {
     const ticket = socket.data.ticket as Ticket;
     const room = `connect:${ticket.callSessionId}`;
     socket.join(room);
 
+    // Replay any buffered signals from the other party so late-joining peers (like the owner picking up) receive OFFER and ICE candidates immediately
+    const existing = roomSignals.get(room) || [];
+    for (const item of existing) {
+      if (item.from !== ticket.role) {
+        socket.emit('webrtc:signal', { from: item.from, message: item.message });
+      }
+    }
+
     // Notify existing peer in the room that a participant joined
     socket.to(room).emit('peer:joined', { from: ticket.role });
 
+    socket.on('call:ready', () => {
+      // Broadcast ready event so caller can re-send OFFER if needed
+      socket.to(room).emit('call:ready', { from: ticket.role });
+    });
+
     socket.on('webrtc:signal', (message: unknown) => {
+      // Buffer signals in memory for late joiners (keep last 40 signals, max 15 mins)
+      const list = roomSignals.get(room) || [];
+      list.push({ from: ticket.role, message, at: Date.now() });
+      if (list.length > 50) list.shift();
+      roomSignals.set(room, list);
+
       socket.to(room).emit('webrtc:signal', { from: ticket.role, message });
     });
 
@@ -72,6 +93,7 @@ export function attachConnectRealtime(http: HttpServer) {
     });
 
     socket.on('call:hangup', () => {
+      roomSignals.delete(room);
       socket.to(room).emit('call:hangup', { from: ticket.role });
     });
 

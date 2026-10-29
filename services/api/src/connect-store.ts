@@ -12,6 +12,9 @@ export function sha256(text: string): string {
   return crypto.createHash('sha256').update(text).digest('hex');
 }
 
+/** In-memory fallback for call signals if production database lacks the ConnectCallSignal table */
+const memorySignalsByCall = new Map<string, Array<{ id: string; kind: string; senderRole: string; payload: unknown; createdAt: Date }>>();
+
 export function verifyConnectSignature(rawBody: string, signature: string, secret: string): boolean {
   if (!signature || !secret) return false;
   const hmac = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
@@ -486,8 +489,12 @@ export class PrismaConnectStore {
       data: { status: 'CLOSED' },
     });
 
+    // Chat and voice are separate customer journeys.  A live passerby chat
+    // must never swallow a subsequent voice-call request (or vice versa),
+    // otherwise the owner receives no incoming-call prompt.
+    const callerType = isChat ? 'visitor_chat' : 'visitor';
     const existing = await this.db.connectCallSessionReference.findFirst({
-      where: { linkId: link.id, status: { in: ['RINGING', 'ACCEPTED'] } },
+      where: { linkId: link.id, callerType, status: { in: ['RINGING', 'ACCEPTED'] } },
       orderBy: { createdAt: 'desc' },
     });
     if (existing) {
@@ -516,7 +523,7 @@ export class PrismaConnectStore {
           callSessionId,
           provider: 'V_MOTIV_CONNECT',
           status: 'RINGING',
-          callerType: isChat ? 'visitor_chat' : 'visitor',
+          callerType,
         },
       });
       await tx.connectNotificationReference.create({
@@ -673,6 +680,10 @@ export class PrismaConnectStore {
       await this.db.connectCallSignal.create({ data: { callId: call.id, senderRole: 'VISITOR', kind, payload: payload as Prisma.InputJsonValue } });
     } catch (e: any) {
       if (e?.code !== 'P2021') throw e;
+      const list = memorySignalsByCall.get(call.id) || [];
+      list.push({ id: crypto.randomUUID(), kind, senderRole: 'VISITOR', payload, createdAt: new Date() });
+      if (list.length > 100) list.shift();
+      memorySignalsByCall.set(call.id, list);
     }
 
     // When visitor sends a chat message, notify owner immediately with sound
@@ -705,6 +716,8 @@ export class PrismaConnectStore {
       });
     } catch (e: any) {
       if (e?.code !== 'P2021') throw e;
+      const memList = memorySignalsByCall.get(call.id) || [];
+      signals = after ? memList.filter(s => s.createdAt > after) : memList;
     }
     return {
       status: call.status,
@@ -736,6 +749,10 @@ export class PrismaConnectStore {
       await this.db.connectCallSignal.create({ data: { callId: call.id, senderRole: 'OWNER', kind, payload: payload as Prisma.InputJsonValue } });
     } catch (e: any) {
       if (e?.code !== 'P2021') throw e;
+      const list = memorySignalsByCall.get(call.id) || [];
+      list.push({ id: crypto.randomUUID(), kind, senderRole: 'OWNER', payload, createdAt: new Date() });
+      if (list.length > 100) list.shift();
+      memorySignalsByCall.set(call.id, list);
     }
     return { success: true };
   }
@@ -754,6 +771,8 @@ export class PrismaConnectStore {
       });
     } catch (e: any) {
       if (e?.code !== 'P2021') throw e;
+      const memList = memorySignalsByCall.get(call.id) || [];
+      signals = after ? memList.filter(s => s.createdAt > after) : memList;
     }
     return {
       status: call.status,
