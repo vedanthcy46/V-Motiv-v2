@@ -74,6 +74,7 @@ export interface AdminStore {
   serviceAreas(actor: AdminActor): Promise<unknown[]>;
   createServiceArea(actor: AdminActor, name: string): Promise<unknown>;
   updateServiceArea(actor: AdminActor, id: string, active: boolean): Promise<unknown>;
+  deleteServiceArea(actor: AdminActor, id: string): Promise<unknown>;
   supportCases(actor: AdminActor, query: SupportCaseListQuery): Promise<unknown>;
   updateSupportCase(actor: AdminActor, id: string, input: { status: SupportCaseStatus; note?: string }): Promise<unknown>;
   replySupportCase(actor: AdminActor, id: string, body: string): Promise<unknown>;
@@ -276,6 +277,25 @@ export class PrismaAdminStore implements AdminStore {
       });
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: active ? 'SERVICE_AREA_ACTIVATED' : 'SERVICE_AREA_DEACTIVATED', entityType: 'SupportedCity', entityId: city.id, details: { name: city.name } } });
       return city;
+    });
+  }
+
+  async deleteServiceArea(actor: AdminActor, id: string) {
+    requirePermission(actor, 'branch.manage');
+    return this.db.$transaction(async tx => {
+      const city = await tx.supportedCity.findUnique({ where: { id } });
+      if (!city) throw new HttpError(404, 'SERVICE_AREA_NOT_FOUND');
+      const [users, vehicles, leads] = await Promise.all([
+        tx.user.count({ where: { preferredCity: city.name } }),
+        tx.vehicle.count({ where: { city: city.name } }),
+        tx.acquisitionLead.count({ where: { city: city.name } }),
+      ]);
+      if (users > 0 || vehicles > 0 || leads > 0) {
+        throw new HttpError(400, 'CANNOT_DELETE_SERVICE_AREA_IN_USE');
+      }
+      await tx.supportedCity.delete({ where: { id } });
+      await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'SERVICE_AREA_DELETED', entityType: 'SupportedCity', entityId: id, details: { name: city.name } } });
+      return { success: true };
     });
   }
 

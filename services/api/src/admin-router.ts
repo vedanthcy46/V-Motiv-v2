@@ -161,6 +161,7 @@ export function createAdminRouter(deps: {
   router.get('/admin/service-areas', async (_req, res) => res.json(await deps.store.serviceAreas(res.locals.adminActor as AdminActor)));
   router.post('/admin/service-areas', async (req, res) => res.status(201).json(await deps.store.createServiceArea(res.locals.adminActor as AdminActor, parse(serviceAreaCreateInput, req.body).name)));
   router.patch('/admin/service-areas/:id', async (req, res) => res.json(await deps.store.updateServiceArea(res.locals.adminActor as AdminActor, parse(uuid, req.params.id), parse(serviceAreaUpdateInput, req.body).active)));
+  router.delete('/admin/service-areas/:id', async (req, res) => res.json(await deps.store.deleteServiceArea(res.locals.adminActor as AdminActor, parse(uuid, req.params.id))));
   router.get('/admin/support/cases', async (req, res) => res.json(await deps.store.supportCases(res.locals.adminActor as AdminActor, parse(supportQuery, req.query))));
   router.patch('/admin/support/cases/:id', async (req, res) => res.json(await deps.store.updateSupportCase(res.locals.adminActor as AdminActor, parse(uuid, req.params.id), parse(supportUpdateInput, req.body))));
   router.post('/admin/support/cases/:id/replies', async (req, res) => {

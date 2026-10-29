@@ -71,6 +71,7 @@ export const adminApi = {
   serviceAreas: (user: User) => call<ServiceArea[]>(user, '/admin/service-areas'),
   createServiceArea: (user: User, name: string) => call<ServiceArea>(user, '/admin/service-areas', { method: 'POST', body: JSON.stringify({ name }) }),
   updateServiceArea: (user: User, id: string, active: boolean) => call<ServiceArea>(user, `/admin/service-areas/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }),
+  deleteServiceArea: (user: User, id: string) => call<{ success: boolean }>(user, `/admin/service-areas/${id}`, { method: 'DELETE' }),
   supportCases: (user: User, page = 1, status?: string, search?: string) => call<SupportCasePage>(user, `/admin/support/cases?${new URLSearchParams({ page: String(page), limit: '25', ...(status ? { status } : {}), ...(search ? { search } : {}) })}`),
   updateSupportCase: (user: User, id: string, status: string, note?: string) => call(user, `/admin/support/cases/${id}`, { method: 'PATCH', body: JSON.stringify({ status, ...(note ? { note } : {}) }) }),
   replySupportCase: (user: User, id: string, body: string) => call(user, `/admin/support/cases/${id}/replies`, { method: 'POST', body: JSON.stringify({ body }) }),

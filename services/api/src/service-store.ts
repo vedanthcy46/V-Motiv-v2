@@ -532,9 +532,9 @@ export const DEFAULT_SERVICE_HUBS = [
   },
   {
     code: 'HUB-BLR-01',
-    name: 'V MOTIV Tech Service Hub — Bangalore',
-    city: 'Bangalore',
-    address: 'Survey 112/1, Outer Ring Road, Bellandur, Bangalore, Karnataka 560103',
+    name: 'V MOTIV Tech Service Hub — Bengaluru',
+    city: 'Bengaluru',
+    address: 'Survey 112/1, Outer Ring Road, Bellandur, Bengaluru, Karnataka 560103',
     latitude: 12.9260,
     longitude: 77.6762,
     operatingHours: '08:00 - 20:00 Mon-Sat',
@@ -742,7 +742,12 @@ export class PrismaServiceStore {
     await this.ensureSeedData();
     const where: Prisma.ServiceHubWhereInput = { isActive: true };
     if (city) {
-      where.city = { equals: city, mode: 'insensitive' };
+      const c = city.trim().toLowerCase();
+      if (c === 'bengaluru' || c === 'bangalore') {
+        where.city = { in: ['Bengaluru', 'Bangalore'], mode: 'insensitive' };
+      } else {
+        where.city = { equals: city.trim(), mode: 'insensitive' };
+      }
     }
     const hubs = await this.db.serviceHub.findMany({
       where,

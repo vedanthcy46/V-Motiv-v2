@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -37,6 +37,7 @@ import {
   Zap,
 } from 'lucide-react-native';
 import { useAppTheme, radius, space } from '../theme';
+import { useAuth } from '../auth/AuthProvider';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 import { useKeyboard } from '../components/KeyboardAwareFormScreen';
 import {
@@ -73,6 +74,8 @@ export function ServiceHomeScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const preselectedVehicleId = route.params?.preselectedVehicleId as string | undefined;
+  const { profile } = useAuth();
+  const userCity = profile?.preferredCity || 'Bengaluru';
   const { theme, isDark } = useAppTheme();
   const c = {
     ...theme.colors,
@@ -112,10 +115,23 @@ export function ServiceHomeScreen() {
   const [pickupAddress, setPickupAddress] = useState({
     line1: '',
     line2: '',
-    city: 'Chennai',
-    pincode: '600032',
+    city: userCity,
+    pincode: userCity.toLowerCase().includes('chennai') ? '600032' : '560103',
     instructions: '',
   });
+
+  const cityHubs = useMemo(() => {
+    if (!hubs.length) return [];
+    const normalized = (userCity || '').toLowerCase().trim();
+    const filtered = hubs.filter(h => {
+      const hCity = h.city.toLowerCase().trim();
+      if (hCity === normalized) return true;
+      if ((normalized.includes('bengaluru') || normalized.includes('bangalore')) &&
+          (hCity.includes('bengaluru') || hCity.includes('bangalore'))) return true;
+      return false;
+    });
+    return filtered.length > 0 ? filtered : hubs;
+  }, [hubs, userCity]);
 
   // Load initial data
   const loadData = useCallback(async () => {
@@ -139,7 +155,14 @@ export function ServiceHomeScreen() {
         }
       }
       if (hList.length > 0) {
-        setSelectedHub(hList[0] || null);
+        const normalized = (userCity || '').toLowerCase().trim();
+        const cityMatch = hList.find(h => {
+          const hCity = h.city.toLowerCase().trim();
+          return hCity === normalized ||
+            ((normalized.includes('bengaluru') || normalized.includes('bangalore')) &&
+             (hCity.includes('bengaluru') || hCity.includes('bangalore')));
+        });
+        setSelectedHub(cityMatch || hList[0] || null);
       }
 
       // Default date to tomorrow
@@ -660,7 +683,10 @@ export function ServiceHomeScreen() {
       {/* Hub Selector */}
       <View style={[styles.addressBox, { backgroundColor: c.surface, borderColor: c.border }]}>
         <Text style={[styles.addressBoxTitle, { color: c.text }]}>Service Hub Location</Text>
-        {hubs.map(h => {
+        <Text style={{ color: c.textMuted, fontSize: 12, marginBottom: space.sm }}>
+          Available service centers in {userCity}:
+        </Text>
+        {cityHubs.map((h: ServiceHub) => {
           const isSelected = selectedHub?.id === h.id;
           return (
             <TouchableOpacity
