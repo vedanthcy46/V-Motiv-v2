@@ -15,6 +15,7 @@ import { PrismaFinanceStore } from './finance-store.js';
 import { PrismaServiceStore } from './service-store.js';
 import { PrismaRentalStore } from './rental-store.js';
 import { PrismaConnectStore } from './connect-store.js';
+import { attachConnectRealtime } from './connect-realtime.js';
 import { processEmail, resendSender } from './email.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
 
@@ -120,6 +121,7 @@ const app = createApp({
   drainEmails: drainOutbox,
 });
 const server = app.listen(config.PORT, '0.0.0.0', () => console.info(`V MOTIV V2 API listening on 0.0.0.0:${config.PORT}`));
+attachConnectRealtime(server);
 
 async function shutdown() {
   if (emailInterval) clearInterval(emailInterval);

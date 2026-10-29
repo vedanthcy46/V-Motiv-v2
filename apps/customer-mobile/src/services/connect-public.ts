@@ -3,7 +3,7 @@
  * send a Firebase token: a passer-by must be able to alert an owner without an
  * account, and the API returns no registration number, address, or phone data.
  */
-import { resolveRequestUrl } from '../api';
+import { apiBaseUrl, resolveRequestUrl } from '../api';
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
@@ -99,3 +99,48 @@ export async function requestPublicConnectCall(token: string): Promise<{ callSes
     body: JSON.stringify({ consentGiven: true }),
   });
 }
+
+export async function fetchPublicRealtimeTicket(
+  token: string,
+  callSessionId: string,
+): Promise<{ ticket: string; expiresAt: string }> {
+  return request(`/${encodeURIComponent(token)}/calls/${encodeURIComponent(callSessionId)}/realtime-ticket`, {
+    method: 'POST',
+  });
+}
+
+export type WebRtcSignal = {
+  id?: string;
+  kind: 'OFFER' | 'ANSWER' | 'ICE' | 'HANGUP';
+  payload: Record<string, unknown>;
+  createdAt?: string;
+};
+
+export async function fetchPublicCallSignals(
+  token: string,
+  callSessionId: string,
+  after?: string,
+): Promise<{ status: string; items: WebRtcSignal[] }> {
+  return request(`/${encodeURIComponent(token)}/calls/${encodeURIComponent(callSessionId)}/signals${after ? `?after=${encodeURIComponent(after)}` : ''}`);
+}
+
+export async function sendPublicCallSignal(
+  token: string,
+  callSessionId: string,
+  kind: WebRtcSignal['kind'],
+  payload: Record<string, unknown>,
+) {
+  return request(`/${encodeURIComponent(token)}/calls/${encodeURIComponent(callSessionId)}/signals`, {
+    method: 'POST',
+    body: JSON.stringify({ kind, payload }),
+  });
+}
+
+export function resolveRealtimeSocketUrl(): string {
+  if (process.env.EXPO_PUBLIC_REALTIME_URL) {
+    return process.env.EXPO_PUBLIC_REALTIME_URL;
+  }
+  const base = apiBaseUrl();
+  return base.replace(/\/api\/v[0-9]+\/?$/, '').replace(/\/api\/?$/, '');
+}
+

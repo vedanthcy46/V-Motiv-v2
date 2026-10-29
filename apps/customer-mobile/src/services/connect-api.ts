@@ -162,3 +162,19 @@ export async function respondToIncomingConnectCall(callSessionId: string, decisi
     body: jsonBody({ decision }),
   });
 }
+
+export type WebRtcSignal = { id: string; kind: 'OFFER' | 'ANSWER' | 'ICE' | 'HANGUP'; payload: Record<string, unknown>; createdAt: string };
+
+export async function fetchOwnerCallSignals(callSessionId: string, after?: string): Promise<{ status: string; items: WebRtcSignal[] }> {
+  return api(`/api/v2/customer/connect/calls/${callSessionId}/signals${after ? `?after=${encodeURIComponent(after)}` : ''}`);
+}
+
+export async function sendOwnerCallSignal(callSessionId: string, kind: WebRtcSignal['kind'], payload: Record<string, unknown>) {
+  return api(`/api/v2/customer/connect/calls/${callSessionId}/signals`, { method: 'POST', body: jsonBody({ kind, payload }) });
+}
+
+export async function fetchOwnerRealtimeTicket(callSessionId: string): Promise<{ ticket: string; expiresAt: string }> {
+  return api(`/api/v2/customer/connect/calls/${encodeURIComponent(callSessionId)}/realtime-ticket`, {
+    method: 'POST',
+  });
+}

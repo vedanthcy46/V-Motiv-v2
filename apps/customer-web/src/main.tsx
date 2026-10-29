@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
+import { io } from 'socket.io-client';
 import {
   browserPopupRedirectResolver,
   GoogleAuthProvider,
@@ -42,7 +43,7 @@ function connectApiUrl(path: string) {
   return `${origin}/api/v2/public/connect${path}`;
 }
 
-function PublicConnectPage({ token }: { token: string }) {
+function LegacyPublicConnectPage({ token }: { token: string }) {
   const [vehicle, setVehicle] = useState<ConnectVehicle | null>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -79,7 +80,40 @@ function PublicConnectPage({ token }: { token: string }) {
     if (store) window.setTimeout(() => window.location.assign(store), 1400);
   };
 
-  return <main className="connect-public-page"><section className="connect-public-card"><img src="/brand/vmotiv-logo.svg" alt="V MOTIV" className="connect-logo" /><p className="connect-kicker">V MOTIV CONNECT</p><h1>{vehicle ? vehicle.nickname : 'Secure vehicle alert'}</h1><p className="connect-lead">Send an owner a privacy-protected alert. Their name, number, and address are never displayed.</p>{error ? <p className="connect-error">{error}</p> : !vehicle ? <p className="connect-lead">Checking the secure sticker…</p> : <><div className="connect-actions"><button type="button" onClick={openApp}>Open in V MOTIV app</button><button type="button" className="connect-secondary" disabled={busy} onClick={() => void send('/call-requests', { consentGiven: true }, 'Your call request was sent to the vehicle owner. Their contact details remain private.')}>Request a private call</button></div><label htmlFor="connect-reason">What do you need to report?</label><select id="connect-reason" value={reason} onChange={event => setReason(event.target.value)}><option value="BLOCKING_ACCESS">Vehicle is blocking access</option><option value="LIGHTS_ON">Lights are left on</option><option value="DAMAGE_OR_ACCIDENT">Damage or accident concern</option><option value="SAFETY_CONCERN">Safety concern</option><option value="OTHER">Other concern</option></select><label htmlFor="connect-message">Optional message</label><textarea id="connect-message" value={message} onChange={event => setMessage(event.target.value)} maxLength={300} placeholder="Example: Your headlights appear to be on." /><button type="button" disabled={busy} onClick={() => void send('/alerts', { reason, message: message.trim() || undefined }, 'Your private alert has been sent to the owner.')}>{busy ? 'Sending…' : 'Send private alert'}</button></>}</section></main>;
+  return <main className="connect-public-page"><section className="connect-public-card"><img src="../dist/brand/vmotiv-icon.png" alt="V MOTIV" className="connect-logo" /><p className="connect-kicker">V MOTIV CONNECT</p><h1>{vehicle ? vehicle.nickname : 'Secure vehicle alert'}</h1><p className="connect-lead">Send an owner a privacy-protected alert. Their name, number, and address are never displayed.</p>{error ? <p className="connect-error">{error}</p> : !vehicle ? <p className="connect-lead">Checking the secure sticker…</p> : <><div className="connect-actions"><button type="button" onClick={openApp}>Open in V MOTIV app</button><button type="button" className="connect-secondary" disabled={busy} onClick={() => void send('/call-requests', { consentGiven: true }, 'Your call request was sent to the vehicle owner. Their contact details remain private.')}>Request a private call</button></div><label htmlFor="connect-reason">What do you need to report?</label><select id="connect-reason" value={reason} onChange={event => setReason(event.target.value)}><option value="BLOCKING_ACCESS">Vehicle is blocking access</option><option value="LIGHTS_ON">Lights are left on</option><option value="DAMAGE_OR_ACCIDENT">Damage or accident concern</option><option value="SAFETY_CONCERN">Safety concern</option><option value="OTHER">Other concern</option></select><label htmlFor="connect-message">Optional message</label><textarea id="connect-message" value={message} onChange={event => setMessage(event.target.value)} maxLength={300} placeholder="Example: Your headlights appear to be on." /><button type="button" disabled={busy} onClick={() => void send('/alerts', { reason, message: message.trim() || undefined }, 'Your private alert has been sent to the owner.')}>{busy ? 'Sending…' : 'Send private alert'}</button></>}</section></main>;
+}
+
+function PublicConnectPage({ token }: { token: string }) {
+  const [phase, setPhase] = useState<'READY' | 'CALLING' | 'CONNECTED' | 'ERROR'>('READY');
+  const [chat, setChat] = useState<{ from: string; text: string }[]>([]);
+  const [text, setText] = useState('');
+  const socketRef = useRef<ReturnType<typeof io> | null>(null);
+  const peerRef = useRef<RTCPeerConnection | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const request = async (path: string, body?: unknown) => {
+    const response = await fetch(connectApiUrl(`/${encodeURIComponent(token)}${path}`), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
+    const value = await response.json().catch(() => ({})); if (!response.ok) throw new Error(value.code || 'REQUEST_FAILED'); return value;
+  };
+  const startCall = async () => {
+    try {
+      const realtimeUrl = import.meta.env.VITE_REALTIME_URL;
+      if (!realtimeUrl) throw new Error('REALTIME_NOT_CONFIGURED');
+      setPhase('CALLING'); const call = await request('/call-requests', { consentGiven: true });
+      const ticket = await request(`/calls/${call.callSessionId}/realtime-ticket`);
+      const socket = io(realtimeUrl, { transports: ['websocket'], auth: { ticket: ticket.ticket } }); socketRef.current = socket;
+      const pc = new RTCPeerConnection({ iceServers: [{ urls: ['stun:stun.l.google.com:19302'] }] }); peerRef.current = pc;
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true }); stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      pc.onicecandidate = event => { if (event.candidate) socket.emit('webrtc:signal', { kind: 'ICE', payload: event.candidate.toJSON() }); };
+      pc.ontrack = event => { if (audioRef.current) { audioRef.current.srcObject = event.streams[0]; void audioRef.current.play(); } };
+      pc.onconnectionstatechange = () => { if (pc.connectionState === 'connected') setPhase('CONNECTED'); };
+      socket.on('webrtc:signal', async ({ message }) => { if (message?.kind === 'ANSWER') await pc.setRemoteDescription(message.payload); else if (message?.kind === 'ICE') await pc.addIceCandidate(message.payload); });
+      socket.on('chat:message', item => setChat(current => [...current, { from: item.from, text: item.message?.text || '' }]));
+      const offer = await pc.createOffer(); await pc.setLocalDescription(offer); socket.emit('webrtc:signal', { kind: 'OFFER', payload: offer });
+    } catch { setPhase('ERROR'); }
+  };
+  const sendChat = () => { const value = text.trim(); if (!value || !socketRef.current) return; socketRef.current.emit('chat:message', { text: value }); setChat(current => [...current, { from: 'VISITOR', text: value }]); setText(''); };
+  const end = () => { socketRef.current?.emit('call:hangup'); socketRef.current?.disconnect(); peerRef.current?.close(); setPhase('READY'); };
+  return <main className="connect-public-page"><section className="connect-public-card"><img src="/brand/vmotiv-logo.svg" alt="V MOTIV" className="connect-logo"/><p className="connect-kicker">V MOTIV CONNECT</p><h1>Private vehicle contact</h1><p className="connect-lead">Contact the owner without seeing their number or identity.</p><audio ref={audioRef}/>{phase === 'READY' && <button type="button" onClick={() => void startCall()}>Call owner privately</button>}{phase === 'CALLING' && <p className="connect-lead">Calling securely… waiting for the owner to pick up.</p>}{phase === 'ERROR' && <><p className="connect-error">We could not start the private call. Allow microphone access and try again.</p><button type="button" onClick={() => void startCall()}>Try again</button></>}{phase === 'CONNECTED' && <><p className="connect-lead">Connected · Your number remains private</p><div className="connect-chat" aria-live="polite">{chat.map((item, index) => <p key={`${item.from}-${index}`}><strong>{item.from === 'VISITOR' ? 'You' : 'Owner'}:</strong> {item.text}</p>)}</div><label htmlFor="connect-chat-text">Private message</label><textarea id="connect-chat-text" value={text} onChange={event => setText(event.target.value)} maxLength={500}/><button type="button" onClick={sendChat}>Send message</button><button type="button" className="connect-secondary" onClick={end}>End call</button></>}</section></main>;
 }
 
 function MarketingApp() {

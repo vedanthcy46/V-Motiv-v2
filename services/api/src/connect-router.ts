@@ -58,6 +58,8 @@ const callRequestSchema = z.object({
 }).strict();
 
 const callDecisionSchema = z.object({ decision: z.enum(['ACCEPT', 'DECLINE']) }).strict();
+const callSignalSchema = z.object({ kind: z.enum(['OFFER', 'ANSWER', 'ICE', 'HANGUP']), payload: z.record(z.string(), z.unknown()) }).strict();
+const signalCursorSchema = z.object({ after: z.string().datetime().optional() });
 
 const paginationSchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
@@ -201,6 +203,16 @@ export function createConnectCustomerRouter(deps: {
     }
   });
 
+  router.get('/connect/calls/:callSessionId/signals', auth, async (req, res, next) => {
+    try { const identity = res.locals.identity as Identity; const { after } = parse(signalCursorSchema, req.query); res.json(await deps.store.listOwnerCallSignals(identity.uid, uuid.parse(req.params.callSessionId), after ? new Date(after) : undefined)); } catch (e) { next(e); }
+  });
+  router.post('/connect/calls/:callSessionId/signals', auth, async (req, res, next) => {
+    try { const identity = res.locals.identity as Identity; const input = parse(callSignalSchema, req.body); res.status(201).json(await deps.store.addOwnerCallSignal(identity.uid, uuid.parse(req.params.callSessionId), input.kind, input.payload)); } catch (e) { next(e); }
+  });
+  router.post('/connect/calls/:callSessionId/realtime-ticket', auth, async (req, res, next) => {
+    try { const identity = res.locals.identity as Identity; res.json(await deps.store.issueOwnerRealtimeTicket(identity.uid, uuid.parse(req.params.callSessionId))); } catch (e) { next(e); }
+  });
+
   return router;
 }
 
@@ -242,6 +254,15 @@ export function createConnectPublicRouter(deps: { store: PrismaConnectStore }) {
     } catch (e) {
       next(e);
     }
+  });
+  router.get('/:token/calls/:callSessionId/signals', async (req, res, next) => {
+    try { const { after } = parse(signalCursorSchema, req.query); res.json(await deps.store.listPublicCallSignals(token.parse(req.params.token), uuid.parse(req.params.callSessionId), after ? new Date(after) : undefined)); } catch (e) { next(e); }
+  });
+  router.post('/:token/calls/:callSessionId/signals', async (req, res, next) => {
+    try { const input = parse(callSignalSchema, req.body); res.status(201).json(await deps.store.addPublicCallSignal(token.parse(req.params.token), uuid.parse(req.params.callSessionId), input.kind, input.payload)); } catch (e) { next(e); }
+  });
+  router.post('/:token/calls/:callSessionId/realtime-ticket', async (req, res, next) => {
+    try { res.json(await deps.store.issuePublicRealtimeTicket(token.parse(req.params.token), uuid.parse(req.params.callSessionId))); } catch (e) { next(e); }
   });
   return router;
 }

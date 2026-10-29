@@ -4,6 +4,7 @@ import { Phone, PhoneOff, ShieldCheck } from 'lucide-react-native';
 import { useAuth } from '../auth/AuthProvider';
 import { fetchIncomingConnectCalls, respondToIncomingConnectCall, type IncomingConnectCall } from '../services/connect-api';
 import { radius, space, useAppTheme } from '../theme';
+import { ConnectVoiceCall } from './ConnectVoiceCall';
 
 /**
  * Foreground incoming-call experience for a genuine V2 Connect request. The
@@ -15,6 +16,7 @@ export function ConnectIncomingCallOverlay() {
   const { theme } = useAppTheme();
   const [call, setCall] = useState<IncomingConnectCall | null>(null);
   const [busy, setBusy] = useState(false);
+  const [activeCallId, setActiveCallId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     if (state !== 'signed-in') {
@@ -52,7 +54,7 @@ export function ConnectIncomingCallOverlay() {
       Vibration.cancel();
       setCall(null);
       if (decision === 'ACCEPT') {
-        Alert.alert('Request accepted', 'The V MOTIV Connect request is accepted. Direct phone numbers remain private. Voice relay starts only after a verified calling provider is enabled.');
+        setActiveCallId(call.callSessionId);
       }
     } catch (error: any) {
       Alert.alert('Unable to update request', error?.message || 'Please try again.');
@@ -62,6 +64,7 @@ export function ConnectIncomingCallOverlay() {
     }
   };
 
+  if (activeCallId) return <ConnectVoiceCall callSessionId={activeCallId} onClose={() => setActiveCallId(null)} />;
   if (!call) return null;
   const vehicle = call.link.vehicle;
   return (

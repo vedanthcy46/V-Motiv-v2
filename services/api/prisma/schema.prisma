@@ -2119,8 +2119,22 @@ model ConnectCallSessionReference {
   updatedAt DateTime @updatedAt
 
   link CustomerGarageConnectLink @relation(fields: [linkId], references: [id], onDelete: Cascade)
+  signals ConnectCallSignal[]
 
   @@index([linkId, status])
+}
+
+model ConnectCallSignal {
+  id String @id @default(uuid()) @db.Uuid
+  callId String @db.Uuid
+  senderRole String
+  kind String
+  payload Json
+  createdAt DateTime @default(now())
+
+  call ConnectCallSessionReference @relation(fields: [callId], references: [id], onDelete: Cascade)
+
+  @@index([callId, createdAt])
 }
 
 model ConnectIntegrationAuditEvent {

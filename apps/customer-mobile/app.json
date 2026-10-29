@@ -13,7 +13,8 @@
       "bundleIdentifier": "in.vmotiv.customer",
       "icon": "./assets/icon.png",
       "infoPlist": {
-        "NSCameraUsageDescription": "V MOTIV uses the camera only when you choose to scan a V MOTIV Connect QR sticker."
+        "NSCameraUsageDescription": "V MOTIV uses the camera only when you choose to scan a V MOTIV Connect QR sticker.",
+        "NSMicrophoneUsageDescription": "V MOTIV uses the microphone only during a private V MOTIV Connect voice call."
       }
     },
     "android": {
@@ -23,6 +24,7 @@
       "predictiveBackGestureEnabled": true,
       "permissions": [
         "CAMERA",
+        "RECORD_AUDIO",
         "POST_NOTIFICATIONS"
       ],
       "adaptiveIcon": {

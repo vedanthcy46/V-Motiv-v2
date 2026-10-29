@@ -1,4 +1,4 @@
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Prisma } from '@prisma/client';
 import crypto from 'node:crypto';
 import path from 'node:path';
 import fs from 'node:fs';
@@ -6,6 +6,7 @@ import QRCode from 'qrcode';
 import { HttpError } from './errors.js';
 import type { NotificationService } from './notification/notification-service.js';
 import { isCloudinaryConfigured, uploadToCloudinary } from './cloudinary.js';
+import { issueRealtimeTicket } from './connect-realtime.js';
 
 export function sha256(text: string): string {
   return crypto.createHash('sha256').update(text).digest('hex');
@@ -540,6 +541,54 @@ export class PrismaConnectStore {
       },
     });
     return { callSessionId: updated.callSessionId, status: updated.status };
+  }
+
+  async addPublicCallSignal(rawToken: string, callSessionId: string, kind: string, payload: Record<string, unknown>) {
+    const link = await this.db.customerGarageConnectLink.findFirst({ where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' } });
+    const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, linkId: link?.id } });
+    if (!call) throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
+    if (!['RINGING', 'ACCEPTED'].includes(call.status)) throw new HttpError(409, 'CONNECT_CALL_CLOSED');
+    await this.db.connectCallSignal.create({ data: { callId: call.id, senderRole: 'VISITOR', kind, payload: payload as Prisma.InputJsonValue } });
+    return { success: true };
+  }
+
+  async listPublicCallSignals(rawToken: string, callSessionId: string, after?: Date) {
+    const link = await this.db.customerGarageConnectLink.findFirst({ where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' } });
+    const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, linkId: link?.id } });
+    if (!call) throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
+    const signals = await this.db.connectCallSignal.findMany({ where: { callId: call.id, senderRole: 'OWNER', ...(after ? { createdAt: { gt: after } } : {}) }, orderBy: { createdAt: 'asc' }, take: 100 });
+    return { status: call.status, items: signals };
+  }
+
+  async addOwnerCallSignal(firebaseUid: string, callSessionId: string, kind: string, payload: Record<string, unknown>) {
+    const user = await this.db.user.findUnique({ where: { firebaseUid }, select: { id: true } });
+    const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, link: { userId: user?.id } } });
+    if (!call) throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
+    if (call.status !== 'ACCEPTED') throw new HttpError(409, 'CONNECT_CALL_NOT_ACCEPTED');
+    await this.db.connectCallSignal.create({ data: { callId: call.id, senderRole: 'OWNER', kind, payload: payload as Prisma.InputJsonValue } });
+    return { success: true };
+  }
+
+  async listOwnerCallSignals(firebaseUid: string, callSessionId: string, after?: Date) {
+    const user = await this.db.user.findUnique({ where: { firebaseUid }, select: { id: true } });
+    const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, link: { userId: user?.id } } });
+    if (!call) throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
+    const signals = await this.db.connectCallSignal.findMany({ where: { callId: call.id, senderRole: 'VISITOR', ...(after ? { createdAt: { gt: after } } : {}) }, orderBy: { createdAt: 'asc' }, take: 100 });
+    return { status: call.status, items: signals };
+  }
+
+  async issuePublicRealtimeTicket(rawToken: string, callSessionId: string) {
+    const link = await this.db.customerGarageConnectLink.findFirst({ where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' } });
+    const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, linkId: link?.id } });
+    if (!call) throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
+    return { ticket: issueRealtimeTicket({ callSessionId, role: 'VISITOR', exp: Date.now() + 15 * 60_000 }), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() };
+  }
+
+  async issueOwnerRealtimeTicket(firebaseUid: string, callSessionId: string) {
+    const user = await this.db.user.findUnique({ where: { firebaseUid }, select: { id: true } });
+    const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, link: { userId: user?.id } } });
+    if (!call || call.status !== 'ACCEPTED') throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
+    return { ticket: issueRealtimeTicket({ callSessionId, role: 'OWNER', exp: Date.now() + 15 * 60_000 }), expiresAt: new Date(Date.now() + 15 * 60_000).toISOString() };
   }
 
   private async dispatchOwnerNotification(input: {

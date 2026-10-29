@@ -200,3 +200,13 @@ DO $$ BEGIN ALTER TABLE "ServiceWorkOrder" ADD CONSTRAINT "ServiceWorkOrder_serv
 DO $$ BEGIN ALTER TABLE "ServiceQCRecord" ADD CONSTRAINT "ServiceQCRecord_serviceRequestId_fkey" FOREIGN KEY ("serviceRequestId") REFERENCES "ServiceRequest"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "ServicePaymentRecord" ADD CONSTRAINT "ServicePaymentRecord_serviceRequestId_fkey" FOREIGN KEY ("serviceRequestId") REFERENCES "ServiceRequest"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 DO $$ BEGIN ALTER TABLE "ServiceHistoryEvent" ADD CONSTRAINT "ServiceHistoryEvent_serviceRequestId_fkey" FOREIGN KEY ("serviceRequestId") REFERENCES "ServiceRequest"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+
+-- WebRTC signalling is persisted so Vercel's stateless functions can broker a
+-- private browser-to-app call without exposing either participant's number.
+CREATE TABLE IF NOT EXISTS "ConnectCallSignal" (
+  "id" UUID NOT NULL DEFAULT gen_random_uuid(), "callId" UUID NOT NULL, "senderRole" TEXT NOT NULL,
+  "kind" TEXT NOT NULL, "payload" JSONB NOT NULL, "createdAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  CONSTRAINT "ConnectCallSignal_pkey" PRIMARY KEY ("id")
+);
+CREATE INDEX IF NOT EXISTS "ConnectCallSignal_callId_createdAt_idx" ON "ConnectCallSignal"("callId", "createdAt");
+DO $$ BEGIN ALTER TABLE "ConnectCallSignal" ADD CONSTRAINT "ConnectCallSignal_callId_fkey" FOREIGN KEY ("callId") REFERENCES "ConnectCallSessionReference"("id") ON DELETE CASCADE ON UPDATE CASCADE; EXCEPTION WHEN duplicate_object THEN NULL; END $$;

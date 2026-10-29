@@ -543,7 +543,7 @@ export function MyGarageScreen() {
               onPress={() => void loadVehicles()}
               style={[styles.primaryActionBtn, { backgroundColor: c.accent }]}
             >
-              <Text style={styles.primaryActionText}>Try again</Text>
+              <Text style={styles.primaryActionBtnText}>Try again</Text>
             </TouchableOpacity>
           </View>
         ) : vehicles.length === 0 ? (

@@ -9,6 +9,7 @@
     "typecheck": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json",
     "test": "vitest run",
     "worker": "tsx --env-file-if-exists=.env src/worker.ts",
+    "realtime": "tsx --env-file-if-exists=.env src/connect-realtime.ts",
     "db:generate": "prisma generate",
     "db:deploy": "node deploy-database.mjs",
     "db:repair-connect": "node repair-connect-schema.mjs",
@@ -32,6 +33,7 @@
     "qrcode": "^1.5.4",
     "resend": "^6.34.1",
     "sharp": "^0.35.5",
+    "socket.io": "^4.8.1",
     "zod": "^4.1.0"
   },
   "devDependencies": {
