@@ -2,9 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
   KeyboardAvoidingView,
   Modal,
   Platform,
+  Pressable,
   ScrollView,
   StyleSheet,
   Text,
@@ -31,6 +33,7 @@ import {
 import { customer } from '../services/customer';
 import { formatPaise } from '../format';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
+import { useKeyboard } from '../components/KeyboardAwareFormScreen';
 import type { RootStack } from '../navigation/types';
 import type { AcquisitionOffer, SellingRequest } from '../types';
 
@@ -45,6 +48,14 @@ const TIMELINE_STEPS = [
   { key: 'ACCEPTED', label: 'Completed' },
 ];
 
+const CANCEL_REASONS = [
+  'Changed my mind',
+  'Sold to private buyer',
+  'Price expectation',
+  'Rescheduling inspection',
+  'Other reason',
+];
+
 export function SellingRequestDetailsScreen({ route, navigation }: Props) {
   const { leadId } = route.params;
   const insets = useSafeAreaInsets();
@@ -54,9 +65,12 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
   const [lead, setLead] = useState<SellingRequest | null>(null);
   const [loading, setLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
+  const [cancelModalVisible, setCancelModalVisible] = useState(false);
+  const [cancelReason, setCancelReason] = useState('');
   const [declineModalVisible, setDeclineModalVisible] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState<AcquisitionOffer | null>(null);
   const [declineReason, setDeclineReason] = useState('');
+  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
 
   function loadLead() {
     setLoading(true);
@@ -119,30 +133,26 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
     }
   }
 
-  async function handleCancelRequest() {
-    Alert.alert(
-      'Cancel Selling Request',
-      'Are you sure you want to cancel this selling request?',
-      [
-        { text: 'Keep Request', style: 'cancel' },
-        {
-          text: 'Yes, Cancel',
-          style: 'destructive',
-          onPress: async () => {
-            setActionLoading(true);
-            try {
-              await customer.cancelSellingRequest(leadId, 'Cancelled by customer');
-              Alert.alert('Cancelled', 'Your selling request has been cancelled.');
-              loadLead();
-            } catch (err: any) {
-              Alert.alert('Unable to Cancel', err.message || 'This request cannot be cancelled at this stage.');
-            } finally {
-              setActionLoading(false);
-            }
-          },
-        },
-      ]
-    );
+  function handleOpenCancelModal() {
+    setCancelReason('');
+    setCancelModalVisible(true);
+  }
+
+  async function handleConfirmCancel() {
+    setActionLoading(true);
+    try {
+      await customer.cancelSellingRequest(
+        leadId,
+        cancelReason.trim() || 'Cancelled by customer'
+      );
+      setCancelModalVisible(false);
+      Alert.alert('Request Cancelled', 'Your selling request has been cancelled.');
+      loadLead();
+    } catch (err: any) {
+      Alert.alert('Unable to Cancel', err.message || 'This request cannot be cancelled at this stage.');
+    } finally {
+      setActionLoading(false);
+    }
   }
 
   if (loading) {
@@ -409,7 +419,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
         {isCancellable ? (
           <TouchableOpacity
             style={styles.cancelActionBtn}
-            onPress={handleCancelRequest}
+            onPress={handleOpenCancelModal}
             disabled={actionLoading}
           >
             <XCircle size={18} color="#EF4444" />
@@ -418,52 +428,197 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
         ) : null}
       </ScrollView>
 
+      {/* Cancel Selling Request Modal */}
+      <Modal
+        visible={cancelModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!actionLoading) {
+            Keyboard.dismiss();
+            setCancelModalVisible(false);
+          }
+        }}
+        statusBarTranslucent
+      >
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              if (!actionLoading) {
+                Keyboard.dismiss();
+                setCancelModalVisible(false);
+              }
+            }}
+          />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={[
+              styles.keyboardAvoidWrap,
+              Platform.OS === 'android' && isKeyboardVisible ? { marginBottom: keyboardHeight } : null,
+            ]}
+          >
+            <View
+              style={[
+                styles.modalSheet,
+                {
+                  backgroundColor: colors.surface,
+                  paddingBottom: isKeyboardVisible
+                    ? space.md
+                    : Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16),
+                },
+              ]}
+            >
+              <Text style={styles.modalTitle}>Cancel Selling Request?</Text>
+              <Text style={styles.modalSubtitle}>
+                Please share why you would like to cancel your selling request:
+              </Text>
+
+              {/* Quick reason chips */}
+              <View style={styles.reasonChipsRow}>
+                {CANCEL_REASONS.map((r) => {
+                  const selected = cancelReason === r;
+                  return (
+                    <TouchableOpacity
+                      key={r}
+                      activeOpacity={0.7}
+                      onPress={() => setCancelReason(r)}
+                      style={[
+                        styles.reasonChip,
+                        selected && styles.reasonChipSelected,
+                      ]}
+                    >
+                      <Text
+                        style={[
+                          styles.reasonChipText,
+                          selected && styles.reasonChipTextSelected,
+                        ]}
+                      >
+                        {r}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              <TextInput
+                style={styles.modalInput}
+                placeholder="Or type reason here (e.g. sold elsewhere)…"
+                placeholderTextColor={colors.textMuted}
+                multiline
+                numberOfLines={3}
+                value={cancelReason}
+                onChangeText={setCancelReason}
+              />
+
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={styles.modalBackBtn}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setCancelModalVisible(false);
+                  }}
+                  disabled={actionLoading}
+                >
+                  <Text style={styles.modalBackBtnText}>Keep Request</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.modalCancelConfirmBtn}
+                  onPress={handleConfirmCancel}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.modalCancelConfirmBtnText}>Cancel Request</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
+      </Modal>
+
       {/* Decline Feedback Modal */}
       <Modal
         visible={declineModalVisible}
         transparent
         animationType="fade"
-        onRequestClose={() => setDeclineModalVisible(false)}
+        onRequestClose={() => {
+          if (!actionLoading) {
+            Keyboard.dismiss();
+            setDeclineModalVisible(false);
+          }
+        }}
+        statusBarTranslucent
       >
-        <KeyboardAvoidingView
-          behavior="padding"
-          style={styles.modalOverlay}
-        >
-          <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Decline Offer</Text>
-            <Text style={styles.modalSubtitle}>
-              Please tell us why you are declining so we can review alternative possibilities:
-            </Text>
-            <TextInput
-              style={styles.modalInput}
-              placeholder="e.g. Expected a higher price, sold elsewhere"
-              placeholderTextColor={color.muted}
-              multiline
-              numberOfLines={4}
-              value={declineReason}
-              onChangeText={setDeclineReason}
-            />
-            <View style={styles.modalButtons}>
-              <TouchableOpacity
-                style={styles.modalBackBtn}
-                onPress={() => setDeclineModalVisible(false)}
-              >
-                <Text style={styles.modalBackBtnText}>Keep Offer</Text>
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.modalDeclineConfirmBtn}
-                onPress={handleDeclineOffer}
-                disabled={actionLoading}
-              >
-                {actionLoading ? (
-                  <ActivityIndicator size="small" color={color.white} />
-                ) : (
-                  <Text style={styles.modalDeclineConfirmBtnText}>Decline Offer</Text>
-                )}
-              </TouchableOpacity>
+        <View style={styles.modalOverlay}>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              if (!actionLoading) {
+                Keyboard.dismiss();
+                setDeclineModalVisible(false);
+              }
+            }}
+          />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={[
+              styles.keyboardAvoidWrap,
+              Platform.OS === 'android' && isKeyboardVisible ? { marginBottom: keyboardHeight } : null,
+            ]}
+          >
+            <View
+              style={[
+                styles.modalSheet,
+                {
+                  backgroundColor: colors.surface,
+                  paddingBottom: isKeyboardVisible
+                    ? space.md
+                    : Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16),
+                },
+              ]}
+            >
+              <Text style={styles.modalTitle}>Decline Offer</Text>
+              <Text style={styles.modalSubtitle}>
+                Please tell us why you are declining so we can review alternative possibilities:
+              </Text>
+              <TextInput
+                style={styles.modalInput}
+                placeholder="e.g. Expected a higher price, sold elsewhere"
+                placeholderTextColor={colors.textMuted}
+                multiline
+                numberOfLines={3}
+                value={declineReason}
+                onChangeText={setDeclineReason}
+              />
+              <View style={styles.modalButtons}>
+                <TouchableOpacity
+                  style={styles.modalBackBtn}
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setDeclineModalVisible(false);
+                  }}
+                  disabled={actionLoading}
+                >
+                  <Text style={styles.modalBackBtnText}>Keep Offer</Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.modalDeclineConfirmBtn}
+                  onPress={handleDeclineOffer}
+                  disabled={actionLoading}
+                >
+                  {actionLoading ? (
+                    <ActivityIndicator size="small" color={color.white} />
+                  ) : (
+                    <Text style={styles.modalDeclineConfirmBtnText}>Decline Offer</Text>
+                  )}
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
-        </KeyboardAvoidingView>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -849,17 +1004,22 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
     modalOverlay: {
       flex: 1,
       backgroundColor: colors.overlay,
-      justifyContent: 'center',
-      alignItems: 'center',
-      padding: space.lg,
+      justifyContent: 'flex-end',
     },
-    modalContent: {
+    keyboardAvoidWrap: {
+      width: '100%',
+      justifyContent: 'flex-end',
+    },
+    modalSheet: {
       backgroundColor: colors.surface,
-      borderRadius: radius.lg,
+      borderTopLeftRadius: radius.card,
+      borderTopRightRadius: radius.card,
       padding: space.lg,
       width: '100%',
       borderWidth: 1,
+      borderBottomWidth: 0,
       borderColor: colors.border,
+      maxHeight: '90%',
     },
     modalTitle: {
       color: colors.textPrimary,
@@ -873,6 +1033,33 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       marginBottom: space.md,
       lineHeight: 18,
     },
+    reasonChipsRow: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: 8,
+      marginBottom: space.md,
+    },
+    reasonChip: {
+      paddingHorizontal: 12,
+      paddingVertical: 7,
+      borderRadius: radius.pill,
+      borderWidth: 1,
+      borderColor: colors.border,
+      backgroundColor: colors.surfaceSecondary,
+    },
+    reasonChipSelected: {
+      borderColor: colors.brandAccent,
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FFFBEB',
+    },
+    reasonChipText: {
+      fontSize: 12,
+      fontWeight: '600',
+      color: colors.textSecondary,
+    },
+    reasonChipTextSelected: {
+      color: isDark ? '#F7B503' : '#9A6500',
+      fontWeight: '700',
+    },
     modalInput: {
       backgroundColor: colors.surfaceSecondary,
       borderRadius: radius.md,
@@ -882,13 +1069,14 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       borderWidth: 1,
       borderColor: colors.border,
       textAlignVertical: 'top',
-      height: 100,
+      minHeight: 72,
       marginBottom: space.lg,
     },
     modalButtons: {
       flexDirection: 'row',
       gap: space.md,
       justifyContent: 'flex-end',
+      alignItems: 'center',
     },
     modalBackBtn: {
       paddingVertical: space.sm,
@@ -899,11 +1087,26 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       fontSize: 14,
       fontWeight: '600',
     },
+    modalCancelConfirmBtn: {
+      backgroundColor: '#EF4444',
+      borderRadius: radius.md,
+      paddingVertical: space.sm,
+      paddingHorizontal: space.md,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    modalCancelConfirmBtnText: {
+      color: '#FFFFFF',
+      fontSize: 14,
+      fontWeight: '700',
+    },
     modalDeclineConfirmBtn: {
       backgroundColor: '#EF4444',
       borderRadius: radius.md,
       paddingVertical: space.sm,
       paddingHorizontal: space.md,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     modalDeclineConfirmBtnText: {
       color: '#FFFFFF',

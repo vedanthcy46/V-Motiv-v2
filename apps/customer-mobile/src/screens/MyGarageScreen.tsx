@@ -1491,15 +1491,15 @@ export function MyGarageScreen() {
                     </View>
 
                     {stickerImageUrl ? (
-                      <View style={[styles.generatedStickerCard, { backgroundColor: '#FFFFFF', borderColor: c.accent }]}>
-                        <Text style={styles.generatedStickerEyebrow}>READY TO PRINT</Text>
-                        <Text style={styles.generatedStickerTitle}>Your V MOTIV Connect sticker</Text>
-                        <Text style={styles.generatedStickerText}>Stored securely in Cloudinary. Print it and place it inside the windscreen.</Text>
-                        <View style={styles.generatedQrWrap}>
+                      <View style={[styles.generatedStickerCard, { backgroundColor: isDark ? '#14253E' : '#FFFFFF', borderColor: isDark ? '#1F3F6D' : c.accent }]}>
+                        <Text style={[styles.generatedStickerEyebrow, { color: isDark ? c.accent : '#9A6500' }]}>READY TO PRINT</Text>
+                        <Text style={[styles.generatedStickerTitle, { color: c.text }]}>Your V MOTIV Connect sticker</Text>
+                        <Text style={[styles.generatedStickerText, { color: c.textMuted }]}>Stored securely in Cloudinary. Print it and place it inside the windscreen.</Text>
+                        <View style={[styles.generatedQrWrap, { backgroundColor: '#FFFFFF', borderColor: isDark ? '#1F3F6D' : '#DCE7F5' }]}>
                           <Image source={{ uri: stickerImageUrl }} style={styles.generatedQrImage} accessibilityLabel="Generated V MOTIV Connect QR sticker" />
                         </View>
-                        <Text selectable style={styles.generatedStickerUrl} numberOfLines={2}>{stickerImageUrl}</Text>
-                        <TouchableOpacity onPress={() => void handleShareSticker()} style={[styles.saveBtn, { backgroundColor: c.accent }]}>
+                        <Text selectable style={[styles.generatedStickerUrl, { color: c.textMuted }]} numberOfLines={2}>{stickerImageUrl}</Text>
+                        <TouchableOpacity onPress={() => void handleShareSticker()} style={[styles.saveBtn, { backgroundColor: c.accent, width: '100%', marginBottom: 0 }]}>
                           <Text style={styles.saveBtnText}>Save or share sticker</Text>
                         </TouchableOpacity>
                       </View>
@@ -2190,18 +2190,15 @@ const styles = StyleSheet.create({
     gap: 10,
   },
   generatedStickerEyebrow: {
-    color: '#9A6500',
     fontSize: 10,
     fontWeight: '800',
     letterSpacing: 1.1,
   },
   generatedStickerTitle: {
-    color: '#061A38',
     fontSize: 17,
     fontWeight: '800',
   },
   generatedStickerText: {
-    color: '#43536B',
     fontSize: 12,
     lineHeight: 17,
     textAlign: 'center',
@@ -2211,14 +2208,12 @@ const styles = StyleSheet.create({
     padding: 14,
     borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#DCE7F5',
   },
   generatedQrImage: {
     width: 184,
     height: 184,
   },
   generatedStickerUrl: {
-    color: '#43536B',
     fontSize: 10,
     lineHeight: 14,
     textAlign: 'center',

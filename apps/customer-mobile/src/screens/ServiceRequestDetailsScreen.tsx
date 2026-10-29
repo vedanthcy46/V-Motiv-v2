@@ -2,7 +2,11 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Keyboard,
+  KeyboardAvoidingView,
   Modal,
+  Platform,
+  Pressable,
   RefreshControl,
   ScrollView,
   StyleSheet,
@@ -38,6 +42,7 @@ import {
   respondToServiceEstimate,
   type ServiceRequestDetails,
 } from '../services/service-api';
+import { useKeyboard } from '../components/KeyboardAwareFormScreen';
 
 export function ServiceRequestDetailsScreen() {
   const insets = useSafeAreaInsets();
@@ -65,6 +70,7 @@ export function ServiceRequestDetailsScreen() {
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
 
   const loadDetails = useCallback(async () => {
     if (!requestId) return;
@@ -508,41 +514,77 @@ export function ServiceRequestDetailsScreen() {
         visible={cancelModalVisible}
         animationType="fade"
         transparent={true}
-        onRequestClose={() => setCancelModalVisible(false)}
+        onRequestClose={() => {
+          if (!cancelling) {
+            Keyboard.dismiss();
+            setCancelModalVisible(false);
+          }
+        }}
+        statusBarTranslucent
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.cancelSheet, { backgroundColor: c.surface }]}>
-            <Text style={[styles.modalTitle, { color: c.text }]}>Cancel Service Booking?</Text>
-            <Text style={[styles.cancelPromptText, { color: c.textMuted }]}>
-              Please provide a brief reason for cancelling. Your vehicle slot will be released.
-            </Text>
-            <TextInput
-              value={cancelReason}
-              onChangeText={setCancelReason}
-              placeholder="e.g. Schedule changed / Will book next week"
-              placeholderTextColor={c.textMuted}
-              style={[styles.notesInput, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
-            />
-            <View style={styles.decisionBtnsRow}>
-              <TouchableOpacity
-                onPress={handleCancelRequest}
-                disabled={cancelling}
-                style={[styles.confirmCancelBtn, { backgroundColor: '#EF4444' }]}
-              >
-                {cancelling ? (
-                  <ActivityIndicator size="small" color="#FFFFFF" />
-                ) : (
-                  <Text style={styles.confirmCancelBtnText}>Yes, Cancel</Text>
-                )}
-              </TouchableOpacity>
-              <TouchableOpacity
-                onPress={() => setCancelModalVisible(false)}
-                style={[styles.cancelDismissBtn, { borderColor: c.border }]}
-              >
-                <Text style={[styles.cancelDismissText, { color: c.text }]}>Keep Booking</Text>
-              </TouchableOpacity>
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              if (!cancelling) {
+                Keyboard.dismiss();
+                setCancelModalVisible(false);
+              }
+            }}
+          />
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={[
+              styles.keyboardAvoidWrap,
+              Platform.OS === 'android' && isKeyboardVisible ? { marginBottom: keyboardHeight } : null,
+            ]}
+          >
+            <View
+              style={[
+                styles.cancelSheet,
+                {
+                  backgroundColor: c.surface,
+                  paddingBottom: isKeyboardVisible
+                    ? 14
+                    : Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16),
+                },
+              ]}
+            >
+              <Text style={[styles.modalTitle, { color: c.text }]}>Cancel Service Booking?</Text>
+              <Text style={[styles.cancelPromptText, { color: c.textMuted }]}>
+                Please provide a brief reason for cancelling. Your vehicle slot will be released.
+              </Text>
+              <TextInput
+                value={cancelReason}
+                onChangeText={setCancelReason}
+                placeholder="e.g. Schedule changed / Will book next week"
+                placeholderTextColor={c.textMuted}
+                style={[styles.notesInput, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
+              />
+              <View style={styles.decisionBtnsRow}>
+                <TouchableOpacity
+                  onPress={handleCancelRequest}
+                  disabled={cancelling}
+                  style={[styles.confirmCancelBtn, { backgroundColor: '#EF4444' }]}
+                >
+                  {cancelling ? (
+                    <ActivityIndicator size="small" color="#FFFFFF" />
+                  ) : (
+                    <Text style={styles.confirmCancelBtnText}>Yes, Cancel</Text>
+                  )}
+                </TouchableOpacity>
+                <TouchableOpacity
+                  onPress={() => {
+                    Keyboard.dismiss();
+                    setCancelModalVisible(false);
+                  }}
+                  style={[styles.cancelDismissBtn, { borderColor: c.border }]}
+                >
+                  <Text style={[styles.cancelDismissText, { color: c.text }]}>Keep Booking</Text>
+                </TouchableOpacity>
+              </View>
             </View>
-          </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </View>
@@ -987,10 +1029,17 @@ const styles = StyleSheet.create({
     fontWeight: '700',
   },
   cancelSheet: {
-    margin: 20,
-    borderRadius: radius.lg,
+    borderTopLeftRadius: radius.card,
+    borderTopRightRadius: radius.card,
     padding: space.lg,
     gap: 12,
+    borderWidth: 1,
+    borderBottomWidth: 0,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  keyboardAvoidWrap: {
+    width: '100%',
+    justifyContent: 'flex-end',
   },
   cancelPromptText: {
     fontSize: 13,
