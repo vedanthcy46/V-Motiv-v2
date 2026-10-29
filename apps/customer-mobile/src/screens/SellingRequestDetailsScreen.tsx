@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -12,6 +12,7 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -70,7 +71,36 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
   const [declineModalVisible, setDeclineModalVisible] = useState(false);
   const [selectedOffer, setSelectedOffer] = useState<AcquisitionOffer | null>(null);
   const [declineReason, setDeclineReason] = useState('');
+  const { height: windowHeight } = useWindowDimensions();
+  const cancelScrollRef = useRef<ScrollView>(null);
+  const declineScrollRef = useRef<ScrollView>(null);
   const { keyboardHeight, isKeyboardVisible } = useKeyboard();
+
+  const dynamicModalMaxHeight = useMemo(() => {
+    if (isKeyboardVisible) {
+      const kbH = keyboardHeight > 0 ? keyboardHeight : 280;
+      return Math.max(260, windowHeight - kbH - insets.top - 40);
+    }
+    return Math.min(windowHeight * 0.85, 600);
+  }, [isKeyboardVisible, keyboardHeight, windowHeight, insets.top]);
+
+  useEffect(() => {
+    if (isKeyboardVisible && cancelModalVisible) {
+      const timer = setTimeout(() => {
+        cancelScrollRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isKeyboardVisible, cancelModalVisible]);
+
+  useEffect(() => {
+    if (isKeyboardVisible && declineModalVisible) {
+      const timer = setTimeout(() => {
+        declineScrollRef.current?.scrollToEnd({ animated: true });
+      }, 100);
+      return () => clearTimeout(timer);
+    }
+  }, [isKeyboardVisible, declineModalVisible]);
 
   function loadLead() {
     setLoading(true);
@@ -441,10 +471,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
         }}
         statusBarTranslucent
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalOverlay}
-        >
+        <View style={styles.modalOverlay}>
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() => {
@@ -454,96 +481,125 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
               }
             }}
           />
-          <View
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
             style={[
-              styles.modalCard,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-              },
+              styles.keyboardAvoidWrap,
+              isKeyboardVisible
+                ? {
+                    justifyContent: 'flex-end',
+                    marginBottom: Platform.OS === 'android' ? keyboardHeight : 0,
+                    paddingBottom: 12,
+                  }
+                : {
+                    justifyContent: 'center',
+                  },
             ]}
           >
-            <ScrollView
-              bounces={false}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.modalScrollContent}
+            <View
+              style={[
+                styles.modalCard,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  maxHeight: dynamicModalMaxHeight,
+                },
+              ]}
             >
-              <View style={styles.modalHeaderRow}>
-                <View style={styles.modalIconWrap}>
-                  <AlertCircle size={22} color="#EF4444" />
+              <ScrollView
+                ref={cancelScrollRef}
+                bounces={false}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+                style={{ flexShrink: 1 }}
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <View style={styles.modalHeaderRow}>
+                  <View style={styles.modalIconWrap}>
+                    <AlertCircle size={22} color="#EF4444" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
+                      Cancel Selling Request?
+                    </Text>
+                    <Text style={[styles.modalSubtitle, { color: colors.textMuted }]}>
+                      Please let us know why you are cancelling your selling request:
+                    </Text>
+                  </View>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
-                    Cancel Selling Request?
-                  </Text>
-                  <Text style={[styles.modalSubtitle, { color: colors.textMuted }]}>
-                    Please let us know why you are cancelling your selling request:
-                  </Text>
-                </View>
-              </View>
 
-              {/* Quick reason chips */}
-              <Text style={[styles.reasonSectionLabel, { color: colors.textSecondary }]}>
-                Select a reason:
-              </Text>
-              <View style={styles.reasonChipsRow}>
-                {CANCEL_REASONS.map((r) => {
-                  const selected = cancelReason === r;
-                  return (
-                    <TouchableOpacity
-                      key={r}
-                      activeOpacity={0.7}
-                      onPress={() => setCancelReason(r)}
-                      style={[
-                        styles.reasonChip,
-                        {
-                          backgroundColor: selected
-                            ? (isDark ? 'rgba(247, 181, 3, 0.15)' : '#FFFBEB')
-                            : colors.surfaceSecondary,
-                          borderColor: selected ? colors.brandAccent : colors.border,
-                        },
-                      ]}
-                    >
-                      <Text
+                {/* Quick reason chips */}
+                <Text style={[styles.reasonSectionLabel, { color: colors.textSecondary }]}>
+                  Select a reason:
+                </Text>
+                <View style={styles.reasonChipsRow}>
+                  {CANCEL_REASONS.map((r) => {
+                    const selected = cancelReason === r;
+                    return (
+                      <TouchableOpacity
+                        key={r}
+                        activeOpacity={0.7}
+                        onPress={() => setCancelReason(r)}
                         style={[
-                          styles.reasonChipText,
+                          styles.reasonChip,
                           {
-                            color: selected
-                              ? (isDark ? '#F7B503' : '#9A6500')
-                              : colors.textSecondary,
-                            fontWeight: selected ? '700' : '600',
+                            backgroundColor: selected
+                              ? (isDark ? 'rgba(247, 181, 3, 0.15)' : '#FFFBEB')
+                              : colors.surfaceSecondary,
+                            borderColor: selected ? colors.brandAccent : colors.border,
                           },
                         ]}
                       >
-                        {r}
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+                        <Text
+                          style={[
+                            styles.reasonChipText,
+                            {
+                              color: selected
+                                ? (isDark ? '#F7B503' : '#9A6500')
+                                : colors.textSecondary,
+                              fontWeight: selected ? '700' : '600',
+                            },
+                          ]}
+                        >
+                          {r}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
 
-              <Text style={[styles.reasonSectionLabel, { color: colors.textSecondary }]}>
-                Additional details (optional):
-              </Text>
-              <TextInput
-                style={[
-                  styles.modalInput,
-                  {
-                    backgroundColor: colors.surfaceSecondary,
-                    color: colors.textPrimary,
-                    borderColor: colors.border,
-                  },
-                ]}
-                placeholder="e.g. Sold elsewhere or reconsidering timing…"
-                placeholderTextColor={colors.textMuted}
-                multiline
-                numberOfLines={3}
-                value={cancelReason}
-                onChangeText={setCancelReason}
-              />
+                <Text style={[styles.reasonSectionLabel, { color: colors.textSecondary }]}>
+                  Additional details (optional):
+                </Text>
+                <TextInput
+                  style={[
+                    styles.modalInput,
+                    {
+                      backgroundColor: colors.surfaceSecondary,
+                      color: colors.textPrimary,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  placeholder="e.g. Sold elsewhere or reconsidering timing…"
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                  numberOfLines={3}
+                  value={cancelReason}
+                  onChangeText={setCancelReason}
+                  onFocus={() => {
+                    setTimeout(() => {
+                      cancelScrollRef.current?.scrollToEnd({ animated: true });
+                    }, 120);
+                    setTimeout(() => {
+                      cancelScrollRef.current?.scrollToEnd({ animated: true });
+                    }, 350);
+                  }}
+                />
+              </ScrollView>
 
-              <View style={styles.modalButtons}>
+              <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
                 <TouchableOpacity
                   style={[styles.modalBackBtn, { borderColor: colors.border }]}
                   onPress={() => {
@@ -568,9 +624,9 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                   )}
                 </TouchableOpacity>
               </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
 
       {/* Decline Feedback Modal */}
@@ -586,10 +642,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
         }}
         statusBarTranslucent
       >
-        <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-          style={styles.modalOverlay}
-        >
+        <View style={styles.modalOverlay}>
           <Pressable
             style={StyleSheet.absoluteFill}
             onPress={() => {
@@ -599,53 +652,85 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
               }
             }}
           />
-          <View
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
             style={[
-              styles.modalCard,
-              {
-                backgroundColor: colors.surface,
-                borderColor: colors.border,
-              },
+              styles.keyboardAvoidWrap,
+              isKeyboardVisible
+                ? {
+                    justifyContent: 'flex-end',
+                    marginBottom: Platform.OS === 'android' ? keyboardHeight : 0,
+                    paddingBottom: 12,
+                  }
+                : {
+                    justifyContent: 'center',
+                  },
             ]}
           >
-            <ScrollView
-              bounces={false}
-              showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
-              contentContainerStyle={styles.modalScrollContent}
+            <View
+              style={[
+                styles.modalCard,
+                {
+                  backgroundColor: colors.surface,
+                  borderColor: colors.border,
+                  maxHeight: dynamicModalMaxHeight,
+                },
+              ]}
             >
-              <View style={styles.modalHeaderRow}>
-                <View style={[styles.modalIconWrap, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
-                  <ThumbsDown size={20} color="#EF4444" />
+              <ScrollView
+                ref={declineScrollRef}
+                bounces={false}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                automaticallyAdjustKeyboardInsets={true}
+                style={{ flexShrink: 1 }}
+                contentContainerStyle={styles.modalScrollContent}
+              >
+                <View style={styles.modalHeaderRow}>
+                  <View style={[styles.modalIconWrap, { backgroundColor: 'rgba(239, 68, 68, 0.12)' }]}>
+                    <ThumbsDown size={20} color="#EF4444" />
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
+                      Decline Acquisition Offer
+                    </Text>
+                    <Text style={[styles.modalSubtitle, { color: colors.textMuted }]}>
+                      Please tell us why you are declining so our valuation team can review:
+                    </Text>
+                  </View>
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
-                    Decline Acquisition Offer
-                  </Text>
-                  <Text style={[styles.modalSubtitle, { color: colors.textMuted }]}>
-                    Please tell us why you are declining so our valuation team can review:
-                  </Text>
-                </View>
-              </View>
 
-              <TextInput
-                style={[
-                  styles.modalInput,
-                  {
-                    backgroundColor: colors.surfaceSecondary,
-                    color: colors.textPrimary,
-                    borderColor: colors.border,
-                  },
-                ]}
-                placeholder="e.g. Expected a higher price, sold elsewhere…"
-                placeholderTextColor={colors.textMuted}
-                multiline
-                numberOfLines={3}
-                value={declineReason}
-                onChangeText={setDeclineReason}
-              />
+                <Text style={[styles.reasonSectionLabel, { color: colors.textSecondary }]}>
+                  Reason for declining:
+                </Text>
+                <TextInput
+                  style={[
+                    styles.modalInput,
+                    {
+                      backgroundColor: colors.surfaceSecondary,
+                      color: colors.textPrimary,
+                      borderColor: colors.border,
+                    },
+                  ]}
+                  placeholder="e.g. Expected a higher price, sold elsewhere…"
+                  placeholderTextColor={colors.textMuted}
+                  multiline
+                  numberOfLines={3}
+                  value={declineReason}
+                  onChangeText={setDeclineReason}
+                  onFocus={() => {
+                    setTimeout(() => {
+                      declineScrollRef.current?.scrollToEnd({ animated: true });
+                    }, 120);
+                    setTimeout(() => {
+                      declineScrollRef.current?.scrollToEnd({ animated: true });
+                    }, 350);
+                  }}
+                />
+              </ScrollView>
 
-              <View style={styles.modalButtons}>
+              <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
                 <TouchableOpacity
                   style={[styles.modalBackBtn, { borderColor: colors.border }]}
                   onPress={() => {
@@ -664,15 +749,15 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                   disabled={actionLoading}
                 >
                   {actionLoading ? (
-                    <ActivityIndicator size="small" color={color.white} />
+                    <ActivityIndicator size="small" color="#FFFFFF" />
                   ) : (
                     <Text style={styles.modalDeclineConfirmBtnText}>Decline Offer</Text>
                   )}
                 </TouchableOpacity>
               </View>
-            </ScrollView>
-          </View>
-        </KeyboardAvoidingView>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
     </SafeAreaView>
   );
@@ -1060,7 +1145,14 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       backgroundColor: colors.overlay,
       justifyContent: 'center',
       alignItems: 'center',
-      padding: space.md,
+      paddingHorizontal: space.md,
+      paddingVertical: space.md,
+    },
+    keyboardAvoidWrap: {
+      width: '100%',
+      maxWidth: 440,
+      flex: 1,
+      alignItems: 'center',
     },
     modalCard: {
       width: '100%',
@@ -1073,9 +1165,20 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       shadowOffset: { width: 0, height: 4 },
       shadowOpacity: 0.25,
       shadowRadius: 12,
+      flexShrink: 1,
     },
     modalScrollContent: {
-      padding: space.lg,
+      paddingHorizontal: space.lg,
+      paddingTop: space.lg,
+      paddingBottom: space.md,
+    },
+    modalFooter: {
+      flexDirection: 'row',
+      gap: space.md,
+      paddingHorizontal: space.lg,
+      paddingVertical: space.md,
+      borderTopWidth: 1,
+      alignItems: 'center',
     },
     modalHeaderRow: {
       flexDirection: 'row',
@@ -1147,12 +1250,7 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       borderColor: colors.border,
       textAlignVertical: 'top',
       minHeight: 72,
-      marginBottom: space.md,
-    },
-    modalButtons: {
-      flexDirection: 'row',
-      gap: space.md,
-      marginTop: space.xs,
+      marginBottom: space.sm,
     },
     modalBackBtn: {
       flex: 1,
