@@ -6,6 +6,13 @@ import type { AdminActor } from '../src/admin-store.js';
 describe('support case message email throttling', () => {
   const actor: AdminActor = {
     userId: '11111111-1111-4111-8111-111111111111',
+    firebaseUid: 'admin-firebase-1',
+    email: 'admin@vmotiv.in',
+    displayName: 'Admin User',
+    employeeCode: 'VM-ADMIN-1',
+    designation: 'Support Admin',
+    status: 'ACTIVE',
+    mfaStatus: 'COMPLIANT',
     roles: ['SUPER_ADMIN'],
     permissions: ['support.respond'],
     branches: [],
