@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -16,9 +16,11 @@ import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context'
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { useNavigation } from '@react-navigation/native';
 import {
+  Calendar,
   Check,
   CheckCircle2,
   ChevronLeft,
+  ChevronRight,
   Home,
   IndianRupee,
   Search,
@@ -57,6 +59,13 @@ const OWNERSHIPS = [
 ];
 
 const TIME_SLOTS = ['10:00-12:00', '12:00-14:00', '14:00-16:00', '16:00-18:00'] as const;
+
+function formatDateIso(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 // ─── Car brands (Indian market — authentic logos) ───
 const MAKES = [
@@ -254,10 +263,158 @@ export function SellScreen() {
   const [inspectionDate, setInspectionDate] = useState(() => {
     const d = new Date();
     d.setDate(d.getDate() + 2);
-    return d.toISOString().slice(0, 10);
+    return formatDateIso(d);
+  });
+  const [currentCalendarMonth, setCurrentCalendarMonth] = useState(() => {
+    const initial = new Date();
+    initial.setDate(initial.getDate() + 2);
+    return new Date(initial.getFullYear(), initial.getMonth(), 1);
   });
   const [inspectionTimeSlot, setInspectionTimeSlot] = useState<typeof TIME_SLOTS[number]>('10:00-12:00');
   const [inspectionAddress, setInspectionAddress] = useState('');
+
+  const minDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 2);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }, []);
+
+  const maxDate = useMemo(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 60);
+    d.setHours(23, 59, 59, 999);
+    return d;
+  }, []);
+
+  const isPrevDisabled = useMemo(() => {
+    const now = new Date();
+    return (
+      currentCalendarMonth.getFullYear() < now.getFullYear() ||
+      (currentCalendarMonth.getFullYear() === now.getFullYear() &&
+        currentCalendarMonth.getMonth() <= now.getMonth())
+    );
+  }, [currentCalendarMonth]);
+
+  const isNextDisabled = useMemo(() => {
+    const maxMonth = new Date();
+    maxMonth.setDate(maxMonth.getDate() + 60);
+    return (
+      currentCalendarMonth.getFullYear() > maxMonth.getFullYear() ||
+      (currentCalendarMonth.getFullYear() === maxMonth.getFullYear() &&
+        currentCalendarMonth.getMonth() >= maxMonth.getMonth())
+    );
+  }, [currentCalendarMonth]);
+
+  const handlePrevMonth = () => {
+    setCurrentCalendarMonth((prev) => {
+      const next = new Date(prev.getFullYear(), prev.getMonth() - 1, 1);
+      const now = new Date();
+      if (
+        next.getFullYear() < now.getFullYear() ||
+        (next.getFullYear() === now.getFullYear() && next.getMonth() < now.getMonth())
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  };
+
+  const handleNextMonth = () => {
+    setCurrentCalendarMonth((prev) => {
+      const next = new Date(prev.getFullYear(), prev.getMonth() + 1, 1);
+      const maxMonth = new Date();
+      maxMonth.setDate(maxMonth.getDate() + 60);
+      if (
+        next.getFullYear() > maxMonth.getFullYear() ||
+        (next.getFullYear() === maxMonth.getFullYear() && next.getMonth() > maxMonth.getMonth())
+      ) {
+        return prev;
+      }
+      return next;
+    });
+  };
+
+  const handleSelectDate = (iso: string) => {
+    setInspectionDate(iso);
+    const parts = iso.split('-');
+    if (parts.length === 3) {
+      const y = Number(parts[0]);
+      const m = Number(parts[1]);
+      if (y && m) {
+        setCurrentCalendarMonth(new Date(y, m - 1, 1));
+      }
+    }
+  };
+
+  const calendarDays = useMemo(() => {
+    const year = currentCalendarMonth.getFullYear();
+    const month = currentCalendarMonth.getMonth();
+    const firstDayOfWeek = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+    const todayIso = formatDateIso(new Date());
+
+    const days: Array<{
+      dayNum: number;
+      iso: string;
+      isDisabled: boolean;
+      isSelected: boolean;
+      isToday: boolean;
+    }> = [];
+
+    for (let dayNum = 1; dayNum <= daysInMonth; dayNum++) {
+      const cellDate = new Date(year, month, dayNum);
+      const cellIso = formatDateIso(cellDate);
+      const isDisabled = cellDate < minDate || cellDate > maxDate;
+      const isSelected = inspectionDate === cellIso;
+      const isToday = todayIso === cellIso;
+
+      days.push({
+        dayNum,
+        iso: cellIso,
+        isDisabled,
+        isSelected,
+        isToday,
+      });
+    }
+
+    return {
+      firstDayOfWeek,
+      days,
+    };
+  }, [currentCalendarMonth, minDate, maxDate, inspectionDate]);
+
+  const quickDates = useMemo(() => {
+    const arr: Array<{ iso: string; dayName: string; dayNum: number; monthName: string }> = [];
+    for (let i = 2; i < 16; i++) {
+      const d = new Date();
+      d.setDate(d.getDate() + i);
+      arr.push({
+        iso: formatDateIso(d),
+        dayName: d.toLocaleDateString('en-IN', { weekday: 'short' }),
+        dayNum: d.getDate(),
+        monthName: d.toLocaleDateString('en-IN', { month: 'short' }),
+      });
+    }
+    return arr;
+  }, []);
+
+  const formattedSelectedDate = useMemo(() => {
+    if (!inspectionDate) return 'Select preferred date';
+    const parts = inspectionDate.split('-');
+    if (parts.length !== 3) return inspectionDate;
+    const y = Number(parts[0]);
+    const m = Number(parts[1]);
+    const d = Number(parts[2]);
+    if (!y || !m || !d) return inspectionDate;
+    const dateObj = new Date(y, m - 1, d);
+    return dateObj.toLocaleDateString('en-IN', {
+      weekday: 'short',
+      day: 'numeric',
+      month: 'short',
+      year: 'numeric',
+    });
+  }, [inspectionDate]);
 
   // Scroll to top on step change
   useEffect(() => {
@@ -1167,17 +1324,198 @@ export function SellScreen() {
               )}
 
               <View style={styles.fieldGroup}>
-                <Text style={[styles.label, { color: c.textPrimary }]}>Preferred Date</Text>
-                <TextInput
-                  style={[styles.input, { backgroundColor: c.inputBackground, color: c.textPrimary, borderColor: c.inputBorder }]}
-                  placeholder="YYYY-MM-DD"
-                  placeholderTextColor={c.inputPlaceholder}
-                  value={inspectionDate}
-                  onChangeText={setInspectionDate}
-                  returnKeyType="done"
-                  accessibilityLabel="Preferred date"
-                />
-                <Text style={[styles.helperText, { color: c.textMuted }]}>Minimum 2 business days from today.</Text>
+                <View style={styles.sectionHeaderRow}>
+                  <Calendar size={18} color={c.brandAccent} />
+                  <Text style={[styles.label, { color: c.textPrimary, marginBottom: 0 }]}>
+                    Preferred Evaluation Date *
+                  </Text>
+                </View>
+
+                {/* Formatted Date Selection Banner */}
+                <View
+                  style={[
+                    styles.selectedDateCard,
+                    {
+                      backgroundColor: isDark ? '#14253E' : '#FFF9E6',
+                      borderColor: c.brandAccent,
+                    },
+                  ]}
+                >
+                  <Calendar size={20} color={c.brandAccent} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.selectedDateCaption, { color: c.textMuted }]}>
+                      Selected Appointment Date
+                    </Text>
+                    <Text style={[styles.selectedDateValue, { color: c.textPrimary }]}>
+                      {formattedSelectedDate}
+                    </Text>
+                  </View>
+                  <View style={[styles.verifiedDatePill, { backgroundColor: c.brandAccent }]}>
+                    <Check size={12} color="#061A38" />
+                  </View>
+                </View>
+
+                {/* Horizontal Quick Date Strip */}
+                <Text style={[styles.quickDateLabel, { color: c.textMuted }]}>
+                  Upcoming Dates (Quick Pick):
+                </Text>
+                <ScrollView
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  contentContainerStyle={styles.quickDateScroll}
+                >
+                  {quickDates.map((item) => {
+                    const isSelected = item.iso === inspectionDate;
+                    return (
+                      <TouchableOpacity
+                        key={item.iso}
+                        activeOpacity={0.8}
+                        onPress={() => handleSelectDate(item.iso)}
+                        style={[
+                          styles.quickDateCard,
+                          {
+                            backgroundColor: isSelected ? c.brandAccent : c.surface,
+                            borderColor: isSelected ? c.brandAccent : c.border,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.quickDateDayName,
+                            { color: isSelected ? '#061A38' : c.textMuted },
+                          ]}
+                        >
+                          {item.dayName}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.quickDateDayNum,
+                            { color: isSelected ? '#061A38' : c.textPrimary },
+                          ]}
+                        >
+                          {item.dayNum}
+                        </Text>
+                        <Text
+                          style={[
+                            styles.quickDateMonthName,
+                            { color: isSelected ? '#061A38' : c.textMuted },
+                          ]}
+                        >
+                          {item.monthName}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+
+                {/* Full Interactive Month Calendar */}
+                <View
+                  style={[
+                    styles.calendarBox,
+                    {
+                      backgroundColor: c.surface,
+                      borderColor: c.border,
+                    },
+                  ]}
+                >
+                  {/* Month header & navigation */}
+                  <View style={styles.calendarNavRow}>
+                    <TouchableOpacity
+                      onPress={handlePrevMonth}
+                      disabled={isPrevDisabled}
+                      style={[
+                        styles.calendarNavBtn,
+                        { borderColor: c.border, backgroundColor: isDark ? '#14253E' : '#F8FAFC' },
+                        isPrevDisabled && { opacity: 0.25 },
+                      ]}
+                      accessibilityLabel="Previous month"
+                    >
+                      <ChevronLeft size={18} color={c.textPrimary} />
+                    </TouchableOpacity>
+                    <Text style={[styles.calendarMonthText, { color: c.textPrimary }]}>
+                      {currentCalendarMonth.toLocaleDateString('en-IN', {
+                        month: 'long',
+                        year: 'numeric',
+                      })}
+                    </Text>
+                    <TouchableOpacity
+                      onPress={handleNextMonth}
+                      disabled={isNextDisabled}
+                      style={[
+                        styles.calendarNavBtn,
+                        { borderColor: c.border, backgroundColor: isDark ? '#14253E' : '#F8FAFC' },
+                        isNextDisabled && { opacity: 0.25 },
+                      ]}
+                      accessibilityLabel="Next month"
+                    >
+                      <ChevronRight size={18} color={c.textPrimary} />
+                    </TouchableOpacity>
+                  </View>
+
+                  {/* Day-of-week header */}
+                  <View style={[styles.calendarWeekRow, { borderBottomColor: c.border }]}>
+                    {['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].map((d) => (
+                      <View key={d} style={styles.calendarWeekDayWrap}>
+                        <Text style={[styles.calendarWeekDayText, { color: c.textMuted }]}>
+                          {d}
+                        </Text>
+                      </View>
+                    ))}
+                  </View>
+
+                  {/* 7-column Calendar Grid */}
+                  <View style={styles.calendarGrid}>
+                    {Array.from({ length: calendarDays.firstDayOfWeek }).map((_, i) => (
+                      <View key={`empty-${i}`} style={styles.calendarCellWrap} />
+                    ))}
+                    {calendarDays.days.map(
+                      ({ dayNum, iso, isDisabled, isSelected, isToday }) => (
+                        <View key={iso} style={styles.calendarCellWrap}>
+                          <TouchableOpacity
+                            disabled={isDisabled}
+                            onPress={() => handleSelectDate(iso)}
+                            style={[
+                              styles.calendarCell,
+                              isSelected && [
+                                styles.calendarCellSelected,
+                                { backgroundColor: c.brandAccent },
+                              ],
+                            ]}
+                            accessibilityLabel={`${dayNum} ${currentCalendarMonth.toLocaleDateString('en-IN', { month: 'long' })}${isSelected ? ', selected' : ''}${isDisabled ? ', unavailable' : ''}`}
+                          >
+                            <Text
+                              style={[
+                                styles.calendarCellText,
+                                {
+                                  color: isDisabled
+                                    ? (isDark ? '#2D3F59' : '#CBD5E1')
+                                    : isSelected
+                                      ? '#061A38'
+                                      : c.textPrimary,
+                                },
+                                isSelected && { fontWeight: '800' },
+                              ]}
+                            >
+                              {dayNum}
+                            </Text>
+                            {isToday && !isSelected && (
+                              <View
+                                style={[
+                                  styles.calendarTodayIndicator,
+                                  { backgroundColor: c.brandAccent },
+                                ]}
+                              />
+                            )}
+                          </TouchableOpacity>
+                        </View>
+                      )
+                    )}
+                  </View>
+                </View>
+
+                <Text style={[styles.helperText, { color: c.textMuted, marginTop: 6 }]}>
+                  Appointments require a minimum of 2 business days for certified inspector assignment.
+                </Text>
               </View>
 
               <View style={styles.fieldGroup}>
@@ -1737,5 +2075,139 @@ const styles = StyleSheet.create({
   secondaryBtnText: {
     fontSize: 15,
     fontWeight: '600',
+  },
+  sectionHeaderRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 8,
+  },
+  selectedDateCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    marginBottom: 10,
+  },
+  selectedDateCaption: {
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  selectedDateValue: {
+    fontSize: 15,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  verifiedDatePill: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickDateLabel: {
+    fontSize: 12,
+    fontWeight: '600',
+    marginTop: 6,
+    marginBottom: 6,
+  },
+  quickDateScroll: {
+    gap: 8,
+    paddingVertical: 2,
+  },
+  quickDateCard: {
+    width: 60,
+    paddingVertical: 10,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  quickDateDayName: {
+    fontSize: 11,
+    fontWeight: '600',
+    textTransform: 'uppercase',
+  },
+  quickDateDayNum: {
+    fontSize: 16,
+    fontWeight: '800',
+    marginVertical: 2,
+  },
+  quickDateMonthName: {
+    fontSize: 10,
+    fontWeight: '500',
+  },
+  calendarBox: {
+    borderRadius: radius.md,
+    borderWidth: 1,
+    padding: 12,
+    marginTop: 12,
+  },
+  calendarNavRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 10,
+  },
+  calendarNavBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    borderWidth: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calendarMonthText: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  calendarWeekRow: {
+    flexDirection: 'row',
+    marginBottom: 8,
+    paddingBottom: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+  },
+  calendarWeekDayWrap: {
+    width: '14.285%',
+    alignItems: 'center',
+  },
+  calendarWeekDayText: {
+    fontSize: 11,
+    fontWeight: '700',
+    textAlign: 'center',
+  },
+  calendarGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  calendarCellWrap: {
+    width: '14.285%',
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginVertical: 2,
+  },
+  calendarCell: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calendarCellSelected: {
+    borderRadius: 17,
+  },
+  calendarCellText: {
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  calendarTodayIndicator: {
+    width: 4,
+    height: 4,
+    borderRadius: 2,
+    position: 'absolute',
+    bottom: 3,
   },
 });
