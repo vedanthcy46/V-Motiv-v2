@@ -29,10 +29,16 @@ export function verifyRealtimeTicket(value: unknown): Ticket | null {
 
 /** Attach Socket.IO to an existing HTTP server (e.g. the primary Express server) */
 export function attachConnectRealtime(http: HttpServer) {
+  const allowed = (process.env.REALTIME_ALLOWED_ORIGINS || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean);
+
   const io = new Server(http, {
     cors: {
-      origin: '*',
+      origin: allowed.length ? allowed : '*',
       methods: ['GET', 'POST'],
+      credentials: true,
     },
     transports: ['websocket', 'polling'],
   });
@@ -77,11 +83,26 @@ export function attachConnectRealtime(http: HttpServer) {
   return io;
 }
 
-/** Persistent Socket.IO host for private V MOTIV Connect calls and chat. Do not deploy this to Vercel functions. */
-export function startConnectRealtimeServer(port = Number(process.env.REALTIME_PORT || 4300)) {
-  const http = createServer();
+/** Persistent Socket.IO host for private V MOTIV Connect calls and chat. Listen on 0.0.0.0 and process.env.PORT for Render/cloud hosts. */
+export function startConnectRealtimeServer(port = Number(process.env.PORT || process.env.REALTIME_PORT || 4300)) {
+  const host = '0.0.0.0';
+  const http = createServer((req, res) => {
+    if (req.url === '/' || req.url === '/health' || req.url === '/healthz') {
+      res.writeHead(200, {
+        'Content-Type': 'application/json',
+        'Access-Control-Allow-Origin': '*',
+      });
+      res.end(JSON.stringify({ status: 'HEALTHY', service: 'vmotiv-connect-realtime', port }));
+      return;
+    }
+    res.writeHead(404, { 'Content-Type': 'text/plain' });
+    res.end('Not Found');
+  });
+
   attachConnectRealtime(http);
-  http.listen(port, () => console.info(`V MOTIV Connect realtime server listening on :${port}`));
+  http.listen(port, host, () => {
+    console.info(`V MOTIV Connect realtime server listening on ${host}:${port}`);
+  });
   return http;
 }
 

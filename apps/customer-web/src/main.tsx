@@ -96,7 +96,8 @@ function PublicConnectPage({ token }: { token: string }) {
   };
   const startCall = async () => {
     try {
-      const realtimeUrl = import.meta.env.VITE_REALTIME_URL;
+      const apiOrigin = (import.meta.env.VITE_API_BASE || 'https://api.vmotiv.in/api/v1').replace(/\/$/, '').replace(/\/api\/v[0-9]+$/, '');
+      const realtimeUrl = import.meta.env.VITE_REALTIME_URL || apiOrigin;
       if (!realtimeUrl) throw new Error('REALTIME_NOT_CONFIGURED');
       setPhase('CALLING'); const call = await request('/call-requests', { consentGiven: true });
       const ticket = await request(`/calls/${call.callSessionId}/realtime-ticket`);
