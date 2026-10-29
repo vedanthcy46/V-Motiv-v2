@@ -3,7 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   AppState,
-  FlatList,
+  Keyboard,
   KeyboardAvoidingView,
   Linking,
   Modal,
@@ -84,6 +84,7 @@ export function ConnectVoiceCall({
   const peer = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
   const socketRef = useRef<Socket | null>(null);
+  const scrollRef = useRef<ScrollView | null>(null);
   const cursor = useRef<string | undefined>(undefined);
   const answeredOffer = useRef(false);
 
@@ -102,6 +103,23 @@ export function ConnectVoiceCall({
     const interval = setInterval(() => setCallDuration(d => d + 1), 1000);
     return () => clearInterval(interval);
   }, [state]);
+
+  // Keep the in-call message composer fully visible as the keyboard animates
+  // in. The outer ScrollView carries the complete call card, so it must move
+  // instead of leaving the nested message list underneath the keyboard.
+  useEffect(() => {
+    if (!chatOpen) return;
+    const eventName = Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow';
+    const listener = Keyboard.addListener(eventName, () => {
+      requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+    });
+    return () => listener.remove();
+  }, [chatOpen]);
+
+  useEffect(() => {
+    if (!chatOpen) return;
+    requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
+  }, [chatMessages.length, chatOpen]);
 
   // Listen for AppState changes (e.g. user toggles microphone permission in Settings and returns)
   useEffect(() => {
@@ -385,11 +403,14 @@ export function ConnectVoiceCall({
     <Modal visible transparent animationType="fade" onRequestClose={handleEndCall}>
       <KeyboardAvoidingView
         style={styles.root}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={styles.scrollRoot}
           keyboardShouldPersistTaps="handled"
+          keyboardDismissMode="interactive"
           showsVerticalScrollIndicator={false}
           bounces={false}
         >
@@ -444,24 +465,19 @@ export function ConnectVoiceCall({
                     <X size={18} color="#C7D6EA" />
                   </Pressable>
                 </View>
-                <FlatList
-                  data={chatMessages}
-                  keyExtractor={item => item.id}
-                  style={styles.chatList}
-                  contentContainerStyle={{ gap: 8, paddingVertical: 8 }}
-                  renderItem={({ item }) => {
+                <View style={styles.chatMessages}>
+                  {chatMessages.length === 0 ? (
+                    <Text style={styles.chatEmpty}>No messages yet. Send a message below.</Text>
+                  ) : chatMessages.map(item => {
                     const isMe = item.from === 'OWNER';
                     return (
-                      <View style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
+                      <View key={item.id} style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
                         <Text style={styles.bubbleAuthor}>{isMe ? 'You' : 'Caller'}</Text>
                         <Text style={styles.bubbleText}>{item.text}</Text>
                       </View>
                     );
-                  }}
-                  ListEmptyComponent={
-                    <Text style={styles.chatEmpty}>No messages yet. Send a message below.</Text>
-                  }
-                />
+                  })}
+                </View>
                 <View style={styles.chatInputRow}>
                   <TextInput
                     value={chatInput}
@@ -469,6 +485,8 @@ export function ConnectVoiceCall({
                     placeholder="Type a message…"
                     placeholderTextColor="#7C92AE"
                     style={styles.chatInput}
+                    returnKeyType="send"
+                    onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120)}
                     onSubmitEditing={sendChat}
                   />
                   <Pressable onPress={sendChat} disabled={!chatInput.trim()} style={styles.sendBtn}>
@@ -528,8 +546,8 @@ export function ConnectVoiceCall({
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: 'rgba(2,11,24,0.85)' },
-  scrollRoot: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 16 },
-  card: { alignItems: 'center', gap: 12, borderRadius: 20, padding: 18, backgroundColor: '#0B2342', borderWidth: 1, borderColor: '#1F3C64', width: '100%', maxWidth: 400, maxHeight: '90%' },
+  scrollRoot: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 16, paddingBottom: 24 },
+  card: { alignItems: 'center', gap: 12, borderRadius: 20, padding: 18, backgroundColor: '#0B2342', borderWidth: 1, borderColor: '#1F3C64', width: '100%', maxWidth: 400, maxHeight: '100%' },
   headerRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   kicker: { color: '#F7B503', fontWeight: '800', letterSpacing: 1, fontSize: 10 },
   title: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
@@ -549,11 +567,11 @@ const styles = StyleSheet.create({
   circleBtnLabel: { color: '#C7D6EA', fontSize: 10, fontWeight: '600' },
   endBtn: { flex: 1, minWidth: 100, height: 54, paddingHorizontal: 14, borderRadius: 27, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#DE3E49' },
   endText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
-  chatContainer: { width: '100%', height: 200, backgroundColor: '#061A38', borderRadius: 14, padding: 10, borderWidth: 1, borderColor: '#1F3C64' },
+  chatContainer: { width: '100%', backgroundColor: '#061A38', borderRadius: 14, padding: 10, borderWidth: 1, borderColor: '#1F3C64' },
   chatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1F3C64', paddingBottom: 6 },
   chatTitle: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
-  chatList: { flex: 1 },
-  chatEmpty: { color: '#7C92AE', fontSize: 11, textAlign: 'center', marginTop: 24 },
+  chatMessages: { gap: 8, paddingVertical: 8 },
+  chatEmpty: { color: '#7C92AE', fontSize: 11, textAlign: 'center', marginVertical: 20 },
   bubble: { maxWidth: '82%', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
   bubbleMe: { alignSelf: 'flex-end', backgroundColor: '#F7B503' },
   bubbleThem: { alignSelf: 'flex-start', backgroundColor: '#1F3C64' },
