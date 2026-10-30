@@ -28,7 +28,7 @@ export type MarketObservationInput = {
   transmission: string;
   odometerKm: number;
   city: string;
-  pricePaise: string | number | bigint;
+  pricePaise?: string | number | bigint;
   priceType: MarketObservationPriceType;
   conditionBasis?: string;
   observedAt: string;
@@ -531,7 +531,7 @@ export class PrismaValuationStore {
     });
 
     for (const rec of input.records) {
-      const pricePaise = BigInt(rec.pricePaise);
+      const pricePaise = BigInt(rec.pricePaise ?? 0);
       const year = rec.manufacturingYear;
       const km = rec.odometerKm;
 

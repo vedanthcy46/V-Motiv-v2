@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import type { VerifyToken, Identity } from './auth.js';
 import { authentication } from './auth.js';
-import type { PrismaValuationStore } from './valuation-store.js';
+import type { PrismaValuationStore, MarketObservationInput } from './valuation-store.js';
 import type { PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
 
@@ -82,7 +82,27 @@ export function createValuationRouter(deps: {
   // 3. Market Data Ingestion
   router.post('/data/imports', async (req, res) => {
     const parsed = marketImportBatchInput.parse(req.body);
-    res.status(201).json(await deps.store.importMarketDataBatch(res.locals.actor, parsed));
+    const records: MarketObservationInput[] = parsed.records.map(r => ({
+      externalReference: r.externalReference,
+      make: r.make,
+      model: r.model,
+      variant: r.variant,
+      manufacturingYear: r.manufacturingYear,
+      fuelType: r.fuelType,
+      transmission: r.transmission,
+      odometerKm: r.odometerKm,
+      city: r.city,
+      pricePaise: r.pricePaise,
+      priceType: r.priceType,
+      conditionBasis: r.conditionBasis,
+      observedAt: r.observedAt,
+    }));
+    res.status(201).json(await deps.store.importMarketDataBatch(res.locals.actor, {
+      sourceKey: parsed.sourceKey,
+      sourceDisplayName: parsed.sourceDisplayName,
+      sourceProvenance: parsed.sourceProvenance,
+      records,
+    }));
   });
 
   // 4. Data Quality & Quarantine Dashboard
