@@ -45,8 +45,11 @@ export type InspectionRequest = {
   branchId?: string | null;
   status: 'REQUESTED' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
   scheduledAt?: string | null;
+  requestedDate?: string | null;
+  timeSlot?: string | null;
   locationType: 'HUB' | 'HOME';
   address?: string | null;
+  notes?: string | null;
   createdAt: string;
   lead: {
     id: string;
@@ -58,8 +61,18 @@ export type InspectionRequest = {
     model: string;
     variant?: string | null;
     manufacturingYear: number;
+    registrationNumber?: string | null;
     fuelType?: string | null;
+    transmission?: string | null;
+    color?: string | null;
+    registrationYear?: number | null;
+    registrationCity?: string | null;
+    ownershipCount?: number | null;
     odometerKm?: number | null;
+    inspectionDate?: string | null;
+    inspectionTimeSlot?: string | null;
+    inspectionLocationType?: 'HUB' | 'HOME' | null;
+    inspectionAddress?: string | null;
   };
   assignment?: {
     id: string;
@@ -131,6 +144,7 @@ export type AcquisitionCase = {
     registrationYear?: number | null;
     registrationCity?: string | null;
     ownershipCount?: number | null;
+    odometerKm?: number | null;
   };
   offer: {
     id: string;

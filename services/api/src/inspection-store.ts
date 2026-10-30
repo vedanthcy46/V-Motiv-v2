@@ -773,7 +773,7 @@ export class PrismaInspectionStore {
 
   async operationRequests(actor: InspectionActor) {
     checkRole(actor, operationsRoles);
-    return this.db.inspectionRequest.findMany({
+    const requests = await this.db.inspectionRequest.findMany({
       where: actor.roles.includes('SUPER_ADMIN') ? {} : { branchId: { in: actor.branchIds } },
       orderBy: { createdAt: 'desc' },
       include: {
@@ -788,8 +788,18 @@ export class PrismaInspectionStore {
             model: true,
             variant: true,
             manufacturingYear: true,
+            registrationNumber: true,
             fuelType: true,
+            transmission: true,
+            color: true,
+            registrationYear: true,
+            registrationCity: true,
+            ownershipCount: true,
             odometerKm: true,
+            inspectionDate: true,
+            inspectionTimeSlot: true,
+            inspectionLocationType: true,
+            inspectionAddress: true,
           },
         },
         assignment: {
@@ -808,11 +818,35 @@ export class PrismaInspectionStore {
             id: true,
             revision: true,
             status: true,
+            identity: true,
             submittedAt: true,
           },
           orderBy: { revision: 'desc' },
         },
       },
+    });
+
+    return requests.map(r => {
+      const latestReport = r.reports?.[0];
+      const iden = (latestReport?.identity || {}) as Record<string, unknown>;
+      const rawReportReg = typeof iden.registrationNumber === 'string' ? iden.registrationNumber.trim() : '';
+      const reportReg = !isInvalidRegNumberOrUuid(rawReportReg) ? rawReportReg : '';
+      const registrationNumber = r.lead.registrationNumber || reportReg || null;
+      const variant = r.lead.variant || (iden.variant as string) || null;
+      const color = r.lead.color || (iden.color as string) || null;
+      const registrationYear = r.lead.registrationYear || (typeof iden.registrationYear === 'number' ? iden.registrationYear : null) || null;
+      const registrationCity = r.lead.registrationCity || (iden.registrationCity as string) || r.lead.city || null;
+      return {
+        ...r,
+        lead: {
+          ...r.lead,
+          registrationNumber,
+          variant,
+          color,
+          registrationYear,
+          registrationCity,
+        },
+      };
     });
   }
 
@@ -932,17 +966,58 @@ export class PrismaInspectionStore {
 
   async acquisitionCases(actor: InspectionActor) {
     checkRole(actor, operationsRoles);
-    return this.db.acquisitionCase.findMany({
+    const cases = await this.db.acquisitionCase.findMany({
       where: this.acquisitionCaseScope(actor),
       orderBy: { createdAt: 'desc' },
       include: {
-        lead: { select: { id: true, referenceCode: true, sellerName: true, sellerPhone: true, city: true, make: true, model: true, variant: true, manufacturingYear: true, registrationNumber: true, fuelType: true, transmission: true, color: true, registrationYear: true, registrationCity: true, ownershipCount: true } },
-        offer: { select: { id: true, offerAmountPaise: true, validUntil: true, acceptedAt: true, version: true } },
+        lead: { select: { id: true, referenceCode: true, sellerName: true, sellerPhone: true, city: true, make: true, model: true, variant: true, manufacturingYear: true, registrationNumber: true, fuelType: true, transmission: true, color: true, registrationYear: true, registrationCity: true, ownershipCount: true, odometerKm: true } },
+        offer: {
+          select: {
+            id: true,
+            offerAmountPaise: true,
+            validUntil: true,
+            acceptedAt: true,
+            version: true,
+            valuation: {
+              select: {
+                inspectionReport: {
+                  select: { identity: true },
+                },
+              },
+            },
+          },
+        },
         documents: { orderBy: { documentType: 'asc' } },
         settlement: true,
         handover: true,
         stockUnit: true,
       },
+    });
+
+    return cases.map(c => {
+      const iden = (c.offer?.valuation?.inspectionReport?.identity || {}) as Record<string, unknown>;
+      const rawReg = typeof iden.registrationNumber === 'string' ? iden.registrationNumber.trim() : '';
+      const inspectionReg = !isInvalidRegNumberOrUuid(rawReg) ? rawReg : '';
+      const resolvedReg = c.lead.registrationNumber || c.handover?.registrationNumber || inspectionReg || null;
+      const resolvedVariant = c.lead.variant || (iden.variant as string) || null;
+      const resolvedColor = c.lead.color || (iden.color as string) || null;
+      const resolvedRegYear = c.lead.registrationYear || (typeof iden.registrationYear === 'number' ? iden.registrationYear : null) || null;
+      const resolvedRegCity = c.lead.registrationCity || (iden.registrationCity as string) || c.lead.city || null;
+
+      if (!c.lead.registrationNumber && resolvedReg) {
+        void this.db.acquisitionLead.update({ where: { id: c.lead.id }, data: { registrationNumber: resolvedReg } }).catch(() => undefined);
+      }
+      return {
+        ...c,
+        lead: {
+          ...c.lead,
+          registrationNumber: resolvedReg,
+          variant: resolvedVariant,
+          color: resolvedColor,
+          registrationYear: resolvedRegYear,
+          registrationCity: resolvedRegCity,
+        },
+      };
     });
   }
 
@@ -1027,6 +1102,7 @@ export class PrismaInspectionStore {
         lead: {
           select: {
             id: true,
+            city: true,
             registrationNumber: true,
             make: true,
             model: true,
@@ -1064,12 +1140,22 @@ export class PrismaInspectionStore {
 
     return this.db.$transaction(async tx => {
       const inspectionIdentity = (acquisitionCase.offer?.valuation?.inspectionReport?.identity || {}) as Record<string, unknown>;
-      const inspectionReg = typeof inspectionIdentity.registrationNumber === 'string' ? inspectionIdentity.registrationNumber.trim() : '';
+      const rawInspectionReg = typeof inspectionIdentity.registrationNumber === 'string' ? inspectionIdentity.registrationNumber.trim() : '';
+      const inspectionReg = !isInvalidRegNumberOrUuid(rawInspectionReg) ? rawInspectionReg : '';
       const resolvedReg = input.registrationNumber?.trim() || acquisitionCase.handover?.registrationNumber || acquisitionCase.lead.registrationNumber || inspectionReg || null;
       const resolvedVariant = acquisitionCase.lead.variant || (inspectionIdentity.variant as string) || null;
+      const resolvedColor = acquisitionCase.lead.color || (inspectionIdentity.color as string) || null;
+      const resolvedRegYear = acquisitionCase.lead.registrationYear || (typeof inspectionIdentity.registrationYear === 'number' ? inspectionIdentity.registrationYear : null) || null;
+      const resolvedRegCity = acquisitionCase.lead.registrationCity || (inspectionIdentity.registrationCity as string) || acquisitionCase.lead.city || null;
 
-      if (resolvedReg && !acquisitionCase.lead.registrationNumber) {
-        await tx.acquisitionLead.update({ where: { id: acquisitionCase.lead.id }, data: { registrationNumber: resolvedReg } });
+      const leadUpdate: Record<string, unknown> = {};
+      if (resolvedReg && !acquisitionCase.lead.registrationNumber) leadUpdate.registrationNumber = resolvedReg;
+      if (resolvedVariant && !acquisitionCase.lead.variant) leadUpdate.variant = resolvedVariant;
+      if (resolvedColor && !acquisitionCase.lead.color) leadUpdate.color = resolvedColor;
+      if (resolvedRegYear && !acquisitionCase.lead.registrationYear) leadUpdate.registrationYear = resolvedRegYear;
+      if (resolvedRegCity && !acquisitionCase.lead.registrationCity) leadUpdate.registrationCity = resolvedRegCity;
+      if (Object.keys(leadUpdate).length > 0) {
+        await tx.acquisitionLead.update({ where: { id: acquisitionCase.lead.id }, data: leadUpdate as any }).catch(() => undefined);
       }
 
       const handover = await tx.vehicleHandover.upsert({
@@ -1152,6 +1238,7 @@ export class PrismaInspectionStore {
         lead: {
           select: {
             id: true,
+            city: true,
             registrationNumber: true,
             make: true,
             model: true,
@@ -2267,16 +2354,22 @@ export class PrismaInspectionStore {
 
       if (input.decision === 'APPROVE' && report.request?.leadId) {
         const iden = (report.identity || {}) as Record<string, unknown>;
-        const reg = typeof iden.registrationNumber === 'string' ? iden.registrationNumber.trim() : '';
+        const rawReg = typeof iden.registrationNumber === 'string' ? iden.registrationNumber.trim() : '';
+        const reg = !isInvalidRegNumberOrUuid(rawReg) ? rawReg : '';
+        const variant = typeof iden.variant === 'string' ? iden.variant.trim() : '';
+        const color = typeof iden.color === 'string' ? iden.color.trim() : '';
+        const regYear = typeof iden.registrationYear === 'number' ? iden.registrationYear : undefined;
+        const regCity = typeof iden.registrationCity === 'string' ? iden.registrationCity.trim() : '';
         const updateData: Record<string, unknown> = { status: 'OFFER_PENDING' };
         if (reg) updateData.registrationNumber = reg;
-        await tx.acquisitionLead.updateMany({
-          where: {
-            id: report.request.leadId,
-            status: { in: ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'] },
-          },
+        if (variant) updateData.variant = variant;
+        if (color) updateData.color = color;
+        if (regYear) updateData.registrationYear = regYear;
+        if (regCity) updateData.registrationCity = regCity;
+        await tx.acquisitionLead.update({
+          where: { id: report.request.leadId },
           data: updateData as any,
-        });
+        }).catch(() => undefined);
       }
 
       let nextRevisionId: string | undefined;

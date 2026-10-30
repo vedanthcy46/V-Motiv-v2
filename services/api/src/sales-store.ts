@@ -98,6 +98,21 @@ export interface SalesStore {
     address?: string;
     notes?: string;
   }): Promise<unknown>;
+  updateInspectionSchedule(actor: SalesActor, id: string, input: {
+    inspectionDate: Date;
+    inspectionTimeSlot: string;
+    inspectionLocationType: 'HUB' | 'HOME';
+    inspectionAddress?: string;
+    notes?: string;
+  }): Promise<unknown>;
+  updateVehicleDetails(actor: SalesActor, id: string, input: {
+    registrationNumber?: string;
+    variant?: string;
+    color?: string;
+    registrationYear?: number;
+    registrationCity?: string;
+    odometerKm?: number;
+  }): Promise<unknown>;
   inspectionSummary(actor: SalesActor, leadId: string): Promise<unknown>;
 
   valuations(actor: SalesActor, leadId: string): Promise<unknown>;
@@ -261,6 +276,7 @@ const leadSelect = {
   make: true,
   model: true,
   variant: true,
+  registrationNumber: true,
   manufacturingYear: true,
   fuelType: true,
   transmission: true,
@@ -835,7 +851,16 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
           ...input,
         },
       });
-      await tx.acquisitionLead.update({ where: { id }, data: { status: 'INSPECTION_SCHEDULED' } });
+      await tx.acquisitionLead.update({
+        where: { id },
+        data: {
+          status: 'INSPECTION_SCHEDULED',
+          inspectionDate: input.requestedDate,
+          inspectionTimeSlot: input.timeSlot,
+          inspectionLocationType: input.locationType,
+          inspectionAddress: input.address,
+        },
+      });
       await tx.auditEvent.create({
         data: {
           actorId: actor.userId,
@@ -846,6 +871,169 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
         },
       });
       return request;
+    });
+  }
+
+  async updateInspectionSchedule(actor: SalesActor, id: string, input: {
+    inspectionDate: Date;
+    inspectionTimeSlot: string;
+    inspectionLocationType: 'HUB' | 'HOME';
+    inspectionAddress?: string;
+    notes?: string;
+  }) {
+    const lead = await this.db.acquisitionLead.findFirst({
+      where: { id, ...scope(actor) },
+      select: { id: true, referenceCode: true, city: true, status: true },
+    });
+    if (!lead) throw new HttpError(404, 'LEAD_NOT_FOUND');
+
+    const branch = actor.branches.find(item => item.city.toLowerCase() === lead.city.toLowerCase());
+
+    return this.db.$transaction(async tx => {
+      const nextStatus = ['SUBMITTED', 'QUALIFYING'].includes(lead.status) ? 'INSPECTION_SCHEDULED' : undefined;
+      const updatedLead = await tx.acquisitionLead.update({
+        where: { id },
+        data: {
+          inspectionDate: input.inspectionDate,
+          inspectionTimeSlot: input.inspectionTimeSlot,
+          inspectionLocationType: input.inspectionLocationType,
+          inspectionAddress: input.inspectionAddress,
+          status: nextStatus,
+        },
+        select: leadSelect,
+      });
+
+      const existingReq = await tx.inspectionRequest.findFirst({
+        where: { leadId: id, status: { in: ['REQUESTED', 'SCHEDULED', 'IN_PROGRESS'] } },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      let requestId: string;
+      if (existingReq) {
+        requestId = existingReq.id;
+        await tx.inspectionRequest.update({
+          where: { id: existingReq.id },
+          data: {
+            requestedDate: input.inspectionDate,
+            timeSlot: input.inspectionTimeSlot,
+            locationType: input.inspectionLocationType,
+            address: input.inspectionAddress,
+            notes: input.notes ?? existingReq.notes,
+          },
+        });
+
+        const assignment = await tx.inspectionAssignment.findUnique({
+          where: { requestId: existingReq.id },
+        });
+        if (assignment && assignment.status !== 'COMPLETED' && assignment.status !== 'CANCELLED') {
+          const datePart = input.inspectionDate.toISOString().slice(0, 10);
+          const hourPart = (input.inspectionTimeSlot.split('-')[0] || '10:00').trim();
+          const scheduledAt = new Date(`${datePart}T${hourPart}:00.000Z`);
+          await tx.inspectionAssignment.update({
+            where: { id: assignment.id },
+            data: {
+              scheduledAt,
+              locationType: input.inspectionLocationType,
+              address: input.inspectionAddress,
+              status: 'RESCHEDULED',
+            },
+          });
+        }
+      } else {
+        const createdReq = await tx.inspectionRequest.create({
+          data: {
+            leadId: id,
+            requestedByEmployeeId: actor.userId,
+            branchId: branch?.id,
+            requestedDate: input.inspectionDate,
+            timeSlot: input.inspectionTimeSlot,
+            locationType: input.inspectionLocationType,
+            address: input.inspectionAddress,
+            notes: input.notes,
+            status: 'REQUESTED',
+          },
+        });
+        requestId = createdReq.id;
+      }
+
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'SELLER_LEAD_INSPECTION_SCHEDULE_UPDATED',
+          entityType: 'AcquisitionLead',
+          entityId: id,
+          details: {
+            referenceCode: lead.referenceCode,
+            inspectionDate: input.inspectionDate,
+            inspectionTimeSlot: input.inspectionTimeSlot,
+            inspectionLocationType: input.inspectionLocationType,
+            requestId,
+          },
+        },
+      });
+
+      return updatedLead;
+    });
+  }
+
+  async updateVehicleDetails(actor: SalesActor, id: string, input: {
+    registrationNumber?: string;
+    variant?: string;
+    color?: string;
+    registrationYear?: number;
+    registrationCity?: string;
+    odometerKm?: number;
+  }) {
+    const lead = await this.db.acquisitionLead.findFirst({
+      where: { id, ...scope(actor) },
+      select: { id: true, referenceCode: true },
+    });
+    if (!lead) throw new HttpError(404, 'LEAD_NOT_FOUND');
+
+    const cleanReg = input.registrationNumber?.trim().toUpperCase();
+    const updateData: Record<string, unknown> = {};
+    if (cleanReg) updateData.registrationNumber = cleanReg;
+    if (input.variant !== undefined) updateData.variant = input.variant.trim() || null;
+    if (input.color !== undefined) updateData.color = input.color.trim() || null;
+    if (input.registrationYear !== undefined) updateData.registrationYear = input.registrationYear;
+    if (input.registrationCity !== undefined) updateData.registrationCity = input.registrationCity.trim() || null;
+    if (input.odometerKm !== undefined) updateData.odometerKm = input.odometerKm;
+
+    return this.db.$transaction(async tx => {
+      const updated = await tx.acquisitionLead.update({
+        where: { id },
+        data: updateData as any,
+        select: leadSelect,
+      });
+
+      const acqCase = await tx.acquisitionCase.findFirst({
+        where: { leadId: id },
+        include: { stockUnit: true },
+      });
+      if (acqCase?.stockUnit) {
+        const stockUpdate: Record<string, unknown> = {};
+        if (cleanReg) stockUpdate.registrationNumber = cleanReg;
+        if (input.variant) stockUpdate.variant = input.variant.trim();
+        if (input.odometerKm) stockUpdate.odometerKm = input.odometerKm;
+        if (Object.keys(stockUpdate).length > 0) {
+          await tx.vehicleStockUnit.update({
+            where: { id: acqCase.stockUnit.id },
+            data: stockUpdate as any,
+          });
+        }
+      }
+
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'SELLER_LEAD_VEHICLE_DETAILS_UPDATED',
+          entityType: 'AcquisitionLead',
+          entityId: id,
+          details: { referenceCode: lead.referenceCode, ...updateData },
+        },
+      });
+
+      return updated;
     });
   }
 

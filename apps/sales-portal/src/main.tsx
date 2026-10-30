@@ -2610,9 +2610,11 @@ function SellerLeadDrawer({
   const [inspectionDate, setInspectionDate] = useState(
     lead.inspectionDate ? new Date(lead.inspectionDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
   );
-  const [inspectionSlot, setInspectionSlot] = useState(lead.inspectionTimeSlot || '11:00 AM - 01:00 PM');
-  const [inspectionLocationType, setInspectionLocationType] = useState<'HUB' | 'HOME'>('HUB');
-  const [inspectionAddress, setInspectionAddress] = useState(`${lead.city} Hub`);
+  const [inspectionSlot, setInspectionSlot] = useState(lead.inspectionTimeSlot || '10:00-12:00');
+  const [inspectionLocationType, setInspectionLocationType] = useState<'HUB' | 'HOME'>(lead.inspectionLocationType || 'HUB');
+  const [inspectionAddress, setInspectionAddress] = useState(lead.inspectionAddress || (lead.inspectionLocationType === 'HOME' ? `${lead.city} Doorstep` : `${lead.city} Hub`));
+  const [inspectionNotes, setInspectionNotes] = useState('');
+  const [showRescheduleForm, setShowRescheduleForm] = useState(false);
   const [inspectionSummary, setInspectionSummary] = useState<{
     requests: Array<{
       id: string;
@@ -2785,6 +2787,29 @@ function SellerLeadDrawer({
     }
   };
 
+  const handleUpdateInspectionSchedule = async () => {
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      await salesApi.updateInspectionSchedule(user, lead.id, {
+        inspectionDate,
+        inspectionTimeSlot: inspectionSlot,
+        inspectionLocationType,
+        inspectionAddress: inspectionLocationType === 'HUB' ? `${lead.city} Hub` : (inspectionAddress || `${lead.city} Doorstep`),
+        notes: inspectionNotes || undefined,
+      });
+      alert('Inspection schedule confirmed & synced with Operations dispatch!');
+      setShowRescheduleForm(false);
+      await loadInspectionSummary();
+      onRefresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to update inspection schedule');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleProposeOffer = async () => {
     if (!user || !offerRupees) return;
     setBusy(true);
@@ -2812,7 +2837,16 @@ function SellerLeadDrawer({
         <div className="modal-header">
           <div>
             <span className="eyebrow">SELLER OPPORTUNITY · {lead.referenceCode}</span>
-            <h3>{lead.manufacturingYear} {lead.make} {lead.model} {lead.variant || ''}</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
+              <h3 style={{ margin: 0 }}>{lead.manufacturingYear} {lead.make} {lead.model}{lead.variant ? ` ${lead.variant}` : ''}</h3>
+              {lead.registrationNumber ? (
+                <span style={{ padding: '2px 8px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 700, letterSpacing: '0.5px' }}>
+                  {lead.registrationNumber}
+                </span>
+              ) : (
+                <span style={{ fontSize: '0.75rem', color: 'var(--muted)', background: 'rgba(255, 255, 255, 0.04)', padding: '2px 6px', borderRadius: '4px' }}>Plate Pending</span>
+              )}
+            </div>
           </div>
           <button onClick={onClose}><Icons.Close size={18} /></button>
         </div>
@@ -2894,6 +2928,37 @@ function SellerLeadDrawer({
           {/* TAB 1: DETAILS */}
           {tab === 'details' && (
             <div className="form-grid">
+              <div className="metric-card">
+                <div className="metric-label">Registration & Vehicle</div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <div style={{ fontWeight: 700, fontSize: '15px' }}>{lead.manufacturingYear} {lead.make} {lead.model}</div>
+                  {lead.registrationNumber ? (
+                    <span style={{ padding: '1px 6px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid var(--border)', borderRadius: '3px', fontSize: '11px', fontWeight: 700 }}>
+                      {lead.registrationNumber}
+                    </span>
+                  ) : null}
+                </div>
+                <div className="metric-sub">
+                  Variant: <strong>{lead.variant || 'Standard'}</strong> · Colour: <strong>{lead.color || 'Standard'}</strong>
+                </div>
+                <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px' }}>
+                  {[lead.registrationYear ? `Reg: ${lead.registrationYear}` : '', lead.registrationCity || lead.city].filter(Boolean).join(' · ')}
+                </div>
+              </div>
+              <div className="metric-card">
+                <div className="metric-label">Customer Available Inspection Time</div>
+                <div style={{ fontWeight: 600, color: (lead.inspectionDate || lead.inspectionTimeSlot) ? '#38bdf8' : 'var(--text)' }}>
+                  {lead.inspectionDate ? new Date(lead.inspectionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date not set'}
+                </div>
+                <div className="metric-sub">
+                  Slot: <strong>{lead.inspectionTimeSlot || 'Flexible'}</strong> · {lead.inspectionLocationType === 'HOME' ? 'Doorstep' : 'Hub'}
+                </div>
+                {lead.inspectionAddress ? (
+                  <div style={{ fontSize: '11px', color: 'var(--muted)', marginTop: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={lead.inspectionAddress}>
+                    📍 {lead.inspectionAddress}
+                  </div>
+                ) : null}
+              </div>
               <div className="metric-card">
                 <div className="metric-label">Assigned Advisor</div>
                 {lead.assignments && lead.assignments.length > 0 ? (
@@ -3100,6 +3165,85 @@ function SellerLeadDrawer({
                           : `Inspection requested for ${activeReq.requestedDate ? new Date(activeReq.requestedDate).toLocaleDateString() : 'Immediate'} (${activeReq.timeSlot || 'Anytime'}) at ${activeReq.address || activeReq.locationType}. Hub Operations will assign a certified field inspector shortly.`}
                       </p>
 
+                      {/* Reschedule / Update Available Inspection Time */}
+                      <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px' }}>
+                        <button
+                          type="button"
+                          className="btn-outline btn-sm"
+                          onClick={() => setShowRescheduleForm(!showRescheduleForm)}
+                          style={{ fontSize: '12px' }}
+                        >
+                          {showRescheduleForm ? '✕ Close Reschedule Form' : '📅 Update Available Inspection Time / Reschedule'}
+                        </button>
+
+                        {showRescheduleForm && (
+                          <div style={{ marginTop: '12px', padding: '14px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                            <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)' }}>
+                              Mention Customer Confirmed Available Slot (Syncs directly to Operations Portal):
+                            </div>
+                            <div className="form-grid" style={{ gap: '10px' }}>
+                              <div className="form-group">
+                                <label className="form-label">Available Date</label>
+                                <input type="date" className="form-input" value={inspectionDate} onChange={e => setInspectionDate(e.target.value)} />
+                              </div>
+                              <div className="form-group">
+                                <label className="form-label">Time Slot</label>
+                                <select className="form-select" value={inspectionSlot} onChange={e => setInspectionSlot(e.target.value)}>
+                                  <option value="10:00-12:00">10:00 AM - 12:00 PM (Morning)</option>
+                                  <option value="12:00-14:00">12:00 PM - 02:00 PM (Afternoon)</option>
+                                  <option value="14:00-16:00">02:00 PM - 04:00 PM (Late Afternoon)</option>
+                                  <option value="16:00-18:00">04:00 PM - 06:00 PM (Evening)</option>
+                                </select>
+                              </div>
+                              <div className="form-group">
+                                <label className="form-label">Location Type</label>
+                                <select className="form-select" value={inspectionLocationType} onChange={e => setInspectionLocationType(e.target.value as any)}>
+                                  <option value="HUB">Hub Inspection</option>
+                                  <option value="HOME">Doorstep (Home) Visit</option>
+                                </select>
+                              </div>
+                              <div className="form-group">
+                                <label className="form-label">Address</label>
+                                <input
+                                  type="text"
+                                  className="form-input"
+                                  value={inspectionAddress}
+                                  onChange={e => setInspectionAddress(e.target.value)}
+                                  placeholder="Address for inspection"
+                                />
+                              </div>
+                              <div className="form-group full">
+                                <label className="form-label">Notes for Operations Dispatch / Field Inspector</label>
+                                <input
+                                  type="text"
+                                  className="form-input"
+                                  value={inspectionNotes}
+                                  onChange={e => setInspectionNotes(e.target.value)}
+                                  placeholder="e.g. Customer requested after lunch, gate entry code 402"
+                                />
+                              </div>
+                            </div>
+                            <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                              <button
+                                type="button"
+                                className="btn-primary btn-sm"
+                                onClick={handleUpdateInspectionSchedule}
+                                disabled={busy}
+                              >
+                                {busy ? 'Syncing...' : 'Sync Confirmed Slot to Operations'}
+                              </button>
+                              <button
+                                type="button"
+                                className="btn-secondary btn-sm"
+                                onClick={() => setShowRescheduleForm(false)}
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+
                       {inspectionSummary.approvedReport ? (
                         <div style={{ marginTop: '8px', padding: '10px', background: 'rgba(16, 185, 129, 0.12)', borderRadius: '6px' }}>
                           <div style={{ color: '#10b981', fontWeight: 600, fontSize: '0.85rem' }}>
@@ -3139,10 +3283,10 @@ function SellerLeadDrawer({
                   <div className="form-group">
                     <label className="form-label">Time Slot</label>
                     <select className="form-select" value={inspectionSlot} onChange={e => setInspectionSlot(e.target.value)}>
-                      <option value="10:00 AM - 12:00 PM">10:00 AM - 12:00 PM</option>
-                      <option value="11:00 AM - 01:00 PM">11:00 AM - 01:00 PM</option>
-                      <option value="02:00 PM - 04:00 PM">02:00 PM - 04:00 PM</option>
-                      <option value="04:00 PM - 06:00 PM">04:00 PM - 06:00 PM</option>
+                      <option value="10:00-12:00">10:00 AM - 12:00 PM (Morning)</option>
+                      <option value="12:00-14:00">12:00 PM - 02:00 PM (Afternoon)</option>
+                      <option value="14:00-16:00">02:00 PM - 04:00 PM (Late Afternoon)</option>
+                      <option value="16:00-18:00">04:00 PM - 06:00 PM (Evening)</option>
                     </select>
                   </div>
                   <div className="form-group">

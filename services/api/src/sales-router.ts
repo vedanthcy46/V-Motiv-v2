@@ -85,6 +85,23 @@ const inspectionInput = z.object({
   notes: z.string().trim().max(2_000).optional(),
 }).strict();
 
+const inspectionScheduleInput = z.object({
+  inspectionDate: z.string().date().transform(value => new Date(`${value}T00:00:00.000Z`)),
+  inspectionTimeSlot: z.enum(['10:00-12:00', '12:00-14:00', '14:00-16:00', '16:00-18:00']),
+  inspectionLocationType: z.enum(['HUB', 'HOME']),
+  inspectionAddress: z.string().trim().max(500).optional(),
+  notes: z.string().trim().max(2_000).optional(),
+}).strict();
+
+const vehicleDetailsInput = z.object({
+  registrationNumber: z.string().trim().max(30).optional(),
+  variant: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(40).optional(),
+  registrationYear: z.number().int().min(1980).max(new Date().getFullYear() + 1).optional(),
+  registrationCity: z.string().trim().max(100).optional(),
+  odometerKm: z.number().int().min(0).max(2_000_000).optional(),
+}).strict();
+
 const acquisitionOfferQuery = pagination.extend({
   status: z.enum(['OFFERED', 'ACCEPTED', 'DECLINED', 'EXPIRED']).optional(),
 }).strip();
@@ -248,6 +265,8 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   // Inspection requests & outcomes
   router.get('/inspection-requests', async (req, res) => res.json(await deps.store.inspectionRequests(res.locals.salesActor, inspectionRequestQuery.parse(req.query))));
   router.post('/seller-leads/:id/inspection-requests', async (req, res) => res.status(201).json(await deps.store.requestInspection(res.locals.salesActor, uuid.parse(req.params.id), inspectionInput.parse(req.body))));
+  router.patch('/seller-leads/:id/inspection-schedule', async (req, res) => res.json(await deps.store.updateInspectionSchedule(res.locals.salesActor, uuid.parse(req.params.id), inspectionScheduleInput.parse(req.body))));
+  router.patch('/seller-leads/:id/vehicle-details', async (req, res) => res.json(await deps.store.updateVehicleDetails(res.locals.salesActor, uuid.parse(req.params.id), vehicleDetailsInput.parse(req.body))));
   router.get('/seller-leads/:id/inspection-summary', async (req, res) => res.json(await deps.store.inspectionSummary(res.locals.salesActor, uuid.parse(req.params.id))));
 
   router.get('/seller-leads/:id/valuations', async (req, res) => res.json(await deps.store.valuations(res.locals.salesActor, uuid.parse(req.params.id))));

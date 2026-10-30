@@ -1447,10 +1447,10 @@ export const App: FC = () => {
                   <thead>
                     <tr>
                       <th>Reference & Seller</th>
-                      <th>Vehicle</th>
-                      <th>City / Hub</th>
+                      <th>Vehicle & Reg</th>
+                      <th>Customer Appointment</th>
                       <th>Status</th>
-                      <th>Assignment / Slot</th>
+                      <th>Inspector Assignment</th>
                       <th>Actions</th>
                     </tr>
                   </thead>
@@ -1460,12 +1460,36 @@ export const App: FC = () => {
                         <td>
                           <strong>{r.lead.referenceCode}</strong>
                           <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{r.lead.sellerName} · {r.lead.sellerPhone || 'No phone'}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>City: {r.lead.city}</div>
                         </td>
                         <td>
-                          <strong>{r.lead.make} {r.lead.model}</strong>
-                          <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>{r.lead.manufacturingYear} · {r.lead.fuelType || 'Petrol'} · {r.lead.odometerKm ? `${r.lead.odometerKm.toLocaleString()} km` : '—'}</div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
+                            <strong>{r.lead.make} {r.lead.model}{r.lead.variant ? ` ${r.lead.variant}` : ''}</strong>
+                            {r.lead.registrationNumber ? (
+                              <span style={{ padding: '1px 6px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>
+                                {r.lead.registrationNumber}
+                              </span>
+                            ) : null}
+                          </div>
+                          <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginTop: '2px' }}>
+                            {[r.lead.manufacturingYear, r.lead.fuelType, r.lead.transmission, r.lead.color, r.lead.odometerKm ? `${r.lead.odometerKm.toLocaleString()} km` : null].filter(Boolean).join(' · ')}
+                          </div>
                         </td>
-                        <td>{r.lead.city}</td>
+                        <td>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            <div style={{ fontWeight: 600, fontSize: '0.8125rem', color: (r.requestedDate || r.lead.inspectionDate) ? 'var(--gold)' : 'var(--muted)' }}>
+                              {(r.requestedDate || r.lead.inspectionDate) ? formatDate(r.requestedDate || r.lead.inspectionDate) : 'Schedule Pending'}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--text)' }}>
+                              Slot: <strong>{r.timeSlot || r.lead.inspectionTimeSlot || 'Flexible'}</strong> · {r.locationType === 'HOME' || r.lead.inspectionLocationType === 'HOME' ? 'Doorstep' : 'Hub'}
+                            </div>
+                            {(r.address || r.lead.inspectionAddress) ? (
+                              <div style={{ fontSize: '0.7rem', color: 'var(--muted)', maxWidth: '180px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={r.address || r.lead.inspectionAddress || undefined}>
+                                📍 {r.address || r.lead.inspectionAddress}
+                              </div>
+                            ) : null}
+                          </div>
+                        </td>
                         <td>
                           <span className={`badge ${r.status === 'COMPLETED' ? 'badge-success' : r.status === 'SCHEDULED' ? 'badge-info' : r.status === 'IN_PROGRESS' ? 'badge-purple' : 'badge-warning'}`}>
                             {r.status}
@@ -1490,11 +1514,21 @@ export const App: FC = () => {
                               className="btn-gold"
                               style={{ padding: '0.35rem 0.75rem', fontSize: '0.8rem' }}
                               onClick={() => {
+                                const targetDateStr = r.requestedDate || r.lead.inspectionDate;
+                                const targetSlot = r.timeSlot || r.lead.inspectionTimeSlot;
+                                let resolvedAssignDate = '';
+                                if (targetDateStr) {
+                                  const dateOnly = targetDateStr.slice(0, 10);
+                                  const startHour = targetSlot ? (targetSlot.split('-')[0] || '10:00').trim() : '10:00';
+                                  resolvedAssignDate = `${dateOnly}T${startHour.padStart(5, '0')}`;
+                                } else {
+                                  resolvedAssignDate = new Date(Date.now() + 86400000).toISOString().slice(0, 16);
+                                }
                                 setAssignModal({ open: true, request: r });
                                 setAssignInspectorId(inspectors[0]?.userId || '');
-                                setAssignDate(new Date(Date.now() + 86400000).toISOString().slice(0, 16));
-                                setAssignLocationType((r.assignment?.locationType || r.locationType) as 'HUB' | 'HOME');
-                                setAssignAddress(r.assignment?.address || r.address || '');
+                                setAssignDate(resolvedAssignDate);
+                                setAssignLocationType(((r.assignment?.locationType || r.locationType || r.lead.inspectionLocationType) === 'HOME' ? 'HOME' : 'HUB') as 'HUB' | 'HOME');
+                                setAssignAddress(r.assignment?.address || r.address || r.lead.inspectionAddress || '');
                               }}
                             >
                               Assign Inspector
@@ -1667,7 +1701,7 @@ export const App: FC = () => {
                           onClick={() => {
                             setHandoverModal({ open: true, caseItem: c });
                             setHandoverRegNumber(c.handover?.registrationNumber || c.lead.registrationNumber || '');
-                            setHandoverOdometer(c.handover?.odometerKm || 0);
+                            setHandoverOdometer(c.handover?.odometerKm || c.lead.odometerKm || 0);
                             setHandoverMainKeys(c.handover?.mainKeysReceived || 1);
                             setHandoverSpareKeys(c.handover?.spareKeysReceived || 0);
                             setHandoverBranchId(c.handover?.branchId || branches.find(branch => branch.city.toLowerCase() === c.lead.city.toLowerCase())?.id || branches[0]?.id || '');
@@ -1878,7 +1912,7 @@ export const App: FC = () => {
                           onClick={() => {
                             setHandoverModal({ open: true, caseItem: c });
                             setHandoverRegNumber(c.handover?.registrationNumber || c.lead.registrationNumber || '');
-                            setHandoverOdometer(c.handover?.odometerKm || 0);
+                            setHandoverOdometer(c.handover?.odometerKm || c.lead.odometerKm || 0);
                             setHandoverMainKeys(c.handover?.mainKeysReceived || 1);
                             setHandoverSpareKeys(c.handover?.spareKeysReceived || 0);
                             setHandoverBranchId(c.handover?.branchId || branches.find(branch => branch.city.toLowerCase() === c.lead.city.toLowerCase())?.id || branches[0]?.id || '');
@@ -2719,11 +2753,54 @@ export const App: FC = () => {
             </div>
             <form onSubmit={handleAssignSubmit}>
               <div className="modal-body">
-                <div>
-                  <strong>{assignModal.request.lead.make} {assignModal.request.lead.model}</strong>
-                  <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
-                    Seller: {assignModal.request.lead.sellerName} · Ref: {assignModal.request.lead.referenceCode} · City: {assignModal.request.lead.city}
+                {/* Synced Customer & Sales Appointment Callout */}
+                <div style={{
+                  padding: '0.85rem',
+                  borderRadius: '8px',
+                  background: 'rgba(235, 179, 56, 0.12)',
+                  border: '1px solid rgba(235, 179, 56, 0.35)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '5px',
+                  marginBottom: '1rem',
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                    <span style={{ fontSize: '0.72rem', fontWeight: 800, color: 'var(--gold)', letterSpacing: '0.5px', textTransform: 'uppercase' }}>
+                      Customer & Sales Confirmed Appointment
+                    </span>
+                    <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>
+                      {assignModal.request.timeSlot || assignModal.request.lead.inspectionTimeSlot || 'Flexible'}
+                    </span>
                   </div>
+                  <div style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text)' }}>
+                    📅 {(assignModal.request.requestedDate || assignModal.request.lead.inspectionDate) ? formatDate(assignModal.request.requestedDate || assignModal.request.lead.inspectionDate) : 'Date not finalized'}
+                  </div>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                    📍 {((assignModal.request.locationType || assignModal.request.lead.inspectionLocationType) === 'HOME')
+                      ? `Doorstep: ${assignModal.request.address || assignModal.request.lead.inspectionAddress || assignModal.request.lead.city}`
+                      : `Hub Inspection (${assignModal.request.lead.city})`}
+                  </div>
+                  {assignModal.request.notes ? (
+                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '3px', fontStyle: 'italic' }}>
+                      Note from Sales: "{assignModal.request.notes}"
+                    </div>
+                  ) : null}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', paddingBottom: '0.75rem', borderBottom: '1px solid var(--border)', marginBottom: '0.75rem' }}>
+                  <div>
+                    <strong>{assignModal.request.lead.manufacturingYear} {assignModal.request.lead.make} {assignModal.request.lead.model}{assignModal.request.lead.variant ? ` ${assignModal.request.lead.variant}` : ''}</strong>
+                    <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                      Seller: {assignModal.request.lead.sellerName} · Ref: {assignModal.request.lead.referenceCode} · City: {assignModal.request.lead.city}
+                    </div>
+                  </div>
+                  {assignModal.request.lead.registrationNumber ? (
+                    <span style={{ padding: '2px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--border)', borderRadius: '4px', fontWeight: 700, fontSize: '0.82rem', letterSpacing: '0.5px' }}>
+                      {assignModal.request.lead.registrationNumber}
+                    </span>
+                  ) : (
+                    <span style={{ color: 'var(--muted)', fontSize: '0.78rem' }}>Plate Pending</span>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -2849,9 +2926,9 @@ export const App: FC = () => {
             <form onSubmit={handleHandoverSubmit}>
               <div className="modal-body">
                 <div>
-                  <strong>{handoverModal.caseItem.lead.make} {handoverModal.caseItem.lead.model}</strong>
+                  <strong>{handoverModal.caseItem.lead.manufacturingYear} {handoverModal.caseItem.lead.make} {handoverModal.caseItem.lead.model}{handoverModal.caseItem.lead.variant ? ` ${handoverModal.caseItem.lead.variant}` : ''}</strong>
                   <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
-                    Seller: {handoverModal.caseItem.lead.sellerName} · Agreed Price: {formatRupees(handoverModal.caseItem.offer.offerAmountPaise)}
+                    Seller: {handoverModal.caseItem.lead.sellerName} · Agreed Price: {formatRupees(handoverModal.caseItem.offer.offerAmountPaise)} · {[handoverModal.caseItem.lead.fuelType, handoverModal.caseItem.lead.transmission, handoverModal.caseItem.lead.color].filter(Boolean).join(' · ')}
                   </div>
                 </div>
 

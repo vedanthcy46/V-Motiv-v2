@@ -136,6 +136,7 @@ export type SellerLead = {
   make: string;
   model: string;
   variant: string | null;
+  registrationNumber?: string | null;
   manufacturingYear: number;
   fuelType: string;
   transmission: string;
@@ -143,8 +144,13 @@ export type SellerLead = {
   ownershipNumber: number;
   expectedPricePaise: string | null;
   status: string;
+  color?: string | null;
+  registrationYear?: number | null;
+  registrationCity?: string | null;
   inspectionDate: string | null;
   inspectionTimeSlot: string | null;
+  inspectionLocationType?: 'HUB' | 'HOME' | null;
+  inspectionAddress?: string | null;
   createdAt: string;
   updatedAt: string;
   assignments?: Array<{
@@ -614,6 +620,21 @@ export const salesApi = {
     call<{ items: InspectionRequestItem[]; total: number; page: number; totalPages: number }>(user, `/inspection-requests?${query(params)}`),
   requestInspection: (user: User, leadId: string, input: { locationType: 'HUB' | 'HOME'; requestedDate?: string; timeSlot?: string; address?: string; notes?: string }) =>
     call<{ id: string; status: string }>(user, `/seller-leads/${leadId}/inspection-requests`, { method: 'POST', body: JSON.stringify(input) }),
+  updateInspectionSchedule: (user: User, leadId: string, input: {
+    inspectionDate: string;
+    inspectionTimeSlot: string;
+    inspectionLocationType: 'HUB' | 'HOME';
+    inspectionAddress?: string;
+    notes?: string;
+  }) => call<SellerLead>(user, `/seller-leads/${leadId}/inspection-schedule`, { method: 'PATCH', body: JSON.stringify(input) }),
+  updateVehicleDetails: (user: User, leadId: string, input: {
+    registrationNumber?: string;
+    variant?: string;
+    color?: string;
+    registrationYear?: number;
+    registrationCity?: string;
+    odometerKm?: number;
+  }) => call<SellerLead>(user, `/seller-leads/${leadId}/vehicle-details`, { method: 'PATCH', body: JSON.stringify(input) }),
   inspectionSummary: (user: User, leadId: string) =>
     call<{
       lead: SellerLead;

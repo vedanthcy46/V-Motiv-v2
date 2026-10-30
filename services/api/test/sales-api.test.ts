@@ -150,6 +150,16 @@ function setup(options: { actorError?: Error } = {}) {
       id: 'insp-1',
       status: 'PENDING_ASSIGNMENT',
     }),
+    updateInspectionSchedule: vi.fn().mockResolvedValue({
+      id: '22222222-2222-4222-8222-222222222222',
+      inspectionDate: new Date('2026-11-02T00:00:00.000Z'),
+      inspectionTimeSlot: '10:00-12:00',
+      inspectionLocationType: 'HUB',
+    }),
+    updateVehicleDetails: vi.fn().mockResolvedValue({
+      id: '22222222-2222-4222-8222-222222222222',
+      registrationNumber: 'KA-01-AB-1234',
+    }),
     inspectionSummary: vi.fn().mockResolvedValue({
       lead: { id: '22222222-2222-4222-8222-222222222222' },
       hasCompletedInspection: true,
@@ -435,6 +445,21 @@ describe('Sales Executive Portal API Boundaries', () => {
         details: 'Confirm inspector location',
       });
     expect(taskRes.status).toBe(201);
+  });
+
+  it('updates inspection schedule and syncs confirmed appointment to operations', async () => {
+    const { app, sales } = setup();
+    const res = await request(app)
+      .patch('/api/v2/sales/seller-leads/22222222-2222-4222-8222-222222222222/inspection-schedule')
+      .set('Authorization', 'Bearer valid-firebase-token')
+      .send({
+        inspectionDate: '2026-11-02',
+        inspectionTimeSlot: '10:00-12:00',
+        inspectionLocationType: 'HUB',
+        notes: 'Customer confirmed morning slot',
+      });
+    expect(res.status).toBe(200);
+    expect(sales.updateInspectionSchedule).toHaveBeenCalled();
   });
 
   it('proposes versioned acquisition offer and records customer response', async () => {
