@@ -1444,8 +1444,7 @@ export class PrismaInspectionStore {
         await tx.vehicle.update({
           where: { id: stock.vehicle.id },
           data: {
-            ...(reg !== undefined ? { registrationNumber: reg || null } : {}),
-            ...(input.variant !== undefined ? { variant: input.variant.trim() || null } : {}),
+            ...(input.variant?.trim() ? { variant: input.variant.trim() } : {}),
             ...(input.color !== undefined ? { color: input.color.trim() || null } : {}),
             ...(input.odometerKm !== undefined ? { odometerKm: input.odometerKm } : {}),
           },

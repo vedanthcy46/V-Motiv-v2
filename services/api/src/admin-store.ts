@@ -1,5 +1,5 @@
 import crypto from 'node:crypto';
-import { PrismaClient, type EmployeeRole, type EmployeeStatus, type Prisma, type SupportCaseStatus } from '@prisma/client';
+import { PrismaClient, type EmployeeRole, type EmployeeStatus, type PolicyStatus, type Prisma, type SupportCaseStatus } from '@prisma/client';
 import { z } from 'zod';
 import type { Identity } from './auth.js';
 import { HttpError } from './errors.js';
@@ -423,7 +423,7 @@ export class PrismaAdminStore implements AdminStore {
       this.db.approvalRequest.findMany({
         where: { requestType: 'POLICY_VERSION', status: 'PENDING' },
         orderBy: { createdAt: 'desc' },
-        include: { requester: { select: { email: true, displayName: true } } },
+        include: { requester: { select: { user: { select: { email: true, displayName: true } } } } },
       }),
     ]);
 
@@ -440,7 +440,10 @@ export class PrismaAdminStore implements AdminStore {
         effectiveAt: payload.effectiveAt ? new Date(payload.effectiveAt as string) : null,
         createdAt: req.createdAt,
         updatedAt: req.createdAt,
-        createdBy: req.requester,
+        createdBy: {
+          email: req.requester.user.email,
+          displayName: req.requester.user.displayName,
+        },
         reason: (payload.reason as string) || undefined,
       };
     });
