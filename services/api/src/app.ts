@@ -392,14 +392,15 @@ export function createApp(deps: {
   });
 
   if (deps.valuation) {
-    const valuationLimiter = rateLimit({ windowMs: 60_000, limit: 12, standardHeaders: 'draft-8', legacyHeaders: false });
-    unifiedApiRouter.post('/valuations/instant', auth, valuationLimiter, async (req, res) => {
-      const identity = res.locals.identity as Identity;
-      res.status(201).json(await deps.valuation!.instant(identity.uid, parsed(instantValuationInput, req.body)));
+    const valuationLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+    const optAuth = optionalAuthentication(deps.verify);
+    unifiedApiRouter.post('/valuations/instant', optAuth, valuationLimiter, async (req, res) => {
+      const identity = res.locals.identity as Identity | undefined;
+      res.status(201).json(await deps.valuation!.instant(identity?.uid, parsed(instantValuationInput, req.body)));
     });
-    unifiedApiRouter.get('/valuations/:id/public-summary', auth, async (req, res) => {
-      const identity = res.locals.identity as Identity;
-      res.json(await deps.valuation!.publicSummaryForUser(identity.uid, parsed(uuid, req.params.id)));
+    unifiedApiRouter.get('/valuations/:id/public-summary', optAuth, async (req, res) => {
+      const identity = res.locals.identity as Identity | undefined;
+      res.json(await deps.valuation!.publicSummaryForUser(identity?.uid ?? '', parsed(uuid, req.params.id)));
     });
   }
 

@@ -45,11 +45,14 @@ export class PrismaValuationStore {
    * calculates a mathematical payout range; otherwise returns an explainable
    * unavailable reason without fabricating numbers.
    */
-  async instant(uid: string, input: InstantValuationInput) {
-    const user = await this.db.user.findUnique({ where: { firebaseUid: uid }, select: { id: true } });
-    if (!user) throw new HttpError(404, 'PROFILE_NOT_REGISTERED');
+  async instant(uid: string | undefined, input: InstantValuationInput) {
+    let user: { id: string } | null = null;
+    if (uid) {
+      user = await this.db.user.findUnique({ where: { firebaseUid: uid }, select: { id: true } });
+      if (!user) throw new HttpError(404, 'PROFILE_NOT_REGISTERED');
+    }
 
-    if (input.leadId) {
+    if (input.leadId && user) {
       const lead = await this.db.acquisitionLead.findFirst({ where: { id: input.leadId, userId: user.id }, select: { id: true } });
       if (!lead) throw new HttpError(404, 'LEAD_NOT_FOUND');
     }
@@ -252,28 +255,47 @@ export class PrismaValuationStore {
       confidence = matchTier === 1 && comparableCount >= 6 ? 'HIGH' : matchTier <= 2 && comparableCount >= 4 ? 'MEDIUM' : 'LOW';
     }
 
-    const snapshot = await this.db.instantValuationSnapshot.create({
-      data: {
-        userId: user.id,
-        leadId: input.leadId,
-        inputSnapshot: JSON.parse(JSON.stringify(input)),
-        estimateAvailable,
-        unavailableReason,
-        sellerEstimateLowPaise,
-        sellerEstimateHighPaise,
-        confidence,
-        comparableCount,
-        dataAsOf,
-        valuationVersion,
-        policyVersion: activePolicy ? `v${activePolicy.version}` : null,
-        assumptions: [
-          'This result is non-binding and does not use seller-declared details as verified facts.',
-          'Physical evaluation, documentation verification, and final managerial approval are required.',
-        ],
-      },
-    });
+    if (user) {
+      const snapshot = await this.db.instantValuationSnapshot.create({
+        data: {
+          userId: user.id,
+          leadId: input.leadId,
+          inputSnapshot: JSON.parse(JSON.stringify(input)),
+          estimateAvailable,
+          unavailableReason,
+          sellerEstimateLowPaise,
+          sellerEstimateHighPaise,
+          confidence,
+          comparableCount,
+          dataAsOf,
+          valuationVersion,
+          policyVersion: activePolicy ? `v${activePolicy.version}` : null,
+          assumptions: [
+            'This result is non-binding and does not use seller-declared details as verified facts.',
+            'Physical evaluation, documentation verification, and final managerial approval are required.',
+          ],
+        },
+      });
+      return this.publicSummary(snapshot);
+    }
 
-    return this.publicSummary(snapshot);
+    return {
+      id: `est-${Date.now()}`,
+      estimateAvailable,
+      unavailableReason,
+      sellerEstimateLowPaise: sellerEstimateLowPaise?.toString() ?? null,
+      sellerEstimateHighPaise: sellerEstimateHighPaise?.toString() ?? null,
+      confidenceCategory: confidence,
+      comparableCount,
+      dataAsOf: dataAsOf?.toISOString() ?? null,
+      valuationVersion,
+      estimateDate: new Date().toISOString(),
+      assumptions: [
+        'This result is non-binding and does not use seller-declared details as verified facts.',
+        'Physical evaluation, documentation verification, and final managerial approval are required.',
+      ],
+      disclaimer: 'This is an indicative estimate based on the details you provide and approved market information. It is not a purchase offer. The amount V MOTIV may offer can change after vehicle inspection, document checks and market review.',
+    };
   }
 
   async publicSummaryForUser(uid: string, id: string) {
