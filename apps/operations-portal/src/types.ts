@@ -125,6 +125,12 @@ export type AcquisitionCase = {
     variant?: string | null;
     manufacturingYear: number;
     registrationNumber?: string | null;
+    fuelType?: string;
+    transmission?: string;
+    color?: string | null;
+    registrationYear?: number | null;
+    registrationCity?: string | null;
+    ownershipCount?: number | null;
   };
   offer: {
     id: string;

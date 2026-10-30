@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
 import { profileSelect } from './identity-store.js';
+import { isInvalidRegNumberOrUuid } from './inspection-store.js';
 
 type ProfileInput = { displayName?: string; phone?: string; marketingConsent?: boolean; preferredCity?: string; termsVersion?: string };
 type SellInput = {
@@ -360,6 +361,13 @@ function purchaseEnquiryFormat(row: any) {
 }
 const leadInclude = {
   offers: { orderBy: { createdAt: 'desc' as const } },
+  acquisitionCases: {
+    include: {
+      stockUnit: true,
+      handover: true,
+    },
+    take: 1,
+  },
   inspectionRequests: {
     include: {
       assignment: {
@@ -381,6 +389,7 @@ const leadInclude = {
           revision: true,
           submittedAt: true,
           reviewedAt: true,
+          identity: true,
         },
       },
     },
@@ -389,7 +398,7 @@ const leadInclude = {
   },
 };
 type LeadWithDetails = Prisma.AcquisitionLeadGetPayload<{ include: typeof leadInclude }>;
-function leadJson(lead: LeadWithDetails) {
+function leadJson(lead: LeadWithDetails, db?: PrismaClient) {
   const latestReq = lead.inspectionRequests?.[0];
   const latestReport = latestReq?.reports?.[0];
   const isInspectionDone = Boolean(
@@ -403,8 +412,36 @@ function leadJson(lead: LeadWithDetails) {
     ? 'OFFER_PENDING'
     : lead.status;
 
+  const acqCase = lead.acquisitionCases?.[0];
+  const stockUnit = acqCase?.stockUnit;
+  const handover = acqCase?.handover;
+  const inspectionIdentity = (latestReport?.identity || {}) as Record<string, unknown>;
+  const rawInspectionReg = typeof inspectionIdentity.registrationNumber === 'string' ? inspectionIdentity.registrationNumber.trim() : '';
+  const inspectionReg = !isInvalidRegNumberOrUuid(rawInspectionReg) ? rawInspectionReg : '';
+
+  const registrationNumber = lead.registrationNumber || stockUnit?.registrationNumber || handover?.registrationNumber || inspectionReg || null;
+  const variant = lead.variant || stockUnit?.variant || (inspectionIdentity.variant as string) || null;
+  const color = lead.color || (inspectionIdentity.color as string) || null;
+  const registrationYear = lead.registrationYear || (typeof inspectionIdentity.registrationYear === 'number' ? inspectionIdentity.registrationYear : null) || null;
+  const registrationCity = lead.registrationCity || (inspectionIdentity.registrationCity as string) || lead.city || null;
+  const ownershipCount = lead.ownershipCount || (typeof inspectionIdentity.ownershipCount === 'number' ? inspectionIdentity.ownershipCount : null) || null;
+
+  // Self-heal: If lead.registrationNumber was missing in database, persist it asynchronously
+  if (!lead.registrationNumber && registrationNumber && db) {
+    void db.acquisitionLead.update({
+      where: { id: lead.id },
+      data: { registrationNumber },
+    }).catch(() => undefined);
+  }
+
   return {
     ...lead,
+    registrationNumber,
+    variant,
+    color,
+    registrationYear,
+    registrationCity,
+    ownershipCount,
     status,
     expectedPricePaise: lead.expectedPricePaise?.toString() ?? null,
     offers: (lead.offers || []).map(offerJson),
@@ -604,20 +641,20 @@ export class PrismaCustomerStore implements CustomerStore {
   async leads(uid: string) {
     const user = await this.user(uid);
     const rows = await this.db.acquisitionLead.findMany({ where: { userId: user.id }, include: leadInclude, orderBy: { createdAt: 'desc' } });
-    return rows.map(leadJson);
+    return rows.map(r => leadJson(r, this.db));
   }
   async lead(uid: string, id: string) {
     const user = await this.user(uid);
     const row = await this.db.acquisitionLead.findFirst({ where: { id, userId: user.id }, include: leadInclude });
     if (!row) throw new HttpError(404, 'LEAD_NOT_FOUND');
-    return leadJson(row);
+    return leadJson(row, this.db);
   }
   async createLead(uid: string, input: SellInput) {
     const user = await this.user(uid);
     const city = await this.supportedCity(input.city);
     if (input.idempotencyKey) {
       const existing = await this.db.acquisitionLead.findUnique({ where: { userId_idempotencyKey: { userId: user.id, idempotencyKey: input.idempotencyKey } }, include: leadInclude });
-      if (existing) return leadJson(existing);
+      if (existing) return leadJson(existing, this.db);
     }
     const { inspectionDate, ...rest } = input;
     const lead = await this.db.$transaction(async tx => {
@@ -636,7 +673,7 @@ export class PrismaCustomerStore implements CustomerStore {
       await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `selling-requested/${created.id}`, recipient: user.email, templateVersion: 'selling-requested-v1', subject: `Selling Request Received [${created.referenceCode}] · ${created.manufacturingYear} ${created.make} ${created.model}`, text: `We received your request to sell your ${created.manufacturingYear} ${created.make} ${created.model} (${created.variant || 'Standard'}).\n\nReference Code: ${created.referenceCode}\nLocation: ${created.city} (${created.pincode})\nOdometer: ${created.odometerKm.toLocaleString('en-IN')} km\nContact Phone: ${created.sellerPhone}\n\nOur Valuation & Purchase Process:\n1. Transparent pricing evaluation based on current market trends.\n2. 180-Point Doorstep or Hub inspection to certify vehicle condition.\n3. Guaranteed direct purchase offer with same-day payment and free RC transfer.\n\nYou can track this request in your V MOTIV mobile app under Activity.` } });
       return created;
     });
-    return leadJson(lead);
+    return leadJson(lead, this.db);
   }
   async cancelLead(uid: string, id: string, reason?: string) {
     const user = await this.user(uid);

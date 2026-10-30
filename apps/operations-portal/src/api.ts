@@ -283,4 +283,18 @@ export const api = {
   testDrives: (u: User) => call<{ items: TestDrive[] } | TestDrive[]>(u, '/sales/test-drives?limit=50'),
   updateTestDriveStatus: (u: User, id: string, status: 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW') =>
     call<unknown>(u, `/sales/test-drives/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+
+  // --- Valuation & Acquisition Pricing Engine ---
+  recommendValuation: (u: User, reportId: string) =>
+    call<unknown>(u, `/valuations/inspection/${reportId}/recommend`, { method: 'POST' }),
+  internalValuation: (u: User, valuationId: string) =>
+    call<unknown>(u, `/valuations/${valuationId}/internal`),
+  marketDataQuality: (u: User) =>
+    call<unknown>(u, '/valuations/data/quality'),
+  importMarketData: (u: User, body: unknown) =>
+    call<unknown>(u, '/valuations/data/imports', { method: 'POST', body: JSON.stringify(body) }),
+  pricingPolicy: (u: User) =>
+    call<unknown>(u, '/valuations/policies'),
+  updatePricingPolicy: (u: User, body: unknown) =>
+    call<unknown>(u, '/valuations/policies/changes', { method: 'POST', body: JSON.stringify(body) }),
 };

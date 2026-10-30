@@ -257,7 +257,11 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
               <View style={styles.regPlateBadge}>
                 <Text style={styles.regPlateBadgeText}>{lead.registrationNumber}</Text>
               </View>
-            ) : null}
+            ) : (
+              <View style={[styles.regPlateBadge, { backgroundColor: isDark ? '#1E293B' : '#E2E8F0', borderColor: isDark ? '#334155' : '#CBD5E1' }]}>
+                <Text style={[styles.regPlateBadgeText, { color: isDark ? '#94A3B8' : '#64748B' }]}>Verification Pending</Text>
+              </View>
+            )}
             <Text style={styles.refLabel}>Reference:</Text>
             <Text style={styles.refCode}>{lead.referenceCode.slice(0, 8).toUpperCase()}</Text>
           </View>

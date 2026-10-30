@@ -43,6 +43,7 @@ import { createRentalCustomerRouter, createRentalOperationsRouter, createRentalW
 import type { PrismaConnectStore } from './connect-store.js';
 import { createConnectCustomerRouter, createConnectPublicRouter, createConnectWebhookRouter } from './connect-router.js';
 import type { PrismaValuationStore } from './valuation-store.js';
+import { createValuationRouter } from './valuation-router.js';
 
 const uuid = z.string().uuid();
 const profileInput = z.object({ displayName: z.string().trim().min(1).max(80).optional(), phone: z.string().regex(/^\+91[6-9]\d{9}$/).optional(), marketingConsent: z.boolean().optional(), preferredCity: z.string().trim().min(2).max(100).optional(), termsVersion: z.string().trim().min(1).max(40).optional() }).strict().refine(value => Object.keys(value).length > 0);
@@ -269,6 +270,14 @@ export function createApp(deps: {
     app.use('/api/v1/sales', salesLimiter, salesRouter);
     app.use('/api/sales', salesLimiter, salesRouter);
     app.use('/sales', salesLimiter, salesRouter);
+  }
+  if (deps.valuation && deps.db) {
+    const valuationStaffRouter = createValuationRouter({ verify: deps.verify, store: deps.valuation, db: deps.db });
+    const valuationStaffLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+    app.use('/api/v2/valuations', valuationStaffLimiter, valuationStaffRouter);
+    app.use('/api/v1/valuations', valuationStaffLimiter, valuationStaffRouter);
+    app.use('/api/valuations', valuationStaffLimiter, valuationStaffRouter);
+    app.use('/valuations', valuationStaffLimiter, valuationStaffRouter);
   }
   if (deps.admin && deps.adminWebOrigin && deps.revokeTokens) {
     const adminRouter = createAdminRouter({

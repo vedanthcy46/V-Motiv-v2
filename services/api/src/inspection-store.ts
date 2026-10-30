@@ -936,7 +936,7 @@ export class PrismaInspectionStore {
       where: this.acquisitionCaseScope(actor),
       orderBy: { createdAt: 'desc' },
       include: {
-        lead: { select: { id: true, referenceCode: true, sellerName: true, sellerPhone: true, city: true, make: true, model: true, variant: true, manufacturingYear: true, registrationNumber: true } },
+        lead: { select: { id: true, referenceCode: true, sellerName: true, sellerPhone: true, city: true, make: true, model: true, variant: true, manufacturingYear: true, registrationNumber: true, fuelType: true, transmission: true, color: true, registrationYear: true, registrationCity: true, ownershipCount: true } },
         offer: { select: { id: true, offerAmountPaise: true, validUntil: true, acceptedAt: true, version: true } },
         documents: { orderBy: { documentType: 'asc' } },
         settlement: true,
@@ -1533,24 +1533,36 @@ export class PrismaInspectionStore {
       : null;
     const completedWork = stock.workOrders.filter(workOrder => workOrder.status === 'COMPLETED');
     const passedQc = stock.qualityControlReports.find(report => report.status === 'PASSED');
+
+    const inspectionIdentity = (approvedInspection?.identity || {}) as Record<string, unknown>;
+    const rawInspectionReg = typeof inspectionIdentity.registrationNumber === 'string' ? inspectionIdentity.registrationNumber.trim() : '';
+    const inspectionReg = !isInvalidRegNumberOrUuid(rawInspectionReg) ? rawInspectionReg : '';
+
+    const resolvedReg = stock.registrationNumber || stock.acquisitionCase?.lead?.registrationNumber || inspectionReg || null;
+    const resolvedVariant = stock.variant || stock.acquisitionCase?.lead?.variant || (inspectionIdentity.variant as string) || null;
+    const resolvedColor = input.color || stock.vehicle?.color || stock.acquisitionCase?.lead?.color || (inspectionIdentity.color as string) || null;
+    const resolvedRegYear = stock.acquisitionCase?.lead?.registrationYear || (typeof inspectionIdentity.registrationYear === 'number' ? inspectionIdentity.registrationYear : null) || null;
+    const resolvedRegCity = stock.acquisitionCase?.lead?.registrationCity || (inspectionIdentity.registrationCity as string) || stock.acquisitionCase?.lead?.city || null;
+    const resolvedOwnership = stock.acquisitionCase?.lead?.ownershipCount || (typeof inspectionIdentity.ownershipCount === 'number' ? inspectionIdentity.ownershipCount : null) || null;
+
     const customerProfile = {
       version: 1,
       generatedAt: new Date().toISOString(),
       basicInformation: {
-        registrationNumber: stock.registrationNumber || stock.acquisitionCase?.lead?.registrationNumber || null,
+        registrationNumber: resolvedReg,
         manufacturingYear: stock.manufacturingYear,
         odometerKm: stock.odometerKm,
         fuelType: stock.fuelType,
         transmission: stock.transmission,
-        variant: stock.variant || stock.acquisitionCase?.lead?.variant || null,
+        variant: resolvedVariant,
         model: stock.model,
         make: stock.make,
-        registrationYear: stock.acquisitionCase?.lead?.registrationYear || null,
-        registrationCity: stock.acquisitionCase?.lead?.registrationCity || null,
-        ownershipCount: stock.acquisitionCase?.lead?.ownershipCount || null,
+        registrationYear: resolvedRegYear,
+        registrationCity: resolvedRegCity,
+        ownershipCount: resolvedOwnership,
       },
       specifications: {
-        color: input.color || stock.vehicle?.color || stock.acquisitionCase?.lead?.color || null,
+        color: resolvedColor,
         bodyType: stock.vehicle?.bodyType || null,
         engineCapacityCc: stock.vehicle?.engineCapacityCc || null,
       },
@@ -1586,15 +1598,15 @@ export class PrismaInspectionStore {
           data: {
             make: stock.make,
             model: stock.model,
-            variant: stock.variant || stock.acquisitionCase?.lead?.variant || '',
+            variant: resolvedVariant || '',
             manufacturingYear: stock.manufacturingYear,
             fuelType: stock.fuelType,
             transmission: stock.transmission,
             odometerKm: stock.odometerKm,
             city: vehicleCity,
-            color: input.color || stock.acquisitionCase?.lead?.color || null,
-            registrationYear: stock.acquisitionCase?.lead?.registrationYear || null,
-            ownershipCount: stock.acquisitionCase?.lead?.ownershipCount || null,
+            color: resolvedColor,
+            registrationYear: resolvedRegYear,
+            ownershipCount: resolvedOwnership,
             conditionSummary: input.conditionSummary,
             inspectionSummary: input.inspectionSummary,
             features: input.features || [],
@@ -1608,6 +1620,8 @@ export class PrismaInspectionStore {
             vehicleId,
             branchId: branchId || undefined,
             physicalLocation: branchName || undefined,
+            registrationNumber: resolvedReg || undefined,
+            variant: resolvedVariant || undefined,
             status: 'LISTING_READY',
             version: { increment: 1 },
           },
@@ -1617,13 +1631,14 @@ export class PrismaInspectionStore {
           where: { id: vehicleId },
           data: {
             city: vehicleCity,
-            color: input.color || stock.acquisitionCase?.lead?.color || undefined,
-            registrationYear: stock.acquisitionCase?.lead?.registrationYear || undefined,
-            ownershipCount: stock.acquisitionCase?.lead?.ownershipCount || undefined,
+            color: resolvedColor || undefined,
+            registrationYear: resolvedRegYear || undefined,
+            ownershipCount: resolvedOwnership || undefined,
+            variant: resolvedVariant || undefined,
             conditionSummary: input.conditionSummary,
             inspectionSummary: input.inspectionSummary,
             features: input.features || [],
-            verifiedTags: input.verifiedTags || undefined,
+            verifiedTags: input.verifiedTags || ['V MOTIV Certified', '150-Point Inspected'],
           },
         });
         await tx.vehicleStockUnit.update({
@@ -1631,10 +1646,19 @@ export class PrismaInspectionStore {
           data: {
             branchId: branchId || undefined,
             physicalLocation: branchName || undefined,
+            registrationNumber: resolvedReg || undefined,
+            variant: resolvedVariant || undefined,
             status: 'LISTING_READY',
             version: { increment: 1 },
           },
         });
+      }
+
+      if (resolvedReg && stock.acquisitionCase?.lead?.id && !stock.acquisitionCase.lead.registrationNumber) {
+        await tx.acquisitionLead.update({
+          where: { id: stock.acquisitionCase.lead.id },
+          data: { registrationNumber: resolvedReg },
+        }).catch(() => undefined);
       }
 
       const listing = await tx.vehicleListing.upsert({

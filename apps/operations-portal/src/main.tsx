@@ -1594,7 +1594,7 @@ export const App: FC = () => {
                     <div className="card-header">
                       <div>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                          <span className="card-title">{c.lead.make} {c.lead.model}</span>
+                          <span className="card-title">{c.lead.make} {c.lead.model}{c.lead.variant ? ` ${c.lead.variant}` : ''}</span>
                           <span className={`badge ${c.status === 'COMPLETED' ? 'badge-success' : c.status === 'SETTLEMENT_READY' ? 'badge-info' : 'badge-warning'}`}>
                             {c.status.replace(/_/g, ' ')}
                           </span>
@@ -1613,9 +1613,14 @@ export const App: FC = () => {
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem', fontSize: '0.8125rem' }}>
                         <div><strong>Seller:</strong> {c.lead.sellerName}</div>
                         <div><strong>City:</strong> {c.lead.city}</div>
-                        <div><strong>Year / Reg:</strong> {c.lead.manufacturingYear} · {c.lead.registrationNumber || 'Pending'}</div>
+                        <div><strong>Year / Reg:</strong> {c.lead.manufacturingYear} · {c.lead.registrationNumber || c.handover?.registrationNumber || 'Pending'}</div>
                         <div><strong>Accepted:</strong> {formatDate(c.offer.acceptedAt)}</div>
                       </div>
+                      {[c.lead.fuelType, c.lead.transmission, (c.lead as any).color].filter(Boolean).length > 0 && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '0.25rem' }}>
+                          {[c.lead.fuelType, c.lead.transmission, (c.lead as any).color].filter(Boolean).join(' · ')}
+                        </div>
+                      )}
 
                       {/* Readiness Gates */}
                       <div style={{ marginTop: '0.5rem', display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
@@ -1948,9 +1953,9 @@ export const App: FC = () => {
                           <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Inwarded: {formatDate(s.createdAt)}</div>
                         </td>
                         <td>
-                          <strong>{s.manufacturingYear} {s.make} {s.model} {s.variant || ''}</strong>
+                          <strong>{s.manufacturingYear} {s.make} {s.model}{s.variant ? ` ${s.variant}` : ''}</strong>
                           <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                            {[s.fuelType, s.transmission, s.color].filter(Boolean).join(' · ')}
+                            {[s.fuelType, s.transmission, s.color || 'Standard'].filter(Boolean).join(' · ')}
                           </div>
                         </td>
                         <td>

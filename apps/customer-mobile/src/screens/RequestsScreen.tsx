@@ -453,9 +453,25 @@ export function RequestsScreen() {
                             <Text style={[styles.cardTitle, { color: c.textPrimary }]}>
                               {item.manufacturingYear} {item.make} {item.model}
                             </Text>
-                            {item.variant ? (
-                              <Text style={[styles.cardSubtitle, { color: c.textMuted }]}>{item.variant}</Text>
-                            ) : null}
+                            <Text style={[styles.cardSubtitle, { color: c.textMuted }]}>
+                              {[item.variant, item.fuelType, item.transmission, item.color].filter(Boolean).join(' · ')}
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+                              {item.registrationNumber ? (
+                                <View style={{ backgroundColor: isDark ? '#1E293B' : '#F1F5F9', borderWidth: 1, borderColor: isDark ? '#334155' : '#CBD5E1', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                  <Text style={{ fontSize: 11, fontWeight: '700', color: c.textPrimary, letterSpacing: 0.5 }}>{item.registrationNumber}</Text>
+                                </View>
+                              ) : (
+                                <View style={{ backgroundColor: isDark ? '#1E293B' : '#F8FAFC', borderWidth: 1, borderColor: isDark ? '#334155' : '#E2E8F0', borderRadius: 4, paddingHorizontal: 6, paddingVertical: 2 }}>
+                                  <Text style={{ fontSize: 10, fontWeight: '600', color: c.textMuted }}>Reg. Pending</Text>
+                                </View>
+                              )}
+                              {(item.registrationYear || item.registrationCity || item.city) && (
+                                <Text style={{ fontSize: 11, color: c.textMuted }}>
+                                  {[item.registrationYear ? `Reg: ${item.registrationYear}` : '', item.registrationCity || item.city].filter(Boolean).join(' · ')}
+                                </Text>
+                              )}
+                            </View>
                           </View>
                           <StatusBadge status={item.status} themeColors={c} />
                         </View>
