@@ -27,7 +27,7 @@ import {
   ShieldCheck,
   Sparkles,
 } from 'lucide-react-native';
-import { customer } from '../services/customer';
+import { customer, type InstantValuationSummary } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
 import { useAppTheme, radius, space } from '../theme';
 import { friendlyError } from '../format';
@@ -222,6 +222,9 @@ export function SellScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [submittedLead, setSubmittedLead] = useState<any | null>(null);
+  const [valuation, setValuation] = useState<InstantValuationSummary | null>(null);
+  const [valuationBusy, setValuationBusy] = useState(false);
+  const [valuationRequestedFor, setValuationRequestedFor] = useState('');
   const [idempotencyKey, setIdempotencyKey] = useState(generateMutationKey);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -422,6 +425,34 @@ export function SellScreen() {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
     setError('');
   }, [step]);
+
+  useEffect(() => {
+    if (step !== 7 || valuationBusy || !city.trim()) return;
+    const year = Number(manufacturingYear);
+    const odometer = Number(odometerKm.replace(/,/g, ''));
+    if (!make || !model || !year || !Number.isFinite(odometer)) return;
+    const inputKey = [make, model, variant, year, registrationYear, odometer, fuelType, transmission, city, ownershipCount, accidentHistory, serviceHistory, loanOutstanding].join('|');
+    if (valuationRequestedFor === inputKey) return;
+    let active = true;
+    setValuation(null);
+    setValuationRequestedFor(inputKey);
+    setValuationBusy(true);
+    void customer.instantValuation({
+      make: make.trim(), model: model.trim(), variant: variant.trim() || undefined,
+      manufacturingYear: year,
+      registrationYear: registrationYear ? Number(registrationYear) : undefined,
+      fuelType, transmission, odometerKm: odometer, city: city.trim(),
+      ownershipCount: Number(ownershipCount) || undefined,
+      accidentHistory, serviceHistory, loanOutstanding,
+    }).then((result) => {
+      if (active) setValuation(result);
+    }).catch(() => {
+      // Submission remains available; the final offer is never dependent on a public estimate.
+    }).finally(() => {
+      if (active) setValuationBusy(false);
+    });
+    return () => { active = false; };
+  }, [step, valuationBusy, valuationRequestedFor, make, model, variant, manufacturingYear, registrationYear, odometerKm, fuelType, transmission, city, ownershipCount, accidentHistory, serviceHistory, loanOutstanding]);
 
   // Hydrate draft
   useEffect(() => {
@@ -1593,6 +1624,21 @@ export function SellScreen() {
                 <ReviewRow label="Evaluation" value={`${inspectionDate} (${inspectionTimeSlot}) · ${inspectionLocationType === 'HUB' ? 'Hub' : 'Doorstep'}`} themeColors={c} />
               </View>
 
+              <View style={[styles.valuationEstimateBox, { backgroundColor: c.selected, borderColor: c.brandAccent }]} accessibilityLiveRegion="polite">
+                <IndianRupee size={20} color={c.brandAccent} accessibilityElementsHidden />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.valuationEstimateTitle, { color: c.textPrimary }]}>Your estimated selling value</Text>
+                  {valuationBusy ? (
+                    <View style={styles.valuationLoadingRow}><ActivityIndicator size="small" color={c.brandAccent} /><Text style={[styles.valuationEstimateText, { color: c.textSecondary }]}>Checking approved market evidence…</Text></View>
+                  ) : valuation?.estimateAvailable && valuation.sellerEstimateLowPaise && valuation.sellerEstimateHighPaise ? (
+                    <Text style={[styles.valuationEstimateText, { color: c.textSecondary }]}>₹{(Number(valuation.sellerEstimateLowPaise) / 100).toLocaleString('en-IN')} – ₹{(Number(valuation.sellerEstimateHighPaise) / 100).toLocaleString('en-IN')}</Text>
+                  ) : (
+                    <Text style={[styles.valuationEstimateText, { color: c.textSecondary }]}>Valuation requires review. Schedule the inspection and V MOTIV will assess approved market evidence and the vehicle’s verified condition.</Text>
+                  )}
+                  <Text style={[styles.valuationDisclaimer, { color: c.textMuted }]}>{valuation?.disclaimer || 'This is not a purchase offer. Final value depends on inspection, documents and current market review.'}</Text>
+                </View>
+              </View>
+
               <View style={[styles.noticeBox, { backgroundColor: c.successBackground, borderColor: c.success }]}>
                 <ShieldCheck size={20} color={c.success} accessibilityElementsHidden />
                 <Text style={[styles.noticeBoxText, { color: c.textSecondary }]}>
@@ -1935,6 +1981,33 @@ const styles = StyleSheet.create({
     fontSize: 13,
     flex: 1,
     lineHeight: 19,
+  },
+  valuationEstimateBox: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: space.sm,
+    borderRadius: radius.md,
+    padding: space.md,
+    borderWidth: 1,
+  },
+  valuationEstimateTitle: {
+    fontSize: 14,
+    fontWeight: '800',
+    marginBottom: 4,
+  },
+  valuationEstimateText: {
+    fontSize: 13,
+    lineHeight: 19,
+  },
+  valuationDisclaimer: {
+    fontSize: 11,
+    lineHeight: 16,
+    marginTop: 7,
+  },
+  valuationLoadingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   phoneWrapper: {
     flexDirection: 'row',

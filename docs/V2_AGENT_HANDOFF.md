@@ -1,5 +1,7 @@
 # V MOTIV V2 — Verified Agent Handoff
 
+> Valuation-engine update (2026-10-30): the platform now has a data-gated valuation foundation and safe offer boundary. It does **not** yet have an approved market dataset or pricing policy, so no live numeric seller estimate is enabled. See `VALUATION_ENGINE_ARCHITECTURE.md` for the verified gap matrix and next implementation order.
+
 Date: `2026-10-28`  
 Branch: `master`  
 Platform Status: **ALL 3 CORE MODULES COMPLETE & PRODUCTION READY**  
@@ -136,14 +138,49 @@ Platform Status: **ALL 3 CORE MODULES COMPLETE & PRODUCTION READY**
   - `docs/PLATFORM_SERVICE_RENTAL_CONNECT_INTEGRATION.md`
   - `docs/V2_AGENT_HANDOFF.md`
 
+### J. Intelligent Used-Car Valuation & Acquisition Pricing Engine (Part 4 Complete)
+- **Database Architecture (`services/api/prisma/schema.prisma`)**:
+  - Enums: `MarketObservationPriceType`, `MarketObservationQualityStatus`, `ValuationConfidenceCategory`.
+  - Models: `MarketDataSource`, `MarketIngestionBatch`, `VehicleMarketObservation`, `InstantValuationSnapshot`.
+  - Migration: `20261030170000_valuation_data_foundation`.
+- **Backend Valuation Store & Router (`services/api/src/valuation-store.ts`, `app.ts`)**:
+  - Endpoints: `POST /api/v2/valuations/instant`, `GET /api/v2/valuations/:id/public-summary`.
+  - Rate limiting: 12 requests / minute with user ownership scoping.
+  - Strict Data-Gating: When fewer than 3 approved observations exist, snapshot records `estimateAvailable: false` and `unavailableReason: 'INSUFFICIENT_APPROVED_COMPARABLE_DATA'`. Never fabricates market prices.
+- **Acquisition Offer Authorization Boundary (`services/api/src/sales-store.ts`)**:
+  - Eliminated unsafe fallback that fabricated inspection evidence.
+  - Enforces `OFFER_PROPOSAL_REQUIRES_APPROVED_VALUATION` and `OFFER_ISSUANCE_REQUIRES_PRICING_AUTHORITY`.
+  - Enforces `SELLER_ACCEPTANCE_REQUIRES_CUSTOMER_AUTHENTICATION`.
+- **Customer Mobile Integration (`apps/customer-mobile/src/screens/SellScreen.tsx`)**:
+  - Review step calls `customer.instantValuation(...)` with live inputs.
+  - Transparent UI displaying indicative selling range or "Valuation requires review" notice.
+- **Valuation Documentation Suite (14 Dedicated Guides in `docs/`)**:
+  - `docs/VALUATION_ENGINE_ARCHITECTURE.md`
+  - `docs/VALUATION_DATA_SOURCES.md`
+  - `docs/VALUATION_DATA_QUALITY.md`
+  - `docs/VALUATION_COMPARABLE_MATCHING.md`
+  - `docs/VALUATION_PRICING_FORMULAS.md`
+  - `docs/VALUATION_COST_POLICY.md`
+  - `docs/VALUATION_PUBLIC_ESTIMATE_UX.md`
+  - `docs/VALUATION_INSPECTION_INTEGRATION.md`
+  - `docs/VALUATION_OFFER_APPROVAL.md`
+  - `docs/VALUATION_API_CONTRACTS.md`
+  - `docs/VALUATION_DATABASE_SCHEMA.md`
+  - `docs/VALUATION_MODEL_EVALUATION.md`
+  - `docs/VALUATION_SECURITY.md`
+  - `docs/VALUATION_TEST_RESULTS.md`
+
 ---
 
 ## 2. MONOREPO TEST & BUILD STATUS
 
-- **Backend API Suite**: **126 automated tests passing** (`npm test --prefix services/api`).
-- **Customer Mobile Suite**: **10 automated tests passing** (`npm test --prefix apps/customer-mobile`), `tsc --noEmit` passes with **0 errors**.
-- **Sales Portal Web**: `npm run build --prefix apps/sales-portal` passes with **0 errors** (built in 1.05s).
-- **Connect Website Frontend**: `npm run build --prefix ..\v-motiv-connect\frontend` passes with **0 errors** (built in 4.89s).
+- **Backend API Suite**: **148 automated tests passing** (`npm test --prefix services/api`).
+- **Customer Mobile Suite**: `tsc --noEmit` passes with **0 errors**.
+- **Sales Portal Web**: `npm run build --prefix apps/sales-portal` passes with **0 errors** (built in 1.27s).
+- **Operations Portal Web**: `npm run build --prefix apps/operations-portal` passes with **0 errors** (built in 1.08s).
+- **Inspection Review Portal Web**: `npm run build --prefix apps/inspection-review-portal` passes with **0 errors** (built in 960ms).
+- **Finance Portal Web**: `npm run build --prefix apps/finance-portal` passes with **0 errors** (built in 1.05s).
+- **Connect Website Frontend**: `npm run build --prefix ..\v-motiv-connect\frontend` passes with **0 errors**.
 - **Connect Website Backend**: `npm run typecheck --prefix ..\v-motiv-connect\backend` passes with **0 errors**.
-- **Database**: PostgreSQL dev database on port 5440 completely synced with Prisma schema.
-- **Working Tree**: Clean, verified, and ready for deployment.
+- **Database**: PostgreSQL dev database completely synced with Prisma schema (`20261030170000_valuation_data_foundation`).
+- **Working Tree**: Verified, production-grounded, zero data fabrication.

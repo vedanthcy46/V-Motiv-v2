@@ -1214,131 +1214,13 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
       });
     }
 
-    // Otherwise, this is a Sales Executive proposing an offer amount for Manager / Admin approval
-    const report = await this.db.inspectionReport.findFirst({
-      where: { request: { leadId } },
-      orderBy: { createdAt: 'desc' },
-      select: { id: true, revision: true },
-    });
-
-    return this.db.$transaction(async tx => {
-      let valId = valuation?.id;
-      if (!valId || valuation?.status === 'REJECTED') {
-        let reportId = report?.id;
-        if (!reportId) {
-          let req = await tx.inspectionRequest.findFirst({ where: { leadId } });
-          if (!req) {
-            req = await tx.inspectionRequest.create({
-              data: {
-                leadId,
-                scheduledAt: new Date(),
-                locationType: 'HUB',
-                address: `${lead.city} Hub`,
-                status: 'COMPLETED',
-                requestedByEmployeeId: actor.userId,
-              },
-            });
-          }
-          let assignment = await tx.inspectionAssignment.findFirst({ where: { requestId: req.id } });
-          if (!assignment) {
-            assignment = await tx.inspectionAssignment.create({
-              data: {
-                requestId: req.id,
-                inspectorId: actor.userId,
-                assignedById: actor.userId,
-                status: 'COMPLETED',
-                locationType: 'HUB',
-                address: `${lead.city} Hub`,
-              },
-            });
-          }
-          const rep = await tx.inspectionReport.create({
-            data: {
-              requestId: req.id,
-              assignmentId: assignment.id,
-              inspectorId: actor.userId,
-              revision: 1,
-              status: 'APPROVED',
-            },
-          });
-          reportId = rep.id;
-        }
-
-        const newVal = await tx.acquisitionValuation.create({
-          data: {
-            leadId,
-            inspectionReportId: reportId,
-            expectedResalePaise: lead.expectedPricePaise || input.offerAmountPaise,
-            recommendedPurchasePaise: input.offerAmountPaise,
-            notes: input.terms || input.reason || 'Sales executive proposed purchase valuation for manager review',
-            status: 'PENDING_APPROVAL',
-            createdById: actor.userId,
-          },
-        });
-        valId = newVal.id;
-      } else {
-        await tx.acquisitionValuation.update({
-          where: { id: valId },
-          data: {
-            recommendedPurchasePaise: input.offerAmountPaise,
-            notes: input.terms || input.reason || 'Revised proposal for manager review',
-            status: 'PENDING_APPROVAL',
-            approvedById: null,
-            approvedAt: null,
-            version: { increment: 1 },
-          },
-        });
-      }
-
-      // Create ApprovalRequest so Admin sees it in Approval Centre
-      const approvalReq = await tx.approvalRequest.create({
-        data: {
-          requestType: 'OFFER_REQUEST',
-          status: 'PENDING',
-          requesterId: actor.userId,
-          requiredPermission: 'commercial.discount.approve',
-          scopeBranchIds: actor.branches.map(b => b.id),
-          payload: {
-            valuationId: valId,
-            leadId: lead.id,
-            referenceCode: lead.referenceCode,
-            vehicleTitle: `${lead.manufacturingYear} ${lead.make} ${lead.model}`,
-            sellerName: lead.sellerName,
-            sellerPhone: lead.sellerPhone,
-            city: lead.city,
-            recommendedPurchasePaise: input.offerAmountPaise.toString(),
-            expectedResalePaise: (lead.expectedPricePaise || input.offerAmountPaise).toString(),
-            reason: input.reason || input.terms || 'Sales requested purchase offer approval',
-            autoCreateOffer: true,
-          },
-          expiresAt: new Date(Date.now() + 7 * 86400000),
-        },
-      });
-
-      await tx.acquisitionLead.update({
-        where: { id: leadId },
-        data: { status: 'OFFER_PENDING' },
-      });
-
-      await tx.auditEvent.create({
-        data: {
-          actorId: actor.userId,
-          action: 'ACQUISITION_OFFER_REQUESTED_FOR_REVIEW',
-          entityType: 'AcquisitionValuation',
-          entityId: valId,
-          details: { leadId, referenceCode: lead.referenceCode, amountPaise: input.offerAmountPaise.toString(), approvalRequestId: approvalReq.id },
-        },
-      });
-
-      return {
-        id: valId,
-        status: 'PENDING_APPROVAL',
-        valuationId: valId,
-        approvalRequestId: approvalReq.id,
-        offerAmountPaise: input.offerAmountPaise.toString(),
-        message: 'Offer proposal submitted for managerial review and approval.',
-      };
-    });
+    // A commercial offer can never manufacture its own inspection evidence or valuation.
+    // Pricing staff must first create a recommendation from an independently approved report,
+    // then a different authorized pricing employee approves that recommendation.
+    if (!valuation || valuation.status !== 'APPROVED') {
+      throw new HttpError(409, 'OFFER_PROPOSAL_REQUIRES_APPROVED_VALUATION');
+    }
+    throw new HttpError(403, 'OFFER_ISSUANCE_REQUIRES_PRICING_AUTHORITY');
   }
 
   async recordSellerOfferResponse(actor: SalesActor, leadId: string, offerId: string, input: {

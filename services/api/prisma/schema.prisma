@@ -121,6 +121,26 @@ enum AcquisitionValuationStatus {
   REJECTED
   SUPERSEDED
 }
+enum MarketObservationPriceType {
+  ASKING_PRICE
+  COMPLETED_TRANSACTION
+  AUCTION
+  DEALER_WHOLESALE
+  OTHER
+}
+enum MarketObservationQualityStatus {
+  PENDING_REVIEW
+  APPROVED
+  QUARANTINED
+  REJECTED
+}
+enum ValuationConfidenceCategory {
+  HIGH
+  MEDIUM
+  LOW
+  INSUFFICIENT
+  BLOCKED
+}
 enum AcquisitionCaseStatus {
   DOCUMENTATION_REQUIRED
   SETTLEMENT_READY
@@ -481,6 +501,7 @@ model User {
   wishlist WishlistItem[]
   testDriveRequests TestDriveRequest[]
   acquisitionLeads AcquisitionLead[]
+  instantValuationSnapshots InstantValuationSnapshot[]
   savedSearches SavedSearch[]
   purchaseEnquiries PurchaseEnquiry[]
   supportCases SupportCase[]
@@ -654,6 +675,7 @@ model AcquisitionLead {
   updatedAt DateTime @updatedAt
   offers AcquisitionOffer[]
   valuations AcquisitionValuation[]
+  instantValuationSnapshots InstantValuationSnapshot[]
   acquisitionCases AcquisitionCase[]
   assignments SellerLeadAssignment[]
   interactions LeadInteraction[]
@@ -880,6 +902,81 @@ model AcquisitionValuation {
   offers AcquisitionOffer[]
   @@index([leadId, status, createdAt])
   @@index([inspectionReportId])
+}
+model MarketDataSource {
+  id String @id @default(uuid()) @db.Uuid
+  key String @unique
+  displayName String
+  provenanceNote String
+  permittedForValuation Boolean @default(false)
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  observations VehicleMarketObservation[]
+  ingestionBatches MarketIngestionBatch[]
+}
+model MarketIngestionBatch {
+  id String @id @default(uuid()) @db.Uuid
+  sourceId String @db.Uuid
+  source MarketDataSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  sourceVersion String?
+  importedByUserId String? @db.Uuid
+  importedAt DateTime @default(now())
+  totalRecords Int @default(0)
+  acceptedRecords Int @default(0)
+  quarantinedRecords Int @default(0)
+  rejectionSummary Json @default("{}")
+  observations VehicleMarketObservation[]
+  @@index([sourceId, importedAt])
+}
+model VehicleMarketObservation {
+  id String @id @default(uuid()) @db.Uuid
+  sourceId String @db.Uuid
+  batchId String? @db.Uuid
+  source MarketDataSource @relation(fields: [sourceId], references: [id], onDelete: Restrict)
+  batch MarketIngestionBatch? @relation(fields: [batchId], references: [id], onDelete: SetNull)
+  externalReference String?
+  duplicateKey String?
+  make String
+  model String
+  variant String?
+  manufacturingYear Int
+  fuelType String
+  transmission String
+  odometerKm Int
+  city String
+  pricePaise BigInt
+  currency String @default("INR")
+  priceType MarketObservationPriceType
+  conditionBasis String?
+  observedAt DateTime
+  qualityStatus MarketObservationQualityStatus @default(PENDING_REVIEW)
+  qualityNotes String?
+  createdAt DateTime @default(now())
+  @@index([make, model, variant, city, observedAt])
+  @@index([qualityStatus, observedAt])
+  @@index([sourceId, externalReference])
+}
+model InstantValuationSnapshot {
+  id String @id @default(uuid()) @db.Uuid
+  userId String @db.Uuid
+  leadId String? @db.Uuid
+  user User @relation(fields: [userId], references: [id], onDelete: Restrict)
+  lead AcquisitionLead? @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  inputSnapshot Json
+  estimateAvailable Boolean @default(false)
+  unavailableReason String?
+  sellerEstimateLowPaise BigInt?
+  sellerEstimateHighPaise BigInt?
+  confidence ValuationConfidenceCategory @default(INSUFFICIENT)
+  comparableCount Int @default(0)
+  dataAsOf DateTime?
+  valuationVersion String
+  policyVersion String?
+  assumptions Json @default("[]")
+  createdAt DateTime @default(now())
+  @@index([userId, createdAt])
+  @@index([leadId, createdAt])
 }
 model AcquisitionCase {
   id String @id @default(uuid()) @db.Uuid

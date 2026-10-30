@@ -42,6 +42,7 @@ import type { PrismaRentalStore } from './rental-store.js';
 import { createRentalCustomerRouter, createRentalOperationsRouter, createRentalWebhookRouter } from './rental-router.js';
 import type { PrismaConnectStore } from './connect-store.js';
 import { createConnectCustomerRouter, createConnectPublicRouter, createConnectWebhookRouter } from './connect-router.js';
+import type { PrismaValuationStore } from './valuation-store.js';
 
 const uuid = z.string().uuid();
 const profileInput = z.object({ displayName: z.string().trim().min(1).max(80).optional(), phone: z.string().regex(/^\+91[6-9]\d{9}$/).optional(), marketingConsent: z.boolean().optional(), preferredCity: z.string().trim().min(2).max(100).optional(), termsVersion: z.string().trim().min(1).max(40).optional() }).strict().refine(value => Object.keys(value).length > 0);
@@ -57,6 +58,26 @@ const sellInput = z.object({
 }).strict().superRefine((value, ctx) => {
   if (value.inspectionLocationType === 'HOME' && !value.inspectionAddress) {
     ctx.addIssue({ code: 'custom', message: 'Address is required for home inspection', path: ['inspectionAddress'] });
+  }
+});
+const instantValuationInput = z.object({
+  leadId: uuid.optional(),
+  make: z.string().trim().min(1).max(80),
+  model: z.string().trim().min(1).max(80),
+  variant: z.string().trim().min(1).max(100).optional(),
+  manufacturingYear: z.number().int().min(1980).max(new Date().getFullYear() + 1),
+  registrationYear: z.number().int().min(1980).max(new Date().getFullYear() + 1).optional(),
+  fuelType: z.string().trim().min(2).max(30),
+  transmission: z.string().trim().min(2).max(30),
+  odometerKm: z.number().int().min(0).max(2_000_000),
+  city: z.string().trim().min(2).max(100),
+  ownershipCount: z.number().int().min(0).max(20).optional(),
+  accidentHistory: z.enum(['YES', 'NO', 'NOT_SURE']).optional(),
+  serviceHistory: z.enum(['COMPLETE', 'PARTIAL', 'NOT_SURE']).optional(),
+  loanOutstanding: z.boolean().optional(),
+}).strict().superRefine((value, context) => {
+  if (value.registrationYear && value.registrationYear < value.manufacturingYear) {
+    context.addIssue({ code: 'custom', message: 'Registration year cannot precede manufacturing year', path: ['registrationYear'] });
   }
 });
 const acceptOfferInput = z.object({ version: z.number().int().positive() }).strict();
@@ -103,6 +124,7 @@ export function createApp(deps: {
   service?: PrismaServiceStore;
   rental?: PrismaRentalStore;
   connect?: PrismaConnectStore;
+  valuation?: PrismaValuationStore;
   db?: PrismaClient;
   revokeTokens?: (firebaseUid: string) => Promise<void>;
   onEmailQueued?: () => Promise<unknown> | unknown;
@@ -359,6 +381,18 @@ export function createApp(deps: {
     if (privilegedRoles.has(user.employee.role) && !identity.secondFactor && mfaRequired) throw new HttpError(403, 'EMPLOYEE_MFA_REQUIRED');
     res.json(user);
   });
+
+  if (deps.valuation) {
+    const valuationLimiter = rateLimit({ windowMs: 60_000, limit: 12, standardHeaders: 'draft-8', legacyHeaders: false });
+    unifiedApiRouter.post('/valuations/instant', auth, valuationLimiter, async (req, res) => {
+      const identity = res.locals.identity as Identity;
+      res.status(201).json(await deps.valuation!.instant(identity.uid, parsed(instantValuationInput, req.body)));
+    });
+    unifiedApiRouter.get('/valuations/:id/public-summary', auth, async (req, res) => {
+      const identity = res.locals.identity as Identity;
+      res.json(await deps.valuation!.publicSummaryForUser(identity.uid, parsed(uuid, req.params.id)));
+    });
+  }
 
   if (deps.customer) {
     unifiedApiRouter.patch('/me', auth, async (req, res) => res.json(await deps.customer!.updateProfile((res.locals.identity as Identity).uid, parsed(profileInput, req.body))));

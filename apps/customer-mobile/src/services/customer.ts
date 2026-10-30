@@ -1,6 +1,21 @@
 import { api, jsonBody } from '../api';
 import type { ActivityPage, CustomerAddress, InventoryPage, Profile, PurchaseEnquiry, SavedSearch, SellingRequest, SupportedCity, SupportCase, SupportCaseDetail, SupportReply, TestDrive, VehicleSummary } from '../types';
 
+export type InstantValuationSummary = {
+  id: string;
+  estimateAvailable: boolean;
+  unavailableReason: string | null;
+  sellerEstimateLowPaise: string | null;
+  sellerEstimateHighPaise: string | null;
+  confidenceCategory: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT' | 'BLOCKED' | string;
+  comparableCount: number;
+  dataAsOf: string | null;
+  valuationVersion: string;
+  estimateDate: string;
+  assumptions: string[];
+  disclaimer: string;
+};
+
 export const customer = {
   inventory(filters: { search?: string; city?: string; fuelType?: string; transmission?: string; minYear?: number; maxYear?: number; maxOdometerKm?: number; minPricePaise?: number; maxPricePaise?: number; sort?: 'newest' | 'price_asc' | 'price_desc' | 'year_desc'; page?: number; limit?: number } | string = '') {
     const values = typeof filters === 'string' ? { search: filters } : filters;
@@ -39,6 +54,11 @@ export const customer = {
     return api<TestDrive>('/test-drive-requests', { method: 'POST', body: jsonBody(input) });
   },
   cancelTestDrive(id: string, reason?: string) { return api<void>(`/test-drive-requests/${id}/cancel`, { method: 'PATCH', body: jsonBody({ reason: reason || 'Cancelled by customer' }) }); },
+  instantValuation(input: {
+    make: string; model: string; variant?: string; manufacturingYear: number; registrationYear?: number;
+    fuelType: string; transmission: string; odometerKm: number; city: string; ownershipCount?: number;
+    accidentHistory?: 'YES' | 'NO' | 'NOT_SURE'; serviceHistory?: 'COMPLETE' | 'PARTIAL' | 'NOT_SURE'; loanOutstanding?: boolean;
+  }) { return api<InstantValuationSummary>('/valuations/instant', { method: 'POST', body: jsonBody(input) }); },
   sell(input: {
     sellerName: string; sellerPhone: string; city: string; pincode: string; make: string; model: string; variant?: string;
     manufacturingYear: number; fuelType: string; transmission: string; odometerKm: number; expectedPricePaise?: number; ownershipCount?: number; registrationNumber?: string; registrationYear?: number; color?: string; registrationCity?: string; loanOutstanding?: boolean; accidentHistory?: 'YES' | 'NO' | 'NOT_SURE'; serviceHistory?: 'COMPLETE' | 'PARTIAL' | 'NOT_SURE'; sellerNotes?: string;
