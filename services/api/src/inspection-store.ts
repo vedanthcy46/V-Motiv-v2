@@ -590,12 +590,16 @@ export class PrismaInspectionStore {
       });
 
       if (report.request?.leadId) {
+        const leadUpdateData: Record<string, unknown> = { status: 'OFFER_PENDING' };
+        if (registrationNumber) {
+          leadUpdateData.registrationNumber = registrationNumber;
+        }
         await tx.acquisitionLead.updateMany({
           where: {
             id: report.request.leadId,
             status: { in: ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'] },
           },
-          data: { status: 'OFFER_PENDING' },
+          data: leadUpdateData as any,
         });
       }
 
@@ -1008,9 +1012,21 @@ export class PrismaInspectionStore {
         handover: true,
         stockUnit: true,
         documents: { select: { status: true } },
-        offer: { select: { offerAmountPaise: true } },
+        offer: {
+          select: {
+            offerAmountPaise: true,
+            valuation: {
+              select: {
+                inspectionReport: {
+                  select: { identity: true },
+                },
+              },
+            },
+          },
+        },
         lead: {
           select: {
+            id: true,
             registrationNumber: true,
             make: true,
             model: true,
@@ -1019,6 +1035,10 @@ export class PrismaInspectionStore {
             fuelType: true,
             transmission: true,
             odometerKm: true,
+            color: true,
+            registrationYear: true,
+            registrationCity: true,
+            ownershipCount: true,
           },
         },
       },
@@ -1043,10 +1063,19 @@ export class PrismaInspectionStore {
     if (input.status === 'RECEIVED' && !branch) throw new HttpError(400, 'INVALID_BRANCH');
 
     return this.db.$transaction(async tx => {
+      const inspectionIdentity = (acquisitionCase.offer?.valuation?.inspectionReport?.identity || {}) as Record<string, unknown>;
+      const inspectionReg = typeof inspectionIdentity.registrationNumber === 'string' ? inspectionIdentity.registrationNumber.trim() : '';
+      const resolvedReg = input.registrationNumber?.trim() || acquisitionCase.handover?.registrationNumber || acquisitionCase.lead.registrationNumber || inspectionReg || null;
+      const resolvedVariant = acquisitionCase.lead.variant || (inspectionIdentity.variant as string) || null;
+
+      if (resolvedReg && !acquisitionCase.lead.registrationNumber) {
+        await tx.acquisitionLead.update({ where: { id: acquisitionCase.lead.id }, data: { registrationNumber: resolvedReg } });
+      }
+
       const handover = await tx.vehicleHandover.upsert({
         where: { acquisitionCaseId: caseId },
-        create: { acquisitionCaseId: caseId, branchId, custodianEmployeeId: actor.userId, status: input.status as never, location: input.location, observedAt: input.observedAt, registrationNumber: input.registrationNumber, odometerKm: input.odometerKm, mainKeysReceived: input.mainKeysReceived || 0, spareKeysReceived: input.spareKeysReceived || 0, documentsReceived: input.documentsReceived || false, accessoriesNotes: input.accessoriesNotes, conditionNotes: input.conditionNotes, exceptionNotes: input.exceptionNotes },
-        update: { branchId, custodianEmployeeId: actor.userId, status: input.status as never, location: input.location, observedAt: input.observedAt, registrationNumber: input.registrationNumber, odometerKm: input.odometerKm, mainKeysReceived: input.mainKeysReceived, spareKeysReceived: input.spareKeysReceived, documentsReceived: input.documentsReceived, accessoriesNotes: input.accessoriesNotes, conditionNotes: input.conditionNotes, exceptionNotes: input.exceptionNotes, version: { increment: 1 } },
+        create: { acquisitionCaseId: caseId, branchId, custodianEmployeeId: actor.userId, status: input.status as never, location: input.location, observedAt: input.observedAt, registrationNumber: resolvedReg || undefined, odometerKm: input.odometerKm, mainKeysReceived: input.mainKeysReceived || 0, spareKeysReceived: input.spareKeysReceived || 0, documentsReceived: input.documentsReceived || false, accessoriesNotes: input.accessoriesNotes, conditionNotes: input.conditionNotes, exceptionNotes: input.exceptionNotes },
+        update: { branchId, custodianEmployeeId: actor.userId, status: input.status as never, location: input.location, observedAt: input.observedAt, registrationNumber: resolvedReg || undefined, odometerKm: input.odometerKm, mainKeysReceived: input.mainKeysReceived, spareKeysReceived: input.spareKeysReceived, documentsReceived: input.documentsReceived, accessoriesNotes: input.accessoriesNotes, conditionNotes: input.conditionNotes, exceptionNotes: input.exceptionNotes, version: { increment: 1 } },
       });
       const automaticallyCompleted = input.status === 'RECEIVED';
       await tx.acquisitionCase.update({
@@ -1070,10 +1099,10 @@ export class PrismaInspectionStore {
           branchId: branch!.id,
           receivedByEmployeeId: actor.userId,
           physicalLocation: input.location || branch!.name,
-          registrationNumber: input.registrationNumber || acquisitionCase.handover?.registrationNumber || acquisitionCase.lead.registrationNumber,
+          registrationNumber: resolvedReg,
           make: acquisitionCase.lead.make,
           model: acquisitionCase.lead.model,
-          variant: acquisitionCase.lead.variant,
+          variant: resolvedVariant,
           manufacturingYear: acquisitionCase.lead.manufacturingYear,
           fuelType: acquisitionCase.lead.fuelType,
           transmission: acquisitionCase.lead.transmission,
@@ -1108,8 +1137,35 @@ export class PrismaInspectionStore {
     const acquisitionCase = await this.db.acquisitionCase.findFirst({
       where: this.acquisitionCaseScope(actor, caseId),
       include: {
-        offer: { select: { offerAmountPaise: true } },
-        lead: { select: { registrationNumber: true, make: true, model: true, variant: true, manufacturingYear: true, fuelType: true, transmission: true, odometerKm: true } },
+        offer: {
+          select: {
+            offerAmountPaise: true,
+            valuation: {
+              select: {
+                inspectionReport: {
+                  select: { identity: true },
+                },
+              },
+            },
+          },
+        },
+        lead: {
+          select: {
+            id: true,
+            registrationNumber: true,
+            make: true,
+            model: true,
+            variant: true,
+            manufacturingYear: true,
+            fuelType: true,
+            transmission: true,
+            odometerKm: true,
+            color: true,
+            registrationYear: true,
+            registrationCity: true,
+            ownershipCount: true,
+          },
+        },
         handover: { select: { branchId: true, registrationNumber: true, odometerKm: true } },
       },
     });
@@ -1122,8 +1178,16 @@ export class PrismaInspectionStore {
     const branch = await this.db.branch.findFirst({ where: { id: branchId, active: true }, select: { id: true } });
     if (!branch) throw new HttpError(400, 'INVALID_BRANCH');
     const stockCode = `VM-STK-${acquisitionCase.caseReference.replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+    const inspectionIdentity = (acquisitionCase.offer?.valuation?.inspectionReport?.identity || {}) as Record<string, unknown>;
+    const inspectionReg = typeof inspectionIdentity.registrationNumber === 'string' ? inspectionIdentity.registrationNumber.trim() : '';
+    const resolvedReg = acquisitionCase.handover?.registrationNumber || acquisitionCase.lead.registrationNumber || inspectionReg || null;
+    const resolvedVariant = acquisitionCase.lead.variant || (inspectionIdentity.variant as string) || null;
+
     try {
       return await this.db.$transaction(async tx => {
+        if (resolvedReg && !acquisitionCase.lead.registrationNumber) {
+          await tx.acquisitionLead.update({ where: { id: acquisitionCase.lead.id }, data: { registrationNumber: resolvedReg } });
+        }
         const stock = await tx.vehicleStockUnit.create({
           data: {
             stockCode,
@@ -1131,10 +1195,10 @@ export class PrismaInspectionStore {
             branchId,
             receivedByEmployeeId: actor.userId,
             physicalLocation: input.physicalLocation,
-            registrationNumber: acquisitionCase.handover?.registrationNumber || acquisitionCase.lead.registrationNumber,
+            registrationNumber: resolvedReg,
             make: acquisitionCase.lead.make,
             model: acquisitionCase.lead.model,
-            variant: acquisitionCase.lead.variant,
+            variant: resolvedVariant,
             manufacturingYear: acquisitionCase.lead.manufacturingYear,
             fuelType: acquisitionCase.lead.fuelType,
             transmission: acquisitionCase.lead.transmission,
@@ -1185,6 +1249,20 @@ export class PrismaInspectionStore {
             status: true,
             settlementStatus: true,
             custodyStatus: true,
+            handover: {
+              select: { registrationNumber: true, location: true, odometerKm: true },
+            },
+            offer: {
+              select: {
+                valuation: {
+                  select: {
+                    inspectionReport: {
+                      select: { identity: true },
+                    },
+                  },
+                },
+              },
+            },
             lead: {
               select: {
                 id: true,
@@ -1192,6 +1270,12 @@ export class PrismaInspectionStore {
                 sellerName: true,
                 sellerPhone: true,
                 city: true,
+                registrationNumber: true,
+                variant: true,
+                color: true,
+                registrationYear: true,
+                registrationCity: true,
+                ownershipCount: true,
               },
             },
           },
@@ -1210,6 +1294,25 @@ export class PrismaInspectionStore {
     const deliveryMap = new Map(deliveryEvents.map(e => [e.entityId, e]));
 
     return units.map(u => {
+      const lead = u.acquisitionCase?.lead;
+      const handover = u.acquisitionCase?.handover;
+      const inspectionIdentity = (u.acquisitionCase?.offer?.valuation?.inspectionReport?.identity || {}) as Record<string, unknown>;
+      const inspectionReg = typeof inspectionIdentity.registrationNumber === 'string' ? inspectionIdentity.registrationNumber.trim() : '';
+      const registrationNumber = u.registrationNumber || handover?.registrationNumber || lead?.registrationNumber || inspectionReg || null;
+      const variant = u.variant || u.vehicle?.variant || lead?.variant || (inspectionIdentity.variant as string) || null;
+      const color = u.vehicle?.color || (lead as any)?.color || (inspectionIdentity.color as string) || null;
+      const registrationYear = u.vehicle?.registrationYear || (lead as any)?.registrationYear || null;
+      const registrationCity = u.vehicle?.city || (lead as any)?.registrationCity || (lead as any)?.city || null;
+      const ownershipCount = u.vehicle?.ownershipCount || (lead as any)?.ownershipCount || null;
+
+      // Self-heal: If database record had null registrationNumber or variant, persist resolved fields asynchronously
+      if (!u.registrationNumber && registrationNumber) {
+        void this.db.vehicleStockUnit.update({ where: { id: u.id }, data: { registrationNumber } }).catch(() => undefined);
+      }
+      if (!u.variant && variant) {
+        void this.db.vehicleStockUnit.update({ where: { id: u.id }, data: { variant } }).catch(() => undefined);
+      }
+
       const deliveryEvent = deliveryMap.get(u.id);
       const deliveryRecord = deliveryEvent ? {
         buyerName: (deliveryEvent.details as any)?.buyerName || 'N/A',
@@ -1220,6 +1323,12 @@ export class PrismaInspectionStore {
       } : null;
       return {
         ...u,
+        registrationNumber,
+        variant,
+        color,
+        registrationYear,
+        registrationCity,
+        ownershipCount,
         deliveryRecord,
       };
     });
@@ -1427,8 +1536,24 @@ export class PrismaInspectionStore {
     const customerProfile = {
       version: 1,
       generatedAt: new Date().toISOString(),
-      basicInformation: { registrationNumber: stock.registrationNumber, manufacturingYear: stock.manufacturingYear, odometerKm: stock.odometerKm, fuelType: stock.fuelType, transmission: stock.transmission, variant: stock.variant || null },
-      specifications: { color: input.color || stock.vehicle?.color || null, bodyType: stock.vehicle?.bodyType || null, engineCapacityCc: stock.vehicle?.engineCapacityCc || null },
+      basicInformation: {
+        registrationNumber: stock.registrationNumber || stock.acquisitionCase?.lead?.registrationNumber || null,
+        manufacturingYear: stock.manufacturingYear,
+        odometerKm: stock.odometerKm,
+        fuelType: stock.fuelType,
+        transmission: stock.transmission,
+        variant: stock.variant || stock.acquisitionCase?.lead?.variant || null,
+        model: stock.model,
+        make: stock.make,
+        registrationYear: stock.acquisitionCase?.lead?.registrationYear || null,
+        registrationCity: stock.acquisitionCase?.lead?.registrationCity || null,
+        ownershipCount: stock.acquisitionCase?.lead?.ownershipCount || null,
+      },
+      specifications: {
+        color: input.color || stock.vehicle?.color || stock.acquisitionCase?.lead?.color || null,
+        bodyType: stock.vehicle?.bodyType || null,
+        engineCapacityCc: stock.vehicle?.engineCapacityCc || null,
+      },
       topFeatures: input.features || stock.vehicle?.features || [],
       qualityReport: approvedInspection ? {
         source: 'APPROVED_INSPECTION', inspectedAt: approvedInspection.reviewedAt?.toISOString() || approvedInspection.submittedAt?.toISOString() || null,
@@ -1461,13 +1586,15 @@ export class PrismaInspectionStore {
           data: {
             make: stock.make,
             model: stock.model,
-            variant: stock.variant || '',
+            variant: stock.variant || stock.acquisitionCase?.lead?.variant || '',
             manufacturingYear: stock.manufacturingYear,
             fuelType: stock.fuelType,
             transmission: stock.transmission,
             odometerKm: stock.odometerKm,
             city: vehicleCity,
-            color: input.color,
+            color: input.color || stock.acquisitionCase?.lead?.color || null,
+            registrationYear: stock.acquisitionCase?.lead?.registrationYear || null,
+            ownershipCount: stock.acquisitionCase?.lead?.ownershipCount || null,
             conditionSummary: input.conditionSummary,
             inspectionSummary: input.inspectionSummary,
             features: input.features || [],
@@ -1490,7 +1617,9 @@ export class PrismaInspectionStore {
           where: { id: vehicleId },
           data: {
             city: vehicleCity,
-            color: input.color,
+            color: input.color || stock.acquisitionCase?.lead?.color || undefined,
+            registrationYear: stock.acquisitionCase?.lead?.registrationYear || undefined,
+            ownershipCount: stock.acquisitionCase?.lead?.ownershipCount || undefined,
             conditionSummary: input.conditionSummary,
             inspectionSummary: input.inspectionSummary,
             features: input.features || [],
@@ -2113,12 +2242,16 @@ export class PrismaInspectionStore {
       });
 
       if (input.decision === 'APPROVE' && report.request?.leadId) {
+        const iden = (report.identity || {}) as Record<string, unknown>;
+        const reg = typeof iden.registrationNumber === 'string' ? iden.registrationNumber.trim() : '';
+        const updateData: Record<string, unknown> = { status: 'OFFER_PENDING' };
+        if (reg) updateData.registrationNumber = reg;
         await tx.acquisitionLead.updateMany({
           where: {
             id: report.request.leadId,
             status: { in: ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'] },
           },
-          data: { status: 'OFFER_PENDING' },
+          data: updateData as any,
         });
       }
 

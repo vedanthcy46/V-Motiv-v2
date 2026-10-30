@@ -350,6 +350,7 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [actor, setActor] = useState<Actor | null>(null);
   const [page, setPage] = useState<PageKey>('overview');
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
   const [error, setError] = useState('');
@@ -532,6 +533,11 @@ function App() {
     setError('');
   }, [page]);
 
+  const selectPage = (nextPage: PageKey) => {
+    setPage(nextPage);
+    setSidebarOpen(false);
+  };
+
   useEffect(() => {
     if (user) void loadData(user);
   }, [user, page, statusFilter, unassignedFilter]);
@@ -579,9 +585,11 @@ function App() {
   }
 
   return (
+    <>
+    <a className="skip-link" href="#main">Skip to main content</a>
     <div className="app-shell">
       {/* SIDEBAR NAVIGATION */}
-      <aside className="sidebar">
+      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`} aria-label="Sales navigation">
         <div className="brand">
           <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
           <span>Sales</span>
@@ -589,46 +597,46 @@ function App() {
 
         <nav className="sidebar-nav">
           <div className="nav-section-title">Core Operations</div>
-          <button className={`nav-item ${page === 'overview' ? 'active' : ''}`} onClick={() => setPage('overview')}>
+          <button className={`nav-item ${page === 'overview' ? 'active' : ''}`} onClick={() => selectPage('overview')}>
             <Icons.Overview size={17} /> Overview
           </button>
-          <button className={`nav-item ${page === 'seller' ? 'active' : ''}`} onClick={() => setPage('seller')}>
+          <button className={`nav-item ${page === 'seller' ? 'active' : ''}`} onClick={() => selectPage('seller')}>
             <Icons.SellerLeads size={17} /> Seller Leads
           </button>
-          <button className={`nav-item ${page === 'buyer' ? 'active' : ''}`} onClick={() => setPage('buyer')}>
+          <button className={`nav-item ${page === 'buyer' ? 'active' : ''}`} onClick={() => selectPage('buyer')}>
             <Icons.BuyerLeads size={17} /> Buyer Leads
           </button>
 
           <div className="nav-section-title">Acquisition (Buy Car)</div>
-          <button className={`nav-item ${page === 'inspections' ? 'active' : ''}`} onClick={() => setPage('inspections')}>
+          <button className={`nav-item ${page === 'inspections' ? 'active' : ''}`} onClick={() => selectPage('inspections')}>
             <Icons.Inspections size={17} /> Inspection Requests
           </button>
-          <button className={`nav-item ${page === 'offers' ? 'active' : ''}`} onClick={() => setPage('offers')}>
+          <button className={`nav-item ${page === 'offers' ? 'active' : ''}`} onClick={() => selectPage('offers')}>
             <Icons.Offers size={17} /> Acquisition Offers
           </button>
 
           <div className="nav-section-title">Deal Execution (Sell Car)</div>
-          <button className={`nav-item ${page === 'inventory' ? 'active' : ''}`} onClick={() => setPage('inventory')}>
+          <button className={`nav-item ${page === 'inventory' ? 'active' : ''}`} onClick={() => selectPage('inventory')}>
             <Icons.Inventory size={17} /> Inventory Stock
           </button>
-          <button className={`nav-item ${page === 'testdrives' ? 'active' : ''}`} onClick={() => setPage('testdrives')}>
+          <button className={`nav-item ${page === 'testdrives' ? 'active' : ''}`} onClick={() => selectPage('testdrives')}>
             <Icons.TestDrives size={17} /> Test Drives
           </button>
-          <button className={`nav-item ${page === 'pipeline' ? 'active' : ''}`} onClick={() => setPage('pipeline')}>
+          <button className={`nav-item ${page === 'pipeline' ? 'active' : ''}`} onClick={() => selectPage('pipeline')}>
             <Icons.Pipeline size={17} /> Pipeline & Quotes
           </button>
 
           <div className="nav-section-title">Client & Follow-ups</div>
-          <button className={`nav-item ${page === 'tasks' ? 'active' : ''}`} onClick={() => setPage('tasks')}>
+          <button className={`nav-item ${page === 'tasks' ? 'active' : ''}`} onClick={() => selectPage('tasks')}>
             <Icons.Tasks size={17} /> Tasks & Follow-ups
           </button>
-          <button className={`nav-item ${page === 'customers' ? 'active' : ''}`} onClick={() => setPage('customers')}>
+          <button className={`nav-item ${page === 'customers' ? 'active' : ''}`} onClick={() => selectPage('customers')}>
             <Icons.Customers size={17} /> Customers CRM
           </button>
-          <button className={`nav-item ${page === 'communications' ? 'active' : ''}`} onClick={() => setPage('communications')}>
+          <button className={`nav-item ${page === 'communications' ? 'active' : ''}`} onClick={() => selectPage('communications')}>
             <Icons.Communications size={17} /> Communications
           </button>
-          <button className={`nav-item ${page === 'reports' ? 'active' : ''}`} onClick={() => setPage('reports')}>
+          <button className={`nav-item ${page === 'reports' ? 'active' : ''}`} onClick={() => selectPage('reports')}>
             <Icons.Reports size={17} /> Funnel & Reports
           </button>
         </nav>
@@ -642,11 +650,22 @@ function App() {
         </div>
       </aside>
 
+      {sidebarOpen && <button type="button" className="scrim" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
+
       {/* MAIN CONTAINER */}
       <div className="main-wrapper">
         {/* TOPBAR */}
         <header className="topbar">
           <div className="topbar-left">
+            <button
+              type="button"
+              className="mobile-menu"
+              aria-label="Open navigation"
+              aria-expanded={sidebarOpen}
+              onClick={() => setSidebarOpen(true)}
+            >
+              <Icons.Menu size={20} />
+            </button>
             <div className="branch-badge">
               <Icons.MapPin size={13} />
               <span>{actor?.globalScope ? 'All Branches (HQ)' : actor?.branches.map(b => b.city).join(', ') || 'Branch'}</span>
@@ -745,7 +764,7 @@ function App() {
         </header>
 
         {/* CONTENT AREA */}
-        <main className="content-area">
+        <main id="main" className="content-area">
           {error && <div className="error-banner">{error}</div>}
 
           {/* ==================================================== */}
@@ -2409,6 +2428,7 @@ function App() {
         />
       )}
     </div>
+    </>
   );
 }
 

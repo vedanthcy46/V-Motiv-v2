@@ -41,7 +41,7 @@ export const customer = {
   cancelTestDrive(id: string, reason?: string) { return api<void>(`/test-drive-requests/${id}/cancel`, { method: 'PATCH', body: jsonBody({ reason: reason || 'Cancelled by customer' }) }); },
   sell(input: {
     sellerName: string; sellerPhone: string; city: string; pincode: string; make: string; model: string; variant?: string;
-    manufacturingYear: number; fuelType: string; transmission: string; odometerKm: number; expectedPricePaise?: number; ownershipCount?: number; registrationYear?: number; color?: string; registrationCity?: string; loanOutstanding?: boolean; accidentHistory?: 'YES' | 'NO' | 'NOT_SURE'; serviceHistory?: 'COMPLETE' | 'PARTIAL' | 'NOT_SURE'; sellerNotes?: string;
+    manufacturingYear: number; fuelType: string; transmission: string; odometerKm: number; expectedPricePaise?: number; ownershipCount?: number; registrationNumber?: string; registrationYear?: number; color?: string; registrationCity?: string; loanOutstanding?: boolean; accidentHistory?: 'YES' | 'NO' | 'NOT_SURE'; serviceHistory?: 'COMPLETE' | 'PARTIAL' | 'NOT_SURE'; sellerNotes?: string;
     inspectionDate?: string; inspectionTimeSlot?: string; inspectionLocationType?: 'HUB' | 'HOME'; inspectionAddress?: string; idempotencyKey?: string;
   }) { return api<SellingRequest>('/acquisition-leads', { method: 'POST', body: jsonBody(input) }); },
   updateProfile(input: { displayName?: string; phone?: string; marketingConsent?: boolean; preferredCity?: string; termsVersion?: string }) {

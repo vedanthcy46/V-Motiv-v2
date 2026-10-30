@@ -27,7 +27,10 @@ import {
   Lock,
   MapPin,
   MessageSquare,
+  Palette,
   ShieldCheck,
+  Tag,
+  User,
   Wrench,
   Zap,
 } from 'lucide-react-native';
@@ -203,7 +206,9 @@ export function VehicleScreen({ route, navigation }: Props) {
         <View style={styles.titleSection}>
           <View style={styles.titleInfo}>
             <Text style={styles.vehicleTitle}>{v.make} {v.model}</Text>
-            <Text style={styles.vehicleVariant}>{v.manufacturingYear} · {v.variant}</Text>
+            <Text style={styles.vehicleVariant}>
+              {v.manufacturingYear} · {v.variant || item.customerProfile?.basicInformation?.variant || 'Standard'}
+            </Text>
           </View>
           <Text style={styles.vehiclePrice}>{formatPaise(item.pricePaise)}</Text>
         </View>
@@ -225,31 +230,94 @@ export function VehicleScreen({ route, navigation }: Props) {
           <Text style={styles.sectionTitle}>Key Specifications</Text>
           <View style={styles.specsGrid}>
             <View style={styles.specItem}>
-              <Gauge size={16} color={colors.brandAccent} />
-              <View>
-                <Text style={styles.specLabel}>Kilometers</Text>
-                <Text style={styles.specValue}>{v.odometerKm.toLocaleString('en-IN')} km</Text>
+              <FileText size={16} color={colors.brandAccent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specLabel}>Reg. Plate</Text>
+                <Text style={[styles.specValue, styles.regPlateText]} numberOfLines={1}>
+                  {v.registrationNumber || item.customerProfile?.basicInformation?.registrationNumber || 'KA Registered'}
+                </Text>
               </View>
             </View>
             <View style={styles.specItem}>
-              <Fuel size={16} color={colors.brandAccent} />
-              <View>
-                <Text style={styles.specLabel}>Fuel Type</Text>
-                <Text style={styles.specValue}>{v.fuelType}</Text>
+              <Palette size={16} color={colors.brandAccent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specLabel}>Exterior Colour</Text>
+                <Text style={styles.specValue} numberOfLines={1}>
+                  {v.color || item.customerProfile?.specifications?.color || 'Standard'}
+                </Text>
               </View>
             </View>
             <View style={styles.specItem}>
-              <Zap size={16} color={colors.brandAccent} />
-              <View>
-                <Text style={styles.specLabel}>Transmission</Text>
-                <Text style={styles.specValue}>{v.transmission}</Text>
+              <Tag size={16} color={colors.brandAccent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specLabel}>Variant</Text>
+                <Text style={styles.specValue} numberOfLines={1}>
+                  {v.variant || item.customerProfile?.basicInformation?.variant || 'Standard'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.specItem}>
+              <Calendar size={16} color={colors.brandAccent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specLabel}>Reg. / Mfg Year</Text>
+                <Text style={styles.specValue} numberOfLines={1}>
+                  {(v.registrationYear || item.customerProfile?.basicInformation?.registrationYear)
+                    ? `${v.registrationYear || item.customerProfile?.basicInformation?.registrationYear} (Mfg ${v.manufacturingYear})`
+                    : `${v.manufacturingYear}`}
+                </Text>
               </View>
             </View>
             <View style={styles.specItem}>
               <MapPin size={16} color={colors.brandAccent} />
-              <View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specLabel}>Registered City</Text>
+                <Text style={styles.specValue} numberOfLines={1}>
+                  {item.customerProfile?.basicInformation?.registrationCity || v.city || 'Bengaluru'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.specItem}>
+              <User size={16} color={colors.brandAccent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specLabel}>Ownership</Text>
+                <Text style={styles.specValue} numberOfLines={1}>
+                  {(() => {
+                    const count = v.ownershipCount || item.customerProfile?.basicInformation?.ownershipCount;
+                    if (!count) return '1st Owner';
+                    const sfx = count === 1 ? 'st' : count === 2 ? 'nd' : count === 3 ? 'rd' : 'th';
+                    return `${count}${sfx} Owner`;
+                  })()}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.specItem}>
+              <Gauge size={16} color={colors.brandAccent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specLabel}>Kilometers</Text>
+                <Text style={styles.specValue} numberOfLines={1}>{v.odometerKm.toLocaleString('en-IN')} km</Text>
+              </View>
+            </View>
+            <View style={styles.specItem}>
+              <Fuel size={16} color={colors.brandAccent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specLabel}>Fuel Type</Text>
+                <Text style={styles.specValue} numberOfLines={1}>{v.fuelType}</Text>
+              </View>
+            </View>
+            <View style={styles.specItem}>
+              <Zap size={16} color={colors.brandAccent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.specLabel}>Transmission</Text>
+                <Text style={styles.specValue} numberOfLines={1}>{v.transmission}</Text>
+              </View>
+            </View>
+            <View style={styles.specItem}>
+              <MapPin size={16} color={colors.brandAccent} />
+              <View style={{ flex: 1 }}>
                 <Text style={styles.specLabel}>Showroom Hub</Text>
-                <Text style={styles.specValue}>{item.branch?.name ? `${item.branch.name}` : (v.city || 'Available')}</Text>
+                <Text style={styles.specValue} numberOfLines={1}>
+                  {item.branch?.name ? `${item.branch.name}` : (v.city || 'Available')}
+                </Text>
               </View>
             </View>
           </View>
@@ -651,6 +719,10 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       color: colors.textPrimary,
       fontSize: 13,
       fontWeight: '600',
+    },
+    regPlateText: {
+      fontWeight: '700',
+      letterSpacing: 0.5,
     },
     inspectionCard: {
       flexDirection: 'row',

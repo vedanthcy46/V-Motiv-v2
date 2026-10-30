@@ -232,6 +232,7 @@ export function SellScreen() {
   const [make, setMake] = useState('');
   const [model, setModel] = useState('');
   const [variant, setVariant] = useState('');
+  const [registrationNumber, setRegistrationNumber] = useState('');
   const [manufacturingYear, setManufacturingYear] = useState('');
 
   // Step 2 – running & ownership
@@ -431,6 +432,7 @@ export function SellScreen() {
         if (d.make) setMake(d.make);
         if (d.model) setModel(d.model);
         if (d.variant) setVariant(d.variant);
+        if (d.registrationNumber) setRegistrationNumber(d.registrationNumber);
         if (d.manufacturingYear) setManufacturingYear(d.manufacturingYear);
         if (d.odometerKm) setOdometerKm(d.odometerKm);
         if (d.fuelType) setFuelType(d.fuelType);
@@ -464,7 +466,7 @@ export function SellScreen() {
     if (submittedLead) return;
     const timer = setTimeout(() => {
       const draft = {
-        make, model, variant, manufacturingYear, odometerKm, fuelType, transmission,
+        make, model, variant, registrationNumber, manufacturingYear, odometerKm, fuelType, transmission,
         ownershipCount, registrationYear, registrationCity, colorName, loanOutstanding,
         accidentHistory, serviceHistory, sellerNotes, expectedLakhs, sellerName,
         sellerPhone, city, pincode, inspectionLocationType, inspectionDate,
@@ -474,7 +476,7 @@ export function SellScreen() {
     }, 600);
     return () => clearTimeout(timer);
   }, [
-    make, model, variant, manufacturingYear, odometerKm, fuelType, transmission,
+    make, model, variant, registrationNumber, manufacturingYear, odometerKm, fuelType, transmission,
     ownershipCount, registrationYear, registrationCity, colorName, loanOutstanding,
     accidentHistory, serviceHistory, sellerNotes, expectedLakhs, sellerName,
     sellerPhone, city, pincode, inspectionLocationType, inspectionDate,
@@ -548,6 +550,7 @@ export function SellScreen() {
         make: make.trim(),
         model: model.trim(),
         variant: variant.trim() || undefined,
+        registrationNumber: registrationNumber.trim().toUpperCase() || undefined,
         manufacturingYear: year,
         fuelType: fuelType.toUpperCase(),
         transmission: transmission.toUpperCase(),
@@ -850,6 +853,30 @@ export function SellScreen() {
                   autoCapitalize="characters"
                   returnKeyType="next"
                   accessibilityLabel="Car variant"
+                />
+              </View>
+
+              {/* Registration Plate */}
+              <View style={styles.fieldGroup}>
+                <Text style={[styles.label, { color: c.textPrimary }]}>Registration Plate Number (optional)</Text>
+                <TextInput
+                  style={[
+                    styles.input,
+                    {
+                      backgroundColor: c.inputBackground,
+                      color: c.textPrimary,
+                      borderColor: c.inputBorder,
+                      fontWeight: '700',
+                      letterSpacing: 0.5,
+                    },
+                  ]}
+                  placeholder="e.g. KA 01 AB 1234"
+                  placeholderTextColor={c.inputPlaceholder}
+                  value={registrationNumber}
+                  onChangeText={(val) => setRegistrationNumber(val.toUpperCase())}
+                  autoCapitalize="characters"
+                  returnKeyType="next"
+                  accessibilityLabel="Registration plate number"
                 />
               </View>
 

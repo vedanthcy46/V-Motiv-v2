@@ -101,6 +101,11 @@ export function VehicleCard({
 
         {/* Key Specs Chips with Icons */}
         <View style={styles.chipsRow}>
+          {vehicle.registrationNumber ? (
+            <View style={[styles.chip, styles.plateChip, { borderColor: isDark ? 'rgba(247,181,3,0.45)' : 'rgba(11,37,69,0.3)', backgroundColor: isDark ? 'rgba(247,181,3,0.1)' : 'rgba(11,37,69,0.06)' }]}>
+              <Text style={[styles.plateChipText, { color: isDark ? c.brandAccent : c.brandNavy }]}>{vehicle.registrationNumber}</Text>
+            </View>
+          ) : null}
           <View style={[styles.chip, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <Gauge size={12} color={c.textMuted} />
             <Text style={[styles.chipText, { color: c.textSecondary }]}>{vehicle.odometerKm.toLocaleString('en-IN')} km</Text>
@@ -112,6 +117,11 @@ export function VehicleCard({
           <View style={[styles.chip, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
             <Text style={[styles.chipText, { color: c.textSecondary }]}>{vehicle.transmission}</Text>
           </View>
+          {vehicle.color ? (
+            <View style={[styles.chip, { backgroundColor: c.surfaceSecondary, borderColor: c.border }]}>
+              <Text style={[styles.chipText, { color: c.textSecondary }]}>{vehicle.color}</Text>
+            </View>
+          ) : null}
         </View>
 
         {/* Action Button */}
@@ -287,6 +297,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     paddingVertical: 5,
     paddingHorizontal: 9,
+  },
+  plateChip: {
+    paddingHorizontal: 8,
+    borderWidth: 1.5,
+  },
+  plateChipText: {
+    fontSize: 11.5,
+    fontWeight: '800',
+    letterSpacing: 0.5,
   },
   chipText: {
     fontSize: 12,

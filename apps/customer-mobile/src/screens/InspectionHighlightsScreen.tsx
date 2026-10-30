@@ -287,6 +287,61 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
         {/* TAB 3: DIAGNOSTICS & ROAD TEST */}
         {activeTab === 'DIAGNOSTICS' && (
           <View style={styles.section}>
+            {effectiveProfile?.basicInformation && (
+              <View style={styles.summaryCard}>
+                <View style={styles.summaryCardHeader}>
+                  <FileText size={20} color={colors.brandAccent} />
+                  <Text style={styles.cardTitle}>Verified Identity & Registration</Text>
+                </View>
+                <View style={styles.identityGrid}>
+                  {effectiveProfile.basicInformation.registrationNumber ? (
+                    <View style={styles.identityItem}>
+                      <Text style={styles.identityLabel}>Reg. Plate</Text>
+                      <Text style={[styles.identityValue, { fontWeight: '800', letterSpacing: 0.5, color: colors.brandAccent }]}>
+                        {effectiveProfile.basicInformation.registrationNumber}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {effectiveProfile.basicInformation.variant ? (
+                    <View style={styles.identityItem}>
+                      <Text style={styles.identityLabel}>Variant</Text>
+                      <Text style={styles.identityValue}>{effectiveProfile.basicInformation.variant}</Text>
+                    </View>
+                  ) : null}
+                  {effectiveProfile.specifications?.color ? (
+                    <View style={styles.identityItem}>
+                      <Text style={styles.identityLabel}>Exterior Colour</Text>
+                      <Text style={styles.identityValue}>{effectiveProfile.specifications.color}</Text>
+                    </View>
+                  ) : null}
+                  {effectiveProfile.basicInformation.registrationYear ? (
+                    <View style={styles.identityItem}>
+                      <Text style={styles.identityLabel}>Year of Reg.</Text>
+                      <Text style={styles.identityValue}>
+                        {effectiveProfile.basicInformation.registrationYear}
+                        {effectiveProfile.basicInformation.manufacturingYear ? ` (Mfg ${effectiveProfile.basicInformation.manufacturingYear})` : ''}
+                      </Text>
+                    </View>
+                  ) : null}
+                  {effectiveProfile.basicInformation.registrationCity ? (
+                    <View style={styles.identityItem}>
+                      <Text style={styles.identityLabel}>Registered City</Text>
+                      <Text style={styles.identityValue}>{effectiveProfile.basicInformation.registrationCity}</Text>
+                    </View>
+                  ) : null}
+                  {effectiveProfile.basicInformation.ownershipCount ? (
+                    <View style={styles.identityItem}>
+                      <Text style={styles.identityLabel}>Ownership</Text>
+                      <Text style={styles.identityValue}>
+                        {effectiveProfile.basicInformation.ownershipCount}
+                        {effectiveProfile.basicInformation.ownershipCount === 1 ? 'st' : effectiveProfile.basicInformation.ownershipCount === 2 ? 'nd' : effectiveProfile.basicInformation.ownershipCount === 3 ? 'rd' : 'th'} Owner
+                      </Text>
+                    </View>
+                  ) : null}
+                </View>
+              </View>
+            )}
+
             <View style={styles.summaryCard}>
               <View style={styles.summaryCardHeader}>
                 <ShieldCheck size={20} color={colors.brandAccent} />
@@ -757,6 +812,25 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       flexDirection: 'row',
       alignItems: 'center',
       gap: space.xs,
+    },
+    identityGrid: {
+      flexDirection: 'row',
+      flexWrap: 'wrap',
+      gap: space.md,
+      marginTop: space.sm,
+    },
+    identityItem: {
+      width: '45%',
+    },
+    identityLabel: {
+      color: colors.textMuted,
+      fontSize: 11,
+    },
+    identityValue: {
+      color: colors.textPrimary,
+      fontSize: 13,
+      fontWeight: '600',
+      marginTop: 2,
     },
     cardTitle: {
       color: colors.textPrimary,

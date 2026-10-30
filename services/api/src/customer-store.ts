@@ -77,6 +77,9 @@ const listingInclude = {
       stockUnit: {
         include: {
           branch: true,
+          acquisitionCase: {
+            include: { lead: true },
+          },
           workOrders: {
             where: { status: 'COMPLETED' as const },
             orderBy: { completedAt: 'desc' as const },
@@ -214,15 +217,20 @@ function buildCustomerProfile(listing: any) {
     version: 1,
     generatedAt: existing?.generatedAt || new Date().toISOString(),
     basicInformation: existing?.basicInformation || {
-      registrationNumber: stock?.registrationNumber || null,
+      registrationNumber: stock?.registrationNumber || stock?.acquisitionCase?.lead?.registrationNumber || null,
       manufacturingYear: vehicle?.manufacturingYear || stock?.manufacturingYear || null,
       odometerKm: vehicle?.odometerKm || stock?.odometerKm || null,
       fuelType: vehicle?.fuelType || stock?.fuelType || null,
       transmission: vehicle?.transmission || stock?.transmission || null,
-      variant: vehicle?.variant || stock?.variant || null,
+      variant: vehicle?.variant || stock?.variant || stock?.acquisitionCase?.lead?.variant || null,
+      model: vehicle?.model || stock?.model || stock?.acquisitionCase?.lead?.model || null,
+      make: vehicle?.make || stock?.make || stock?.acquisitionCase?.lead?.make || null,
+      registrationYear: vehicle?.registrationYear || stock?.acquisitionCase?.lead?.registrationYear || null,
+      registrationCity: vehicle?.city || stock?.acquisitionCase?.lead?.registrationCity || stock?.acquisitionCase?.lead?.city || null,
+      ownershipCount: vehicle?.ownershipCount || stock?.acquisitionCase?.lead?.ownershipCount || null,
     },
     specifications: existing?.specifications || {
-      color: vehicle?.color || null,
+      color: vehicle?.color || stock?.acquisitionCase?.lead?.color || null,
       bodyType: vehicle?.bodyType || null,
       engineCapacityCc: vehicle?.engineCapacityCc || null,
     },
@@ -283,9 +291,27 @@ function listingJson(listing: any, wished: boolean) {
   } : null;
 
   const customerProfile = buildCustomerProfile(listing);
+  const stock = listing.vehicle?.stockUnit;
+  const regNumber = stock?.registrationNumber || stock?.acquisitionCase?.lead?.registrationNumber || customerProfile?.basicInformation?.registrationNumber || null;
+  const variant = listing.vehicle?.variant || stock?.variant || stock?.acquisitionCase?.lead?.variant || customerProfile?.basicInformation?.variant || null;
+  const color = listing.vehicle?.color || stock?.acquisitionCase?.lead?.color || customerProfile?.specifications?.color || null;
+  const registrationYear = listing.vehicle?.registrationYear || stock?.acquisitionCase?.lead?.registrationYear || customerProfile?.basicInformation?.registrationYear || null;
+  const city = listing.vehicle?.city || stock?.acquisitionCase?.lead?.registrationCity || customerProfile?.basicInformation?.registrationCity || branch?.city || null;
+  const ownershipCount = listing.vehicle?.ownershipCount || stock?.acquisitionCase?.lead?.ownershipCount || customerProfile?.basicInformation?.ownershipCount || null;
+
+  const vehicle = listing.vehicle ? {
+    ...listing.vehicle,
+    variant: variant || listing.vehicle.variant,
+    registrationNumber: regNumber,
+    color: color || listing.vehicle.color,
+    registrationYear: registrationYear || listing.vehicle.registrationYear,
+    city: city || listing.vehicle.city,
+    ownershipCount: ownershipCount || listing.vehicle.ownershipCount,
+  } : listing.vehicle;
 
   return {
     ...listing,
+    vehicle,
     customerProfile,
     pricePaise: listing.pricePaise.toString(),
     isWishlisted: wished,

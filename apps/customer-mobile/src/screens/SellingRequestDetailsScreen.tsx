@@ -253,6 +253,11 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
           </Text>
           {lead.variant ? <Text style={styles.carVariant}>{lead.variant}</Text> : null}
           <View style={styles.refRow}>
+            {lead.registrationNumber ? (
+              <View style={styles.regPlateBadge}>
+                <Text style={styles.regPlateBadgeText}>{lead.registrationNumber}</Text>
+              </View>
+            ) : null}
             <Text style={styles.refLabel}>Reference:</Text>
             <Text style={styles.refCode}>{lead.referenceCode.slice(0, 8).toUpperCase()}</Text>
           </View>
@@ -419,6 +424,28 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
           <Text style={styles.sectionTitle}>Submitted Specifications</Text>
           <View style={styles.grid}>
             <View style={styles.gridItem}>
+              <Text style={styles.gridLabel}>Reg. Plate</Text>
+              <Text style={[styles.gridValue, styles.regPlateVal]}>{lead.registrationNumber || 'Pending verification'}</Text>
+            </View>
+            <View style={styles.gridItem}>
+              <Text style={styles.gridLabel}>Variant</Text>
+              <Text style={styles.gridValue}>{lead.variant || 'Standard'}</Text>
+            </View>
+            <View style={styles.gridItem}>
+              <Text style={styles.gridLabel}>Exterior Colour</Text>
+              <Text style={styles.gridValue}>{lead.color || 'Standard'}</Text>
+            </View>
+            <View style={styles.gridItem}>
+              <Text style={styles.gridLabel}>Reg. / Mfg Year</Text>
+              <Text style={styles.gridValue}>
+                {lead.registrationYear ? `${lead.registrationYear} (Mfg ${lead.manufacturingYear})` : `${lead.manufacturingYear}`}
+              </Text>
+            </View>
+            <View style={styles.gridItem}>
+              <Text style={styles.gridLabel}>Registered City</Text>
+              <Text style={styles.gridValue}>{lead.registrationCity || lead.city}</Text>
+            </View>
+            <View style={styles.gridItem}>
               <Text style={styles.gridLabel}>Odometer</Text>
               <Text style={styles.gridValue}>{lead.odometerKm.toLocaleString()} km</Text>
             </View>
@@ -432,7 +459,9 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
             </View>
             <View style={styles.gridItem}>
               <Text style={styles.gridLabel}>Ownership</Text>
-              <Text style={styles.gridValue}>{lead.ownershipCount ? `${lead.ownershipCount} Owner` : '1st Owner'}</Text>
+              <Text style={styles.gridValue}>
+                {lead.ownershipCount ? `${lead.ownershipCount}${lead.ownershipCount === 1 ? 'st' : lead.ownershipCount === 2 ? 'nd' : lead.ownershipCount === 3 ? 'rd' : 'th'} Owner` : '1st Owner'}
+              </Text>
             </View>
             <View style={styles.gridItem}>
               <Text style={styles.gridLabel}>Accident Free</Text>
@@ -823,6 +852,21 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       gap: space.xs,
       marginTop: space.sm,
     },
+    regPlateBadge: {
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.12)' : 'rgba(11, 37, 69, 0.08)',
+      paddingHorizontal: 8,
+      paddingVertical: 2,
+      borderRadius: 4,
+      borderWidth: 1,
+      borderColor: isDark ? 'rgba(247, 181, 3, 0.35)' : 'rgba(11, 37, 69, 0.25)',
+      marginRight: 6,
+    },
+    regPlateBadgeText: {
+      color: isDark ? colors.brandAccent : colors.brandNavy,
+      fontSize: 11,
+      fontWeight: '800',
+      letterSpacing: 0.5,
+    },
     refLabel: {
       color: colors.textMuted,
       fontSize: 12,
@@ -1126,6 +1170,10 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       fontSize: 13,
       fontWeight: '600',
       marginTop: 2,
+    },
+    regPlateVal: {
+      fontWeight: '700',
+      letterSpacing: 0.3,
     },
     cancelActionBtn: {
       flexDirection: 'row',

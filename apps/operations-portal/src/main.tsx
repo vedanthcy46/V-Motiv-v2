@@ -433,6 +433,7 @@ export const App: FC = () => {
   const [docNotes, setDocNotes] = useState('');
 
   const [handoverModal, setHandoverModal] = useState<{ open: boolean; caseItem?: AcquisitionCase }>({ open: false });
+  const [handoverRegNumber, setHandoverRegNumber] = useState('');
   const [handoverOdometer, setHandoverOdometer] = useState<number>(0);
   const [handoverMainKeys, setHandoverMainKeys] = useState<number>(1);
   const [handoverSpareKeys, setHandoverSpareKeys] = useState<number>(0);
@@ -635,6 +636,7 @@ export const App: FC = () => {
         status: 'RECEIVED',
         location: handoverLocation,
         observedAt: new Date().toISOString(),
+        registrationNumber: handoverRegNumber.trim().toUpperCase() || undefined,
         odometerKm: Number(handoverOdometer) || 0,
         mainKeysReceived: Number(handoverMainKeys) || 1,
         spareKeysReceived: Number(handoverSpareKeys) || 0,
@@ -1659,6 +1661,7 @@ export const App: FC = () => {
                           style={{ fontSize: '0.8rem', padding: '0.35rem 0.6rem' }}
                           onClick={() => {
                             setHandoverModal({ open: true, caseItem: c });
+                            setHandoverRegNumber(c.handover?.registrationNumber || c.lead.registrationNumber || '');
                             setHandoverOdometer(c.handover?.odometerKm || 0);
                             setHandoverMainKeys(c.handover?.mainKeysReceived || 1);
                             setHandoverSpareKeys(c.handover?.spareKeysReceived || 0);
@@ -1869,6 +1872,7 @@ export const App: FC = () => {
                           style={{ fontSize: '0.8rem' }}
                           onClick={() => {
                             setHandoverModal({ open: true, caseItem: c });
+                            setHandoverRegNumber(c.handover?.registrationNumber || c.lead.registrationNumber || '');
                             setHandoverOdometer(c.handover?.odometerKm || 0);
                             setHandoverMainKeys(c.handover?.mainKeysReceived || 1);
                             setHandoverSpareKeys(c.handover?.spareKeysReceived || 0);
@@ -1945,11 +1949,18 @@ export const App: FC = () => {
                         </td>
                         <td>
                           <strong>{s.manufacturingYear} {s.make} {s.model} {s.variant || ''}</strong>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{s.fuelType} · {s.transmission}</div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                            {[s.fuelType, s.transmission, s.color].filter(Boolean).join(' · ')}
+                          </div>
                         </td>
                         <td>
-                          <div>{s.registrationNumber || 'N/A'}</div>
+                          <div style={{ fontWeight: 600 }}>{s.registrationNumber || 'N/A'}</div>
                           <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{s.odometerKm.toLocaleString()} km</div>
+                          {(s.registrationYear || s.registrationCity) && (
+                            <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>
+                              {[s.registrationYear ? `Reg: ${s.registrationYear}` : '', s.registrationCity].filter(Boolean).join(' · ')}
+                            </div>
+                          )}
                         </td>
                         <td>{s.branch?.name ? `${s.branch.name} (${s.branch.city})` : (branches.find(b => b.id === s.branchId)?.name || s.physicalLocation || 'Main Hub')}</td>
                         <td>{formatRupees(s.acquisitionCostPaise)}</td>
@@ -2846,6 +2857,20 @@ export const App: FC = () => {
                   </select>
                   <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
                     Saving confirmed custody creates the stock unit for QC and Listing Studio. It does not publish to customers.
+                  </span>
+                </div>
+
+                <div className="form-group">
+                  <label>Registration Plate Number</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. KA 01 AB 1234"
+                    value={handoverRegNumber}
+                    onChange={e => setHandoverRegNumber(e.target.value)}
+                  />
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                    Registration plate attached to the vehicle stock record.
                   </span>
                 </div>
 

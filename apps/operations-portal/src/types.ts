@@ -191,6 +191,10 @@ export type VehicleStockUnit = {
   make: string;
   model: string;
   variant?: string | null;
+  color?: string | null;
+  registrationYear?: number | null;
+  registrationCity?: string | null;
+  ownershipCount?: number | null;
   manufacturingYear: number;
   fuelType: string;
   transmission: string;

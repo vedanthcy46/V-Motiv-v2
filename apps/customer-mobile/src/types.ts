@@ -63,6 +63,11 @@ export type CustomerVehicleProfile = {
     fuelType?: string;
     transmission?: string;
     variant?: string | null;
+    model?: string;
+    make?: string;
+    registrationYear?: number | null;
+    registrationCity?: string | null;
+    ownershipCount?: number | null;
   };
   specifications?: {
     color?: string | null;
@@ -146,6 +151,7 @@ export type VehicleSummary = {
     inspectionReportUrl: string | null;
     features: string[];
     verifiedTags: string[];
+    registrationNumber?: string | null;
   };
   media: Array<{ id: string; url: string; mediaType: 'IMAGE'; displayOrder: number }>;
 };
@@ -233,6 +239,7 @@ export type SellingRequest = {
   accidentHistory: 'YES' | 'NO' | 'NOT_SURE' | null;
   serviceHistory: 'COMPLETE' | 'PARTIAL' | 'NOT_SURE' | null;
   sellerNotes: string | null;
+  registrationNumber?: string | null;
   inspectionDate: string | null;
   inspectionTimeSlot: string | null;
   inspectionLocationType: 'HUB' | 'HOME' | null;
