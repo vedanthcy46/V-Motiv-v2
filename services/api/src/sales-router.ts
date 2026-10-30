@@ -117,7 +117,7 @@ const offerInput = z.object({
   terms: z.string().trim().max(1000).optional(),
   reason: z.string().trim().max(1000).optional(),
 }).strict();
-const valuationInput = z.object({ inspectionReportId: uuid, expectedResalePaise: z.coerce.bigint().positive(), refurbishmentPaise: z.coerce.bigint().min(0n).optional(), otherCostsPaise: z.coerce.bigint().min(0n).optional(), requiredMarginPaise: z.coerce.bigint().min(0n).optional(), recommendedPurchasePaise: z.coerce.bigint().positive(), notes: z.string().trim().max(2_000).optional() }).strict();
+const valuationInput = z.object({ inspectionReportId: uuid, expectedResalePaise: z.coerce.bigint().positive(), refurbishmentPaise: z.coerce.bigint().min(0n).optional(), otherCostsPaise: z.coerce.bigint().min(0n).optional(), requiredMarginPaise: z.coerce.bigint().min(0n).optional(), recommendedPurchasePaise: z.coerce.bigint().positive(), notes: z.string().trim().max(2_000).optional(), autoApprove: z.boolean().optional() }).strict();
 const valuationDecisionInput = z.object({ version: z.number().int().positive(), decision: z.enum(['APPROVE', 'REJECT']), reason: z.string().trim().max(1_000).optional() }).strict();
 
 const offerResponseInput = z.object({

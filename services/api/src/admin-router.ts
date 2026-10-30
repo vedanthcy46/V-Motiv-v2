@@ -39,7 +39,13 @@ const serviceAreaUpdateInput = z.object({ active: z.boolean() }).strict();
 const supportQuery = pagination.extend({ status: z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']).optional(), search: z.string().trim().max(120).optional() });
 const supportUpdateInput = z.object({ status: z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']), note: z.string().trim().min(1).max(2000).optional() }).strict();
 const supportReplyInput = z.object({ body: z.string().trim().min(1).max(2000) }).strict();
-const policyProposalInput = z.object({ key: z.string().trim().min(2).max(80).regex(/^[a-z0-9._-]+$/), title: z.string().trim().min(3).max(160), content: z.record(z.string(), z.unknown()), effectiveAt: z.string().datetime().optional(), reason: z.string().trim().min(8).max(500) }).strict();
+const policyProposalInput = z.object({ key: z.string().trim().min(2).max(80).regex(/^[a-zA-Z0-9._-]+$/), title: z.string().trim().min(3).max(160), content: z.record(z.string(), z.unknown()), effectiveAt: z.string().datetime().optional(), reason: z.string().trim().min(8).max(500) }).strict();
+const policyUpdateInput = z.object({
+  title: z.string().trim().min(3).max(160).optional(),
+  content: z.record(z.string(), z.unknown()).optional(),
+  status: z.enum(['DRAFT', 'ACTIVE', 'SUPERSEDED', 'RETIRED']).optional(),
+  effectiveAt: z.string().datetime().optional().transform(v => v ? new Date(v) : undefined),
+}).strict();
 
 const businessSellingQuery = pagination.extend({
   search: z.string().trim().max(100).optional(),
@@ -171,6 +177,9 @@ export function createAdminRouter(deps: {
   });
   router.get('/admin/system-health', async (_req, res) => res.json(await deps.store.systemHealth(res.locals.adminActor as AdminActor)));
   router.get('/admin/policies', async (_req, res) => res.json(await deps.store.policies(res.locals.adminActor as AdminActor)));
+  router.get('/admin/policies/:id', async (req, res) => res.json(await deps.store.getPolicy(res.locals.adminActor as AdminActor, parse(uuid, req.params.id))));
+  router.patch('/admin/policies/:id', async (req, res) => res.json(await deps.store.updatePolicy(res.locals.adminActor as AdminActor, parse(uuid, req.params.id), parse(policyUpdateInput, req.body))));
+  router.delete('/admin/policies/:id', async (req, res) => res.json(await deps.store.deletePolicy(res.locals.adminActor as AdminActor, parse(uuid, req.params.id))));
   router.post('/admin/policies/proposals', async (req, res) => res.status(202).json(await deps.store.proposePolicy(res.locals.adminActor as AdminActor, parse(policyProposalInput, req.body))));
   router.get('/admin/employees', async (req, res) => res.json(await deps.store.employees(res.locals.adminActor as AdminActor, parse(employeeQuery, req.query))));
   router.post('/admin/invitations', async (req, res) => {

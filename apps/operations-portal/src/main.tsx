@@ -457,6 +457,15 @@ export const App: FC = () => {
   const [qcFindings, setQcFindings] = useState('');
   const [qcDecision, setQcDecision] = useState<'PASS' | 'REWORK_REQUIRED' | 'FAIL'>('PASS');
 
+  const [specsModal, setSpecsModal] = useState<{
+    open: boolean;
+    stockItem?: VehicleStockUnit;
+    registrationNumber: string;
+    variant: string;
+    color: string;
+    odometerKm: number;
+  }>({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 });
+
   const [branches, setBranches] = useState<Branch[]>([]);
   const [studioModal, setStudioModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
   const [studioFilter, setStudioFilter] = useState<'ALL' | 'PREPARATION' | 'READY' | 'LISTED'>('ALL');
@@ -690,6 +699,28 @@ export const App: FC = () => {
       setActiveTab('inventory');
     } catch (err) {
       setError(err instanceof ApiError ? `Stock Inward Error: ${err.code}` : 'Stock inward failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSaveSpecs = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!user || !specsModal.stockItem) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await api.updateStockVehicleSpecs(user, specsModal.stockItem.id, {
+        registrationNumber: specsModal.registrationNumber.trim().toUpperCase() || undefined,
+        variant: specsModal.variant.trim() || undefined,
+        color: specsModal.color.trim() || undefined,
+        odometerKm: specsModal.odometerKm || undefined,
+      });
+      setSuccessMsg('Vehicle specs & registration plate updated');
+      setSpecsModal({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 });
+      await loadAllData();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Specs Error: ${err.code}` : 'Failed to update vehicle specs');
     } finally {
       setLoading(false);
     }
@@ -2025,6 +2056,24 @@ export const App: FC = () => {
                         </td>
                         <td>
                           <div style={{ display: 'flex', gap: '0.35rem', flexWrap: 'wrap' }}>
+                            <button
+                              className="btn-secondary"
+                              style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
+                              onClick={() => {
+                                setSpecsModal({
+                                  open: true,
+                                  stockItem: s,
+                                  registrationNumber: s.registrationNumber || '',
+                                  variant: s.variant || '',
+                                  color: s.color || '',
+                                  odometerKm: s.odometerKm || 0,
+                                });
+                              }}
+                              title="Update registration number, color, or variant specs"
+                            >
+                              Edit Specs
+                            </button>
+
                             {['RECEIVED', 'REFURBISHMENT_PENDING', 'IN_REFURBISHMENT'].includes(s.status) ? (
                               <button
                                 className="btn-secondary"
@@ -3095,6 +3144,87 @@ export const App: FC = () => {
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setStockInwardModal({ open: false })}>Cancel</button>
                 <button type="submit" className="btn-gold" disabled={loading || !inwardBranchId}>Inward Vehicle to Stock</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
+
+      {/* ======================================================== */}
+      {/* MODAL: EDIT VEHICLE SPECS & REGISTRATION                 */}
+      {/* ======================================================== */}
+      {specsModal.open && specsModal.stockItem ? (
+        <div className="modal-overlay">
+          <div className="modal-dialog">
+            <div className="modal-header">
+              <h3>Edit Vehicle Specs & Registration Plate</h3>
+              <button className="btn-close" onClick={() => setSpecsModal({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 })}>✕</button>
+            </div>
+            <form onSubmit={handleSaveSpecs}>
+              <div className="modal-body">
+                <div>
+                  <strong>Stock: {specsModal.stockItem.stockCode}</strong>
+                  <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                    {specsModal.stockItem.manufacturingYear} {specsModal.stockItem.make} {specsModal.stockItem.model}
+                  </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Registration Number (Plate) *</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. KA-02-VM-1023"
+                    value={specsModal.registrationNumber}
+                    onChange={e => setSpecsModal({ ...specsModal, registrationNumber: e.target.value.toUpperCase() })}
+                    required
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Variant</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. SX (O), Titanium, VXi"
+                    value={specsModal.variant}
+                    onChange={e => setSpecsModal({ ...specsModal, variant: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Exterior Color</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. Polar White, Phantom Black"
+                    value={specsModal.color}
+                    onChange={e => setSpecsModal({ ...specsModal, color: e.target.value })}
+                  />
+                </div>
+
+                <div className="form-group">
+                  <label>Odometer (Kilometres)</label>
+                  <input
+                    type="number"
+                    className="form-input"
+                    value={specsModal.odometerKm}
+                    onChange={e => setSpecsModal({ ...specsModal, odometerKm: Number(e.target.value) || 0 })}
+                  />
+                </div>
+              </div>
+
+              <div className="modal-footer">
+                <button
+                  type="button"
+                  className="btn-secondary"
+                  onClick={() => setSpecsModal({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 })}
+                >
+                  Cancel
+                </button>
+                <button type="submit" className="btn-primary" disabled={loading}>
+                  {loading ? 'Saving…' : 'Save Vehicle Specs'}
+                </button>
               </div>
             </form>
           </div>

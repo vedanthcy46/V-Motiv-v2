@@ -77,6 +77,11 @@ export const adminApi = {
   replySupportCase: (user: User, id: string, body: string) => call(user, `/admin/support/cases/${id}/replies`, { method: 'POST', body: JSON.stringify({ body }) }),
   systemHealth: (user: User) => call<SystemHealth>(user, '/admin/system-health'),
   policies: (user: User) => call<PolicyVersion[]>(user, '/admin/policies'),
+  getPolicy: (user: User, id: string) => call<PolicyVersion>(user, `/admin/policies/${id}`),
+  updatePolicy: (user: User, id: string, input: { title?: string; content?: Record<string, unknown>; status?: string; effectiveAt?: string }) =>
+    call<PolicyVersion>(user, `/admin/policies/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  deletePolicy: (user: User, id: string) =>
+    call<{ id: string; status: string }>(user, `/admin/policies/${id}`, { method: 'DELETE' }),
   proposePolicy: (user: User, input: { key: string; title: string; content: Record<string, unknown>; effectiveAt?: string; reason: string }) => call<{ id: string; status: string }>(user, '/admin/policies/proposals', { method: 'POST', body: JSON.stringify(input) }),
   employees: (user: User, params: URLSearchParams) => call<EmployeePage>(user, `/admin/employees?${params}`),
   invite: (user: User, input: { email: string; fullName: string; designation?: string; roleId: string; branchIds: string[]; expiresInHours: number }) => call(user, '/admin/invitations', { method: 'POST', body: JSON.stringify(input) }),

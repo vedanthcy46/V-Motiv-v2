@@ -195,6 +195,11 @@ export const api = {
 
   // --- Inventory & Stock Units ---
   inventory: (u: User) => call<VehicleStockUnit[]>(u, '/operations/inventory'),
+  updateStockVehicleSpecs: (
+    u: User,
+    stockId: string,
+    body: { registrationNumber?: string; variant?: string; color?: string; odometerKm?: number }
+  ) => call<unknown>(u, `/operations/inventory/${stockId}/vehicle-specs`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   // --- Refurbishment Work Orders & Cost Approvals ---
   createWorkOrder: (

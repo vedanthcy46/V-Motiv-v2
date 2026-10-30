@@ -80,6 +80,9 @@ export interface AdminStore {
   replySupportCase(actor: AdminActor, id: string, body: string): Promise<unknown>;
   systemHealth(actor: AdminActor): Promise<unknown>;
   policies(actor: AdminActor): Promise<unknown[]>;
+  getPolicy(actor: AdminActor, id: string): Promise<unknown>;
+  updatePolicy(actor: AdminActor, id: string, input: { title?: string; content?: object; status?: PolicyStatus; effectiveAt?: Date }): Promise<unknown>;
+  deletePolicy(actor: AdminActor, id: string): Promise<unknown>;
   proposePolicy(actor: AdminActor, input: PolicyProposal): Promise<unknown>;
   employees(actor: AdminActor, query: EmployeeListQuery): Promise<unknown>;
   invite(actor: AdminActor, input: CreateInvitation): Promise<unknown>;
@@ -229,6 +232,24 @@ export class PrismaAdminStore implements AdminStore {
         if ((error as { code?: string }).code === 'P2002') throw new HttpError(409, 'BRANCH_CODE_EXISTS');
         throw error;
       });
+      await tx.serviceHub.upsert({
+        where: { code: branch.code },
+        update: {
+          branchId: branch.id,
+          name: branch.name,
+          city: branch.city,
+          address: branch.address || `${branch.city} Hub Facility`,
+          isActive: branch.active,
+        },
+        create: {
+          branchId: branch.id,
+          code: branch.code,
+          name: branch.name,
+          city: branch.city,
+          address: branch.address || `${branch.city} Hub Facility`,
+          isActive: branch.active,
+        },
+      }).catch(() => undefined);
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'BRANCH_CREATED', entityType: 'Branch', entityId: branch.id, details: { code: branch.code, city: branch.city } } });
       return branch;
     });
@@ -245,6 +266,15 @@ export class PrismaAdminStore implements AdminStore {
         if (activeAssignments) throw new HttpError(409, 'BRANCH_HAS_ACTIVE_EMPLOYEES');
       }
       const updated = await tx.branch.update({ where: { id }, data: { ...(input.name !== undefined ? { name: input.name.trim() } : {}), ...(input.city !== undefined ? { city: input.city.trim() } : {}), ...(input.address !== undefined ? { address: input.address?.trim() || null } : {}), ...(input.active !== undefined ? { active: input.active } : {}) }, select: { id: true, code: true, name: true, city: true, address: true, active: true } });
+      await tx.serviceHub.updateMany({
+        where: { branchId: id },
+        data: {
+          ...(input.name !== undefined ? { name: input.name.trim() } : {}),
+          ...(input.city !== undefined ? { city: input.city.trim() } : {}),
+          ...(input.address !== undefined ? { address: input.address?.trim() || `${input.city || branch.city} Hub Facility` } : {}),
+          ...(input.active !== undefined ? { isActive: input.active } : {}),
+        },
+      }).catch(() => undefined);
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'BRANCH_UPDATED', entityType: 'Branch', entityId: id, details: input } });
       return updated;
     });
@@ -374,7 +404,110 @@ export class PrismaAdminStore implements AdminStore {
 
   async policies(actor: AdminActor) {
     requirePermission(actor, 'policy.read');
-    return this.db.policyVersion.findMany({ orderBy: [{ key: 'asc' }, { version: 'desc' }], select: { id: true, key: true, version: true, title: true, status: true, effectiveAt: true, createdAt: true, createdBy: { select: { email: true, displayName: true } } } });
+    const [versions, pendingRequests] = await Promise.all([
+      this.db.policyVersion.findMany({
+        orderBy: [{ key: 'asc' }, { version: 'desc' }],
+        select: {
+          id: true,
+          key: true,
+          version: true,
+          title: true,
+          content: true,
+          status: true,
+          effectiveAt: true,
+          createdAt: true,
+          updatedAt: true,
+          createdBy: { select: { email: true, displayName: true } },
+        },
+      }),
+      this.db.approvalRequest.findMany({
+        where: { requestType: 'POLICY_VERSION', status: 'PENDING' },
+        orderBy: { createdAt: 'desc' },
+        include: { requester: { select: { email: true, displayName: true } } },
+      }),
+    ]);
+
+    const proposedItems = pendingRequests.map(req => {
+      const payload = (req.payload || {}) as Record<string, unknown>;
+      return {
+        id: req.id,
+        key: (payload.key as string) || 'UNKNOWN',
+        version: req.version,
+        title: (payload.title as string) || 'Proposed Policy Revision',
+        content: (payload.content as object) || {},
+        status: 'PROPOSED',
+        approvalRequestId: req.id,
+        effectiveAt: payload.effectiveAt ? new Date(payload.effectiveAt as string) : null,
+        createdAt: req.createdAt,
+        updatedAt: req.createdAt,
+        createdBy: req.requester,
+        reason: (payload.reason as string) || undefined,
+      };
+    });
+
+    return [...proposedItems, ...versions];
+  }
+
+  async getPolicy(actor: AdminActor, id: string) {
+    requirePermission(actor, 'policy.read');
+    const policy = await this.db.policyVersion.findUnique({
+      where: { id },
+      include: { createdBy: { select: { email: true, displayName: true } } },
+    });
+    if (!policy) throw new HttpError(404, 'POLICY_NOT_FOUND');
+    return policy;
+  }
+
+  async updatePolicy(actor: AdminActor, id: string, input: { title?: string; content?: object; status?: PolicyStatus; effectiveAt?: Date }) {
+    requirePermission(actor, 'policy.propose');
+    const policy = await this.db.policyVersion.findUnique({ where: { id } });
+    if (!policy) throw new HttpError(404, 'POLICY_NOT_FOUND');
+
+    return this.db.$transaction(async tx => {
+      const updated = await tx.policyVersion.update({
+        where: { id },
+        data: {
+          title: input.title !== undefined ? input.title.trim() : undefined,
+          content: input.content !== undefined ? (input.content as Prisma.InputJsonValue) : undefined,
+          status: input.status,
+          effectiveAt: input.effectiveAt,
+        },
+        include: { createdBy: { select: { email: true, displayName: true } } },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'POLICY_VERSION_UPDATED',
+          entityType: 'PolicyVersion',
+          entityId: id,
+          details: { key: policy.key, version: policy.version, updates: Object.keys(input) },
+        },
+      });
+      return updated;
+    });
+  }
+
+  async deletePolicy(actor: AdminActor, id: string) {
+    requirePermission(actor, 'policy.propose');
+    const policy = await this.db.policyVersion.findUnique({ where: { id } });
+    if (!policy) throw new HttpError(404, 'POLICY_NOT_FOUND');
+
+    return this.db.$transaction(async tx => {
+      const updated = await tx.policyVersion.update({
+        where: { id },
+        data: { status: 'RETIRED' },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'POLICY_VERSION_RETIRED',
+          entityType: 'PolicyVersion',
+          entityId: id,
+          details: { key: policy.key, version: policy.version },
+        },
+      });
+      return { id, status: 'RETIRED' };
+    });
   }
 
   async proposePolicy(actor: AdminActor, input: PolicyProposal) {

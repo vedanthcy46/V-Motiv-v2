@@ -104,6 +104,12 @@ const stockInwardInput = z.object({
   physicalLocation: z.string().trim().min(3).max(500),
   notes: z.string().trim().max(2_000).optional(),
 }).strict();
+const stockSpecsInput = z.object({
+  registrationNumber: z.string().trim().max(30).optional(),
+  variant: z.string().trim().max(100).optional(),
+  color: z.string().trim().max(60).optional(),
+  odometerKm: z.number().int().min(0).max(2_000_000).optional(),
+}).strict();
 const workOrderInput = z.object({
   category: z.string().trim().min(2).max(80),
   requiredAction: z.string().trim().min(5).max(2_000),
@@ -391,6 +397,13 @@ export function createOperationsInspectionRouter(deps: { verify: VerifyToken; st
   router.get('/inventory', async (_req, res, next) => {
     try { res.json(await deps.store.stockUnits(res.locals.inspectionActor)); }
     catch (e) { next(e); }
+  });
+
+  router.patch('/inventory/:id/vehicle-specs', async (req, res, next) => {
+    try {
+      const body = stockSpecsInput.parse(req.body);
+      res.json(await deps.store.updateStockVehicleSpecs(res.locals.inspectionActor, uuid.parse(req.params.id), body));
+    } catch (e) { next(e); }
   });
 
   router.post('/inventory/:id/work-orders', async (req, res, next) => {

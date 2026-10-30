@@ -51,7 +51,20 @@ export type ApprovalPage = { page: number; limit: number; total: number; items: 
 export type SupportCase = { id: string; referenceCode: string; subject: string; category: string; description: string; status: string; createdAt: string; updatedAt: string; user: { email: string; displayName: string | null; preferredCity: string | null }; replies: Array<{ id: string; authorType: string; body: string; createdAt: string }> };
 export type SupportCasePage = { page: number; limit: number; total: number; items: SupportCase[] };
 export type SystemHealth = { checkedAt: string; services: Array<{ key: string; status: string; detail: string }>; emailOutbox: Record<string, number> };
-export type PolicyVersion = { id: string; key: string; version: number; title: string; status: string; effectiveAt: string | null; createdAt: string; createdBy: { email: string; displayName: string | null } };
+export type PolicyVersion = {
+  id: string;
+  key: string;
+  version: number;
+  title: string;
+  content?: Record<string, unknown>;
+  status: string;
+  effectiveAt: string | null;
+  createdAt: string;
+  updatedAt?: string;
+  createdBy: { email: string; displayName: string | null };
+  reason?: string;
+  approvalRequestId?: string;
+};
 
 export type BusinessSellingItem = {
   id: string;

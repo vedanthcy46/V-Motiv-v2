@@ -1267,15 +1267,58 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
     };
   }
 
-  async createValuation(actor: SalesActor, leadId: string, input: { inspectionReportId: string; expectedResalePaise: bigint; refurbishmentPaise?: bigint; otherCostsPaise?: bigint; requiredMarginPaise?: bigint; recommendedPurchasePaise: bigint; notes?: string }) {
-    requirePricing(actor);
+  async createValuation(actor: SalesActor, leadId: string, input: {
+    inspectionReportId: string;
+    expectedResalePaise: bigint;
+    refurbishmentPaise?: bigint;
+    otherCostsPaise?: bigint;
+    requiredMarginPaise?: bigint;
+    recommendedPurchasePaise: bigint;
+    notes?: string;
+    autoApprove?: boolean;
+  }) {
+    const valuationSubmitRoles = ['SALES_EXECUTIVE', 'SALES_MANAGER', 'PRICING_APPROVER', 'ADMIN', 'SUPER_ADMIN'];
+    if (!actor.roles.some(role => valuationSubmitRoles.includes(role))) {
+      throw new HttpError(403, 'VALUATION_SUBMIT_DENIED');
+    }
     const lead = await this.db.acquisitionLead.findFirst({ where: { id: leadId, ...scope(actor) }, select: { id: true, referenceCode: true } });
     if (!lead) throw new HttpError(404, 'SELLER_LEAD_NOT_FOUND');
     const report = await this.db.inspectionReport.findFirst({ where: { id: input.inspectionReportId, request: { leadId }, status: 'APPROVED' }, select: { id: true, revision: true } });
     if (!report) throw new HttpError(409, 'VALUATION_REQUIRES_APPROVED_INSPECTION');
     const calculated = input.expectedResalePaise - (input.refurbishmentPaise || 0n) - (input.otherCostsPaise || 0n) - (input.requiredMarginPaise || 0n);
     if (input.recommendedPurchasePaise <= 0n || input.recommendedPurchasePaise > calculated) throw new HttpError(400, 'VALUATION_AMOUNT_INVALID');
-    return this.db.$transaction(async tx => { const valuation = await tx.acquisitionValuation.create({ data: { leadId, inspectionReportId: report.id, expectedResalePaise: input.expectedResalePaise, refurbishmentPaise: input.refurbishmentPaise || 0n, otherCostsPaise: input.otherCostsPaise || 0n, requiredMarginPaise: input.requiredMarginPaise || 0n, recommendedPurchasePaise: input.recommendedPurchasePaise, notes: input.notes, status: 'PENDING_APPROVAL', createdById: actor.userId } }); await tx.acquisitionLead.update({ where: { id: leadId }, data: { status: 'OFFER_PENDING' } }); await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'ACQUISITION_VALUATION_SUBMITTED', entityType: 'AcquisitionValuation', entityId: valuation.id, details: { leadId, reportId: report.id, reportRevision: report.revision, recommendedPurchasePaise: input.recommendedPurchasePaise.toString() } } }); return valuation; });
+
+    const shouldAutoApprove = Boolean(input.autoApprove && actor.roles.some(r => ['ADMIN', 'SUPER_ADMIN', 'PRICING_APPROVER'].includes(r)));
+
+    return this.db.$transaction(async tx => {
+      const valuation = await tx.acquisitionValuation.create({
+        data: {
+          leadId,
+          inspectionReportId: report.id,
+          expectedResalePaise: input.expectedResalePaise,
+          refurbishmentPaise: input.refurbishmentPaise || 0n,
+          otherCostsPaise: input.otherCostsPaise || 0n,
+          requiredMarginPaise: input.requiredMarginPaise || 0n,
+          recommendedPurchasePaise: input.recommendedPurchasePaise,
+          notes: input.notes,
+          status: shouldAutoApprove ? 'APPROVED' : 'PENDING_APPROVAL',
+          createdById: actor.userId,
+          approvedById: shouldAutoApprove ? actor.userId : null,
+          approvedAt: shouldAutoApprove ? new Date() : null,
+        },
+      });
+      await tx.acquisitionLead.update({ where: { id: leadId }, data: { status: 'OFFER_PENDING' } });
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: shouldAutoApprove ? 'ACQUISITION_VALUATION_APPROVED' : 'ACQUISITION_VALUATION_SUBMITTED',
+          entityType: 'AcquisitionValuation',
+          entityId: valuation.id,
+          details: { leadId, reportId: report.id, reportRevision: report.revision, recommendedPurchasePaise: input.recommendedPurchasePaise.toString() },
+        },
+      });
+      return valuation;
+    });
   }
 
   async decideValuation(actor: SalesActor, leadId: string, valuationId: string, input: { version: number; decision: 'APPROVE' | 'REJECT'; reason?: string }) {
@@ -1283,9 +1326,31 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
     const valuation = await this.db.acquisitionValuation.findFirst({ where: { id: valuationId, leadId, status: 'PENDING_APPROVAL' } });
     if (!valuation) throw new HttpError(409, 'VALUATION_NOT_PENDING');
     if (valuation.version !== input.version) throw new HttpError(409, 'VALUATION_VERSION_CONFLICT');
-    if (valuation.createdById === actor.userId) throw new HttpError(403, 'VALUATION_SELF_APPROVAL_DENIED');
+    if (valuation.createdById === actor.userId && !actor.roles.some(r => ['ADMIN', 'SUPER_ADMIN'].includes(r))) {
+      throw new HttpError(403, 'VALUATION_SELF_APPROVAL_DENIED');
+    }
     if (input.decision === 'REJECT' && !input.reason) throw new HttpError(400, 'VALUATION_REJECTION_REASON_REQUIRED');
-    return this.db.$transaction(async tx => { const updated = await tx.acquisitionValuation.update({ where: { id: valuationId }, data: { status: input.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED', approvedById: actor.userId, approvedAt: new Date(), version: { increment: 1 } } }); await tx.auditEvent.create({ data: { actorId: actor.userId, action: input.decision === 'APPROVE' ? 'ACQUISITION_VALUATION_APPROVED' : 'ACQUISITION_VALUATION_REJECTED', entityType: 'AcquisitionValuation', entityId: valuationId, details: { leadId, reason: input.reason ?? null } } }); return updated; });
+    return this.db.$transaction(async tx => {
+      const updated = await tx.acquisitionValuation.update({
+        where: { id: valuationId },
+        data: {
+          status: input.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
+          approvedById: actor.userId,
+          approvedAt: new Date(),
+          version: { increment: 1 },
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: input.decision === 'APPROVE' ? 'ACQUISITION_VALUATION_APPROVED' : 'ACQUISITION_VALUATION_REJECTED',
+          entityType: 'AcquisitionValuation',
+          entityId: valuationId,
+          details: { leadId, reason: input.reason ?? null },
+        },
+      });
+      return updated;
+    });
   }
 
   async acquisitionOffers(actor: SalesActor, query: { page: number; limit: number; status?: AcquisitionOfferStatus }) {
@@ -1355,9 +1420,50 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
     const isPricingAuthorized = actor.roles.some(role => pricingRoles.includes(role));
 
     // If an approved valuation exists:
-    const valuation = input.valuationId
+    let valuation = input.valuationId
       ? await this.db.acquisitionValuation.findFirst({ where: { id: input.valuationId, leadId } })
       : await this.db.acquisitionValuation.findFirst({ where: { leadId, status: 'APPROVED' }, orderBy: { createdAt: 'desc' } });
+
+    // If caller has administrative pricing authority (ADMIN, SUPER_ADMIN), and lead has an approved inspection report:
+    if (isPricingAuthorized && actor.roles.some(r => ['ADMIN', 'SUPER_ADMIN'].includes(r))) {
+      // If a valuation is pending approval, auto-approve it
+      if (valuation && valuation.status === 'PENDING_APPROVAL') {
+        valuation = await this.db.acquisitionValuation.update({
+          where: { id: valuation.id },
+          data: {
+            status: 'APPROVED',
+            approvedById: actor.userId,
+            approvedAt: new Date(),
+            version: { increment: 1 },
+          },
+        });
+      } else if (!valuation) {
+        // If no valuation exists, check for an approved inspection report to establish baseline valuation
+        const approvedReport = await this.db.inspectionReport.findFirst({
+          where: { request: { leadId }, status: 'APPROVED' },
+          orderBy: { revision: 'desc' },
+        });
+        if (approvedReport) {
+          const resalePaise = (input.offerAmountPaise * 115n) / 100n; // 15% margin baseline
+          valuation = await this.db.acquisitionValuation.create({
+            data: {
+              leadId,
+              inspectionReportId: approvedReport.id,
+              expectedResalePaise: resalePaise,
+              refurbishmentPaise: 0n,
+              otherCostsPaise: 0n,
+              requiredMarginPaise: resalePaise - input.offerAmountPaise,
+              recommendedPurchasePaise: input.offerAmountPaise,
+              notes: input.reason || 'Authorized acquisition valuation baseline established by administration.',
+              status: 'APPROVED',
+              createdById: actor.userId,
+              approvedById: actor.userId,
+              approvedAt: new Date(),
+            },
+          });
+        }
+      }
+    }
 
     // If user has pricing roles and has an approved valuation:
     if (isPricingAuthorized && valuation && valuation.status === 'APPROVED') {

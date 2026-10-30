@@ -1421,6 +1421,63 @@ export class PrismaInspectionStore {
     });
   }
 
+  async updateStockVehicleSpecs(actor: InspectionActor, stockId: string, input: { registrationNumber?: string; variant?: string; color?: string; odometerKm?: number }) {
+    checkRole(actor, operationsRoles);
+    const stock = await this.db.vehicleStockUnit.findFirst({
+      where: this.stockScope(actor, stockId),
+      include: { acquisitionCase: { select: { leadId: true } }, vehicle: { select: { id: true } } },
+    });
+    if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
+
+    return this.db.$transaction(async tx => {
+      const reg = input.registrationNumber?.trim().toUpperCase();
+      const updatedStock = await tx.vehicleStockUnit.update({
+        where: { id: stockId },
+        data: {
+          ...(reg !== undefined ? { registrationNumber: reg || null } : {}),
+          ...(input.variant !== undefined ? { variant: input.variant.trim() || null } : {}),
+          ...(input.odometerKm !== undefined ? { odometerKm: input.odometerKm } : {}),
+        },
+      });
+
+      if (stock.vehicle?.id) {
+        await tx.vehicle.update({
+          where: { id: stock.vehicle.id },
+          data: {
+            ...(reg !== undefined ? { registrationNumber: reg || null } : {}),
+            ...(input.variant !== undefined ? { variant: input.variant.trim() || null } : {}),
+            ...(input.color !== undefined ? { color: input.color.trim() || null } : {}),
+            ...(input.odometerKm !== undefined ? { odometerKm: input.odometerKm } : {}),
+          },
+        }).catch(() => undefined);
+      }
+
+      if (stock.acquisitionCase?.leadId) {
+        await tx.acquisitionLead.update({
+          where: { id: stock.acquisitionCase.leadId },
+          data: {
+            ...(reg !== undefined ? { registrationNumber: reg || null } : {}),
+            ...(input.variant !== undefined ? { variant: input.variant.trim() || null } : {}),
+            ...(input.color !== undefined ? { color: input.color.trim() || null } : {}),
+            ...(input.odometerKm !== undefined ? { odometerKm: input.odometerKm } : {}),
+          },
+        }).catch(() => undefined);
+      }
+
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'VEHICLE_STOCK_SPECS_UPDATED',
+          entityType: 'VehicleStockUnit',
+          entityId: stockId,
+          details: { stockCode: stock.stockCode, ...input },
+        },
+      });
+
+      return updatedStock;
+    });
+  }
+
   private stockScope(actor: InspectionActor, id?: string): Prisma.VehicleStockUnitWhereInput {
     return {
       ...(id ? { id } : {}),

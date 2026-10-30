@@ -1011,18 +1011,350 @@ function AccessPage({ user }: { user: User }) {
 }
 
 function BranchesPage({ user, actor }: { user: User; actor: AdminActor }) {
-  const [branches, setBranches] = useState<ManagedBranch[] | null>(null); const [areas, setAreas] = useState<ServiceArea[] | null>(null); const [error, setError] = useState(''); const [reload, setReload] = useState(0); const [branchOpen, setBranchOpen] = useState(false); const [areaOpen, setAreaOpen] = useState(false); const canManage = actor.permissions.includes('branch.manage');
-  useEffect(() => { setError(''); Promise.all([adminApi.managedBranches(user), adminApi.serviceAreas(user)]).then(([nextBranches, nextAreas]) => { setBranches(nextBranches); setAreas(nextAreas); }).catch(error => setError(errorMessage(error))); }, [user, reload]);
-  async function setBranchActive(branch: ManagedBranch) { try { await adminApi.updateBranch(user, branch.id, { active: !branch.active }); setReload(value => value + 1); } catch (error) { setError(errorMessage(error)); } }
-  async function setAreaActive(area: ServiceArea) { try { await adminApi.updateServiceArea(user, area.id, !area.active); setReload(value => value + 1); } catch (error) { setError(errorMessage(error)); } }
-  async function deleteArea(area: ServiceArea) { if (!window.confirm(`Delete service area "${area.name}"? This cannot be undone.`)) return; try { await adminApi.deleteServiceArea(user, area.id); setReload(value => value + 1); } catch (error) { setError(errorMessage(error)); } }
-  return <><PageHeader eyebrow="Locations and coverage" title="Branches & Service Areas" description="Real branch and customer service-area configuration. Deactivation preserves historical records and is blocked while active staff remain assigned." action={canManage ? <div className="header-actions"><button className="button secondary" onClick={() => setAreaOpen(true)}>Add service area</button><button className="button primary" onClick={() => setBranchOpen(true)}>Add branch</button></div> : undefined}/>{error ? <ErrorState message={error} retry={() => setReload(value => value + 1)}/> : !branches || !areas ? <TableSkeleton/> : <><section className="panel table-panel"><div className="panel-heading"><div><h2>Branches</h2><p>{branches.length} location{branches.length === 1 ? '' : 's'} within your authorized scope.</p></div></div>{branches.length ? <div className="table-scroll"><table><thead><tr><th>Branch</th><th>Location</th><th>Active staff</th><th>Pending invitations</th><th>Status</th>{canManage && <th><span className="sr-only">Action</span></th>}</tr></thead><tbody>{branches.map(branch => <tr key={branch.id}><td><strong>{branch.name}</strong><small>{branch.code}</small></td><td>{branch.city}<small>{branch.address || 'Address not recorded'}</small></td><td>{branch._count.employees}</td><td>{branch._count.invitations}</td><td><StatusBadge value={branch.active ? 'ACTIVE' : 'DEACTIVATED'}/></td>{canManage && <td><button className="text-button" onClick={() => setBranchActive(branch)}>{branch.active ? 'Deactivate' : 'Reactivate'}</button></td>}</tr>)}</tbody></table></div> : <EmptyState title="No branches configured" text="Add an operating branch before assigning employee scope."/>}</section><section className="panel table-panel"><div className="panel-heading"><div><h2>Supported service areas</h2><p>These names control where customer journeys can be offered.</p></div></div>{areas.length ? <div className="table-scroll"><table><thead><tr><th>City or area</th><th>Created</th><th>Status</th>{canManage && <th><span className="sr-only">Action</span></th>}</tr></thead><tbody>{areas.map(area => <tr key={area.id}><td><strong>{area.name}</strong></td><td><time>{new Date(area.createdAt).toLocaleDateString()}</time></td><td><StatusBadge value={area.active ? 'ACTIVE' : 'DEACTIVATED'}/></td>{canManage && <td><button className="text-button" onClick={() => setAreaActive(area)}>{area.active ? 'Deactivate' : 'Reactivate'}</button><button className="text-button" style={{ marginLeft: 8, color: '#EF4444' }} onClick={() => deleteArea(area)}>Delete</button></td>}</tr>)}</tbody></table></div> : <EmptyState title="No service areas configured" text="Add a service area to make coverage explicit."/>}</section></>}{branchOpen && <CreateBranchDialog user={user} onClose={() => setBranchOpen(false)} onDone={() => { setBranchOpen(false); setReload(value => value + 1); }}/>} {areaOpen && <CreateServiceAreaDialog user={user} onClose={() => setAreaOpen(false)} onDone={() => { setAreaOpen(false); setReload(value => value + 1); }}/>}</>;
+  const [branches, setBranches] = useState<ManagedBranch[] | null>(null);
+  const [areas, setAreas] = useState<ServiceArea[] | null>(null);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+  const [branchOpen, setBranchOpen] = useState(false);
+  const [initialAreaForBranch, setInitialAreaForBranch] = useState<string | undefined>(undefined);
+  const [areaOpen, setAreaOpen] = useState(false);
+  const canManage = actor.permissions.includes('branch.manage');
+
+  useEffect(() => {
+    setError('');
+    Promise.all([adminApi.managedBranches(user), adminApi.serviceAreas(user)])
+      .then(([nextBranches, nextAreas]) => { setBranches(nextBranches); setAreas(nextAreas); })
+      .catch(error => setError(errorMessage(error)));
+  }, [user, reload]);
+
+  async function setBranchActive(branch: ManagedBranch) {
+    try {
+      await adminApi.updateBranch(user, branch.id, { active: !branch.active });
+      setReload(value => value + 1);
+    } catch (error) {
+      setError(errorMessage(error));
+    }
+  }
+
+  async function setAreaActive(area: ServiceArea) {
+    try {
+      await adminApi.updateServiceArea(user, area.id, !area.active);
+      setReload(value => value + 1);
+    } catch (error) {
+      setError(errorMessage(error));
+    }
+  }
+
+  async function deleteArea(area: ServiceArea) {
+    if (!window.confirm(`Delete service area "${area.name}"? This cannot be undone.`)) return;
+    try {
+      await adminApi.deleteServiceArea(user, area.id);
+      setReload(value => value + 1);
+    } catch (error) {
+      setError(errorMessage(error));
+    }
+  }
+
+  const findCoveringBranch = (areaName: string) => {
+    if (!branches) return null;
+    const lowerArea = areaName.toLowerCase();
+    // 1. Direct match on city
+    let b = branches.find(branch => branch.city.toLowerCase() === lowerArea);
+    if (b) return b;
+    // 2. Substring match
+    b = branches.find(branch => lowerArea.includes(branch.city.toLowerCase()) || branch.city.toLowerCase().includes(lowerArea));
+    if (b) return b;
+    // 3. Fallback to active branch in the same metro (e.g. Bengaluru)
+    if (lowerArea.includes('bengaluru') || lowerArea.includes('bangalore')) {
+      return branches.find(branch => branch.city.toLowerCase().includes('bengaluru') || branch.city.toLowerCase().includes('bangalore')) || null;
+    }
+    return null;
+  };
+
+  return (
+    <>
+      <PageHeader
+        eyebrow="Facilities & Coverage"
+        title="Operating Hubs & Service Areas"
+        description="Physical Service Hub locations (for vehicle inspections, inventory custody, refurbishment bays, and handovers) and customer-facing Service Areas (controlling where mobile selling and servicing journeys are available)."
+        action={canManage ? (
+          <div className="header-actions">
+            <button className="button secondary" onClick={() => setAreaOpen(true)}>Add service area</button>
+            <button className="button primary" onClick={() => { setInitialAreaForBranch(undefined); setBranchOpen(true); }}>+ Add Service Hub / Branch</button>
+          </div>
+        ) : undefined}
+      />
+      {error ? (
+        <ErrorState message={error} retry={() => setReload(value => value + 1)}/>
+      ) : !branches || !areas ? (
+        <TableSkeleton/>
+      ) : (
+        <>
+          <section className="panel table-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Operating Service Hubs & Branches</h2>
+                <p>Physical facilities where vehicle custody, handovers, in-person inspections, and stock are stationed ({branches.length} location{branches.length === 1 ? '' : 's'}).</p>
+              </div>
+            </div>
+            {branches.length ? (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Service Hub / Branch</th>
+                      <th>City & Physical Address</th>
+                      <th>Active Staff</th>
+                      <th>Pending Invitations</th>
+                      <th>Status</th>
+                      {canManage && <th><span className="sr-only">Action</span></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {branches.map(branch => (
+                      <tr key={branch.id}>
+                        <td>
+                          <strong>{branch.name}</strong>
+                          <small>{branch.code}</small>
+                        </td>
+                        <td>
+                          <strong>{branch.city}</strong>
+                          <small>{branch.address || 'Physical facility address not recorded'}</small>
+                        </td>
+                        <td>{branch._count.employees} staff assigned</td>
+                        <td>{branch._count.invitations} pending</td>
+                        <td><StatusBadge value={branch.active ? 'ACTIVE' : 'DEACTIVATED'}/></td>
+                        {canManage && (
+                          <td>
+                            <button className="text-button" onClick={() => setBranchActive(branch)}>
+                              {branch.active ? 'Deactivate' : 'Reactivate'}
+                            </button>
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState title="No service hubs configured" text="Add an operating facility before assigning employee scope."/>
+            )}
+          </section>
+
+          <section className="panel table-panel">
+            <div className="panel-heading">
+              <div>
+                <h2>Supported Service Areas (Customer Coverage)</h2>
+                <p>These names control customer mobile app availability for valuations, doorstep inspections, and service bookings.</p>
+              </div>
+            </div>
+            {areas.length ? (
+              <div className="table-scroll">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>City or Area Name</th>
+                      <th>Covering Physical Hub</th>
+                      <th>Created</th>
+                      <th>Status</th>
+                      {canManage && <th><span className="sr-only">Action</span></th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {areas.map(area => {
+                      const coveringHub = findCoveringBranch(area.name);
+                      return (
+                        <tr key={area.id}>
+                          <td>
+                            <strong>{area.name}</strong>
+                          </td>
+                          <td>
+                            {coveringHub ? (
+                              <div>
+                                <span style={{ color: '#10b981', fontWeight: 600 }}>📍 {coveringHub.name}</span>
+                                <small style={{ display: 'block', color: 'var(--muted)' }}>Code: {coveringHub.code} ({coveringHub.city})</small>
+                              </div>
+                            ) : (
+                              <div>
+                                <span style={{ color: 'var(--warning)', fontSize: '0.8125rem' }}>⚠️ No dedicated physical hub</span>
+                                {canManage && (
+                                  <button
+                                    className="text-button"
+                                    style={{ display: 'block', fontSize: '0.75rem', marginTop: '2px', color: '#38bdf8' }}
+                                    onClick={() => {
+                                      setInitialAreaForBranch(area.name);
+                                      setBranchOpen(true);
+                                    }}
+                                  >
+                                    + Create Hub for this Area
+                                  </button>
+                                )}
+                              </div>
+                            )}
+                          </td>
+                          <td><time>{new Date(area.createdAt).toLocaleDateString()}</time></td>
+                          <td><StatusBadge value={area.active ? 'ACTIVE' : 'DEACTIVATED'}/></td>
+                          {canManage && (
+                            <td>
+                              <button className="text-button" onClick={() => setAreaActive(area)}>
+                                {area.active ? 'Deactivate' : 'Reactivate'}
+                              </button>
+                              <button className="text-button" style={{ marginLeft: 8, color: '#EF4444' }} onClick={() => deleteArea(area)}>
+                                Delete
+                              </button>
+                            </td>
+                          )}
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            ) : (
+              <EmptyState title="No service areas configured" text="Add a service area to make customer coverage explicit."/>
+            )}
+          </section>
+        </>
+      )}
+      {branchOpen && (
+        <CreateBranchDialog
+          user={user}
+          areas={areas || []}
+          initialArea={initialAreaForBranch}
+          onClose={() => { setBranchOpen(false); setInitialAreaForBranch(undefined); }}
+          onDone={() => { setBranchOpen(false); setInitialAreaForBranch(undefined); setReload(value => value + 1); }}
+        />
+      )}
+      {areaOpen && (
+        <CreateServiceAreaDialog
+          user={user}
+          onClose={() => setAreaOpen(false)}
+          onDone={() => { setAreaOpen(false); setReload(value => value + 1); }}
+        />
+      )}
+    </>
+  );
 }
 
-function CreateBranchDialog({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: () => void }) {
-  const ref = useRef<HTMLDialogElement>(null); const [error, setError] = useState(''); const [busy, setBusy] = useState(false); useEffect(() => { ref.current?.showModal(); }, []);
-  async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const form = new FormData(event.currentTarget); setBusy(true); setError(''); try { await adminApi.createBranch(user, { code: String(form.get('code')), name: String(form.get('name')), city: String(form.get('city')), address: String(form.get('address')) || undefined }); onDone(); } catch (error) { setError(errorMessage(error)); setBusy(false); } }
-  return <dialog ref={ref} onCancel={onClose} className="dialog compact"><form onSubmit={submit}><header><div><p className="eyebrow">Operating location</p><h2>Add branch</h2></div><button type="button" className="icon-button" aria-label="Close branch form" onClick={onClose}><Icon name="close"/></button></header>{error && <div className="alert error" role="alert">{error}</div>}<label>Branch code <span aria-hidden="true">*</span><input name="code" required minLength={2} maxLength={24} pattern="[A-Za-z0-9_-]+" placeholder="BLR-01"/></label><label>Branch name <span aria-hidden="true">*</span><input name="name" required minLength={2} maxLength={120}/></label><label>City <span aria-hidden="true">*</span><input name="city" required minLength={2} maxLength={120}/></label><label>Address<textarea name="address" maxLength={500}/></label><footer><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Creating…' : 'Create branch'}</button></footer></form></dialog>;
+function CreateBranchDialog({ user, areas, initialArea, onClose, onDone }: { user: User; areas: ServiceArea[]; initialArea?: string; onClose: () => void; onDone: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [selectedArea, setSelectedArea] = useState(initialArea || '');
+  const [code, setCode] = useState(() => initialArea ? `BLR-${Math.floor(10 + Math.random() * 89)}` : '');
+  const [name, setName] = useState(() => initialArea ? `V MOTIV ${initialArea.split(' ')[0]} Hub` : '');
+  const [city, setCity] = useState(initialArea || '');
+  const [address, setAddress] = useState('');
+
+  useEffect(() => { ref.current?.showModal(); }, []);
+
+  const handleSelectArea = (areaName: string) => {
+    setSelectedArea(areaName);
+    if (areaName) {
+      setCity(areaName);
+      const short = areaName.split(' ')[0].toUpperCase();
+      setName(`V MOTIV ${areaName.split(' ')[0]} Hub`);
+      setCode(`BLR-${short.slice(0, 3)}`);
+      setAddress(`${areaName} Facility, Karnataka`);
+    }
+  };
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await adminApi.createBranch(user, {
+        code: code.trim().toUpperCase(),
+        name: name.trim(),
+        city: city.trim(),
+        address: address.trim() || undefined
+      });
+      onDone();
+    } catch (error) {
+      setError(errorMessage(error));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <dialog ref={ref} onCancel={onClose} className="dialog compact">
+      <form onSubmit={submit}>
+        <header>
+          <div>
+            <p className="eyebrow">Operating Facility</p>
+            <h2>Add Service Hub / Branch</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close branch form" onClick={onClose}><Icon name="close"/></button>
+        </header>
+        {error && <div className="alert error" role="alert">{error}</div>}
+
+        {areas.length > 0 && (
+          <label>
+            Link to Supported Service Area (Optional)
+            <select value={selectedArea} onChange={e => handleSelectArea(e.target.value)}>
+              <option value="">-- Custom Location / Unlinked --</option>
+              {areas.map(a => (
+                <option key={a.id} value={a.name}>{a.name}</option>
+              ))}
+            </select>
+          </label>
+        )}
+
+        <label>
+          Branch / Hub Code <span aria-hidden="true">*</span>
+          <input
+            name="code"
+            required
+            minLength={2}
+            maxLength={24}
+            pattern="[A-Za-z0-9_-]+"
+            placeholder="e.g. BLR-02"
+            value={code}
+            onChange={e => setCode(e.target.value.toUpperCase())}
+          />
+        </label>
+        <label>
+          Service Hub Name <span aria-hidden="true">*</span>
+          <input
+            name="name"
+            required
+            minLength={2}
+            maxLength={120}
+            placeholder="e.g. V MOTIV Kengeri Hub"
+            value={name}
+            onChange={e => setName(e.target.value)}
+          />
+        </label>
+        <label>
+          City or Area <span aria-hidden="true">*</span>
+          <input
+            name="city"
+            required
+            minLength={2}
+            maxLength={120}
+            placeholder="e.g. Kengeri Mysore Road Bengaluru"
+            value={city}
+            onChange={e => setCity(e.target.value)}
+          />
+        </label>
+        <label>
+          Physical Address
+          <textarea
+            name="address"
+            maxLength={500}
+            placeholder="Street address, landmark, workshop and parking bays location"
+            value={address}
+            onChange={e => setAddress(e.target.value)}
+          />
+        </label>
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+          <button className="button primary" disabled={busy}>{busy ? 'Creating Hub…' : 'Create Service Hub'}</button>
+        </footer>
+      </form>
+    </dialog>
+  );
 }
 
 function CreateServiceAreaDialog({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: () => void }) {
@@ -2772,8 +3104,117 @@ function ApprovalDialog({ user, actor, approval, onClose, onDone }: { user: User
 
 function AuditPageView({ user }: { user: User }) { const [data, setData] = useState<AuditPage | null>(null); const [error, setError] = useState(''); const [page, setPage] = useState(1); useEffect(() => { adminApi.audit(user, page).then(setData).catch(error => setError(errorMessage(error))); }, [user, page]); return <><PageHeader eyebrow="Append-only history" title="Audit" description="Authorization-filtered security and governance events. Audit records cannot be edited from this portal."/>{error ? <ErrorState message={error}/> : !data ? <TableSkeleton/> : <section className="panel table-panel">{data.items.length ? <div className="table-scroll"><table><thead><tr><th>Time</th><th>Action</th><th>Target</th><th>Outcome</th></tr></thead><tbody>{data.items.map(event => <tr key={event.id}><td><time>{new Date(event.createdAt).toLocaleString()}</time></td><td><strong>{humanize(event.action)}</strong></td><td><span>{event.entityType}</span><small>{event.entityId}</small></td><td><StatusBadge value={event.outcome}/></td></tr>)}</tbody></table></div> : <EmptyState title="No audit events" text="No events are visible within your authorized scope."/>}<Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/></section>}</>; }
 function SystemHealthPanel({ user }: { user: User }) { const [data, setData] = useState<SystemHealth | null>(null); const [error, setError] = useState(''); useEffect(() => { adminApi.systemHealth(user).then(setData).catch(error => setError(errorMessage(error))); }, [user]); return <section className="panel"><div className="panel-heading"><div><h2>System health</h2><p>Safe operational diagnostics; no credentials or recipient data.</p></div></div>{error ? <ErrorState message={error}/> : !data ? <TableSkeleton/> : <><ul className="event-list">{data.services.map(service => <li key={service.key}><div><strong>{humanize(service.key)}</strong><span>{service.detail}</span></div><StatusBadge value={service.status}/></li>)}</ul><p className="helper">Outbox: {Object.entries(data.emailOutbox).map(([state, count]) => `${humanize(state)} ${count}`).join(' · ') || 'No queued messages'}</p></>}</section>; }
-function PoliciesPanel({ user, actor }: { user: User; actor: AdminActor }) { const [items, setItems] = useState<PolicyVersion[] | null>(null); const [error, setError] = useState(''); const [open, setOpen] = useState(false); const [reload, setReload] = useState(0); useEffect(() => { adminApi.policies(user).then(setItems).catch(error => setError(errorMessage(error))); }, [user, reload]); const canPropose = actor.permissions.includes('policy.propose'); return <section className="panel"><div className="panel-heading"><div><h2>Policy versions</h2><p>Versioned governance records. Changes need independent approval before activation.</p></div>{canPropose && <button className="button primary" onClick={() => setOpen(true)}>Propose policy</button>}</div>{error ? <ErrorState message={error} retry={() => setReload(value => value + 1)}/> : !items ? <TableSkeleton/> : items.length ? <ul className="event-list">{items.map(policy => <li key={policy.id}><div><strong>{policy.title} · v{policy.version}</strong><span>{policy.key} · {policy.createdBy.displayName || policy.createdBy.email}</span></div><StatusBadge value={policy.status}/></li>)}</ul> : <EmptyState title="No policy versions" text="Propose the first policy version for independent approval."/>}{open && <PolicyProposalDialog user={user} onClose={() => setOpen(false)} onDone={() => { setOpen(false); setReload(value => value + 1); }}/>}</section>; }
+function PoliciesPanel({ user, actor }: { user: User; actor: AdminActor }) {
+  const [items, setItems] = useState<PolicyVersion[] | null>(null);
+  const [error, setError] = useState('');
+  const [open, setOpen] = useState(false);
+  const [selectedPolicy, setSelectedPolicy] = useState<PolicyVersion | null>(null);
+  const [editTarget, setEditTarget] = useState<PolicyVersion | null>(null);
+  const [reload, setReload] = useState(0);
+
+  useEffect(() => {
+    adminApi.policies(user)
+      .then(setItems)
+      .catch(error => setError(errorMessage(error)));
+  }, [user, reload]);
+
+  const canPropose = actor.permissions.includes('policy.propose');
+
+  return (
+    <section className="panel">
+      <div className="panel-heading">
+        <div>
+          <h2>Policy versions</h2>
+          <p>Versioned governance records and pricing engine parameters. Click any policy to view, edit, or retire.</p>
+        </div>
+        {canPropose && (
+          <button className="button primary" onClick={() => setOpen(true)}>
+            Propose policy
+          </button>
+        )}
+      </div>
+      {error ? (
+        <ErrorState message={error} retry={() => setReload(value => value + 1)}/>
+      ) : !items ? (
+        <TableSkeleton/>
+      ) : items.length ? (
+        <ul className="event-list">
+          {items.map(policy => (
+            <li
+              key={policy.id}
+              onClick={() => setSelectedPolicy(policy)}
+              style={{ cursor: 'pointer', transition: 'background 0.15s ease' }}
+              title="Click to view complete policy rules and management actions"
+            >
+              <div>
+                <strong>{policy.title} · v{policy.version}</strong>
+                <span>{policy.key} · {policy.createdBy?.displayName || policy.createdBy?.email}</span>
+                {policy.reason && <small style={{ color: '#94a3b8' }}>Reason: {policy.reason}</small>}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <StatusBadge value={policy.status}/>
+                <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>View details →</span>
+              </div>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <EmptyState title="No policy versions" text="Propose the first policy version for independent approval."/>
+      )}
+      {open && (
+        <PolicyProposalDialog
+          user={user}
+          onClose={() => setOpen(false)}
+          onDone={() => { setOpen(false); setReload(value => value + 1); }}
+        />
+      )}
+      {selectedPolicy && (
+        <ViewPolicyDialog
+          user={user}
+          actor={actor}
+          policy={selectedPolicy}
+          onClose={() => setSelectedPolicy(null)}
+          onEdit={() => {
+            setEditTarget(selectedPolicy);
+            setSelectedPolicy(null);
+          }}
+          onDone={() => {
+            setSelectedPolicy(null);
+            setReload(value => value + 1);
+          }}
+        />
+      )}
+      {editTarget && (
+        <EditPolicyDialog
+          user={user}
+          policy={editTarget}
+          onClose={() => setEditTarget(null)}
+          onDone={() => {
+            setEditTarget(null);
+            setReload(value => value + 1);
+          }}
+        />
+      )}
+    </section>
+  );
+}
+
 const policyTemplates = {
+  'ACQUISITION_PRICING_POLICY': {
+    label: 'Used-car acquisition & pricing engine policy',
+    title: 'V MOTIV Standard Pre-Owned Acquisition Pricing Policy',
+    description: 'Economic parameters for customer estimates, refurbishment buffers, holding costs, logistics allowances, and target contribution.',
+    content: {
+      summary: 'Pre-owned vehicle acquisition economic valuation policy.',
+      targetMarginPercent: 10,
+      targetDaysToTurn: 35,
+      logisticsPaise: 120000,
+      riskAllowancePercent: 2.0,
+      mechanicalRefurbBufferPaise: 500000,
+      requiresIndependentApproval: true,
+      appliesTo: ['used-car-acquisition', 'post-inspection-valuation']
+    },
+  },
   'quotation-discount': {
     label: 'Quotation discount controls',
     title: 'Quotation Discount Policy',
@@ -2795,6 +3236,223 @@ const policyTemplates = {
 } as const;
 
 type PolicyTemplateKey = keyof typeof policyTemplates;
+
+function ViewPolicyDialog({
+  user,
+  actor,
+  policy,
+  onClose,
+  onEdit,
+  onDone,
+}: {
+  user: User;
+  actor: AdminActor;
+  policy: PolicyVersion;
+  onClose: () => void;
+  onEdit: () => void;
+  onDone: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => { ref.current?.showModal(); }, []);
+
+  const canApprove = actor.permissions.includes('policy.approve');
+  const canPropose = actor.permissions.includes('policy.propose');
+
+  const handleApprove = async () => {
+    if (!policy.approvalRequestId) return;
+    setBusy(true);
+    setError('');
+    try {
+      await adminApi.decideApproval(user, policy.approvalRequestId, {
+        version: policy.version,
+        decision: 'APPROVE',
+        reason: 'Authorized and approved by policy administration.',
+      });
+      onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+      setBusy(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!policy.approvalRequestId) return;
+    const reason = prompt('Reason for rejecting proposed policy revision:');
+    if (!reason) return;
+    setBusy(true);
+    setError('');
+    try {
+      await adminApi.decideApproval(user, policy.approvalRequestId, {
+        version: policy.version,
+        decision: 'REJECT',
+        reason,
+      });
+      onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+      setBusy(false);
+    }
+  };
+
+  const handleRetire = async () => {
+    if (!confirm(`Are you sure you want to retire / delete policy "${policy.title}"?`)) return;
+    setBusy(true);
+    setError('');
+    try {
+      await adminApi.deletePolicy(user, policy.id);
+      onDone();
+    } catch (err) {
+      setError(errorMessage(err));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <dialog ref={ref} onCancel={onClose} className="dialog">
+      <header>
+        <div>
+          <p className="eyebrow">Governance Policy Details</p>
+          <h2>{policy.title} · v{policy.version}</h2>
+        </div>
+        <button type="button" className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close"/></button>
+      </header>
+      {error && <div className="alert error" role="alert">{error}</div>}
+      <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap' }}>
+        <StatusBadge value={policy.status}/>
+        <code style={{ fontSize: '0.85rem', padding: '2px 8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px' }}>
+          {policy.key}
+        </code>
+        <span style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginLeft: 'auto' }}>
+          Created {new Date(policy.createdAt).toLocaleDateString()} by {policy.createdBy?.displayName || policy.createdBy?.email}
+        </span>
+      </div>
+
+      {policy.reason && (
+        <div style={{ padding: '10px 12px', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '6px', marginBottom: '14px', fontSize: '0.875rem' }}>
+          <strong>Proposal Rationale:</strong> {policy.reason}
+        </div>
+      )}
+
+      <label>
+        Policy Rules & Economics Parameters (JSON)
+        <pre style={{
+          background: 'rgba(0,0,0,0.3)',
+          border: '1px solid var(--border)',
+          borderRadius: '6px',
+          padding: '12px',
+          maxHeight: '280px',
+          overflow: 'auto',
+          fontSize: '0.8125rem',
+          fontFamily: 'monospace',
+          color: '#38bdf8',
+          margin: '6px 0 0 0',
+        }}>
+          {JSON.stringify(policy.content || {}, null, 2)}
+        </pre>
+      </label>
+
+      <footer>
+        {policy.status === 'PROPOSED' && canApprove && (
+          <div style={{ display: 'flex', gap: '8px', marginRight: 'auto' }}>
+            <button type="button" className="button primary" onClick={handleApprove} disabled={busy}>
+              {busy ? 'Approving…' : '✓ Approve Policy'}
+            </button>
+            <button type="button" className="button secondary" style={{ color: '#ef4444' }} onClick={handleReject} disabled={busy}>
+              ✕ Reject
+            </button>
+          </div>
+        )}
+        {policy.status !== 'PROPOSED' && policy.status !== 'RETIRED' && canPropose && (
+          <button type="button" className="button secondary" onClick={onEdit} style={{ marginRight: 'auto' }}>
+            Edit Policy
+          </button>
+        )}
+        {policy.status !== 'RETIRED' && policy.status !== 'PROPOSED' && canPropose && (
+          <button type="button" className="button secondary" style={{ color: '#ef4444' }} onClick={handleRetire} disabled={busy}>
+            Retire / Delete
+          </button>
+        )}
+        <button type="button" className="button secondary" onClick={onClose}>Close</button>
+      </footer>
+    </dialog>
+  );
+}
+
+function EditPolicyDialog({
+  user,
+  policy,
+  onClose,
+  onDone,
+}: {
+  user: User;
+  policy: PolicyVersion;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [title, setTitle] = useState(policy.title);
+  const [contentStr, setContentStr] = useState(() => JSON.stringify(policy.content || {}, null, 2));
+
+  useEffect(() => { ref.current?.showModal(); }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      const parsedContent = JSON.parse(contentStr);
+      if (!parsedContent || typeof parsedContent !== 'object' || Array.isArray(parsedContent)) {
+        throw new Error('Policy rules must be a valid JSON object.');
+      }
+      await adminApi.updatePolicy(user, policy.id, {
+        title: title.trim(),
+        content: parsedContent,
+      });
+      onDone();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : errorMessage(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <dialog ref={ref} onCancel={onClose} className="dialog compact">
+      <form onSubmit={submit}>
+        <header>
+          <div>
+            <p className="eyebrow">Governance Policy Update</p>
+            <h2>Edit Policy: {policy.key}</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close" onClick={onClose}><Icon name="close"/></button>
+        </header>
+        {error && <div className="alert error" role="alert">{error}</div>}
+        <label>
+          Policy Title <span aria-hidden="true">*</span>
+          <input value={title} onChange={e => setTitle(e.target.value)} required minLength={3} maxLength={160}/>
+        </label>
+        <label>
+          Policy Rules & Parameters (JSON) <span aria-hidden="true">*</span>
+          <textarea
+            value={contentStr}
+            onChange={e => setContentStr(e.target.value)}
+            required
+            rows={10}
+            style={{ fontFamily: 'monospace', fontSize: '0.85rem' }}
+          />
+        </label>
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+          <button className="button primary" disabled={busy}>{busy ? 'Saving Changes…' : 'Save Changes'}</button>
+        </footer>
+      </form>
+    </dialog>
+  );
+}
 
 function PolicyProposalDialog({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
