@@ -311,5 +311,13 @@ export type ActivityItem = {
   title: string;
   reference: string;
   listingId?: string;
+  registrationNumber?: string | null;
+  variant?: string | null;
+  color?: string | null;
+  registrationYear?: number | null;
+  registrationCity?: string | null;
+  fuelType?: string | null;
+  transmission?: string | null;
+  odometerKm?: number | null;
 };
 export type ActivityPage = { items: ActivityItem[]; total: number; page: number; limit: number; totalPages: number };

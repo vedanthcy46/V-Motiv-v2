@@ -77,9 +77,10 @@ export class PrismaValuationStore {
     });
 
     let observations = tier1Observations;
+    let matchTier: 1 | 2 | 3 | 4 | 5 = 1;
     if (observations.length < 3) {
       // Tier 2: regional cluster expansion (all cities) for exact make, model, fuel, trans, year
-      observations = await this.db.vehicleMarketObservation.findMany({
+      const tier2 = await this.db.vehicleMarketObservation.findMany({
         where: {
           make: { equals: input.make, mode: 'insensitive' },
           model: { equals: input.model, mode: 'insensitive' },
@@ -92,6 +93,98 @@ export class PrismaValuationStore {
         take: 20,
         orderBy: { observedAt: 'desc' },
       });
+      if (tier2.length >= 3) {
+        observations = tier2;
+        matchTier = 2;
+      }
+    }
+
+    if (observations.length < 3) {
+      // Tier 3: Model & Powertrain expansion across all years with compound age-adjustment
+      const tier3Raw = await this.db.vehicleMarketObservation.findMany({
+        where: {
+          make: { equals: input.make, mode: 'insensitive' },
+          model: { equals: input.model, mode: 'insensitive' },
+          fuelType: { equals: input.fuelType, mode: 'insensitive' },
+          transmission: { equals: input.transmission, mode: 'insensitive' },
+          qualityStatus: 'APPROVED',
+          source: { active: true, permittedForValuation: true },
+        },
+        take: 30,
+        orderBy: { observedAt: 'desc' },
+      });
+      if (tier3Raw.length >= 3) {
+        observations = tier3Raw.map(obs => {
+          const yearDiff = input.manufacturingYear - obs.manufacturingYear;
+          let adjustedPrice = obs.pricePaise;
+          if (yearDiff > 0) {
+            for (let i = 0; i < Math.min(yearDiff, 6); i++) adjustedPrice = (adjustedPrice * 108n) / 100n;
+          } else if (yearDiff < 0) {
+            for (let i = 0; i < Math.min(-yearDiff, 6); i++) adjustedPrice = (adjustedPrice * 92n) / 100n;
+          }
+          return { ...obs, pricePaise: adjustedPrice };
+        });
+        matchTier = 3;
+      }
+    }
+
+    if (observations.length < 3) {
+      // Tier 4: Model + Fuel expansion across transmissions with transmission delta adjustment
+      const tier4Raw = await this.db.vehicleMarketObservation.findMany({
+        where: {
+          make: { equals: input.make, mode: 'insensitive' },
+          model: { equals: input.model, mode: 'insensitive' },
+          fuelType: { equals: input.fuelType, mode: 'insensitive' },
+          qualityStatus: 'APPROVED',
+          source: { active: true, permittedForValuation: true },
+        },
+        take: 30,
+        orderBy: { observedAt: 'desc' },
+      });
+      if (tier4Raw.length >= 3) {
+        observations = tier4Raw.map(obs => {
+          let adjustedPrice = obs.pricePaise;
+          const yearDiff = input.manufacturingYear - obs.manufacturingYear;
+          if (yearDiff > 0) {
+            for (let i = 0; i < Math.min(yearDiff, 6); i++) adjustedPrice = (adjustedPrice * 108n) / 100n;
+          } else if (yearDiff < 0) {
+            for (let i = 0; i < Math.min(-yearDiff, 6); i++) adjustedPrice = (adjustedPrice * 92n) / 100n;
+          }
+          if (input.transmission.toUpperCase() === 'AUTOMATIC' && obs.transmission.toUpperCase() === 'MANUAL') {
+            adjustedPrice += 5000000n;
+          } else if (input.transmission.toUpperCase() === 'MANUAL' && obs.transmission.toUpperCase() === 'AUTOMATIC') {
+            adjustedPrice = adjustedPrice > 5000000n ? adjustedPrice - 5000000n : adjustedPrice;
+          }
+          return { ...obs, pricePaise: adjustedPrice };
+        });
+        matchTier = 4;
+      }
+    }
+
+    if (observations.length < 3) {
+      // Tier 5: Make-level market intelligence benchmark
+      const tier5Raw = await this.db.vehicleMarketObservation.findMany({
+        where: {
+          make: { equals: input.make, mode: 'insensitive' },
+          qualityStatus: 'APPROVED',
+          source: { active: true, permittedForValuation: true },
+        },
+        take: 20,
+        orderBy: { observedAt: 'desc' },
+      });
+      if (tier5Raw.length >= 3) {
+        observations = tier5Raw.map(obs => {
+          let adjustedPrice = obs.pricePaise;
+          const yearDiff = input.manufacturingYear - obs.manufacturingYear;
+          if (yearDiff > 0) {
+            for (let i = 0; i < Math.min(yearDiff, 6); i++) adjustedPrice = (adjustedPrice * 108n) / 100n;
+          } else if (yearDiff < 0) {
+            for (let i = 0; i < Math.min(-yearDiff, 6); i++) adjustedPrice = (adjustedPrice * 92n) / 100n;
+          }
+          return { ...obs, pricePaise: adjustedPrice };
+        });
+        matchTier = 5;
+      }
     }
 
     const comparableCount = observations.length;
@@ -102,10 +195,23 @@ export class PrismaValuationStore {
     let confidence: 'HIGH' | 'MEDIUM' | 'LOW' | 'INSUFFICIENT' = 'INSUFFICIENT';
     let dataAsOf: Date | null = null;
 
+    const effectivePolicy = activePolicy || {
+      version: 1,
+      content: {
+        targetMarginPercent: 10,
+        minContributionPaise: '5000000',
+        targetDaysToTurn: 35,
+        annualCostOfCapitalPercent: 10.5,
+        defaultLogisticsPaise: '120000',
+        riskAllowancePercent: 2.0,
+        prepBufferLowPaise: '1500000',
+        prepBufferHighPaise: '3500000',
+        maxOverrideAboveCeilingPercent: 7.0,
+      },
+    };
+
     if (comparableCount < 3) {
       unavailableReason = 'INSUFFICIENT_APPROVED_COMPARABLE_DATA';
-    } else if (!activePolicy) {
-      unavailableReason = 'PRICING_POLICY_NOT_CONFIGURED';
     } else {
       // Deterministic comparable price normalization
       const normalizedPrices: bigint[] = observations.map(obs => {
@@ -125,7 +231,7 @@ export class PrismaValuationStore {
       const medianRetail = normalizedPrices[medianIndex] ?? 0n;
 
       // Parse policy content
-      const content = (activePolicy.content || {}) as any;
+      const content = (effectivePolicy.content || {}) as any;
       const prepLow = BigInt(content.prepBufferLowPaise || '1500000'); // ₹15,000
       const prepHigh = BigInt(content.prepBufferHighPaise || '3500000'); // ₹35,000
       const holdingCost = (medianRetail * 105n * 35n) / (36500n * 100n); // ~1%
@@ -143,7 +249,7 @@ export class PrismaValuationStore {
       }
 
       estimateAvailable = true;
-      confidence = comparableCount >= 6 ? 'HIGH' : comparableCount >= 4 ? 'MEDIUM' : 'LOW';
+      confidence = matchTier === 1 && comparableCount >= 6 ? 'HIGH' : matchTier <= 2 && comparableCount >= 4 ? 'MEDIUM' : 'LOW';
     }
 
     const snapshot = await this.db.instantValuationSnapshot.create({

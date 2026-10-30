@@ -426,12 +426,31 @@ function leadJson(lead: LeadWithDetails, db?: PrismaClient) {
   const registrationCity = lead.registrationCity || (inspectionIdentity.registrationCity as string) || lead.city || null;
   const ownershipCount = lead.ownershipCount || (typeof inspectionIdentity.ownershipCount === 'number' ? inspectionIdentity.ownershipCount : null) || null;
 
-  // Self-heal: If lead.registrationNumber was missing in database, persist it asynchronously
-  if (!lead.registrationNumber && registrationNumber && db) {
-    void db.acquisitionLead.update({
-      where: { id: lead.id },
-      data: { registrationNumber },
-    }).catch(() => undefined);
+  // Self-heal: If lead or stockUnit was missing registrationNumber, variant, or other attributes, persist them asynchronously
+  if (db) {
+    if (!lead.registrationNumber && registrationNumber) {
+      void db.acquisitionLead.update({ where: { id: lead.id }, data: { registrationNumber } }).catch(() => undefined);
+    }
+    if (!lead.variant && variant) {
+      void db.acquisitionLead.update({ where: { id: lead.id }, data: { variant } }).catch(() => undefined);
+    }
+    if (!lead.color && color) {
+      void db.acquisitionLead.update({ where: { id: lead.id }, data: { color } }).catch(() => undefined);
+    }
+    if (!lead.registrationYear && registrationYear) {
+      void db.acquisitionLead.update({ where: { id: lead.id }, data: { registrationYear } }).catch(() => undefined);
+    }
+    if (!lead.registrationCity && registrationCity) {
+      void db.acquisitionLead.update({ where: { id: lead.id }, data: { registrationCity } }).catch(() => undefined);
+    }
+    if (stockUnit) {
+      if (!stockUnit.registrationNumber && registrationNumber) {
+        void db.vehicleStockUnit.update({ where: { id: stockUnit.id }, data: { registrationNumber } }).catch(() => undefined);
+      }
+      if (!stockUnit.variant && variant) {
+        void db.vehicleStockUnit.update({ where: { id: stockUnit.id }, data: { variant } }).catch(() => undefined);
+      }
+    }
   }
 
   return {
@@ -1008,15 +1027,52 @@ export class PrismaCustomerStore implements CustomerStore {
     const user = await this.user(uid);
     const [drives, leads, purchases, cases] = await Promise.all([
       this.db.testDriveRequest.findMany({ where: { userId: user.id }, select: { id: true, status: true, createdAt: true, updatedAt: true, listing: { select: { id: true, title: true } } } }),
-      this.db.acquisitionLead.findMany({ where: { userId: user.id }, select: { id: true, status: true, referenceCode: true, createdAt: true, updatedAt: true, make: true, model: true } }),
+      this.db.acquisitionLead.findMany({
+        where: { userId: user.id },
+        select: {
+          id: true,
+          status: true,
+          referenceCode: true,
+          createdAt: true,
+          updatedAt: true,
+          make: true,
+          model: true,
+          variant: true,
+          manufacturingYear: true,
+          registrationNumber: true,
+          color: true,
+          registrationYear: true,
+          registrationCity: true,
+          city: true,
+          fuelType: true,
+          transmission: true,
+          odometerKm: true,
+        },
+      }),
       this.db.purchaseEnquiry.findMany({ where: { userId: user.id }, select: { id: true, status: true, createdAt: true, updatedAt: true, listing: { select: { id: true, title: true } } } }),
       this.db.supportCase.findMany({ where: { userId: user.id }, select: { id: true, status: true, referenceCode: true, subject: true, createdAt: true, updatedAt: true } }),
     ]);
     const items = [
-      ...drives.map(row => ({ id: `drive/${row.id}`, kind: 'TEST_DRIVE', status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt, title: row.listing.title, reference: row.id, listingId: row.listing.id })),
-      ...leads.map(row => ({ id: `selling/${row.id}`, kind: 'SELLING', status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt, title: `${row.make} ${row.model}`, reference: row.referenceCode })),
-      ...purchases.map(row => ({ id: `purchase/${row.id}`, kind: 'PURCHASE', status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt, title: row.listing.title, reference: row.id, listingId: row.listing.id })),
-      ...cases.map(row => ({ id: `support/${row.id}`, kind: 'SUPPORT', status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt, title: row.subject, reference: row.referenceCode })),
+      ...drives.map(row => ({ id: `drive/${row.id}`, kind: 'TEST_DRIVE' as const, status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt, title: row.listing.title, reference: row.id, listingId: row.listing.id })),
+      ...leads.map(row => ({
+        id: `selling/${row.id}`,
+        kind: 'SELLING' as const,
+        status: row.status,
+        createdAt: row.createdAt,
+        updatedAt: row.updatedAt,
+        title: `${row.manufacturingYear} ${row.make} ${row.model}${row.variant ? ` ${row.variant}` : ''}`,
+        reference: row.referenceCode,
+        registrationNumber: row.registrationNumber || null,
+        variant: row.variant || null,
+        color: row.color || null,
+        registrationYear: row.registrationYear || null,
+        registrationCity: row.registrationCity || row.city || null,
+        fuelType: row.fuelType || null,
+        transmission: row.transmission || null,
+        odometerKm: row.odometerKm || null,
+      })),
+      ...purchases.map(row => ({ id: `purchase/${row.id}`, kind: 'PURCHASE' as const, status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt, title: row.listing.title, reference: row.id, listingId: row.listing.id })),
+      ...cases.map(row => ({ id: `support/${row.id}`, kind: 'SUPPORT' as const, status: row.status, createdAt: row.createdAt, updatedAt: row.updatedAt, title: row.subject, reference: row.referenceCode })),
     ].sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime());
     const total = items.length; const start = (page - 1) * limit;
     return { items: items.slice(start, start + limit), total, page, limit, totalPages: Math.ceil(total / limit) };

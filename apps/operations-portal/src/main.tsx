@@ -1959,13 +1959,21 @@ export const App: FC = () => {
                           </div>
                         </td>
                         <td>
-                          <div style={{ fontWeight: 600 }}>{s.registrationNumber || 'N/A'}</div>
-                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{s.odometerKm.toLocaleString()} km</div>
-                          {(s.registrationYear || s.registrationCity) && (
-                            <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>
-                              {[s.registrationYear ? `Reg: ${s.registrationYear}` : '', s.registrationCity].filter(Boolean).join(' · ')}
-                            </div>
-                          )}
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                            {s.registrationNumber ? (
+                              <span style={{ display: 'inline-block', width: 'fit-content', padding: '1px 6px', background: 'rgba(255, 255, 255, 0.06)', border: '1px solid var(--border)', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.5px', fontSize: '0.8125rem' }}>
+                                {s.registrationNumber}
+                              </span>
+                            ) : (
+                              <span style={{ fontWeight: 600, color: 'var(--muted)', fontSize: '0.8125rem' }}>Pending</span>
+                            )}
+                            <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{s.odometerKm.toLocaleString()} km</div>
+                            {(s.registrationYear || s.registrationCity) && (
+                              <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>
+                                {[s.registrationYear ? `Reg: ${s.registrationYear}` : '', s.registrationCity].filter(Boolean).join(' · ')}
+                              </div>
+                            )}
+                          </div>
                         </td>
                         <td>{s.branch?.name ? `${s.branch.name} (${s.branch.city})` : (branches.find(b => b.id === s.branchId)?.name || s.physicalLocation || 'Main Hub')}</td>
                         <td>{formatRupees(s.acquisitionCostPaise)}</td>
@@ -2411,7 +2419,7 @@ export const App: FC = () => {
 
                       <div className="card-body">
                         <div><strong>Public Title:</strong> {s.vehicle?.listing?.title || 'Draft not yet created'}</div>
-                        <div><strong>Color:</strong> {s.vehicle?.color || 'Not recorded'}</div>
+                        <div><strong>Color:</strong> {s.vehicle?.color || s.color || 'Not recorded'}</div>
                         <div><strong>Condition Summary:</strong> {s.vehicle?.conditionSummary || 'Inspection verified'}</div>
                         <div>
                           <strong>Studio Media:</strong> {mediaList.length ? `${mediaList.length} curated images ready` : 'No photos attached yet'}

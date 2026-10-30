@@ -225,6 +225,7 @@ export function SellScreen() {
   const [valuation, setValuation] = useState<InstantValuationSummary | null>(null);
   const [valuationBusy, setValuationBusy] = useState(false);
   const [valuationRequestedFor, setValuationRequestedFor] = useState('');
+  const valuationCacheRef = useRef<Record<string, InstantValuationSummary>>({});
   const [idempotencyKey, setIdempotencyKey] = useState(generateMutationKey);
   const scrollRef = useRef<ScrollView>(null);
 
@@ -427,16 +428,29 @@ export function SellScreen() {
   }, [step]);
 
   useEffect(() => {
-    if (step !== 7 || valuationBusy || !city.trim()) return;
+    if (step < 6 || !city.trim()) return;
     const year = Number(manufacturingYear);
     const odometer = Number(odometerKm.replace(/,/g, ''));
     if (!make || !model || !year || !Number.isFinite(odometer)) return;
-    const inputKey = [make, model, variant, year, registrationYear, odometer, fuelType, transmission, city, ownershipCount, accidentHistory, serviceHistory, loanOutstanding].join('|');
-    if (valuationRequestedFor === inputKey) return;
+    const inputKey = [make.trim().toLowerCase(), model.trim().toLowerCase(), (variant || '').trim().toLowerCase(), year, registrationYear || '', odometer, fuelType, transmission, city.trim().toLowerCase(), ownershipCount, accidentHistory, serviceHistory, loanOutstanding].join('|');
+
+    // Check local memory cache first for instant display without waiting or spinners
+    const cached = valuationCacheRef.current[inputKey];
+    if (cached) {
+      if (valuation?.id !== cached.id) {
+        setValuation(cached);
+        setValuationRequestedFor(inputKey);
+        setValuationBusy(false);
+      }
+      return;
+    }
+
+    if (valuationRequestedFor === inputKey || valuationBusy) return;
+
     let active = true;
-    setValuation(null);
     setValuationRequestedFor(inputKey);
     setValuationBusy(true);
+
     void customer.instantValuation({
       make: make.trim(), model: model.trim(), variant: variant.trim() || undefined,
       manufacturingYear: year,
@@ -445,14 +459,17 @@ export function SellScreen() {
       ownershipCount: Number(ownershipCount) || undefined,
       accidentHistory, serviceHistory, loanOutstanding,
     }).then((result) => {
-      if (active) setValuation(result);
+      if (active) {
+        valuationCacheRef.current[inputKey] = result;
+        setValuation(result);
+      }
     }).catch(() => {
       // Submission remains available; the final offer is never dependent on a public estimate.
     }).finally(() => {
       if (active) setValuationBusy(false);
     });
     return () => { active = false; };
-  }, [step, valuationBusy, valuationRequestedFor, make, model, variant, manufacturingYear, registrationYear, odometerKm, fuelType, transmission, city, ownershipCount, accidentHistory, serviceHistory, loanOutstanding]);
+  }, [step, valuationBusy, valuationRequestedFor, valuation, make, model, variant, manufacturingYear, registrationYear, odometerKm, fuelType, transmission, city, ownershipCount, accidentHistory, serviceHistory, loanOutstanding]);
 
   // Hydrate draft
   useEffect(() => {
@@ -1628,14 +1645,28 @@ export function SellScreen() {
                 <IndianRupee size={20} color={c.brandAccent} accessibilityElementsHidden />
                 <View style={{ flex: 1 }}>
                   <Text style={[styles.valuationEstimateTitle, { color: c.textPrimary }]}>Your estimated selling value</Text>
-                  {valuationBusy ? (
-                    <View style={styles.valuationLoadingRow}><ActivityIndicator size="small" color={c.brandAccent} /><Text style={[styles.valuationEstimateText, { color: c.textSecondary }]}>Checking approved market evidence…</Text></View>
-                  ) : valuation?.estimateAvailable && valuation.sellerEstimateLowPaise && valuation.sellerEstimateHighPaise ? (
-                    <Text style={[styles.valuationEstimateText, { color: c.textSecondary }]}>₹{(Number(valuation.sellerEstimateLowPaise) / 100).toLocaleString('en-IN')} – ₹{(Number(valuation.sellerEstimateHighPaise) / 100).toLocaleString('en-IN')}</Text>
+                  {valuation?.estimateAvailable && valuation.sellerEstimateLowPaise && valuation.sellerEstimateHighPaise ? (
+                    <View style={{ marginTop: 4 }}>
+                      <Text style={[styles.valuationEstimateText, { color: c.textPrimary, fontWeight: '800', fontSize: 18 }]}>
+                        ₹{(Number(valuation.sellerEstimateLowPaise) / 100).toLocaleString('en-IN')} – ₹{(Number(valuation.sellerEstimateHighPaise) / 100).toLocaleString('en-IN')}
+                      </Text>
+                      {valuationBusy && (
+                        <Text style={{ fontSize: 11, color: c.textMuted, marginTop: 2 }}>Refreshing latest market data…</Text>
+                      )}
+                    </View>
+                  ) : valuationBusy ? (
+                    <View style={styles.valuationLoadingRow}>
+                      <ActivityIndicator size="small" color={c.brandAccent} />
+                      <Text style={[styles.valuationEstimateText, { color: c.textSecondary }]}>Checking approved market evidence…</Text>
+                    </View>
                   ) : (
-                    <Text style={[styles.valuationEstimateText, { color: c.textSecondary }]}>Valuation requires review. Schedule the inspection and V MOTIV will assess approved market evidence and the vehicle’s verified condition.</Text>
+                    <Text style={[styles.valuationEstimateText, { color: c.textSecondary }]}>
+                      Valuation requires review. Schedule the inspection and V MOTIV will assess approved market evidence and the vehicle’s verified condition.
+                    </Text>
                   )}
-                  <Text style={[styles.valuationDisclaimer, { color: c.textMuted }]}>{valuation?.disclaimer || 'This is not a purchase offer. Final value depends on inspection, documents and current market review.'}</Text>
+                  <Text style={[styles.valuationDisclaimer, { color: c.textMuted }]}>
+                    {valuation?.disclaimer || 'This is not a purchase offer. Final value depends on inspection, documents and current market review.'}
+                  </Text>
                 </View>
               </View>
 
