@@ -173,6 +173,14 @@ const createBankAccountInput = z.object({
   openingBalancePaise: z.union([z.string(), z.number()]).optional(),
   initialBalancePaise: z.union([z.string(), z.number()]).optional(),
 });
+const updateBankAccountInput = z.object({
+  bankName: z.string().trim().min(2).max(100),
+  accountName: z.string().trim().min(2).max(100),
+  accountNumberMasked: z.string().trim().min(4).max(80),
+  ifscCode: z.string().trim().min(4).max(20),
+  branchName: z.string().trim().max(100).optional(),
+  accountType: z.string().trim().max(40).optional(),
+}).strict();
 
 const importStatementInput = z.object({
   companyBankAccountId: uuid,
@@ -666,6 +674,23 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
           openingBalancePaise,
         })
       );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.patch('/bank-accounts/:id', async (req, res, next) => {
+    try {
+      const input = updateBankAccountInput.parse(req.body);
+      res.json(await deps.store.updateBankAccount(res.locals.financeActor, uuid.parse(req.params.id), input));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.delete('/bank-accounts/:id', async (req, res, next) => {
+    try {
+      res.json(await deps.store.removeBankAccount(res.locals.financeActor, uuid.parse(req.params.id)));
     } catch (error) {
       next(error);
     }

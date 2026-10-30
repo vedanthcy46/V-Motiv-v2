@@ -44,6 +44,7 @@ const OBLIGATION_ID = 'dddddddd-dddd-4ddd-8ddd-dddddddddddd';
 const PERIOD_ID = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
 const ACC1_ID = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
 const ACC2_ID = '12345678-1234-4234-8234-123456789abc';
+const BANK_ACCOUNT_ID = '87654321-4321-4234-8234-123456789abc';
 
 function setupFinanceApp(activeActor: FinanceActor, overrides: Partial<PrismaFinanceStore> = {}) {
   const verify = vi.fn().mockImplementation(async (token: string) => {
@@ -395,6 +396,40 @@ describe('Finance Portal Engine & REST API', () => {
       'Disbursed via HDFC portal',
       undefined
     );
+  });
+
+  it('edits bank-account metadata and removes an account through protected finance endpoints', async () => {
+    const updateBankAccount = vi.fn().mockResolvedValue({
+      id: BANK_ACCOUNT_ID,
+      bankName: 'HDFC Bank',
+      accountName: 'V MOTIV AUTOMOTIVE INDIA PVT LTD',
+      accountNumberMasked: 'XXXX 9876',
+      ifscCode: 'HDFC0000001',
+      active: true,
+    });
+    const removeBankAccount = vi.fn().mockResolvedValue({ id: BANK_ACCOUNT_ID, action: 'DEACTIVATED', references: 2 });
+    const { app } = setupFinanceApp(approverActor, { updateBankAccount, removeBankAccount } as any);
+
+    const edited = await request(app)
+      .patch(`/api/v2/finance/bank-accounts/${BANK_ACCOUNT_ID}`)
+      .set('Authorization', 'Bearer approver-token')
+      .send({
+        bankName: 'HDFC Bank',
+        accountName: 'V MOTIV AUTOMOTIVE INDIA PVT LTD',
+        accountNumberMasked: 'XXXX 9876',
+        ifscCode: 'HDFC0000001',
+        branchName: 'Indiranagar',
+        accountType: 'CURRENT',
+      });
+    expect(edited.status).toBe(200);
+    expect(updateBankAccount).toHaveBeenCalledWith(expect.anything(), BANK_ACCOUNT_ID, expect.objectContaining({ bankName: 'HDFC Bank' }));
+
+    const removed = await request(app)
+      .delete(`/api/v2/finance/bank-accounts/${BANK_ACCOUNT_ID}`)
+      .set('Authorization', 'Bearer approver-token');
+    expect(removed.status).toBe(200);
+    expect(removed.body.action).toBe('DEACTIVATED');
+    expect(removeBankAccount).toHaveBeenCalledWith(expect.anything(), BANK_ACCOUNT_ID);
   });
 
   it('computes unit-level vehicle profitability comparing acquisition, refurbishment and realized sale', async () => {

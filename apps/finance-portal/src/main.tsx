@@ -1288,6 +1288,20 @@ function App() {
                     <div style={{ marginTop: '0.4rem', fontSize: '0.75rem', color: 'var(--yellow)' }}>
                       Branch: {b.branchName} · {text(b.accountType)}
                     </div>
+                    <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem', flexWrap: 'wrap' }}>
+                      <button
+                        className="button secondary small"
+                        onClick={() => { setSelectedItem(b); setActiveModal('EDIT_BANK_ACCOUNT'); }}
+                      >
+                        Edit
+                      </button>
+                      <button
+                        className="button danger small"
+                        onClick={() => { setSelectedItem(b); setActiveModal('REMOVE_BANK_ACCOUNT'); }}
+                      >
+                        Remove
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>
@@ -1835,6 +1849,26 @@ function App() {
           user={user}
           busy={busy}
           onClose={() => setActiveModal(null)}
+          onAction={runAction}
+        />
+      )}
+
+      {activeModal === 'EDIT_BANK_ACCOUNT' && selectedItem && (
+        <EditBankAccountDialog
+          account={selectedItem}
+          user={user}
+          busy={busy}
+          onClose={() => { setActiveModal(null); setSelectedItem(null); }}
+          onAction={runAction}
+        />
+      )}
+
+      {activeModal === 'REMOVE_BANK_ACCOUNT' && selectedItem && (
+        <RemoveBankAccountDialog
+          account={selectedItem}
+          user={user}
+          busy={busy}
+          onClose={() => { setActiveModal(null); setSelectedItem(null); }}
           onAction={runAction}
         />
       )}
@@ -3599,6 +3633,110 @@ function NewBankAccountDialog({
           </button>
         </footer>
       </form>
+    </ModalDialog>
+  );
+}
+
+function EditBankAccountDialog({
+  account,
+  user,
+  busy,
+  onClose,
+  onAction,
+}: {
+  account: CompanyBankAccount;
+  user: User;
+  busy: boolean;
+  onClose: () => void;
+  onAction: (task: () => Promise<unknown>) => void;
+}) {
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    onAction(() => financeApi.updateBankAccount(user, account.id, {
+      bankName: String(fd.get('bankName')),
+      accountName: String(fd.get('accountName')),
+      accountNumberMasked: String(fd.get('accountNumberMasked')),
+      ifscCode: String(fd.get('ifscCode')),
+      branchName: String(fd.get('branchName') || ''),
+      accountType: String(fd.get('accountType') || 'CURRENT'),
+    }));
+  };
+
+  return (
+    <ModalDialog className="dialog" onClose={onClose}>
+      <form onSubmit={submit}>
+        <header>
+          <div>
+            <p className="eyebrow">TREASURY MANAGEMENT</p>
+            <h2>Edit Company Bank Account</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close bank account editor" onClick={onClose}><IconCross /></button>
+        </header>
+        <div className="form-grid">
+          <label>Bank Name<input name="bankName" required defaultValue={account.bankName} /></label>
+          <label>Account Holder / Legal Entity Name<input name="accountName" required defaultValue={account.accountName} /></label>
+          <label>Masked Account Number<input name="accountNumberMasked" required defaultValue={account.accountNumberMasked} /></label>
+          <label>IFSC Code<input name="ifscCode" required defaultValue={account.ifscCode} /></label>
+          <label>Branch Name<input name="branchName" defaultValue={account.branchName || ''} /></label>
+          <label>
+            Account Type
+            <select name="accountType" defaultValue={account.accountType || 'CURRENT'}>
+              <option value="CURRENT">Current Account</option>
+              <option value="ESCROW">Escrow Account</option>
+              <option value="NODAL">Nodal Account</option>
+              <option value="SAVINGS">Savings Account</option>
+            </select>
+          </label>
+        </div>
+        <p style={{ margin: '0.9rem 0 0', fontSize: '0.8rem', color: 'var(--muted)' }}>
+          Current balance cannot be changed here. Reconcile a bank statement or post the appropriate accounting entry instead.
+        </p>
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" className="button primary" disabled={busy}>{busy ? 'Saving...' : 'Save Changes'}</button>
+        </footer>
+      </form>
+    </ModalDialog>
+  );
+}
+
+function RemoveBankAccountDialog({
+  account,
+  user,
+  busy,
+  onClose,
+  onAction,
+}: {
+  account: CompanyBankAccount;
+  user: User;
+  busy: boolean;
+  onClose: () => void;
+  onAction: (task: () => Promise<unknown>) => void;
+}) {
+  return (
+    <ModalDialog className="dialog compact" onClose={onClose}>
+      <div>
+        <header>
+          <div>
+            <p className="eyebrow">DESTRUCTIVE ACTION</p>
+            <h2>Remove bank account?</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close removal confirmation" onClick={onClose}><IconCross /></button>
+        </header>
+        <p>
+          Remove <strong>{account.bankName} · {account.accountNumberMasked}</strong> from active treasury accounts?
+        </p>
+        <p style={{ color: 'var(--muted)', fontSize: '0.875rem' }}>
+          Unused accounts are deleted. Accounts with receipts or statement history are archived instead, preserving financial records.
+        </p>
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>Keep Account</button>
+          <button type="button" className="button danger" disabled={busy} onClick={() => onAction(() => financeApi.removeBankAccount(user, account.id))}>
+            {busy ? 'Removing...' : 'Remove Account'}
+          </button>
+        </footer>
+      </div>
     </ModalDialog>
   );
 }

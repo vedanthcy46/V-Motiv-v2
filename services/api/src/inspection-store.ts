@@ -1002,7 +1002,27 @@ export class PrismaInspectionStore {
 
   async recordVehicleHandover(actor: InspectionActor, caseId: string, input: { branchId?: string; status: string; location: string; observedAt: Date; registrationNumber?: string; odometerKm?: number; mainKeysReceived?: number; spareKeysReceived?: number; documentsReceived?: boolean; accessoriesNotes?: string; conditionNotes?: string; exceptionNotes?: string; expectedVersion?: number }) {
     checkRole(actor, operationsRoles);
-    const acquisitionCase = await this.db.acquisitionCase.findFirst({ where: this.acquisitionCaseScope(actor, caseId), include: { handover: true, documents: { select: { status: true } } } });
+    const acquisitionCase = await this.db.acquisitionCase.findFirst({
+      where: this.acquisitionCaseScope(actor, caseId),
+      include: {
+        handover: true,
+        stockUnit: true,
+        documents: { select: { status: true } },
+        offer: { select: { offerAmountPaise: true } },
+        lead: {
+          select: {
+            registrationNumber: true,
+            make: true,
+            model: true,
+            variant: true,
+            manufacturingYear: true,
+            fuelType: true,
+            transmission: true,
+            odometerKm: true,
+          },
+        },
+      },
+    });
     if (!acquisitionCase) throw new HttpError(404, 'ACQUISITION_CASE_NOT_FOUND');
     if (acquisitionCase.status === 'COMPLETED') throw new HttpError(409, 'ACQUISITION_CASE_COMPLETED');
     const documentsReady = acquisitionCase.documents.length > 0 && acquisitionCase.documents.every(document => documentTerminalStatuses.includes(document.status));
@@ -1010,15 +1030,61 @@ export class PrismaInspectionStore {
     if (input.status === 'RECEIVED' && !input.documentsReceived) throw new HttpError(409, 'HANDOVER_DOCUMENTS_REQUIRED');
     if (input.expectedVersion !== undefined && acquisitionCase.handover && acquisitionCase.handover.version !== input.expectedVersion) throw new HttpError(409, 'HANDOVER_VERSION_CONFLICT');
 
+    // A confirmed physical handover is the stock-inward event. Previously the
+    // case stopped at HANDOVER_READY and required two hidden manual actions,
+    // leaving verified vehicles absent from inventory and the listing pipeline.
+    const isAdmin = actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role));
+    const branchId = input.branchId || acquisitionCase.handover?.branchId || (actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
+    if (input.status === 'RECEIVED' && !branchId) throw new HttpError(400, 'HANDOVER_BRANCH_REQUIRED');
+    if (branchId && !isAdmin && !actor.branchIds.includes(branchId)) throw new HttpError(403, 'HANDOVER_BRANCH_ACCESS_DENIED');
+    const branch = branchId
+      ? await this.db.branch.findFirst({ where: { id: branchId, active: true }, select: { id: true, name: true } })
+      : null;
+    if (input.status === 'RECEIVED' && !branch) throw new HttpError(400, 'INVALID_BRANCH');
+
     return this.db.$transaction(async tx => {
       const handover = await tx.vehicleHandover.upsert({
         where: { acquisitionCaseId: caseId },
-        create: { acquisitionCaseId: caseId, branchId: input.branchId, custodianEmployeeId: actor.userId, status: input.status as never, location: input.location, observedAt: input.observedAt, registrationNumber: input.registrationNumber, odometerKm: input.odometerKm, mainKeysReceived: input.mainKeysReceived || 0, spareKeysReceived: input.spareKeysReceived || 0, documentsReceived: input.documentsReceived || false, accessoriesNotes: input.accessoriesNotes, conditionNotes: input.conditionNotes, exceptionNotes: input.exceptionNotes },
-        update: { branchId: input.branchId, custodianEmployeeId: actor.userId, status: input.status as never, location: input.location, observedAt: input.observedAt, registrationNumber: input.registrationNumber, odometerKm: input.odometerKm, mainKeysReceived: input.mainKeysReceived, spareKeysReceived: input.spareKeysReceived, documentsReceived: input.documentsReceived, accessoriesNotes: input.accessoriesNotes, conditionNotes: input.conditionNotes, exceptionNotes: input.exceptionNotes, version: { increment: 1 } },
+        create: { acquisitionCaseId: caseId, branchId, custodianEmployeeId: actor.userId, status: input.status as never, location: input.location, observedAt: input.observedAt, registrationNumber: input.registrationNumber, odometerKm: input.odometerKm, mainKeysReceived: input.mainKeysReceived || 0, spareKeysReceived: input.spareKeysReceived || 0, documentsReceived: input.documentsReceived || false, accessoriesNotes: input.accessoriesNotes, conditionNotes: input.conditionNotes, exceptionNotes: input.exceptionNotes },
+        update: { branchId, custodianEmployeeId: actor.userId, status: input.status as never, location: input.location, observedAt: input.observedAt, registrationNumber: input.registrationNumber, odometerKm: input.odometerKm, mainKeysReceived: input.mainKeysReceived, spareKeysReceived: input.spareKeysReceived, documentsReceived: input.documentsReceived, accessoriesNotes: input.accessoriesNotes, conditionNotes: input.conditionNotes, exceptionNotes: input.exceptionNotes, version: { increment: 1 } },
       });
-      await tx.acquisitionCase.update({ where: { id: caseId }, data: { custodyStatus: input.status as never, status: input.status === 'DISPUTED' || input.status === 'REJECTED' ? 'ON_HOLD' : input.status === 'RECEIVED' ? 'HANDOVER_READY' : undefined, version: { increment: 1 } } });
+      const automaticallyCompleted = input.status === 'RECEIVED';
+      await tx.acquisitionCase.update({
+        where: { id: caseId },
+        data: {
+          custodyStatus: input.status as never,
+          status: input.status === 'DISPUTED' || input.status === 'REJECTED' ? 'ON_HOLD' : automaticallyCompleted ? 'COMPLETED' : undefined,
+          completedAt: automaticallyCompleted ? new Date() : undefined,
+          completionNotes: automaticallyCompleted ? 'Completed automatically when payment-verified physical custody was recorded.' : undefined,
+          version: { increment: 1 },
+        },
+      });
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'VEHICLE_HANDOVER_RECORDED', entityType: 'VehicleHandover', entityId: handover.id, details: { acquisitionCaseId: caseId, status: input.status, location: input.location } } });
-      return handover;
+      if (!automaticallyCompleted || acquisitionCase.stockUnit) return { handover, stockUnit: acquisitionCase.stockUnit, automaticallyCompleted };
+
+      const stockCode = `VM-STK-${acquisitionCase.caseReference.replace(/-/g, '').slice(0, 10).toUpperCase()}`;
+      const stockUnit = await tx.vehicleStockUnit.create({
+        data: {
+          stockCode,
+          acquisitionCaseId: caseId,
+          branchId: branch!.id,
+          receivedByEmployeeId: actor.userId,
+          physicalLocation: input.location || branch!.name,
+          registrationNumber: input.registrationNumber || acquisitionCase.handover?.registrationNumber || acquisitionCase.lead.registrationNumber,
+          make: acquisitionCase.lead.make,
+          model: acquisitionCase.lead.model,
+          variant: acquisitionCase.lead.variant,
+          manufacturingYear: acquisitionCase.lead.manufacturingYear,
+          fuelType: acquisitionCase.lead.fuelType,
+          transmission: acquisitionCase.lead.transmission,
+          odometerKm: input.odometerKm ?? acquisitionCase.handover?.odometerKm ?? acquisitionCase.lead.odometerKm,
+          acquisitionCostPaise: acquisitionCase.offer.offerAmountPaise,
+          notes: input.conditionNotes,
+        },
+      });
+      await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'ACQUISITION_COMPLETED', entityType: 'AcquisitionCase', entityId: caseId, details: { automatic: true, reason: 'PAYMENT_VERIFIED_HANDOVER_RECEIVED' } } });
+      await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'VEHICLE_STOCK_INWARD_CREATED', entityType: 'VehicleStockUnit', entityId: stockUnit.id, details: { acquisitionCaseId: caseId, stockCode: stockUnit.stockCode, branchId: stockUnit.branchId, automatic: true } } });
+      return { handover, stockUnit, automaticallyCompleted };
     });
   }
 

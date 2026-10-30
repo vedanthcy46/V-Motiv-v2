@@ -163,6 +163,7 @@ export type AcquisitionSettlement = {
 export type VehicleHandover = {
   id: string;
   acquisitionCaseId: string;
+  branchId?: string | null;
   status: 'PENDING' | 'SCHEDULED' | 'RECEIVED' | 'DISPUTED' | 'REJECTED';
   location: string;
   observedAt: string;

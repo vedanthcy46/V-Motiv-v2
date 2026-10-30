@@ -437,6 +437,7 @@ export const App: FC = () => {
   const [handoverMainKeys, setHandoverMainKeys] = useState<number>(1);
   const [handoverSpareKeys, setHandoverSpareKeys] = useState<number>(0);
   const [handoverDocsReceived, setHandoverDocsReceived] = useState(true);
+  const [handoverBranchId, setHandoverBranchId] = useState('');
   const [handoverLocation, setHandoverLocation] = useState('Bengaluru Central Hub');
   const [handoverCondition, setHandoverCondition] = useState('');
 
@@ -630,6 +631,7 @@ export const App: FC = () => {
     setError(null);
     try {
       await api.recordHandover(user, handoverModal.caseItem.id, {
+        branchId: handoverBranchId || undefined,
         status: 'RECEIVED',
         location: handoverLocation,
         observedAt: new Date().toISOString(),
@@ -640,9 +642,10 @@ export const App: FC = () => {
         conditionNotes: handoverCondition || undefined,
         expectedVersion: handoverModal.caseItem.handover?.version,
       });
-      setSuccessMsg('Vehicle physical handover recorded successfully');
+      setSuccessMsg('Custody recorded. The acquisition was completed and moved into Stock Inventory for QC.');
       setHandoverModal({ open: false });
       await loadAllData();
+      setActiveTab('inventory');
     } catch (err) {
       setError(err instanceof ApiError ? `Handover Error: ${err.code}` : 'Handover failed');
     } finally {
@@ -1659,6 +1662,7 @@ export const App: FC = () => {
                             setHandoverOdometer(c.handover?.odometerKm || 0);
                             setHandoverMainKeys(c.handover?.mainKeysReceived || 1);
                             setHandoverSpareKeys(c.handover?.spareKeysReceived || 0);
+                            setHandoverBranchId(c.handover?.branchId || branches.find(branch => branch.city.toLowerCase() === c.lead.city.toLowerCase())?.id || branches[0]?.id || '');
                           }}
                         >
                           <IconHandover /> Handover
@@ -1855,18 +1859,25 @@ export const App: FC = () => {
                     </div>
 
                     <div className="card-footer">
-                      <button
-                        className="btn-gold"
-                        style={{ fontSize: '0.8rem' }}
-                        onClick={() => {
-                          setHandoverModal({ open: true, caseItem: c });
-                          setHandoverOdometer(c.handover?.odometerKm || 0);
-                          setHandoverMainKeys(c.handover?.mainKeysReceived || 1);
-                          setHandoverSpareKeys(c.handover?.spareKeysReceived || 0);
-                        }}
-                      >
-                        <IconHandover /> {c.handover ? 'Update Handover' : 'Record Handover'}
-                      </button>
+                      {c.status === 'COMPLETED' && c.stockUnit ? (
+                        <button className="btn-primary" style={{ fontSize: '0.8rem' }} onClick={() => setActiveTab('inventory')}>
+                          <IconInventory /> View Stock & QC Workflow
+                        </button>
+                      ) : (
+                        <button
+                          className="btn-gold"
+                          style={{ fontSize: '0.8rem' }}
+                          onClick={() => {
+                            setHandoverModal({ open: true, caseItem: c });
+                            setHandoverOdometer(c.handover?.odometerKm || 0);
+                            setHandoverMainKeys(c.handover?.mainKeysReceived || 1);
+                            setHandoverSpareKeys(c.handover?.spareKeysReceived || 0);
+                            setHandoverBranchId(c.handover?.branchId || branches.find(branch => branch.city.toLowerCase() === c.lead.city.toLowerCase())?.id || branches[0]?.id || '');
+                          }}
+                        >
+                          <IconHandover /> {c.handover ? 'Confirm Stock Inward' : 'Record Handover'}
+                        </button>
+                      )}
                     </div>
                   </article>
                 );
@@ -2818,6 +2829,24 @@ export const App: FC = () => {
                   <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
                     Seller: {handoverModal.caseItem.lead.sellerName} · Agreed Price: {formatRupees(handoverModal.caseItem.offer.offerAmountPaise)}
                   </div>
+                </div>
+
+                <div className="form-group">
+                  <label>Receiving Branch</label>
+                  <select
+                    className="form-select"
+                    value={handoverBranchId}
+                    onChange={e => setHandoverBranchId(e.target.value)}
+                    required
+                  >
+                    <option value="">Select the branch receiving custody</option>
+                    {branches.map(branch => (
+                      <option key={branch.id} value={branch.id}>{branch.name} · {branch.city}</option>
+                    ))}
+                  </select>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                    Saving confirmed custody creates the stock unit for QC and Listing Studio. It does not publish to customers.
+                  </span>
                 </div>
 
                 <div className="form-group">

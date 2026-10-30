@@ -1617,7 +1617,7 @@ export class PrismaFinanceStore {
 
   async bankAccounts(actor: FinanceActor) {
     requirePermission(actor, 'finance.reconciliation.import');
-    const accounts = await this.db.companyBankAccount.findMany({ orderBy: { bankName: 'asc' } });
+    const accounts = await this.db.companyBankAccount.findMany({ where: { active: true }, orderBy: { bankName: 'asc' } });
     return accounts.map(a => ({
       ...a,
       balancePaise: a.balancePaise.toString(),
@@ -1650,6 +1650,81 @@ export class PrismaFinanceStore {
       },
     });
     return { ...created, balancePaise: created.balancePaise.toString() };
+  }
+
+  async updateBankAccount(
+    actor: FinanceActor,
+    id: string,
+    input: {
+      bankName: string;
+      accountName: string;
+      accountNumberMasked: string;
+      ifscCode: string;
+      branchName?: string;
+      accountType?: string;
+    }
+  ) {
+    requirePermission(actor, 'finance.reconciliation.import');
+    const existing = await this.db.companyBankAccount.findUnique({ where: { id } });
+    if (!existing || !existing.active) throw new HttpError(404, 'BANK_ACCOUNT_NOT_FOUND');
+
+    const updated = await this.db.companyBankAccount.update({
+      where: { id },
+      data: {
+        bankName: input.bankName,
+        accountName: input.accountName,
+        accountNumberMasked: input.accountNumberMasked,
+        ifscCode: input.ifscCode,
+        branchName: input.branchName || null,
+        accountType: input.accountType || 'CURRENT',
+      },
+    });
+    await this.db.auditEvent.create({
+      data: {
+        actorId: actor.userId,
+        action: 'FINANCE_BANK_ACCOUNT_UPDATED',
+        entityType: 'CompanyBankAccount',
+        entityId: id,
+        details: { bankName: updated.bankName, accountNumberMasked: updated.accountNumberMasked },
+      },
+    });
+    return { ...updated, balancePaise: updated.balancePaise.toString(), currentBalancePaise: updated.balancePaise.toString() };
+  }
+
+  async removeBankAccount(actor: FinanceActor, id: string) {
+    requirePermission(actor, 'finance.reconciliation.import');
+    const existing = await this.db.companyBankAccount.findUnique({
+      where: { id },
+      include: { _count: { select: { receipts: true, statementImports: true, statementEntries: true } } },
+    });
+    if (!existing || !existing.active) throw new HttpError(404, 'BANK_ACCOUNT_NOT_FOUND');
+
+    const references = existing._count.receipts + existing._count.statementImports + existing._count.statementEntries;
+    if (references > 0) {
+      await this.db.companyBankAccount.update({ where: { id }, data: { active: false } });
+      await this.db.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'FINANCE_BANK_ACCOUNT_DEACTIVATED',
+          entityType: 'CompanyBankAccount',
+          entityId: id,
+          details: { references },
+        },
+      });
+      return { id, action: 'DEACTIVATED' as const, references };
+    }
+
+    await this.db.companyBankAccount.delete({ where: { id } });
+    await this.db.auditEvent.create({
+      data: {
+        actorId: actor.userId,
+        action: 'FINANCE_BANK_ACCOUNT_DELETED',
+        entityType: 'CompanyBankAccount',
+        entityId: id,
+        details: { references: 0 },
+      },
+    });
+    return { id, action: 'DELETED' as const, references: 0 };
   }
 
   async statementImports(actor: FinanceActor) {

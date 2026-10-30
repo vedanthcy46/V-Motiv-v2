@@ -298,9 +298,10 @@ export interface ExpenseClaim {
 export interface CompanyBankAccount {
   id: string;
   bankName: string;
+  accountName: string;
   accountNumberMasked: string;
   ifscCode: string;
-  branchName: string;
+  branchName?: string | null;
   accountType: string;
   currentBalancePaise: string;
   active: boolean;
@@ -617,6 +618,20 @@ export const financeApi = {
   }) => call<CompanyBankAccount>(u, '/bank-accounts', {
     method: 'POST',
     body: JSON.stringify(body),
+  }),
+  updateBankAccount: (u: User, id: string, body: {
+    bankName: string;
+    accountName: string;
+    accountNumberMasked: string;
+    ifscCode: string;
+    branchName?: string;
+    accountType?: string;
+  }) => call<CompanyBankAccount>(u, `/bank-accounts/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(body),
+  }),
+  removeBankAccount: (u: User, id: string) => call<{ id: string; action: 'DELETED' | 'DEACTIVATED'; references: number }>(u, `/bank-accounts/${id}`, {
+    method: 'DELETE',
   }),
   bankStatements: (u: User) => call<BankStatementEntry[]>(u, '/bank-statements'),
   importBankStatement: (u: User, body: {
