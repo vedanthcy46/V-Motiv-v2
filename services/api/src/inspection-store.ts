@@ -1310,9 +1310,11 @@ export class PrismaInspectionStore {
     });
   }
 
-  async getBranches() {
+  async getBranches(actor: InspectionActor) {
+    checkRole(actor, operationsRoles);
+    const isAdmin = actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role));
     return this.db.branch.findMany({
-      where: { active: true },
+      where: { active: true, ...(isAdmin ? {} : { id: { in: actor.branchIds } }) },
       orderBy: [{ city: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
