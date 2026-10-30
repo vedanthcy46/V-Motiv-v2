@@ -190,7 +190,7 @@ export const api = {
   stockInward: (
     u: User,
     caseId: string,
-    body: { branchId?: string; physicalLocation: string; notes?: string }
+    body: { branchId: string; physicalLocation: string; notes?: string }
   ) => call<VehicleStockUnit>(u, `/operations/acquisitions/${caseId}/stock-inward`, { method: 'POST', body: JSON.stringify(body) }),
 
   // --- Inventory & Stock Units ---

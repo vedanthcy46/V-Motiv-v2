@@ -384,7 +384,7 @@ export function createOperationsInspectionRouter(deps: { verify: VerifyToken; st
   });
 
   router.get('/branches', async (_req, res, next) => {
-    try { res.json(await deps.store.getBranches()); }
+    try { res.json(await deps.store.getBranches(res.locals.inspectionActor)); }
     catch (e) { next(e); }
   });
 

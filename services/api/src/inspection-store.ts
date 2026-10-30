@@ -27,6 +27,7 @@ const qcRoles = ['INSPECTION_REVIEWER', 'ADMIN', 'SUPER_ADMIN'];
 const reviewerRoles = ['INSPECTION_REVIEWER', 'ADMIN', 'SUPER_ADMIN'];
 const listingRoles = ['LISTING_EXECUTIVE', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const publishRoles = ['PRICING_APPROVER', 'LISTING_EXECUTIVE', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
+const stockReadRoles = [...inventoryRoles, ...qcRoles, ...listingRoles, ...publishRoles];
 
 export function isInvalidRegNumberOrUuid(val: unknown): boolean {
   if (!val || typeof val !== 'string') return true;
@@ -1038,9 +1039,6 @@ export class PrismaInspectionStore {
 
   async stockInward(actor: InspectionActor, caseId: string, input: { branchId?: string; physicalLocation: string; notes?: string }) {
     checkRole(actor, operationsRoles);
-    if (input.branchId && !actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role)) && !actor.branchIds.includes(input.branchId)) {
-      throw new HttpError(403, 'STOCK_BRANCH_ACCESS_DENIED');
-    }
     const acquisitionCase = await this.db.acquisitionCase.findFirst({
       where: this.acquisitionCaseScope(actor, caseId),
       include: {
@@ -1051,6 +1049,12 @@ export class PrismaInspectionStore {
     });
     if (!acquisitionCase) throw new HttpError(404, 'ACQUISITION_CASE_NOT_FOUND');
     if (acquisitionCase.status !== 'COMPLETED') throw new HttpError(409, 'STOCK_INWARD_REQUIRES_COMPLETED_ACQUISITION');
+    const isAdmin = actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role));
+    const branchId = input.branchId || acquisitionCase.handover?.branchId || (actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
+    if (!branchId) throw new HttpError(400, 'STOCK_BRANCH_REQUIRED');
+    if (!isAdmin && !actor.branchIds.includes(branchId)) throw new HttpError(403, 'STOCK_BRANCH_ACCESS_DENIED');
+    const branch = await this.db.branch.findFirst({ where: { id: branchId, active: true }, select: { id: true } });
+    if (!branch) throw new HttpError(400, 'INVALID_BRANCH');
     const stockCode = `VM-STK-${acquisitionCase.caseReference.replace(/-/g, '').slice(0, 10).toUpperCase()}`;
     try {
       return await this.db.$transaction(async tx => {
@@ -1058,7 +1062,7 @@ export class PrismaInspectionStore {
           data: {
             stockCode,
             acquisitionCaseId: caseId,
-            branchId: input.branchId || acquisitionCase.handover?.branchId,
+            branchId,
             receivedByEmployeeId: actor.userId,
             physicalLocation: input.physicalLocation,
             registrationNumber: acquisitionCase.handover?.registrationNumber || acquisitionCase.lead.registrationNumber,
@@ -1083,9 +1087,9 @@ export class PrismaInspectionStore {
   }
 
   async stockUnits(actor: InspectionActor) {
-    checkRole(actor, operationsRoles);
+    checkRole(actor, stockReadRoles);
     const units = await this.db.vehicleStockUnit.findMany({
-      where: actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role)) ? {} : { branchId: { in: actor.branchIds } },
+      where: this.stockScope(actor),
       orderBy: { createdAt: 'desc' },
       include: {
         workOrders: {
@@ -1158,7 +1162,12 @@ export class PrismaInspectionStore {
   private stockScope(actor: InspectionActor, id?: string): Prisma.VehicleStockUnitWhereInput {
     return {
       ...(id ? { id } : {}),
-      ...(actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role)) ? {} : { branchId: { in: actor.branchIds } }),
+      ...(actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role)) ? {} : {
+        OR: [
+          { branchId: { in: actor.branchIds } },
+          { branchId: null, receivedByEmployeeId: actor.userId },
+        ],
+      }),
     };
   }
 
@@ -1302,9 +1311,11 @@ export class PrismaInspectionStore {
     });
   }
 
-  async getBranches() {
+  async getBranches(actor: InspectionActor) {
+    checkRole(actor, stockReadRoles);
+    const isAdmin = actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role));
     return this.db.branch.findMany({
-      where: { active: true },
+      where: { active: true, ...(isAdmin ? {} : { id: { in: actor.branchIds } }) },
       orderBy: [{ city: 'asc' }, { name: 'asc' }],
       select: {
         id: true,
