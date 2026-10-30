@@ -27,6 +27,7 @@ const qcRoles = ['INSPECTION_REVIEWER', 'ADMIN', 'SUPER_ADMIN'];
 const reviewerRoles = ['INSPECTION_REVIEWER', 'ADMIN', 'SUPER_ADMIN'];
 const listingRoles = ['LISTING_EXECUTIVE', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
 const publishRoles = ['PRICING_APPROVER', 'LISTING_EXECUTIVE', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN'];
+const stockReadRoles = [...inventoryRoles, ...qcRoles, ...listingRoles, ...publishRoles];
 
 export function isInvalidRegNumberOrUuid(val: unknown): boolean {
   if (!val || typeof val !== 'string') return true;
@@ -1086,7 +1087,7 @@ export class PrismaInspectionStore {
   }
 
   async stockUnits(actor: InspectionActor) {
-    checkRole(actor, operationsRoles);
+    checkRole(actor, stockReadRoles);
     const units = await this.db.vehicleStockUnit.findMany({
       where: this.stockScope(actor),
       orderBy: { createdAt: 'desc' },
@@ -1311,7 +1312,7 @@ export class PrismaInspectionStore {
   }
 
   async getBranches(actor: InspectionActor) {
-    checkRole(actor, operationsRoles);
+    checkRole(actor, stockReadRoles);
     const isAdmin = actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role));
     return this.db.branch.findMany({
       where: { active: true, ...(isAdmin ? {} : { id: { in: actor.branchIds } }) },

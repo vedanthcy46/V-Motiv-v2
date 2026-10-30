@@ -451,6 +451,7 @@ describe('Operations scheduling & assignment APIs', () => {
     expect(resBranches.status).toBe(200);
     expect(resBranches.body[0].code).toBe('BLR-KOR');
     expect(store.getBranches).toHaveBeenCalledTimes(1);
+    expect(store.getBranches).toHaveBeenCalledWith(operationsActor);
 
     const resPrepare = await request(app)
       .post('/api/v2/operations/inventory/88888888-8888-4888-8888-888888888888/prepare-listing')
