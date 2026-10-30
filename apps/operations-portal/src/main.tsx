@@ -441,6 +441,7 @@ export const App: FC = () => {
   const [handoverCondition, setHandoverCondition] = useState('');
 
   const [stockInwardModal, setStockInwardModal] = useState<{ open: boolean; caseItem?: AcquisitionCase }>({ open: false });
+  const [inwardBranchId, setInwardBranchId] = useState('');
   const [inwardLocation, setInwardLocation] = useState('Bengaluru Central Hub - Bay 4');
   const [inwardNotes, setInwardNotes] = useState('');
 
@@ -674,6 +675,7 @@ export const App: FC = () => {
     setError(null);
     try {
       const stock = await api.stockInward(user, stockInwardModal.caseItem.id, {
+        branchId: inwardBranchId,
         physicalLocation: inwardLocation,
         notes: inwardNotes || undefined,
       });
@@ -1675,7 +1677,11 @@ export const App: FC = () => {
                         <button
                           className="btn-primary"
                           style={{ fontSize: '0.8rem', padding: '0.35rem 0.75rem' }}
-                          onClick={() => setStockInwardModal({ open: true, caseItem: c })}
+                          onClick={() => {
+                            const cityBranch = branches.find(branch => branch.city.toLowerCase() === c.lead.city.toLowerCase());
+                            setInwardBranchId(cityBranch?.id || branches[0]?.id || '');
+                            setStockInwardModal({ open: true, caseItem: c });
+                          }}
                         >
                           <IconInventory /> Stock Inward
                         </button>
@@ -2907,6 +2913,21 @@ export const App: FC = () => {
                 </p>
 
                 <div className="form-group">
+                  <label>Inventory Branch</label>
+                  <select
+                    className="form-input"
+                    value={inwardBranchId}
+                    onChange={e => setInwardBranchId(e.target.value)}
+                    required
+                  >
+                    <option value="" disabled>Select a branch</option>
+                    {branches.map(branch => (
+                      <option key={branch.id} value={branch.id}>{branch.name} ({branch.city})</option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="form-group">
                   <label>Physical Hub / Bay Location</label>
                   <input
                     type="text"
@@ -2929,7 +2950,7 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setStockInwardModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading}>Inward Vehicle to Stock</button>
+                <button type="submit" className="btn-gold" disabled={loading || !inwardBranchId}>Inward Vehicle to Stock</button>
               </div>
             </form>
           </div>
