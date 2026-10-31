@@ -3365,14 +3365,14 @@ function ViewPolicyDialog({
             </button>
           </div>
         )}
-        {policy.status !== 'PROPOSED' && policy.status !== 'RETIRED' && canPropose && (
+        {policy.status !== 'RETIRED' && canPropose && (
           <button type="button" className="button secondary" onClick={onEdit} style={{ marginRight: 'auto' }}>
             Edit Policy
           </button>
         )}
-        {policy.status !== 'RETIRED' && policy.status !== 'PROPOSED' && canPropose && (
+        {policy.status !== 'RETIRED' && canPropose && (
           <button type="button" className="button secondary" style={{ color: '#ef4444' }} onClick={handleRetire} disabled={busy}>
-            Retire / Delete
+            {policy.status === 'PROPOSED' ? 'Cancel / Delete' : 'Retire / Delete'}
           </button>
         )}
         <button type="button" className="button secondary" onClick={onClose}>Close</button>

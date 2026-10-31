@@ -2870,6 +2870,11 @@ function SellerLeadDrawer({
 
   const handleProposeOffer = async () => {
     if (!user || !offerRupees) return;
+    // If no approved valuation baseline exists and user is sales staff without direct pricing authority, submit valuation proposal
+    if ((!valuations[0] || valuations[0].status !== 'APPROVED') && !canAuthorizeValuation) {
+      await handleCreateValuation(false);
+      return;
+    }
     setBusy(true);
     setError('');
     try {
@@ -2882,15 +2887,16 @@ function SellerLeadDrawer({
       alert(res?.message || 'Official purchase offer issued to seller!');
       await loadInteractions();
       onRefresh();
-    } catch (err) {
-      if (err instanceof ApiError && err.code === 'OFFER_PROPOSAL_REQUIRES_APPROVED_VALUATION') {
+    } catch (err: any) {
+      const code = err?.code || (err instanceof ApiError ? err.code : '');
+      if (code === 'OFFER_PROPOSAL_REQUIRES_APPROVED_VALUATION') {
         setError('Offer proposal requires an authorized valuation recommendation. Please establish or approve the valuation below.');
         setShowValuationForm(true);
-      } else if (err instanceof ApiError && err.code === 'OFFER_EXCEEDS_APPROVED_VALUATION') {
+      } else if (code === 'OFFER_EXCEEDS_APPROVED_VALUATION') {
         setError('Proposed offer exceeds the current approved valuation baseline. Please submit or authorize an updated valuation baseline below.');
         setShowValuationForm(true);
       } else {
-        setError(err instanceof ApiError ? `Error: ${err.code}` : 'Offer proposal rejected');
+        setError(code ? `Error: ${code}` : (err?.message || 'Offer proposal rejected'));
       }
     } finally {
       setBusy(false);
@@ -3708,7 +3714,13 @@ function SellerLeadDrawer({
                               disabled={busy || !offerRupees}
                               style={{ width: '100%' }}
                             >
-                              {busy ? 'Processing...' : isDeclined ? `Issue Revised Counter-Offer (v${nextVersion})` : 'Propose Purchase Offer'}
+                              {busy
+                                ? 'Processing...'
+                                : (!valuations[0] || valuations[0].status !== 'APPROVED') && !canAuthorizeValuation
+                                ? 'Submit Valuation Proposal for Pricing Review'
+                                : isDeclined
+                                ? `Issue Revised Counter-Offer (v${nextVersion})`
+                                : 'Propose Purchase Offer'}
                             </button>
                           </div>
                         </div>

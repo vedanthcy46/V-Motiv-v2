@@ -1425,8 +1425,8 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
       ? await this.db.acquisitionValuation.findFirst({ where: { id: input.valuationId, leadId } })
       : await this.db.acquisitionValuation.findFirst({ where: { leadId, status: 'APPROVED' }, orderBy: { createdAt: 'desc' } });
 
-    // If caller has administrative pricing authority (ADMIN, SUPER_ADMIN), and lead has an approved inspection report:
-    if (isPricingAuthorized && actor.roles.some(r => ['ADMIN', 'SUPER_ADMIN'].includes(r))) {
+    // If caller has administrative pricing authority (ADMIN, SUPER_ADMIN, PRICING_APPROVER), and lead has an approved inspection report:
+    if (isPricingAuthorized && actor.roles.some(r => ['ADMIN', 'SUPER_ADMIN', 'PRICING_APPROVER'].includes(r))) {
       // If a valuation is pending approval, auto-approve it
       if (valuation && valuation.status === 'PENDING_APPROVAL') {
         valuation = await this.db.acquisitionValuation.update({
