@@ -230,6 +230,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
 
   const [cities, setCities] = useState<SupportedCity[]>([]);
   const [masterDataList, setMasterDataList] = useState<Array<{ id: string; category: string; code: string; name: string; parentCode: string | null }>>([]);
+  const [baseInventory, setBaseInventory] = useState<VehicleSummary[]>([]);
   const [activeDriveIds, setActiveDriveIds] = useState<Set<string>>(new Set());
   const [saveMessage, setSaveMessage] = useState('');
   const requestId = useRef(0);
@@ -238,22 +239,69 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
 
-  // Dynamic Master Data matching Admin Portal
+  // Live Inventory Counts by Brand & Model (matching available inventory)
+  const inventoryBrandCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    baseInventory.forEach((item) => {
+      const make = item.vehicle?.make?.trim();
+      if (make) {
+        const key = make.toLowerCase();
+        counts[key] = (counts[key] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [baseInventory]);
+
+  const inventoryModelCounts = useMemo(() => {
+    const counts: Record<string, number> = {};
+    baseInventory.forEach((item) => {
+      const model = item.vehicle?.model?.trim();
+      if (model) {
+        const key = model.toLowerCase();
+        counts[key] = (counts[key] || 0) + 1;
+      }
+    });
+    return counts;
+  }, [baseInventory]);
+
+  // Dynamic Master Data matching Admin Portal + Available Inventory
   const availableBrands = useMemo(() => {
     const fromMaster = masterDataList
       .filter((i) => i.category === 'MAKE')
       .map((i) => i.name.trim());
-    if (fromMaster.length > 0) {
-      return Array.from(new Set([...fromMaster, ...POPULAR_BRANDS]));
-    }
-    return POPULAR_BRANDS;
-  }, [masterDataList]);
+    const fromInventory = baseInventory
+      .map((i) => i.vehicle?.make?.trim())
+      .filter((m): m is string => Boolean(m));
+    const combined = Array.from(new Set([...fromInventory, ...fromMaster, ...POPULAR_BRANDS]));
+    // Prioritize brands with available cars in inventory
+    return combined.sort((a, b) => {
+      const countA = inventoryBrandCounts[a.toLowerCase()] || 0;
+      const countB = inventoryBrandCounts[b.toLowerCase()] || 0;
+      if (countA > 0 && countB === 0) return -1;
+      if (countB > 0 && countA === 0) return 1;
+      if (countA !== countB) return countB - countA;
+      return a.localeCompare(b);
+    });
+  }, [masterDataList, baseInventory, inventoryBrandCounts]);
 
   const availableModels = useMemo(() => {
     const map: Record<string, string[]> = {};
     Object.entries(DEFAULT_MODELS_BY_BRAND).forEach(([k, list]) => {
       map[k] = [...list];
     });
+    // Dynamically insert models present in active inventory
+    baseInventory.forEach((item) => {
+      const make = item.vehicle?.make?.trim();
+      const model = item.vehicle?.model?.trim();
+      if (make && model) {
+        const brandKey = Object.keys(map).find((k) => k.toLowerCase() === make.toLowerCase()) || make;
+        if (!map[brandKey]) map[brandKey] = [];
+        if (!map[brandKey].some((m) => m.toLowerCase() === model.toLowerCase())) {
+          map[brandKey].unshift(model);
+        }
+      }
+    });
+    // Merge master data
     masterDataList
       .filter((i) => i.category === 'MODEL')
       .forEach((m) => {
@@ -264,7 +312,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
         if (!map[parentMake].includes(m.name)) map[parentMake].push(m.name);
       });
     return map;
-  }, [masterDataList]);
+  }, [masterDataList, baseInventory]);
 
   const availableBodyTypes = useMemo(() => {
     const fromMaster = masterDataList.filter((i) => i.category === 'BODY_TYPE');
@@ -344,6 +392,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   useEffect(() => {
     void customer.cities().then(setCities).catch(() => undefined);
     void customer.masterData().then(setMasterDataList).catch(() => undefined);
+    void customer.inventory({ limit: 50 }).then((res) => setBaseInventory(res.items)).catch(() => undefined);
   }, []);
 
   useFocusEffect(
@@ -520,21 +569,92 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
     let modelPool: string[] = [];
     if (stagedBrands.length > 0) {
       stagedBrands.forEach((b) => {
-        const list = availableModels[b] || [];
+        const matchingKey = Object.keys(availableModels).find(
+          (k) => k.toLowerCase() === b.toLowerCase()
+        );
+        const list = matchingKey ? availableModels[matchingKey] || [] : [];
         list.forEach((m) => {
-          if (!modelPool.includes(m)) modelPool.push(m);
+          if (!modelPool.some((x) => x.toLowerCase() === m.toLowerCase())) {
+            modelPool.push(m);
+          }
         });
       });
     } else {
       Object.values(availableModels).forEach((list) => {
         list.forEach((m) => {
-          if (!modelPool.includes(m)) modelPool.push(m);
+          if (!modelPool.some((x) => x.toLowerCase() === m.toLowerCase())) {
+            modelPool.push(m);
+          }
         });
       });
     }
+
+    // Sort models with inventory at the top
+    modelPool.sort((a, b) => {
+      const countA = inventoryModelCounts[a.toLowerCase()] || 0;
+      const countB = inventoryModelCounts[b.toLowerCase()] || 0;
+      if (countA > 0 && countB === 0) return -1;
+      if (countB > 0 && countA === 0) return 1;
+      if (countA !== countB) return countB - countA;
+      return a.localeCompare(b);
+    });
+
     if (!q) return modelPool;
     return modelPool.filter((m) => m.toLowerCase().includes(q));
-  }, [stagedBrands, availableModels, brandSearch]);
+  }, [stagedBrands, availableModels, brandSearch, inventoryModelCounts]);
+
+  // Live matching count based on available inventory while in filter modal
+  const stagedMatchingCount = useMemo(() => {
+    if (baseInventory.length === 0) return items.length;
+    const priceBounds = getPriceBounds(stagedPriceRange);
+    return baseInventory.filter((item) => {
+      const v = item.vehicle;
+      if (!v) return false;
+      if (city && v.city && v.city.toLowerCase() !== city.toLowerCase()) return false;
+      if (stagedBrands.length > 0) {
+        const matchBrand = stagedBrands.some(
+          (b) => b.toLowerCase() === (v.make || '').toLowerCase()
+        );
+        if (!matchBrand) return false;
+      }
+      if (stagedModels.length > 0) {
+        const matchModel = stagedModels.some(
+          (m) => m.toLowerCase() === (v.model || '').toLowerCase()
+        );
+        if (!matchModel) return false;
+      }
+      if (stagedMinYear && (v.manufacturingYear || 0) < stagedMinYear) return false;
+      if (stagedMaxKm && (v.odometerKm || 0) > stagedMaxKm) return false;
+      if (stagedFuelType && (v.fuelType || '').toLowerCase() !== stagedFuelType.toLowerCase())
+        return false;
+      if (stagedBodyType && (v.bodyType || '').toLowerCase() !== stagedBodyType.toLowerCase())
+        return false;
+      if (
+        stagedTransmission &&
+        (v.transmission || '').toLowerCase() !== stagedTransmission.toLowerCase()
+      )
+        return false;
+      if (stagedColor && (v.color || '').toLowerCase() !== stagedColor.toLowerCase())
+        return false;
+      const price = Number(item.pricePaise);
+      if (priceBounds.minPricePaise && price < priceBounds.minPricePaise) return false;
+      if (priceBounds.maxPricePaise && price > priceBounds.maxPricePaise) return false;
+      return true;
+    }).length;
+  }, [
+    baseInventory,
+    items.length,
+    city,
+    stagedPriceRange,
+    stagedBrands,
+    stagedModels,
+    stagedMinYear,
+    stagedMaxKm,
+    stagedFuelType,
+    stagedBodyType,
+    stagedTransmission,
+    stagedColor,
+  ]);
 
   return (
     <View style={[styles.container, { backgroundColor: c.background, paddingTop: insets.top }]}>
@@ -1034,7 +1154,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                         Brands {stagedBrands.length > 0 ? `(${stagedBrands.length} selected)` : ''}
                       </Text>
                       {filteredBrands.map((bName) => {
-                        const selected = stagedBrands.includes(bName);
+                        const selected = stagedBrands.some((b) => b.toLowerCase() === bName.toLowerCase());
+                        const count = inventoryBrandCounts[bName.toLowerCase()] || 0;
                         return (
                           <TouchableOpacity
                             key={bName}
@@ -1044,7 +1165,9 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                             ]}
                             onPress={() => {
                               setStagedBrands((prev) =>
-                                prev.includes(bName) ? prev.filter((b) => b !== bName) : [...prev, bName]
+                                prev.some((b) => b.toLowerCase() === bName.toLowerCase())
+                                  ? prev.filter((b) => b.toLowerCase() !== bName.toLowerCase())
+                                  : [...prev, bName]
                               );
                             }}
                             activeOpacity={0.7}
@@ -1052,9 +1175,18 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                             <View style={[styles.checkboxBox, selected && styles.checkboxBoxSelected]}>
                               {selected && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
                             </View>
-                            <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                              {bName}
-                            </Text>
+                            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                                {bName}
+                              </Text>
+                              {count > 0 ? (
+                                <View style={[styles.countBadge, { backgroundColor: selected ? '#8B5CF6' : (isDark ? '#334155' : '#E2E8F0') }]}>
+                                  <Text style={[styles.countBadgeText, { color: selected ? '#FFFFFF' : c.textSecondary }]}>
+                                    {count} {count === 1 ? 'car' : 'cars'}
+                                  </Text>
+                                </View>
+                              ) : null}
+                            </View>
                           </TouchableOpacity>
                         );
                       })}
@@ -1066,7 +1198,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                             Models {stagedModels.length > 0 ? `(${stagedModels.length} selected)` : ''}
                           </Text>
                           {displayModels.map((mName) => {
-                            const selected = stagedModels.includes(mName);
+                            const selected = stagedModels.some((m) => m.toLowerCase() === mName.toLowerCase());
+                            const count = inventoryModelCounts[mName.toLowerCase()] || 0;
                             return (
                               <TouchableOpacity
                                 key={mName}
@@ -1076,7 +1209,9 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                                 ]}
                                 onPress={() => {
                                   setStagedModels((prev) =>
-                                    prev.includes(mName) ? prev.filter((m) => m !== mName) : [...prev, mName]
+                                    prev.some((m) => m.toLowerCase() === mName.toLowerCase())
+                                      ? prev.filter((m) => m.toLowerCase() !== mName.toLowerCase())
+                                      : [...prev, mName]
                                   );
                                 }}
                                 activeOpacity={0.7}
@@ -1084,9 +1219,18 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                                 <View style={[styles.checkboxBox, selected && styles.checkboxBoxSelected]}>
                                   {selected && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
                                 </View>
-                                <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                                  {mName}
-                                </Text>
+                                <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                                  <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                                    {mName}
+                                  </Text>
+                                  {count > 0 ? (
+                                    <View style={[styles.countBadge, { backgroundColor: selected ? '#8B5CF6' : (isDark ? '#334155' : '#E2E8F0') }]}>
+                                      <Text style={[styles.countBadgeText, { color: selected ? '#FFFFFF' : c.textSecondary }]}>
+                                        {count} {count === 1 ? 'car' : 'cars'}
+                                      </Text>
+                                    </View>
+                                  ) : null}
+                                </View>
                               </TouchableOpacity>
                             );
                           })}
@@ -1356,7 +1500,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                 activeOpacity={0.85}
               >
                 <Text style={styles.spinnyApplyButtonText}>
-                  APPLY {items.length > 0 ? `(${items.length} CARS)` : 'FILTERS'}
+                  APPLY ({stagedMatchingCount} {stagedMatchingCount === 1 ? 'CAR' : 'CARS'})
                 </Text>
               </TouchableOpacity>
             </View>
@@ -1655,6 +1799,17 @@ const styles = StyleSheet.create({
   checkboxLabel: {
     fontSize: 13.5,
     fontWeight: '600',
+  },
+  countBadge: {
+    paddingHorizontal: 7,
+    paddingVertical: 2,
+    borderRadius: radius.pill,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  countBadgeText: {
+    fontSize: 11,
+    fontWeight: '700',
   },
   modalSearchBox: {
     flexDirection: 'row',
