@@ -479,6 +479,7 @@ export const App: FC = () => {
   const [studioColor, setStudioColor] = useState('');
   const [studioSummary, setStudioSummary] = useState('');
   const [studioPhotos, setStudioPhotos] = useState('');
+  const [stagedStudioFiles, setStagedStudioFiles] = useState<Array<{ id: string; file: File; previewUrl: string; name: string }>>([]);
   const [studioUploading, setStudioUploading] = useState(false);
   const [studioBranchId, setStudioBranchId] = useState('');
 
@@ -486,7 +487,15 @@ export const App: FC = () => {
   const [publishRetailPrice, setPublishRetailPrice] = useState<string>('');
   const [publishBranchId, setPublishBranchId] = useState('');
 
+  const closeStudioModal = () => {
+    stagedStudioFiles.forEach(s => URL.revokeObjectURL(s.previewUrl));
+    setStagedStudioFiles([]);
+    setStudioModal({ open: false });
+  };
+
   const openStudioModal = (stockItem: VehicleStockUnit) => {
+    stagedStudioFiles.forEach(s => URL.revokeObjectURL(s.previewUrl));
+    setStagedStudioFiles([]);
     setStudioTitle(stockItem.vehicle?.listing?.title || `${stockItem.manufacturingYear} ${stockItem.make} ${stockItem.model} ${stockItem.variant || ''}`.trim());
     setStudioColor(stockItem.vehicle?.color || '');
     setStudioSummary(stockItem.vehicle?.conditionSummary || '');
@@ -899,46 +908,92 @@ export const App: FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const urls = studioPhotos
+      const existingUrls = studioPhotos
         .split('\n')
         .map(u => u.trim())
         .filter(u => u.length > 5);
+
+      const newlyUploadedUrls: string[] = [];
+      if (stagedStudioFiles.length > 0) {
+        setStudioUploading(true);
+        for (const staged of stagedStudioFiles) {
+          const base64Data = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onerror = () => reject(new Error(`Could not read ${staged.name}.`));
+            reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+            reader.readAsDataURL(staged.file);
+          });
+          const result = await api.uploadListingPhoto(user, {
+            base64Data,
+            mimeType: staged.file.type,
+            filename: staged.file.name.replace(/\.[^.]+$/, ''),
+            folder: `vmotiv/listings/${studioModal.stockItem.stockCode}`,
+          });
+          const url = result.secureUrl || result.url;
+          if (!url) throw new Error(`Cloud upload did not return a URL for ${staged.name}.`);
+          newlyUploadedUrls.push(url);
+        }
+      }
+
+      const allUrls = [...existingUrls, ...newlyUploadedUrls];
 
       await api.prepareListing(user, studioModal.stockItem.id, {
         title: studioTitle,
         color: studioColor || undefined,
         conditionSummary: studioSummary || undefined,
-        mediaUrls: urls.length ? urls : undefined,
+        mediaUrls: allUrls.length ? allUrls : undefined,
         branchId: studioBranchId || undefined,
         expectedVersion: studioModal.stockItem.version,
       });
+
+      // Cleanup object URLs and staged files
+      stagedStudioFiles.forEach(s => URL.revokeObjectURL(s.previewUrl));
+      setStagedStudioFiles([]);
+      setStudioPhotos(allUrls.join('\n'));
 
       setSuccessMsg('Listing studio data saved. Status moved to LISTING_READY.');
       setStudioModal({ open: false });
       await loadAllData();
       setActiveTab('publication');
     } catch (err) {
-      setError(err instanceof ApiError ? `Studio Error: ${err.code}` : 'Failed to save listing studio details');
+      setError(err instanceof ApiError ? `Studio Error: ${err.code}` : (err instanceof Error ? err.message : 'Failed to save listing studio details'));
     } finally {
       setLoading(false);
+      setStudioUploading(false);
     }
   };
 
-  const handleStudioPhotoUpload = async (files: FileList | null) => {
-    if (!user || !studioModal.stockItem || !files?.length) return;
-    setStudioUploading(true); setError(null);
+  const handleStudioPhotoSelect = (files: FileList | null) => {
+    if (!files?.length) return;
+    setError(null);
     try {
-      const uploaded: string[] = [];
+      const newStaged: Array<{ id: string; file: File; previewUrl: string; name: string }> = [];
       for (const file of Array.from(files)) {
-        if (!file.type.startsWith('image/')) throw new Error('Only image files can be added to a retail listing.');
-        if (file.size > 12 * 1024 * 1024) throw new Error(`${file.name} is larger than the 12 MB upload limit.`);
-        const base64Data = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error(`Could not read ${file.name}.`)); reader.onload = () => resolve(String(reader.result).split(',')[1] || ''); reader.readAsDataURL(file); });
-        const result = await api.uploadListingPhoto(user, { base64Data, mimeType: file.type, filename: file.name.replace(/\.[^.]+$/, ''), folder: `vmotiv/listings/${studioModal.stockItem.stockCode}` });
-        const url = result.secureUrl || result.url; if (!url) throw new Error(`Cloud upload did not return a URL for ${file.name}.`); uploaded.push(url);
+        if (!file.type.startsWith('image/')) {
+          throw new Error('Only image files (JPEG, PNG, WebP) can be added to a retail listing.');
+        }
+        if (file.size > 12 * 1024 * 1024) {
+          throw new Error(`${file.name} is larger than the 12 MB upload limit.`);
+        }
+        newStaged.push({
+          id: `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          file,
+          previewUrl: URL.createObjectURL(file),
+          name: file.name,
+        });
       }
-      setStudioPhotos(current => [...current.split('\n').filter(Boolean), ...uploaded].join('\n'));
-      setSuccessMsg(`${uploaded.length} photo${uploaded.length === 1 ? '' : 's'} uploaded securely to Cloudinary.`);
-    } catch (err) { setError(err instanceof Error ? err.message : 'Could not upload listing photos.'); } finally { setStudioUploading(false); }
+      setStagedStudioFiles(current => [...current, ...newStaged]);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Could not stage listing photo.');
+    }
+  };
+
+  const removeStagedStudioPhoto = (id: string) => {
+    setStagedStudioFiles(curr => {
+      const target = curr.find(p => p.id === id);
+      if (target) URL.revokeObjectURL(target.previewUrl);
+      return curr.filter(p => p.id !== id);
+    });
   };
 
   const handlePublishSubmit = async (e: FormEvent) => {
@@ -3597,7 +3652,7 @@ export const App: FC = () => {
           <div className="modal-dialog">
             <div className="modal-header">
               <h3>Listing Studio Specifications {isStudioListed ? '🔒 (Locked)' : ''}</h3>
-              <button className="btn-close" onClick={() => setStudioModal({ open: false })}>✕</button>
+              <button className="btn-close" onClick={closeStudioModal}>✕</button>
             </div>
             <form onSubmit={handleStudioSubmit}>
               <div className="modal-body">
@@ -3667,49 +3722,99 @@ export const App: FC = () => {
 
                 <div className="form-group">
                   <label htmlFor="listing-photos">Retail vehicle photos</label>
-                  <input id="listing-photos" type="file" accept="image/jpeg,image/png,image/webp" multiple onChange={e => void handleStudioPhotoUpload(e.target.files)} disabled={isStudioListed || studioUploading || loading} />
-                  <small style={{ color: 'var(--muted)' }}>{isStudioListed ? 'Photos are locked for published marketplace vehicles.' : studioUploading ? 'Uploading securely to Cloudinary…' : 'Upload front, rear, interior, odometer and engine photos. JPEG, PNG or WebP; maximum 12 MB each.'}</small>
-                  {studioPhotos ? (
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.75rem' }}>
-                      {studioPhotos.split('\n').filter(Boolean).map((url, index) => (
-                        <div key={url} style={{ position: 'relative' }}>
-                          <img src={url} alt={`Listing photo ${index + 1}`} style={{ width: 92, height: 64, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
-                          {!isStudioListed ? (
+                  <input
+                    id="listing-photos"
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp"
+                    multiple
+                    onChange={e => {
+                      handleStudioPhotoSelect(e.target.files);
+                      e.target.value = '';
+                    }}
+                    disabled={isStudioListed || studioUploading || loading}
+                  />
+                  <small style={{ color: 'var(--muted)' }}>
+                    {isStudioListed
+                      ? 'Photos are locked for published marketplace vehicles.'
+                      : studioUploading
+                      ? 'Uploading staged photos securely to Cloudinary & saving listing…'
+                      : 'Select photos to stage locally. Photos will ONLY be uploaded to Cloudinary when you click "Save Studio Specifications".'}
+                  </small>
+
+                  {/* Staged photos awaiting save */}
+                  {stagedStudioFiles.length > 0 ? (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.4rem', fontSize: '0.78rem', color: 'var(--yellow)', fontWeight: 600 }}>
+                        <span>⏳ Pending Upload ({stagedStudioFiles.length} photo{stagedStudioFiles.length === 1 ? '' : 's'} staged - will upload on save):</span>
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        {stagedStudioFiles.map((staged, sIdx) => (
+                          <div key={staged.id} style={{ position: 'relative', border: '2px dashed var(--yellow)', borderRadius: 8, padding: 2, background: 'rgba(247, 181, 3, 0.05)' }}>
+                            <img src={staged.previewUrl} alt={`Staged photo ${sIdx + 1}`} style={{ width: 92, height: 64, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
                             <button
                               type="button"
-                              aria-label={`Remove listing photo ${index + 1}`}
-                              onClick={() => setStudioPhotos(current => current.split('\n').filter(item => item !== url).join('\n'))}
+                              aria-label={`Discard staged photo ${sIdx + 1}`}
+                              onClick={() => removeStagedStudioPhoto(staged.id)}
                               style={{ position: 'absolute', top: -7, right: -7, borderRadius: 99, border: 0, width: 22, height: 22, cursor: 'pointer', background: 'var(--red, #EF4444)', color: '#fff', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             >
                               ×
                             </button>
-                          ) : null}
-                          {!isStudioListed && index > 0 ? (
-                            <button
-                              type="button"
-                              title="Make Primary / Hero Photo"
-                              onClick={() => {
-                                const photos = studioPhotos.split('\n').filter(Boolean);
-                                const reordered = [url, ...photos.filter(p => p !== url)];
-                                setStudioPhotos(reordered.join('\n'));
-                              }}
-                              style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(2, 11, 24, 0.85)', color: 'var(--yellow)', border: '1px solid var(--border)', borderRadius: 4, fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}
-                            >
-                              ★ Cover
-                            </button>
-                          ) : index === 0 ? (
-                            <span style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(247, 181, 3, 0.9)', color: '#000', fontWeight: 700, borderRadius: 4, fontSize: '0.65rem', padding: '1px 5px' }}>
-                              Cover
+                            <span style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(0, 0, 0, 0.75)', color: 'var(--yellow)', fontSize: '0.62rem', padding: '1px 4px', borderRadius: 3 }}>
+                              Staged
                             </span>
-                          ) : null}
-                        </div>
-                      ))}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : null}
+
+                  {/* Existing Saved Photos */}
+                  {studioPhotos ? (
+                    <div style={{ marginTop: '0.75rem' }}>
+                      <div style={{ fontSize: '0.78rem', color: 'var(--muted)', marginBottom: '0.4rem', fontWeight: 600 }}>
+                        Current Saved Photos ({studioPhotos.split('\n').filter(Boolean).length}):
+                      </div>
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        {studioPhotos.split('\n').filter(Boolean).map((url, index) => (
+                          <div key={url} style={{ position: 'relative' }}>
+                            <img src={url} alt={`Listing photo ${index + 1}`} style={{ width: 92, height: 64, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
+                            {!isStudioListed ? (
+                              <button
+                                type="button"
+                                aria-label={`Remove listing photo ${index + 1}`}
+                                onClick={() => setStudioPhotos(current => current.split('\n').filter(item => item !== url).join('\n'))}
+                                style={{ position: 'absolute', top: -7, right: -7, borderRadius: 99, border: 0, width: 22, height: 22, cursor: 'pointer', background: 'var(--red, #EF4444)', color: '#fff', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              >
+                                ×
+                              </button>
+                            ) : null}
+                            {!isStudioListed && index > 0 ? (
+                              <button
+                                type="button"
+                                title="Make Primary / Hero Photo"
+                                onClick={() => {
+                                  const photos = studioPhotos.split('\n').filter(Boolean);
+                                  const reordered = [url, ...photos.filter(p => p !== url)];
+                                  setStudioPhotos(reordered.join('\n'));
+                                }}
+                                style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(2, 11, 24, 0.85)', color: 'var(--yellow)', border: '1px solid var(--border)', borderRadius: 4, fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}
+                              >
+                                ★ Cover
+                              </button>
+                            ) : index === 0 ? (
+                              <span style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(247, 181, 3, 0.9)', color: '#000', fontWeight: 700, borderRadius: 4, fontSize: '0.65rem', padding: '1px 5px' }}>
+                                Cover
+                              </span>
+                            ) : null}
+                          </div>
+                        ))}
+                      </div>
                     </div>
                   ) : null}
                 </div>
               </div>
               <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <button type="button" className="btn-secondary" onClick={() => setStudioModal({ open: false })}>
+                <button type="button" className="btn-secondary" onClick={closeStudioModal}>
                   {isStudioListed ? 'Close' : 'Cancel'}
                 </button>
                 {isStudioListed ? (
@@ -3726,7 +3831,11 @@ export const App: FC = () => {
                   ) : null
                 ) : (
                   <button type="submit" className="btn-gold" disabled={loading || studioUploading}>
-                    Save Studio Specifications
+                    {studioUploading
+                      ? 'Uploading to Cloudinary & Saving…'
+                      : stagedStudioFiles.length > 0
+                      ? `Upload & Save (${stagedStudioFiles.length} Staged Photo${stagedStudioFiles.length === 1 ? '' : 's'})`
+                      : 'Save Studio Specifications'}
                   </button>
                 )}
               </div>

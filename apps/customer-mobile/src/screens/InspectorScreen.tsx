@@ -122,7 +122,7 @@ type Report = {
   templateVersion: number;
   identity: Record<string, unknown>;
   answers: Array<{ itemKey: string; status: string; value?: unknown; notes?: string }>;
-  defects: Array<{ category: string; severity: string; description: string; location?: string }>;
+  defects: Array<{ category: string; severity: string; description: string; location?: string; photoUrl?: string }>;
   media?: Array<{ id: string; logicalMediaId: string; storageKey: string; mimeType: string; capturedAt?: string }>;
   parentReport?: {
     id: string;
@@ -387,7 +387,7 @@ export function InspectorScreen() {
   const [insuranceVerified, setInsuranceVerified] = useState(false);
   const [hypothecationDeclared, setHypothecationDeclared] = useState(false);
   const [answers, setAnswers] = useState<Record<string, { status: string; notes?: string }>>({});
-  const [defects, setDefects] = useState<Array<{ category: string; severity: string; description: string; location?: string }>>([]);
+  const [defects, setDefects] = useState<Array<{ category: string; severity: string; description: string; location?: string; photoUrl?: string }>>([]);
   const [capturedPhotos, setCapturedPhotos] = useState<Record<string, EvidencePhoto[]>>({});
   const [photoPickerSlot, setPhotoPickerSlot] = useState<string | null>(null);
   const [previewPhotoUri, setPreviewPhotoUri] = useState<string | null>(null);
@@ -409,6 +409,9 @@ export function InspectorScreen() {
   const [newDefectSev, setNewDefectSev] = useState<'MINOR' | 'MODERATE' | 'MAJOR' | 'CRITICAL'>('MINOR');
   const [newDefectDesc, setNewDefectDesc] = useState('');
   const [newDefectLoc, setNewDefectLoc] = useState('');
+  const [newDefectPhotoUri, setNewDefectPhotoUri] = useState<string | null>(null);
+  const [newDefectPhotoBase64, setNewDefectPhotoBase64] = useState<string | null>(null);
+  const [newDefectUploading, setNewDefectUploading] = useState(false);
 
   // Total Evidence Photos & Completed Slots
   const totalPhotosCount = useMemo(() => {
@@ -583,7 +586,11 @@ export function InspectorScreen() {
         ansMap[a.itemKey] = { status: a.status, notes: a.notes };
       });
       setAnswers(ansMap);
-      setDefects(activeReport.defects || []);
+      const defectPhotos = (iden.defectPhotos as Record<string, string>) || {};
+      setDefects((activeReport.defects || []).map((d: any, idx: number) => ({
+        ...d,
+        photoUrl: d.photoUrl || defectPhotos[String(idx)] || defectPhotos[d.id] || '',
+      })));
 
       // Hydrate existing media photos into slot collections
       if (Array.isArray(activeReport.media) && activeReport.media.length > 0) {
@@ -692,6 +699,10 @@ export function InspectorScreen() {
         insuranceVerified,
         hypothecationDeclared,
         declarationConfirmed: declaration,
+        defectPhotos: defects.reduce((acc, d, i) => {
+          if (d.photoUrl) acc[String(i)] = d.photoUrl;
+          return acc;
+        }, {} as Record<string, string>),
       },
       answers: Object.entries(mergedAnswers).map(([itemKey, val]) => ({
         itemKey,
@@ -703,6 +714,7 @@ export function InspectorScreen() {
         severity: d.severity,
         description: d.description.trim(),
         location: d.location ? d.location.trim() : undefined,
+        photoUrl: d.photoUrl,
       })),
     };
 
@@ -892,6 +904,56 @@ export function InspectorScreen() {
         },
       },
     ]);
+  }
+
+  // 7b. Pick or Capture Photo specifically for a Defect finding
+  async function pickDefectPhoto(mode: 'camera' | 'library') {
+    try {
+      setNewDefectUploading(true);
+      if (mode === 'camera') {
+        const perm = await ImagePicker.requestCameraPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Camera Permission Required', 'Please enable camera permissions in settings to take defect photos.');
+          return;
+        }
+        const result = await ImagePicker.launchCameraAsync({
+          mediaTypes: ['images'],
+          allowsEditing: false,
+          quality: 0.65,
+          base64: true,
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const asset = result.assets[0];
+          if (asset) {
+            setNewDefectPhotoUri(asset.uri);
+            setNewDefectPhotoBase64(asset.base64 || null);
+          }
+        }
+      } else {
+        const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+        if (!perm.granted) {
+          Alert.alert('Photo Library Access Required', 'Please enable photo library access in settings to attach a defect photo.');
+          return;
+        }
+        const result = await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ['images'],
+          allowsMultipleSelection: false,
+          quality: 0.65,
+          base64: true,
+        });
+        if (!result.canceled && result.assets && result.assets.length > 0) {
+          const asset = result.assets[0];
+          if (asset) {
+            setNewDefectPhotoUri(asset.uri);
+            setNewDefectPhotoBase64(asset.base64 || null);
+          }
+        }
+      }
+    } catch (e: any) {
+      console.warn('[PICK_DEFECT_PHOTO_ERROR]', e);
+    } finally {
+      setNewDefectUploading(false);
+    }
   }
 
   // 8. Submit Completed Report
@@ -1463,20 +1525,36 @@ export function InspectorScreen() {
                         </Pressable>
                       </View>
 
-                      {/* Middle: Defect Description */}
-                      <Text style={styles.defectCardDesc}>
-                        {d.description}
-                      </Text>
-
-                      {/* Bottom: Defect Location (if present) */}
-                      {d.location ? (
-                        <View style={styles.defectLocationRow}>
-                          <MapPin size={12} color={color.yellow} />
-                          <Text style={styles.defectCardLoc} numberOfLines={2} ellipsizeMode="tail">
-                            Location: {d.location}
+                      {/* Middle: Defect Description + Photo */}
+                      <View style={styles.defectCardBodyRow}>
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.defectCardDesc}>
+                            {d.description}
                           </Text>
+
+                          {/* Bottom: Defect Location (if present) */}
+                          {d.location ? (
+                            <View style={styles.defectLocationRow}>
+                              <MapPin size={12} color={color.yellow} />
+                              <Text style={styles.defectCardLoc} numberOfLines={2} ellipsizeMode="tail">
+                                Location: {d.location}
+                              </Text>
+                            </View>
+                          ) : null}
                         </View>
-                      ) : null}
+                        {d.photoUrl ? (
+                          <Pressable
+                            style={styles.defectCardPhotoWrap}
+                            onPress={() => setPreviewPhotoUri(d.photoUrl || null)}
+                            accessibilityLabel="View defect photo"
+                          >
+                            <Image source={{ uri: d.photoUrl }} style={styles.defectCardPhoto} />
+                            <View style={styles.defectCardPhotoPill}>
+                              <Eye size={10} color="#FFFFFF" />
+                            </View>
+                          </Pressable>
+                        ) : null}
+                      </View>
                     </View>
                   );
                 })
@@ -1779,6 +1857,54 @@ export function InspectorScreen() {
                     }, 120);
                   }}
                 />
+
+                <Text style={[styles.label, { marginTop: 10 }]}>Defect Evidence Photograph</Text>
+                {newDefectPhotoUri ? (
+                  <View style={styles.defectPhotoPreviewCard}>
+                    <Pressable
+                      style={styles.defectPhotoThumbWrap}
+                      onPress={() => setPreviewPhotoUri(newDefectPhotoUri)}
+                    >
+                      <Image source={{ uri: newDefectPhotoUri }} style={styles.defectPhotoThumb} />
+                      <View style={styles.defectPhotoZoomPill}>
+                        <Eye size={12} color="#FFFFFF" />
+                        <Text style={styles.defectPhotoZoomText}>Zoom</Text>
+                      </View>
+                    </Pressable>
+                    <View style={styles.defectPhotoActions}>
+                      <Text style={styles.defectPhotoAttachedText}>✓ Evidence Attached</Text>
+                      <Pressable
+                        style={styles.defectPhotoRemoveBtn}
+                        onPress={() => {
+                          setNewDefectPhotoUri(null);
+                          setNewDefectPhotoBase64(null);
+                        }}
+                      >
+                        <Trash2 size={13} color={color.danger} />
+                        <Text style={styles.defectPhotoRemoveText}>Remove</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ) : (
+                  <View style={styles.defectPhotoPickerRow}>
+                    <Pressable
+                      style={styles.defectPhotoPickerBtn}
+                      onPress={() => void pickDefectPhoto('camera')}
+                      disabled={newDefectUploading}
+                    >
+                      <Camera size={18} color={color.yellow} />
+                      <Text style={styles.defectPhotoPickerBtnText}>Take Photo</Text>
+                    </Pressable>
+                    <Pressable
+                      style={styles.defectPhotoPickerBtn}
+                      onPress={() => void pickDefectPhoto('library')}
+                      disabled={newDefectUploading}
+                    >
+                      <Images size={18} color={color.yellow} />
+                      <Text style={styles.defectPhotoPickerBtnText}>From Gallery</Text>
+                    </Pressable>
+                  </View>
+                )}
               </ScrollView>
 
               {/* Modal Footer CTA */}
@@ -1787,16 +1913,45 @@ export function InspectorScreen() {
                   style={styles.defectCancelBtn}
                   onPress={() => {
                     Keyboard.dismiss();
+                    setNewDefectPhotoUri(null);
+                    setNewDefectPhotoBase64(null);
                     setDefectModalVisible(false);
                   }}
                 >
                   <Text style={styles.defectCancelText}>Cancel</Text>
                 </Pressable>
                 <Pressable
-                  style={[styles.defectSubmitBtn, !newDefectDesc.trim() && styles.btnDisabled]}
-                  onPress={() => {
-                    if (!newDefectDesc.trim()) return;
+                  style={[styles.defectSubmitBtn, (!newDefectDesc.trim() || newDefectUploading) && styles.btnDisabled]}
+                  onPress={async () => {
+                    if (!newDefectDesc.trim() || newDefectUploading) return;
                     Keyboard.dismiss();
+                    let finalPhotoUrl = newDefectPhotoUri || undefined;
+                    if (newDefectPhotoBase64 && report) {
+                      try {
+                        setNewDefectUploading(true);
+                        const uploadRes = await api<{ storageKey?: string; url?: string }>(
+                          `/api/v2/inspector/reports/${report.id}/media/upload-json`,
+                          {
+                            method: 'POST',
+                            body: JSON.stringify({
+                              slotId: 'defects',
+                              logicalMediaId: `defect_${Date.now()}`,
+                              base64Data: newDefectPhotoBase64,
+                              mimeType: newDefectPhotoUri?.endsWith('.png') ? 'image/png' : 'image/jpeg',
+                              capturedAt: new Date().toISOString(),
+                            }),
+                          }
+                        );
+                        if (uploadRes?.storageKey || uploadRes?.url) {
+                          finalPhotoUrl = uploadRes.storageKey || uploadRes.url;
+                        }
+                      } catch (err) {
+                        console.warn('[DEFECT_PHOTO_UPLOAD_FAILED]', err);
+                      } finally {
+                        setNewDefectUploading(false);
+                      }
+                    }
+
                     setDefects(prev => [
                       ...prev,
                       {
@@ -1804,16 +1959,21 @@ export function InspectorScreen() {
                         severity: newDefectSev,
                         description: newDefectDesc.trim(),
                         location: newDefectLoc.trim() || undefined,
+                        photoUrl: finalPhotoUrl,
                       },
                     ]);
                     setNewDefectDesc('');
                     setNewDefectLoc('');
+                    setNewDefectPhotoUri(null);
+                    setNewDefectPhotoBase64(null);
                     setDefectModalVisible(false);
                   }}
-                  disabled={!newDefectDesc.trim()}
+                  disabled={!newDefectDesc.trim() || newDefectUploading}
                 >
                   <Check size={16} color={color.navy} />
-                  <Text style={styles.defectSubmitText}>Add to Report</Text>
+                  <Text style={styles.defectSubmitText}>
+                    {newDefectUploading ? 'Uploading Photo...' : 'Add to Report'}
+                  </Text>
                 </Pressable>
               </View>
             </View>
@@ -3417,6 +3577,118 @@ const createStyles = (color: any, isDark: boolean) =>
     color: color.textSecondary,
     fontWeight: '600',
     flexShrink: 1,
+  },
+  defectCardBodyRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: 10,
+  },
+  defectCardPhotoWrap: {
+    position: 'relative',
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: color.border,
+  },
+  defectCardPhoto: {
+    width: 62,
+    height: 48,
+    borderRadius: radius.sm,
+    backgroundColor: color.raised,
+  },
+  defectCardPhotoPill: {
+    position: 'absolute',
+    bottom: 2,
+    right: 2,
+    backgroundColor: 'rgba(0, 0, 0, 0.65)',
+    borderRadius: 4,
+    padding: 2,
+  },
+  defectPhotoPreviewCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    padding: 8,
+    backgroundColor: color.input,
+    borderWidth: 1,
+    borderColor: color.border,
+    borderRadius: radius.md,
+  },
+  defectPhotoThumbWrap: {
+    position: 'relative',
+    borderRadius: radius.sm,
+    overflow: 'hidden',
+  },
+  defectPhotoThumb: {
+    width: 80,
+    height: 60,
+    borderRadius: radius.sm,
+    backgroundColor: color.raised,
+  },
+  defectPhotoZoomPill: {
+    position: 'absolute',
+    bottom: 3,
+    right: 3,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    borderRadius: 4,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+  },
+  defectPhotoZoomText: {
+    color: '#fff',
+    fontSize: 9,
+    fontWeight: '700',
+  },
+  defectPhotoActions: {
+    flex: 1,
+    gap: 6,
+  },
+  defectPhotoAttachedText: {
+    color: color.success,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  defectPhotoRemoveBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    alignSelf: 'flex-start',
+    paddingVertical: 4,
+    paddingHorizontal: 8,
+    backgroundColor: 'rgba(239, 68, 68, 0.12)',
+    borderRadius: radius.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.25)',
+  },
+  defectPhotoRemoveText: {
+    color: color.danger,
+    fontSize: 11.5,
+    fontWeight: '700',
+  },
+  defectPhotoPickerRow: {
+    flexDirection: 'row',
+    gap: space.md,
+  },
+  defectPhotoPickerBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 6,
+    paddingVertical: 10,
+    backgroundColor: color.input,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: color.border,
+  },
+  defectPhotoPickerBtnText: {
+    color: color.textSecondary,
+    fontSize: 12.5,
+    fontWeight: '700',
   },
   emptyDefectsCard: {
     backgroundColor: color.surface,

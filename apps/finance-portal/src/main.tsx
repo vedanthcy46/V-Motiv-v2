@@ -538,8 +538,18 @@ function App() {
         {/* Sidebar - Exact Admin Portal Structure */}
         <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
         <div className="brand">
-          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-          <span>FINANCE</span>
+          <div className="brand-main">
+            <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
+            <span>FINANCE</span>
+          </div>
+          <button
+            type="button"
+            className="close-sidebar-btn"
+            aria-label="Close menu"
+            onClick={() => setSidebarOpen(false)}
+          >
+            ✕
+          </button>
         </div>
 
         <nav aria-label="Primary navigation">
@@ -625,32 +635,38 @@ function App() {
       {/* Main Container - Exact Admin Portal Topbar & Content */}
       <div className="app-main">
         <header className="topbar">
-          <button
-            type="button"
-            className="icon-button mobile-menu"
-            aria-label="Open menu"
-            aria-expanded={sidebarOpen}
-            onClick={() => setSidebarOpen(true)}
-          >
-            <IconMenu />
-          </button>
-          <div>
-            <span className="breadcrumb">FINANCE CONTROL CENTRE</span>
-            <strong>
-              {tab === 'overview' && 'Treasury Overview'}
-              {tab === 'seller-settlements' && 'Seller Settlements & Payouts'}
-              {tab === 'buyer-collections' && 'Buyer Payment Obligations'}
-              {tab === 'receipts' && 'Incoming Payment Receipts'}
-              {tab === 'refunds' && 'Customer Refunds & Reversals'}
-              {tab === 'expenses' && 'Vehicle Refurbishment Expenses'}
-              {tab === 'vendors' && 'Authorized Dealership Vendors'}
-              {tab === 'banking' && 'Bank Accounts & Statement Feeds'}
-              {tab === 'exceptions' && 'Reconciliation Exceptions Queue'}
-              {tab === 'ledger' && 'Dealership Chart of Accounts & GL'}
-              {tab === 'invoices' && 'Commercial Tax Invoices'}
-              {tab === 'profitability' && 'Vehicle Unit Profitability Matrix'}
-              {tab === 'audit' && 'Immutable Financial Audit Trail'}
-            </strong>
+          <div className="topbar-left">
+            <button
+              type="button"
+              className="icon-button mobile-menu"
+              aria-label="Open menu"
+              aria-expanded={sidebarOpen}
+              onClick={() => setSidebarOpen(true)}
+            >
+              <IconMenu />
+            </button>
+            <div className="mobile-brand">
+              <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
+              <span>FINANCE</span>
+            </div>
+            <div>
+              <span className="breadcrumb">FINANCE CONTROL CENTRE</span>
+              <strong>
+                {tab === 'overview' && 'Treasury Overview'}
+                {tab === 'seller-settlements' && 'Seller Settlements & Payouts'}
+                {tab === 'buyer-collections' && 'Buyer Payment Obligations'}
+                {tab === 'receipts' && 'Incoming Payment Receipts'}
+                {tab === 'refunds' && 'Customer Refunds & Reversals'}
+                {tab === 'expenses' && 'Vehicle Refurbishment Expenses'}
+                {tab === 'vendors' && 'Authorized Dealership Vendors'}
+                {tab === 'banking' && 'Bank Accounts & Statement Feeds'}
+                {tab === 'exceptions' && 'Reconciliation Exceptions Queue'}
+                {tab === 'ledger' && 'Dealership Chart of Accounts & GL'}
+                {tab === 'invoices' && 'Commercial Tax Invoices'}
+                {tab === 'profitability' && 'Vehicle Unit Profitability Matrix'}
+                {tab === 'audit' && 'Immutable Financial Audit Trail'}
+              </strong>
+            </div>
           </div>
 
           <div className="identity">
@@ -659,8 +675,8 @@ function App() {
             <button className="button secondary small" onClick={() => loadFinanceData(user)} title="Refresh">
               <IconRefresh />
             </button>
-            <button className="button secondary small" onClick={logout}>
-              Sign out
+            <button className="button secondary small" onClick={logout} title="Sign Out">
+              <IconLogout />
             </button>
           </div>
         </header>

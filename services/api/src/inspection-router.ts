@@ -19,6 +19,7 @@ const draftInput = z.object({
     severity: z.enum(['MINOR', 'MODERATE', 'MAJOR', 'CRITICAL']),
     description: z.string().trim().min(1).max(2_000),
     location: z.string().trim().max(200).optional(),
+    photoUrl: z.string().trim().max(2_000).optional(),
   }).strip()).max(100),
 }).strip();
 

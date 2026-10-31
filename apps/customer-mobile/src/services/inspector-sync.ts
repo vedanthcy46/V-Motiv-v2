@@ -10,9 +10,10 @@ export type DraftPayload = {
     insuranceVerified?: boolean;
     hypothecationDeclared?: boolean;
     declarationConfirmed?: boolean;
+    defectPhotos?: Record<string, string>;
   };
   answers: Array<{ itemKey: string; status: string; value?: unknown; notes?: string }>;
-  defects: Array<{ category: string; severity: string; description: string; location?: string }>;
+  defects: Array<{ category: string; severity: string; description: string; location?: string; photoUrl?: string }>;
 };
 
 export type PendingDraft = {

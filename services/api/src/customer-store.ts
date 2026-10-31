@@ -288,10 +288,10 @@ function getInspectionDetailsForVehicle(vehicle: any, listingId: string, custome
       category: defect.category || 'General',
       location: defect.location || 'Location not recorded',
       severity: defect.severity || 'MINOR',
-      repaired: false,
-      actionTaken: 'See the approved inspection report for the recorded finding.',
+      repaired: Boolean(defect.repaired),
+      actionTaken: defect.actionTaken || (defect.repaired ? 'Reconditioned & inspected.' : 'Documented cosmetic finding.'),
       description: defect.description || 'No description recorded.',
-      photoUrl: '',
+      photoUrl: defect.photoUrl || defect.imageUrl || defect.url || '',
     })),
   };
 }

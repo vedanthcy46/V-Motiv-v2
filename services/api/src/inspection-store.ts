@@ -421,7 +421,7 @@ export class PrismaInspectionStore {
       recordVersion?: number;
       identity: Record<string, unknown>;
       answers: Array<{ itemKey: string; status: InspectionAnswerStatus; value?: unknown; notes?: string }>;
-      defects: Array<{ category: string; severity: InspectionDefectSeverity; description: string; location?: string }>;
+      defects: Array<{ category: string; severity: InspectionDefectSeverity; description: string; location?: string; photoUrl?: string }>;
     }
   ) {
     checkRole(actor, inspectorRoles);
@@ -458,6 +458,13 @@ export class PrismaInspectionStore {
     if (typeof draftIdentity.registrationNumber === 'string' && isInvalidRegNumberOrUuid(draftIdentity.registrationNumber)) {
       draftIdentity.registrationNumber = '';
     }
+    const defectPhotosMap = { ...((draftIdentity.defectPhotos as Record<string, string>) || {}) };
+    input.defects.forEach((defect, idx) => {
+      if (defect.photoUrl) {
+        defectPhotosMap[String(idx)] = defect.photoUrl;
+      }
+    });
+    draftIdentity.defectPhotos = defectPhotosMap;
 
     return this.db.$transaction(async tx => {
       await tx.inspectionAnswer.deleteMany({ where: { reportId: id } });
@@ -1713,7 +1720,22 @@ export class PrismaInspectionStore {
       qualityReport: approvedInspection ? {
         source: 'APPROVED_INSPECTION', inspectedAt: approvedInspection.reviewedAt?.toISOString() || approvedInspection.submittedAt?.toISOString() || null,
         overallStatus: 'PASSED', totalChecksCount: approvedInspection.answers.length, passedChecksCount: approvedInspection.answers.filter(answer => answer.status === 'PASS').length,
-        defects: approvedInspection.defects.map(defect => ({ category: defect.category, severity: defect.severity, description: defect.description, location: defect.location })),
+        defects: approvedInspection.defects.map((defect, idx) => {
+          const reportIdentity = (approvedInspection.identity as Record<string, unknown>) || {};
+          const defectPhotos = (reportIdentity.defectPhotos as Record<string, string>) || {};
+          const photoUrl =
+            defectPhotos[String(idx)] ||
+            defectPhotos[defect.id] ||
+            approvedInspection.media.find(m => m.logicalMediaId === `defect_${idx}` || m.logicalMediaId === `defect_${defect.id}` || m.logicalMediaId.startsWith('defect_'))?.storageKey ||
+            '';
+          return {
+            category: defect.category,
+            severity: defect.severity,
+            description: defect.description,
+            location: defect.location,
+            photoUrl,
+          };
+        }),
         evidence: approvedInspection.media.map(media => ({ mimeType: media.mimeType, url: media.storageKey })),
         summary: input.inspectionSummary || stock.vehicle?.inspectionSummary || null,
       } : null,
