@@ -501,6 +501,16 @@ export const financeApi = {
     method: 'POST',
     body: JSON.stringify(body),
   }),
+  recordObligationPayment: (u: User, obligationId: string, body: {
+    amountPaise: string;
+    paymentMode?: string;
+    bankReference?: string;
+    companyBankAccountId?: string;
+    notes?: string;
+  }) => call<BuyerPaymentObligation>(u, `/buyer-obligations/${obligationId}/payments`, {
+    method: 'POST',
+    body: JSON.stringify(body),
+  }),
 
   // Receipts & Allocations
   receipts: (u: User) => call<IncomingReceipt[]>(u, '/receipts'),

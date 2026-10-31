@@ -162,6 +162,30 @@ function setupFinanceApp(activeActor: FinanceActor, overrides: Partial<PrismaFin
         receipt: { id: RECEIPT_ID, unappliedAmountPaise: '0' },
       };
     }),
+    recordBuyerObligationPayment: vi.fn().mockImplementation(async (_actor, obligationId, input) => {
+      return {
+        id: obligationId,
+        obligationNumber: 'OBL-2026-00001',
+        totalPayablePaise: '56000000',
+        totalReceivedPaise: input.amountPaise.toString(),
+        paidAmountPaise: input.amountPaise.toString(),
+        remainingBalancePaise: '0',
+        status: 'PAID_VERIFIED',
+        deliveryEligible: true,
+        allocations: [
+          {
+            id: 'alloc-new',
+            amountPaise: input.amountPaise.toString(),
+            allocatedAt: new Date().toISOString(),
+            receipt: {
+              receiptNumber: 'REC-2026-00001',
+              paymentMode: input.paymentMode || 'NEFT',
+              bankReference: input.bankReference || 'TXN-DIRECT',
+            },
+          },
+        ],
+      };
+    }),
     postJournal: vi.fn().mockImplementation(async (_actor, input) => {
       const sumDr = input.lines.reduce((s: bigint, l: any) => s + BigInt(l.debitPaise), 0n);
       const sumCr = input.lines.reduce((s: bigint, l: any) => s + BigInt(l.creditPaise), 0n);
@@ -447,5 +471,27 @@ describe('Finance Portal Engine & REST API', () => {
     expect(item.realizedGrossMarginPaise).toBe('10500000');
     expect(item.realizedGrossMarginPercent).toBe(10.0);
     expect(item.deliveryEligible).toBe(true);
+  });
+
+  it('records direct buyer obligation payment and unlocks delivery gate', async () => {
+    const { app } = setupFinanceApp(officerActor);
+
+    const res = await request(app)
+      .post(`/api/v2/finance/buyer-obligations/${OBLIGATION_ID}/payments`)
+      .set('Authorization', 'Bearer valid-officer-token')
+      .send({
+        amountPaise: '56000000',
+        paymentMode: 'NEFT',
+        bankReference: 'UTR202610319988',
+        notes: 'Full payment cleared via NEFT',
+      });
+
+    expect(res.status).toBe(201);
+    expect(res.body.status).toBe('PAID_VERIFIED');
+    expect(res.body.remainingBalancePaise).toBe('0');
+    expect(res.body.deliveryEligible).toBe(true);
+    expect(res.body.allocations).toHaveLength(1);
+    expect(res.body.allocations[0].amountPaise).toBe('56000000');
+    expect(res.body.allocations[0].receipt.bankReference).toBe('UTR202610319988');
   });
 });

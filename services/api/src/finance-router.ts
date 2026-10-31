@@ -43,6 +43,20 @@ const verifyInput = z.object({
   observedAt: z.union([z.string().datetime(), z.string()]).transform(value => new Date(value)),
 });
 
+const verifyReceiptInput = z.object({
+  version: z.number().int().positive().optional(),
+  notes: z.string().trim().max(2000).optional(),
+  evidenceUri: z.string().max(1000).optional(),
+});
+
+const recordObligationPaymentInput = z.object({
+  amountPaise: z.union([z.string(), z.number()]),
+  paymentMode: z.string().trim().optional(),
+  bankReference: z.string().trim().max(160).optional(),
+  companyBankAccountId: uuid.or(z.literal('')).optional().transform(v => v || undefined),
+  notes: z.string().trim().max(2000).optional(),
+});
+
 const createObligationInput = z.object({
   customerId: uuid.optional(),
   buyerUserId: uuid.optional(),
@@ -407,10 +421,26 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
           quotationId: input.quotationId,
           reservationId: input.reservationId,
           totalPayablePaise,
+          bookingDepositPaise: input.bookingDepositPaise,
           chargeBreakdown: input.chargeBreakdown,
           dueDate: input.dueDate,
           notes: input.notes,
         })
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/buyer-obligations/:id/payments', async (req, res, next) => {
+    try {
+      const input = recordObligationPaymentInput.parse(req.body);
+      res.status(201).json(
+        await deps.store.recordBuyerObligationPayment(
+          res.locals.financeActor,
+          uuid.parse(req.params.id),
+          input
+        )
       );
     } catch (error) {
       next(error);
@@ -449,12 +479,13 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
 
   router.post('/receipts/:id/verify', async (req, res, next) => {
     try {
-      const input = versionInput.parse(req.body);
+      const input = verifyReceiptInput.parse(req.body);
       res.json(
         await deps.store.verifyIncomingReceipt(
           res.locals.financeActor,
           uuid.parse(req.params.id),
-          input.version
+          input.version,
+          { notes: input.notes, evidenceUri: input.evidenceUri }
         )
       );
     } catch (error) {

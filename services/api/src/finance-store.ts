@@ -54,6 +54,23 @@ function payoutView(payout: any) {
 
 function obligationView(ob: any) {
   if (!ob) return null;
+  const vehicle = ob.listing?.vehicle;
+  const stockUnit = ob.stockUnit || (vehicle ? {
+    vin: vehicle.stockUnit?.registrationNumber || vehicle.stockUnit?.stockCode || '—',
+    make: vehicle.make,
+    model: vehicle.model,
+    variant: vehicle.variant,
+    year: vehicle.manufacturingYear,
+    registrationNumber: vehicle.stockUnit?.registrationNumber || null,
+  } : ob.listing?.title ? {
+    vin: '—',
+    make: ob.listing.title,
+    model: '',
+    variant: '',
+    year: 0,
+    registrationNumber: null,
+  } : null);
+
   return {
     ...ob,
     // Compatibility aliases for existing portal clients. Canonical fields
@@ -62,8 +79,11 @@ function obligationView(ob: any) {
     buyerName: ob.customer?.displayName || ob.buyerName || 'Customer',
     buyerEmail: ob.customer?.email || ob.buyerEmail || null,
     buyerPhone: ob.customer?.phone || ob.buyerPhone || null,
+    vehicleListingId: ob.listingId,
+    vehicleTitle: ob.listing?.title || ob.vehicleTitle || '—',
+    stockUnit,
     salePricePaise: ob.totalPayablePaise ? ob.totalPayablePaise.toString() : '0',
-    bookingDepositPaise: '0',
+    bookingDepositPaise: ob.bookingDepositPaise ? ob.bookingDepositPaise.toString() : '0',
     totalReceivedPaise: ob.paidAmountPaise ? ob.paidAmountPaise.toString() : '0',
     totalPayablePaise: ob.totalPayablePaise ? ob.totalPayablePaise.toString() : '0',
     paidAmountPaise: ob.paidAmountPaise ? ob.paidAmountPaise.toString() : '0',
@@ -72,6 +92,16 @@ function obligationView(ob: any) {
       ? ob.allocations.map((a: any) => ({
           ...a,
           allocatedAmountPaise: a.allocatedAmountPaise ? a.allocatedAmountPaise.toString() : '0',
+          amountPaise: a.allocatedAmountPaise ? a.allocatedAmountPaise.toString() : '0',
+          allocatedAt: a.createdAt || a.allocatedAt || new Date().toISOString(),
+          receipt: a.receipt
+            ? {
+                ...a.receipt,
+                receiptNumber: a.receipt.receiptNumber,
+                paymentMode: a.receipt.paymentMethod || a.receipt.paymentMode,
+                bankReference: a.receipt.transactionReference || a.receipt.bankReference,
+              }
+            : undefined,
         }))
       : undefined,
   };
@@ -783,7 +813,28 @@ export class PrismaFinanceStore {
       orderBy: { createdAt: 'desc' },
       include: {
         customer: { select: { id: true, displayName: true, email: true, phone: true } },
-        listing: { select: { id: true, title: true, pricePaise: true } },
+        listing: {
+          select: {
+            id: true,
+            title: true,
+            pricePaise: true,
+            vehicle: {
+              select: {
+                id: true,
+                make: true,
+                model: true,
+                variant: true,
+                manufacturingYear: true,
+                stockUnit: {
+                  select: {
+                    stockCode: true,
+                    registrationNumber: true,
+                  },
+                },
+              },
+            },
+          },
+        },
         quotation: { select: { id: true, finalAmountPaise: true, status: true } },
         reservation: { select: { id: true, status: true, expiresAt: true } },
         allocations: {
@@ -810,7 +861,15 @@ export class PrismaFinanceStore {
       where: { id },
       include: {
         customer: true,
-        listing: true,
+        listing: {
+          include: {
+            vehicle: {
+              include: {
+                stockUnit: true,
+              },
+            },
+          },
+        },
         quotation: true,
         reservation: true,
         allocations: {
@@ -837,6 +896,7 @@ export class PrismaFinanceStore {
       quotationId?: string;
       reservationId?: string;
       totalPayablePaise: string | number;
+      bookingDepositPaise?: string | number;
       chargeBreakdown?: any;
       dueDate?: string;
       notes?: string;
@@ -916,6 +976,11 @@ export class PrismaFinanceStore {
       }
     }
 
+    const depositPaise = input.bookingDepositPaise ? BigInt(input.bookingDepositPaise) : 0n;
+    const initialPaid = depositPaise > totalPaise ? totalPaise : depositPaise;
+    const initialRemaining = totalPaise - initialPaid;
+    const isSettled = initialRemaining === 0n;
+
     const created = await this.db.buyerPaymentObligation.create({
       data: {
         obligationNumber,
@@ -924,18 +989,71 @@ export class PrismaFinanceStore {
         quotationId: input.quotationId,
         reservationId: input.reservationId,
         totalPayablePaise: totalPaise,
-        paidAmountPaise: 0n,
-        remainingBalancePaise: totalPaise,
+        paidAmountPaise: initialPaid,
+        remainingBalancePaise: initialRemaining,
         chargeBreakdown: input.chargeBreakdown,
         dueDate: input.dueDate ? new Date(input.dueDate) : undefined,
         notes: input.notes,
-        status: 'PENDING',
+        status: isSettled ? 'PAID_VERIFIED' : initialPaid > 0n ? 'PARTIALLY_PAID' : 'PENDING',
+        deliveryEligible: isSettled,
       },
       include: {
-        customer: { select: { displayName: true, email: true } },
-        listing: { select: { title: true } },
+        customer: { select: { displayName: true, email: true, phone: true } },
+        listing: {
+          select: {
+            id: true,
+            title: true,
+            pricePaise: true,
+            vehicle: {
+              select: {
+                id: true,
+                make: true,
+                model: true,
+                variant: true,
+                manufacturingYear: true,
+                stockUnit: {
+                  select: {
+                    stockCode: true,
+                    registrationNumber: true,
+                  },
+                },
+              },
+            },
+          },
+        },
       },
     });
+
+    if (initialPaid > 0n) {
+      const receiptCount = await this.db.incomingReceipt.count();
+      const receiptNumber = `REC-${new Date().getFullYear()}-${String(receiptCount + 1).padStart(5, '0')}`;
+      const receipt = await this.db.incomingReceipt.create({
+        data: {
+          receiptNumber,
+          customerId: resolvedCustomerId,
+          payerName: input.buyerName || 'Valued Buyer',
+          paymentMethod: 'PAYMENT_GATEWAY',
+          transactionReference: `DEP-${Date.now()}`,
+          amountPaise: initialPaid,
+          unappliedAmountPaise: 0n,
+          recordedByEmployeeId: actor.userId,
+          status: 'VERIFIED',
+          verifiedAt: new Date(),
+          verifiedByEmployeeId: actor.userId,
+          notes: `Booking deposit credit for obligation ${obligationNumber}`,
+        },
+      });
+
+      await this.db.receiptAllocation.create({
+        data: {
+          receiptId: receipt.id,
+          obligationId: created.id,
+          allocatedAmountPaise: initialPaid,
+          notes: 'Initial booking deposit allocation',
+          allocatedByEmployeeId: actor.userId,
+        },
+      });
+    }
 
     await this.db.auditEvent.create({
       data: {
@@ -943,11 +1061,237 @@ export class PrismaFinanceStore {
         action: 'FINANCE_BUYER_OBLIGATION_CREATED',
         entityType: 'BuyerPaymentObligation',
         entityId: created.id,
-        details: { obligationNumber, totalPayablePaise: totalPaise.toString() },
+        details: {
+          obligationNumber,
+          totalPayablePaise: totalPaise.toString(),
+          paidAmountPaise: initialPaid.toString(),
+          remainingBalancePaise: initialRemaining.toString(),
+        },
       },
     });
 
-    return obligationView(created);
+    const refreshed = await this.db.buyerPaymentObligation.findUnique({
+      where: { id: created.id },
+      include: {
+        customer: { select: { id: true, displayName: true, email: true, phone: true } },
+        listing: {
+          select: {
+            id: true,
+            title: true,
+            pricePaise: true,
+            vehicle: {
+              select: {
+                id: true,
+                make: true,
+                model: true,
+                variant: true,
+                manufacturingYear: true,
+                stockUnit: {
+                  select: {
+                    stockCode: true,
+                    registrationNumber: true,
+                  },
+                },
+              },
+            },
+          },
+        },
+        allocations: {
+          include: {
+            receipt: {
+              select: {
+                id: true,
+                receiptNumber: true,
+                transactionReference: true,
+                paymentMethod: true,
+                status: true,
+              },
+            },
+          },
+        },
+      },
+    });
+
+    return obligationView(refreshed || created);
+  }
+
+  async recordBuyerObligationPayment(
+    actor: FinanceActor,
+    obligationId: string,
+    input: {
+      amountPaise: string | number;
+      paymentMode?: string;
+      bankReference?: string;
+      companyBankAccountId?: string;
+      notes?: string;
+    }
+  ) {
+    requirePermission(actor, 'finance.receipt.record');
+    const paymentPaise = BigInt(input.amountPaise);
+    if (paymentPaise <= 0n) throw new HttpError(400, 'PAYMENT_AMOUNT_MUST_BE_POSITIVE');
+
+    return this.db.$transaction(async tx => {
+      const obligation = await tx.buyerPaymentObligation.findUnique({
+        where: { id: obligationId },
+        include: {
+          customer: true,
+          listing: {
+            include: {
+              vehicle: {
+                include: {
+                  stockUnit: true,
+                },
+              },
+            },
+          },
+        },
+      });
+      if (!obligation) throw new HttpError(404, 'OBLIGATION_NOT_FOUND');
+      if (['PAID_VERIFIED', 'CANCELLED', 'REFUNDED'].includes(obligation.status)) {
+        throw new HttpError(409, 'OBLIGATION_ALREADY_SETTLED_OR_CANCELLED');
+      }
+      if (obligation.remainingBalancePaise < paymentPaise) {
+        throw new HttpError(409, 'PAYMENT_EXCEEDS_REMAINING_BALANCE');
+      }
+
+      // Generate receipt number
+      const receiptCount = await tx.incomingReceipt.count();
+      const receiptNumber = `REC-${new Date().getFullYear()}-${String(receiptCount + 1).padStart(5, '0')}`;
+      const validMethods = ['MANUAL_BANK_TRANSFER', 'NEFT', 'RTGS', 'IMPS', 'UPI', 'PAYMENT_GATEWAY', 'FINANCE_PARTNER'];
+      let method: any = 'NEFT';
+      const inputMode = (input.paymentMode || 'NEFT').toUpperCase();
+      if (validMethods.includes(inputMode)) {
+        method = inputMode;
+      } else if (inputMode === 'BANK_TRANSFER') {
+        method = 'MANUAL_BANK_TRANSFER';
+      } else if (inputMode === 'ONLINE_GATEWAY') {
+        method = 'PAYMENT_GATEWAY';
+      }
+      const bankRef = input.bankReference || `DIRECT-${Date.now()}`;
+
+      // Create verified incoming receipt
+      const receipt = await tx.incomingReceipt.create({
+        data: {
+          receiptNumber,
+          customerId: obligation.customerId,
+          payerName: obligation.customer?.displayName || 'Buyer',
+          paymentMethod: method,
+          transactionReference: bankRef,
+          amountPaise: paymentPaise,
+          unappliedAmountPaise: 0n,
+          companyBankAccountId: input.companyBankAccountId || null,
+          recordedByEmployeeId: actor.userId,
+          status: 'VERIFIED',
+          verifiedAt: new Date(),
+          verifiedByEmployeeId: actor.userId,
+          notes: input.notes || `Direct payment recorded for obligation ${obligation.obligationNumber}`,
+        },
+      });
+
+      // Create allocation record
+      const allocation = await tx.receiptAllocation.create({
+        data: {
+          receiptId: receipt.id,
+          obligationId: obligation.id,
+          allocatedAmountPaise: paymentPaise,
+          notes: input.notes,
+          allocatedByEmployeeId: actor.userId,
+        },
+      });
+
+      // Update obligation balance & status
+      const newPaid = obligation.paidAmountPaise + paymentPaise;
+      const newRemaining = obligation.remainingBalancePaise - paymentPaise;
+      const isFullySettled = newRemaining === 0n;
+
+      const updatedObligation = await tx.buyerPaymentObligation.update({
+        where: { id: obligation.id },
+        data: {
+          paidAmountPaise: newPaid,
+          remainingBalancePaise: newRemaining,
+          status: isFullySettled ? 'PAID_VERIFIED' : 'PARTIALLY_PAID',
+          deliveryEligible: isFullySettled,
+          version: { increment: 1 },
+        },
+        include: {
+          customer: { select: { id: true, displayName: true, email: true, phone: true } },
+          listing: {
+            select: {
+              id: true,
+              title: true,
+              pricePaise: true,
+              vehicle: {
+                select: {
+                  id: true,
+                  make: true,
+                  model: true,
+                  variant: true,
+                  manufacturingYear: true,
+                  stockUnit: {
+                    select: {
+                      stockCode: true,
+                      registrationNumber: true,
+                    },
+                  },
+                },
+              },
+            },
+          },
+          allocations: {
+            include: {
+              receipt: {
+                select: {
+                  id: true,
+                  receiptNumber: true,
+                  transactionReference: true,
+                  paymentMethod: true,
+                  status: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'FINANCE_BUYER_PAYMENT_RECORDED',
+          entityType: 'BuyerPaymentObligation',
+          entityId: obligation.id,
+          details: {
+            receiptNumber,
+            allocatedAmountPaise: paymentPaise.toString(),
+            remainingBalancePaise: newRemaining.toString(),
+            isFullySettled,
+          },
+        },
+      });
+
+      if (this.notificationService) {
+        await this.notificationService.dispatchDomainEvent(
+          {
+            type: 'FINANCE_BUYER_PAYMENT_VERIFIED',
+            category: 'FINANCE',
+            priority: 'HIGH',
+            recipientRoles: ['SALES', 'OPERATIONS', 'SUPER_ADMIN'],
+            recipientUserIds: [obligation.customerId],
+            title: isFullySettled
+              ? `Vehicle Fully Paid: ${obligation.listing?.title || 'Vehicle'}`
+              : `Payment Received: ₹${Number(paymentPaise / 100n).toLocaleString('en-IN')}`,
+            body: isFullySettled
+              ? `Full payment verified for ${obligation.listing?.title || 'Vehicle'}. Vehicle delivery is now eligible.`
+              : `Payment of ₹${Number(paymentPaise / 100n).toLocaleString('en-IN')} received for ${obligation.listing?.title || 'Vehicle'}. Remaining balance: ₹${Number(newRemaining / 100n).toLocaleString('en-IN')}.`,
+            actionUrl: obligation.listingId ? `/vehicles/${obligation.listingId}` : undefined,
+            referenceId: obligation.id,
+            entityType: 'BuyerPaymentObligation',
+          },
+          tx
+        );
+      }
+
+      return obligationView(updatedObligation);
+    });
   }
 
   async incomingReceipts(actor: FinanceActor, query?: { status?: string }) {
@@ -1027,7 +1371,12 @@ export class PrismaFinanceStore {
     return receiptView(created);
   }
 
-  async verifyIncomingReceipt(actor: FinanceActor, id: string, version: number | undefined) {
+  async verifyIncomingReceipt(
+    actor: FinanceActor,
+    id: string,
+    version?: number,
+    details?: { notes?: string; evidenceUri?: string }
+  ) {
     requirePermission(actor, 'finance.receipt.reconcile');
     const receipt = await this.db.incomingReceipt.findUnique({ where: { id } });
     if (!receipt) throw new HttpError(404, 'RECEIPT_NOT_FOUND');
@@ -1042,6 +1391,8 @@ export class PrismaFinanceStore {
         status: 'VERIFIED',
         verifiedByEmployeeId: actor.userId,
         verifiedAt: new Date(),
+        notes: details?.notes || receipt.notes,
+        evidenceUri: details?.evidenceUri || receipt.evidenceUri,
         version: { increment: 1 },
       },
     });
@@ -2267,18 +2618,30 @@ export class PrismaFinanceStore {
 
       return {
         id: u.id,
+        stockUnitId: u.id,
         stockCode: u.stockCode,
-        title: `${u.manufacturingYear} ${u.make} ${u.model} ${u.variant || ''}`.trim(),
+        title: `${u.manufacturingYear || u.vehicle?.manufacturingYear || ''} ${u.make || u.vehicle?.make || ''} ${u.model || u.vehicle?.model || ''} ${u.variant || u.vehicle?.variant || ''}`.trim(),
+        year: u.manufacturingYear || u.vehicle?.manufacturingYear || 0,
+        make: u.make || u.vehicle?.make || 'Unknown',
+        model: u.model || u.vehicle?.model || '',
+        variant: u.variant || u.vehicle?.variant || '',
+        vin: u.registrationNumber || u.stockCode || '—',
         registrationNumber: u.registrationNumber,
         status: u.status,
         acquisitionCostPaise: acqCost.toString(),
         refurbishmentCostPaise: totalRefurbishment.toString(),
+        refurbishmentExpensesPaise: totalRefurbishment.toString(),
         totalInvestedCostPaise: totalInvested.toString(),
+        totalInvestedPaise: totalInvested.toString(),
         listingPricePaise: listingPrice.toString(),
         realizedSalePaise: realizedSale.toString(),
+        realizedSalePricePaise: realizedSale.toString(),
         grossMarginPaise: grossMarginPaise.toString(),
+        realizedGrossMarginPaise: grossMarginPaise.toString(),
         marginPercentage,
+        realizedGrossMarginPercent: Number(marginPercentage) || 0,
         isSold,
+        deliveryEligible: ['DELIVERED', 'SOLD'].includes(u.status) || isSold,
       };
     });
   }

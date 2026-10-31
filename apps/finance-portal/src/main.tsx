@@ -970,8 +970,13 @@ function App() {
                             <td>
                               {ob.stockUnit ? (
                                 <div>
-                                  <strong>{ob.stockUnit.year} {ob.stockUnit.make} {ob.stockUnit.model}</strong>
-                                  <small>VIN: {ob.stockUnit.vin}</small>
+                                  <strong>{ob.stockUnit.year ? `${ob.stockUnit.year} ` : ''}{ob.stockUnit.make} {ob.stockUnit.model}</strong>
+                                  <small>VIN: {ob.stockUnit.vin || '—'}</small>
+                                </div>
+                              ) : (ob as any).listing?.title ? (
+                                <div>
+                                  <strong>{(ob as any).listing.title}</strong>
+                                  <small>{(ob as any).listingId ? `ID: ${(ob as any).listingId.slice(0, 8)}` : 'Listing'}</small>
                                 </div>
                               ) : (
                                 '—'
@@ -991,12 +996,22 @@ function App() {
                               <span className="status neutral"><span /> {text(ob.status)}</span>
                             </td>
                             <td>
-                              <button
-                                className="button secondary small"
-                                onClick={() => { setSelectedItem(ob); setActiveModal('VIEW_OBLIGATION_ALLOCATIONS'); }}
-                              >
-                                Allocations ({ob.allocations?.length || 0})
-                              </button>
+                              <div style={{ display: 'flex', gap: '0.4rem', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
+                                {BigInt(ob.remainingBalancePaise || '0') > 0n && (
+                                  <button
+                                    className="button primary small"
+                                    onClick={() => { setSelectedItem(ob); setActiveModal('RECORD_OBLIGATION_PAYMENT'); }}
+                                  >
+                                    + Record Payment
+                                  </button>
+                                )}
+                                <button
+                                  className="button secondary small"
+                                  onClick={() => { setSelectedItem(ob); setActiveModal('VIEW_OBLIGATION_ALLOCATIONS'); }}
+                                >
+                                  Allocations ({ob.allocations?.length || 0})
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -1063,7 +1078,7 @@ function App() {
                         </td>
                         <td>
                           <div style={{ display: 'flex', gap: '0.4rem' }}>
-                            {rc.status === 'UNVERIFIED' && (
+                            {(rc.status === 'PENDING_VERIFICATION' || rc.status === 'UNVERIFIED') && (
                               <button
                                 className="button primary small"
                                 onClick={() => { setSelectedItem(rc); setActiveModal('VERIFY_RECEIPT'); }}
@@ -1649,27 +1664,40 @@ function App() {
                   <tbody>
                     {profitability.map(p => {
                       const isProfit = BigInt(p.realizedGrossMarginPaise || '0') >= 0n;
+                      const hasRealizedSale = BigInt(p.realizedSalePricePaise || '0') > 0n || p.deliveryEligible || p.status === 'SOLD' || p.status === 'DELIVERED';
                       return (
-                        <tr key={p.stockUnitId}>
+                        <tr key={p.stockUnitId || p.vin}>
                           <td>
-                            <strong>{p.year} {p.make} {p.model}</strong>
-                            <small>VIN: <span className="code-pill">{p.vin}</span></small>
+                            <strong>{p.year ? `${p.year} ` : ''}{p.make || ''} {p.model || ''}{(!p.make && (p as any).title) ? (p as any).title : ''}</strong>
+                            <small>VIN: <span className="code-pill">{p.vin || (p as any).registrationNumber || (p as any).stockCode || '—'}</span></small>
                           </td>
                           <td className="money">{money(p.acquisitionCostPaise)}</td>
-                          <td className="money" style={{ color: 'var(--warning)' }}>{money(p.refurbishmentExpensesPaise)}</td>
-                          <td className="money">{money(p.totalInvestedPaise)}</td>
-                          <td className="money" style={{ color: 'var(--success)' }}>{money(p.realizedSalePricePaise)}</td>
-                          <td className="money" style={{ color: isProfit ? 'var(--success)' : 'var(--danger)' }}>
-                            {money(p.realizedGrossMarginPaise)}
+                          <td className="money" style={{ color: 'var(--warning)' }}>
+                            {money(p.refurbishmentExpensesPaise || (p as any).refurbishmentCostPaise || '0')}
+                          </td>
+                          <td className="money">
+                            {money(p.totalInvestedPaise || (p as any).totalInvestedCostPaise || p.acquisitionCostPaise)}
+                          </td>
+                          <td className="money" style={{ color: hasRealizedSale ? 'var(--success)' : 'var(--muted)' }}>
+                            {hasRealizedSale
+                              ? money(p.realizedSalePricePaise && BigInt(p.realizedSalePricePaise) > 0n ? p.realizedSalePricePaise : p.acquisitionCostPaise)
+                              : 'Unsold (In Stock)'}
+                          </td>
+                          <td className="money" style={{ color: hasRealizedSale ? (isProfit ? 'var(--success)' : 'var(--danger)') : 'var(--muted)' }}>
+                            {hasRealizedSale ? money(p.realizedGrossMarginPaise) : '—'}
                           </td>
                           <td>
                             {(() => {
                               const marginPct = typeof p.realizedGrossMarginPercent === 'number' && !isNaN(p.realizedGrossMarginPercent)
                                 ? p.realizedGrossMarginPercent
                                 : 0;
-                              return (
+                              return hasRealizedSale ? (
                                 <span className={`status ${marginPct >= 8 ? 'success' : marginPct > 0 ? 'warning' : 'danger'}`}>
                                   <span /> {marginPct.toFixed(1)}%
+                                </span>
+                              ) : (
+                                <span className="status neutral">
+                                  <span /> In Stock
                                 </span>
                               );
                             })()}
@@ -1798,6 +1826,19 @@ function App() {
         <ViewObligationAllocationsDialog
           obligation={selectedItem}
           onClose={() => { setActiveModal(null); setSelectedItem(null); }}
+          onRecordPayment={() => setActiveModal('RECORD_OBLIGATION_PAYMENT')}
+        />
+      )}
+
+      {/* MODAL 6b: RECORD BUYER OBLIGATION PAYMENT */}
+      {activeModal === 'RECORD_OBLIGATION_PAYMENT' && selectedItem && (
+        <RecordObligationPaymentDialog
+          obligation={selectedItem}
+          user={user}
+          busy={busy}
+          bankAccounts={bankAccounts}
+          onClose={() => { setActiveModal(null); setSelectedItem(null); }}
+          onAction={runAction}
         />
       )}
 
@@ -2888,9 +2929,11 @@ function CreateObligationDialog({
 function ViewObligationAllocationsDialog({
   obligation,
   onClose,
+  onRecordPayment,
 }: {
   obligation: BuyerPaymentObligation;
   onClose: () => void;
+  onRecordPayment?: () => void;
 }) {
   return (
     <ModalDialog className="dialog wide" onClose={onClose}>
@@ -2939,8 +2982,150 @@ function ViewObligationAllocationsDialog({
 
         <footer>
           <button type="button" className="button secondary" onClick={onClose}>Close</button>
+          {BigInt(obligation.remainingBalancePaise || '0') > 0n && onRecordPayment && (
+            <button type="button" className="button primary" onClick={onRecordPayment}>
+              + Record Payment
+            </button>
+          )}
         </footer>
       </div>
+    </ModalDialog>
+  );
+}
+
+function RecordObligationPaymentDialog({
+  obligation,
+  user,
+  busy,
+  bankAccounts,
+  onClose,
+  onAction,
+}: {
+  obligation: BuyerPaymentObligation;
+  user: User;
+  busy: boolean;
+  bankAccounts: CompanyBankAccount[];
+  onClose: () => void;
+  onAction: (task: () => Promise<unknown>) => void;
+}) {
+  const remainingRupees = Math.max(0, Math.round(Number(obligation.remainingBalancePaise || '0') / 100));
+
+  const submit = (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    const fd = new FormData(e.currentTarget);
+    const amountVal = Number(fd.get('amountRupees'));
+    const amountPaise = BigInt(Math.round(amountVal * 100)).toString();
+    const paymentMode = String(fd.get('paymentMode') || 'NEFT');
+    const bankReference = String(fd.get('bankReference') || '').trim();
+    const companyBankAccountId = String(fd.get('companyBankAccountId') || '').trim() || undefined;
+    const notes = String(fd.get('notes') || '').trim() || undefined;
+
+    onAction(() =>
+      financeApi.recordObligationPayment(user, obligation.id, {
+        amountPaise,
+        paymentMode,
+        bankReference: bankReference || undefined,
+        companyBankAccountId,
+        notes,
+      })
+    );
+  };
+
+  return (
+    <ModalDialog className="dialog" onClose={onClose}>
+      <form onSubmit={submit}>
+        <header>
+          <div>
+            <p className="eyebrow">RECEIVE FUNDS</p>
+            <h2>Record Payment — {obligation.obligationNumber}</h2>
+          </div>
+          <button type="button" className="icon-button" onClick={onClose}><IconCross /></button>
+        </header>
+
+        <div className="alert info" style={{ margin: '1rem 0' }}>
+          <div>Buyer: <strong>{obligation.buyerName}</strong></div>
+          {obligation.stockUnit && (
+            <div>Vehicle: <strong>{obligation.stockUnit.year} {obligation.stockUnit.make} {obligation.stockUnit.model}</strong> (VIN: {obligation.stockUnit.vin})</div>
+          )}
+          <div style={{ marginTop: '0.4rem' }}>
+            Payable: <strong>{money(obligation.totalPayablePaise)}</strong> · Received: <strong>{money(obligation.totalReceivedPaise)}</strong> · Balance: <strong>{money(obligation.remainingBalancePaise)}</strong>
+          </div>
+        </div>
+
+        <div className="form-grid">
+          <div>
+            <label>
+              Received Amount (₹ Rupees) <span aria-hidden="true">*</span>
+              <input
+                name="amountRupees"
+                type="number"
+                step="1"
+                required
+                min="1"
+                max={remainingRupees}
+                defaultValue={remainingRupees}
+              />
+            </label>
+          </div>
+
+          <div>
+            <label>
+              Payment Mode <span aria-hidden="true">*</span>
+              <select name="paymentMode" defaultValue="NEFT" required>
+                <option value="NEFT">NEFT (National Electronic Funds Transfer)</option>
+                <option value="RTGS">RTGS (Real Time Gross Settlement)</option>
+                <option value="IMPS">IMPS (Immediate Payment Service)</option>
+                <option value="UPI">UPI / QR Code</option>
+                <option value="MANUAL_BANK_TRANSFER">Direct Bank Transfer</option>
+                <option value="PAYMENT_GATEWAY">Online Payment Gateway</option>
+                <option value="FINANCE_PARTNER">Bank Loan / Auto Finance Partner</option>
+              </select>
+            </label>
+          </div>
+
+          <div>
+            <label>
+              Bank Reference / UTR Number <span aria-hidden="true">*</span>
+              <input
+                name="bankReference"
+                type="text"
+                required
+                placeholder="e.g. UTR92837482910"
+              />
+            </label>
+          </div>
+
+          <div>
+            <label>
+              Deposited To (Company Bank Account)
+              <select name="companyBankAccountId" defaultValue="">
+                <option value="">Select Account (Optional)</option>
+                {bankAccounts.filter(b => b.active).map(b => (
+                  <option key={b.id} value={b.id}>{b.bankName} ({b.accountNumberMasked})</option>
+                ))}
+              </select>
+            </label>
+          </div>
+
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label>
+              Accounting Notes & Narration
+              <textarea
+                name="notes"
+                rows={2}
+                placeholder="e.g. Customer transferred balance from HDFC account for delivery release"
+              />
+            </label>
+          </div>
+        </div>
+
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+          <button type="submit" className="button primary" disabled={busy}>
+            {busy ? 'Recording Payment...' : 'Confirm & Apply Payment'}
+          </button>
+        </footer>
+      </form>
     </ModalDialog>
   );
 }
