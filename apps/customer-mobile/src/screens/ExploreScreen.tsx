@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -101,6 +102,22 @@ const POPULAR_BRANDS = [
   'Ford',
 ];
 
+const DEFAULT_MODELS_BY_BRAND: Record<string, string[]> = {
+  'Maruti Suzuki': ['Swift', 'Baleno', 'Dzire', 'Brezza', 'Ertiga', 'Wagon R', 'Alto', 'Grand Vitara', 'Fronx', 'Ciaz', 'XL6', 'Ignis', 'S-Presso'],
+  'Hyundai': ['Creta', 'i20', 'Venue', 'Verna', 'Grand i10', 'Aura', 'Tucson', 'Alcazar', 'Exter', 'Santro', 'i10 Active'],
+  'Tata': ['Nexon', 'Punch', 'Harrier', 'Safari', 'Altroz', 'Tiago', 'Tigor', 'Curvv', 'Nexon EV'],
+  'Mahindra': ['Thar', 'Scorpio', 'Scorpio-N', 'XUV700', 'XUV300', 'XUV3XO', 'Bolero', 'XUV400'],
+  'Honda': ['City', 'Amaze', 'Elevate', 'WR-V', 'Jazz', 'Civic', 'CR-V'],
+  'Toyota': ['Innova', 'Innova Crysta', 'Innova Hycross', 'Fortuner', 'Urban Cruiser', 'Glanza', 'Hyryder', 'Yaris'],
+  'Kia': ['Seltos', 'Sonet', 'Carens', 'Carnival', 'EV6'],
+  'Volkswagen': ['Polo', 'Vento', 'Taigun', 'Virtus', 'Tiguan'],
+  'Skoda': ['Slavia', 'Kushaq', 'Rapid', 'Octavia', 'Superb'],
+  'Renault': ['Kwid', 'Triber', 'Kiger', 'Duster'],
+  'Nissan': ['Magnite', 'Kicks', 'Sunny', 'Micra'],
+  'MG': ['Hector', 'Astor', 'ZS EV', 'Comet EV'],
+  'Ford': ['EcoSport', 'Endeavour', 'Figo', 'Aspire'],
+};
+
 const YEAR_OPTIONS = [
   { value: 2023, label: '2023 & newer' },
   { value: 2021, label: '2021 & newer' },
@@ -182,7 +199,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   const [sort, setSort] = useState<'newest' | 'price_asc' | 'price_desc' | 'year_desc'>('newest');
   const [city, setCity] = useState('');
   const [priceRange, setPriceRange] = useState('');
-  const [brand, setBrand] = useState('');
+  const [brands, setBrands] = useState<string[]>([]);
+  const [models, setModels] = useState<string[]>([]);
   const [minYear, setMinYear] = useState<number | null>(null);
   const [maxKm, setMaxKm] = useState<number | null>(null);
   const [fuelType, setFuelType] = useState('');
@@ -199,7 +217,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
 
   // Staged Filter States
   const [stagedPriceRange, setStagedPriceRange] = useState('');
-  const [stagedBrand, setStagedBrand] = useState('');
+  const [stagedBrands, setStagedBrands] = useState<string[]>([]);
+  const [stagedModels, setStagedModels] = useState<string[]>([]);
   const [stagedMinYear, setStagedMinYear] = useState<number | null>(null);
   const [stagedMaxKm, setStagedMaxKm] = useState<number | null>(null);
   const [stagedFuelType, setStagedFuelType] = useState('');
@@ -210,6 +229,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   const [stagedFeatures, setStagedFeatures] = useState<string[]>([]);
 
   const [cities, setCities] = useState<SupportedCity[]>([]);
+  const [masterDataList, setMasterDataList] = useState<Array<{ id: string; category: string; code: string; name: string; parentCode: string | null }>>([]);
   const [activeDriveIds, setActiveDriveIds] = useState<Set<string>>(new Set());
   const [saveMessage, setSaveMessage] = useState('');
   const requestId = useRef(0);
@@ -217,6 +237,71 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+
+  // Dynamic Master Data matching Admin Portal
+  const availableBrands = useMemo(() => {
+    const fromMaster = masterDataList
+      .filter((i) => i.category === 'MAKE')
+      .map((i) => i.name.trim());
+    if (fromMaster.length > 0) {
+      return Array.from(new Set([...fromMaster, ...POPULAR_BRANDS]));
+    }
+    return POPULAR_BRANDS;
+  }, [masterDataList]);
+
+  const availableModels = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    Object.entries(DEFAULT_MODELS_BY_BRAND).forEach(([k, list]) => {
+      map[k] = [...list];
+    });
+    masterDataList
+      .filter((i) => i.category === 'MODEL')
+      .forEach((m) => {
+        const parentMake = m.parentCode
+          ? masterDataList.find((make) => make.code === m.parentCode || make.name.toLowerCase() === m.parentCode?.toLowerCase())?.name || m.parentCode
+          : 'Other';
+        if (!map[parentMake]) map[parentMake] = [];
+        if (!map[parentMake].includes(m.name)) map[parentMake].push(m.name);
+      });
+    return map;
+  }, [masterDataList]);
+
+  const availableBodyTypes = useMemo(() => {
+    const fromMaster = masterDataList.filter((i) => i.category === 'BODY_TYPE');
+    if (fromMaster.length > 0) {
+      return fromMaster.map((i) => ({
+        key: i.code,
+        label: i.name,
+        icon: BODY_OPTIONS.find((b) => b.key === i.code)?.icon || '🚗',
+      }));
+    }
+    return BODY_OPTIONS;
+  }, [masterDataList]);
+
+  const availableFuelTypes = useMemo(() => {
+    const fromMaster = masterDataList.filter((i) => i.category === 'FUEL_TYPE');
+    if (fromMaster.length > 0) {
+      return fromMaster.map((i) => ({
+        key: i.code,
+        label: i.name,
+      }));
+    }
+    return FUEL_OPTIONS;
+  }, [masterDataList]);
+
+  const availableTransmissions = useMemo(() => {
+    const fromMaster = masterDataList.filter((i) => i.category === 'TRANSMISSION');
+    if (fromMaster.length > 0) {
+      return fromMaster.map((i) => ({
+        key: i.code,
+        label: i.name,
+      }));
+    }
+    return [
+      { key: 'MANUAL', label: 'Manual' },
+      { key: 'AUTOMATIC', label: 'Automatic' },
+    ];
+  }, [masterDataList]);
 
   const load = useCallback(
     async (term = search) => {
@@ -230,7 +315,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
           city: city || undefined,
           fuelType: fuelType || undefined,
           transmission: transmission || undefined,
-          make: brand || undefined,
+          make: brands.length > 0 ? brands.join(',') : undefined,
+          model: models.length > 0 ? models.join(',') : undefined,
           bodyType: bodyType || undefined,
           color: color || undefined,
           minYear: minYear || undefined,
@@ -247,16 +333,17 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
         }
       }
     },
-    [search, sort, city, priceRange, brand, minYear, maxKm, fuelType, bodyType, transmission, color]
+    [search, sort, city, priceRange, brands, models, minYear, maxKm, fuelType, bodyType, transmission, color]
   );
 
   useEffect(() => {
     const timer = setTimeout(() => void load(search), search ? 300 : 0);
     return () => clearTimeout(timer);
-  }, [load, search, sort, city, priceRange, brand, minYear, maxKm, fuelType, bodyType, transmission, color]);
+  }, [load, search, sort, city, priceRange, brands, models, minYear, maxKm, fuelType, bodyType, transmission, color]);
 
   useEffect(() => {
     void customer.cities().then(setCities).catch(() => undefined);
+    void customer.masterData().then(setMasterDataList).catch(() => undefined);
   }, []);
 
   useFocusEffect(
@@ -298,7 +385,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
 
   const activeFilterCount = [
     Boolean(priceRange),
-    Boolean(brand),
+    brands.length > 0,
+    models.length > 0,
     Boolean(minYear),
     Boolean(maxKm),
     Boolean(fuelType),
@@ -316,7 +404,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
     setSearch('');
     setCity('');
     setPriceRange('');
-    setBrand('');
+    setBrands([]);
+    setModels([]);
     setMinYear(null);
     setMaxKm(null);
     setFuelType('');
@@ -330,7 +419,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
 
   const openFilterModal = (cat: FilterCategoryKey = 'PRICE') => {
     setStagedPriceRange(priceRange);
-    setStagedBrand(brand);
+    setStagedBrands([...brands]);
+    setStagedModels([...models]);
     setStagedMinYear(minYear);
     setStagedMaxKm(maxKm);
     setStagedFuelType(fuelType);
@@ -346,7 +436,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
 
   const handleClearAllStaged = () => {
     setStagedPriceRange('');
-    setStagedBrand('');
+    setStagedBrands([]);
+    setStagedModels([]);
     setStagedMinYear(null);
     setStagedMaxKm(null);
     setStagedFuelType('');
@@ -359,7 +450,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
 
   const handleApplyStaged = () => {
     setPriceRange(stagedPriceRange);
-    setBrand(stagedBrand);
+    setBrands([...stagedBrands]);
+    setModels([...stagedModels]);
     setMinYear(stagedMinYear);
     setMaxKm(stagedMaxKm);
     setFuelType(stagedFuelType);
@@ -395,7 +487,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
       case 'PRICE':
         return Boolean(stagedPriceRange);
       case 'BRANDS':
-        return Boolean(stagedBrand);
+        return stagedBrands.length > 0 || stagedModels.length > 0;
       case 'YEAR':
         return Boolean(stagedMinYear);
       case 'KMS':
@@ -417,9 +509,32 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
     }
   };
 
-  const filteredBrands = POPULAR_BRANDS.filter((b) =>
-    b.toLowerCase().includes(brandSearch.trim().toLowerCase())
-  );
+  const filteredBrands = useMemo(() => {
+    const q = brandSearch.trim().toLowerCase();
+    if (!q) return availableBrands;
+    return availableBrands.filter((b) => b.toLowerCase().includes(q));
+  }, [availableBrands, brandSearch]);
+
+  const displayModels = useMemo(() => {
+    const q = brandSearch.trim().toLowerCase();
+    let modelPool: string[] = [];
+    if (stagedBrands.length > 0) {
+      stagedBrands.forEach((b) => {
+        const list = availableModels[b] || [];
+        list.forEach((m) => {
+          if (!modelPool.includes(m)) modelPool.push(m);
+        });
+      });
+    } else {
+      Object.values(availableModels).forEach((list) => {
+        list.forEach((m) => {
+          if (!modelPool.includes(m)) modelPool.push(m);
+        });
+      });
+    }
+    if (!q) return modelPool;
+    return modelPool.filter((m) => m.toLowerCase().includes(q));
+  }, [stagedBrands, availableModels, brandSearch]);
 
   return (
     <View style={[styles.container, { backgroundColor: c.background, paddingTop: insets.top }]}>
@@ -517,6 +632,30 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
               <Text style={[styles.pillText, { color: c.textSecondary }, sort !== 'newest' && [styles.pillTextActive, { color: '#8B5CF6' }]]}>
                 Sort{sort !== 'newest' ? `: ${sortLabels[sort]}` : ''}
               </Text>
+            </TouchableOpacity>
+
+            {/* 3b. Brands & Models Pill */}
+            <TouchableOpacity
+              style={[
+                styles.pill,
+                { backgroundColor: c.surface, borderColor: c.border },
+                (brands.length > 0 || models.length > 0) && [styles.pillActive, { backgroundColor: c.selected, borderColor: '#8B5CF6' }],
+              ]}
+              onPress={() => openFilterModal('BRANDS')}
+              activeOpacity={0.75}
+            >
+              <Text style={[styles.pillText, { color: c.textSecondary }, (brands.length > 0 || models.length > 0) && [styles.pillTextActive, { color: '#8B5CF6' }]]}>
+                {brands.length > 0
+                  ? brands.length === 1
+                    ? brands[0]
+                    : `${brands[0]} +${brands.length - 1}`
+                  : models.length > 0
+                  ? models.length === 1
+                    ? models[0]
+                    : `${models[0]} +${models.length - 1}`
+                  : 'Brands & Models'}
+              </Text>
+              <ChevronDown size={13} color={(brands.length > 0 || models.length > 0) ? '#8B5CF6' : c.textMuted} />
             </TouchableOpacity>
 
             {/* 4. Price Range Pill */}
@@ -753,402 +892,476 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
         presentationStyle="fullScreen"
         onRequestClose={() => setFilterModalVisible(false)}
       >
-        <SafeAreaView style={[styles.modalRoot, { backgroundColor: isDark ? '#0F172A' : '#FFFFFF' }]}>
-          {/* Modal Header */}
-          <View style={[styles.modalHeader, { borderBottomColor: c.border }]}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
-              <TouchableOpacity
-                onPress={() => setFilterModalVisible(false)}
-                hitSlop={12}
-                accessibilityLabel="Close filter"
-              >
-                <ArrowLeft size={22} color={c.textPrimary} />
+        <View
+          style={[
+            styles.modalRoot,
+            {
+              backgroundColor: isDark ? '#0F172A' : '#FFFFFF',
+              paddingTop: Platform.OS === 'android' ? Math.max(insets.top, 24) : insets.top,
+            },
+          ]}
+        >
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            style={{ flex: 1 }}
+          >
+            {/* Modal Header */}
+            <View style={[styles.modalHeader, { borderBottomColor: c.border }]}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                <TouchableOpacity
+                  onPress={() => setFilterModalVisible(false)}
+                  hitSlop={12}
+                  accessibilityLabel="Close filter"
+                >
+                  <ArrowLeft size={22} color={c.textPrimary} />
+                </TouchableOpacity>
+                <Text style={[styles.modalTitle, { color: c.textPrimary }]}>Filter</Text>
+              </View>
+
+              <TouchableOpacity onPress={handleClearAllStaged} hitSlop={12}>
+                <Text style={styles.clearAllBtnText}>CLEAR ALL</Text>
               </TouchableOpacity>
-              <Text style={[styles.modalTitle, { color: c.textPrimary }]}>Filter</Text>
             </View>
 
-            <TouchableOpacity onPress={handleClearAllStaged} hitSlop={12}>
-              <Text style={styles.clearAllBtnText}>CLEAR ALL</Text>
-            </TouchableOpacity>
-          </View>
+            {/* 2-Column Split Body */}
+            <View style={styles.modalBodyRow}>
+              {/* Left Column: Categories List */}
+              <View style={[styles.modalLeftCol, { backgroundColor: isDark ? '#1E293B' : '#F8FAFC', borderRightColor: c.border }]}>
+                <ScrollView showsVerticalScrollIndicator={false}>
+                  {FILTER_CATEGORIES.map((cat) => {
+                    const isActive = activeCategory === cat.key;
+                    const hasSelection = isCategoryStaged(cat.key);
 
-          {/* 2-Column Split Body */}
-          <View style={styles.modalBodyRow}>
-            {/* Left Column: Categories List */}
-            <View style={[styles.modalLeftCol, { backgroundColor: isDark ? '#1E293B' : '#F8FAFC', borderRightColor: c.border }]}>
-              <ScrollView showsVerticalScrollIndicator={false}>
-                {FILTER_CATEGORIES.map((cat) => {
-                  const isActive = activeCategory === cat.key;
-                  const hasSelection = isCategoryStaged(cat.key);
-
-                  return (
-                    <TouchableOpacity
-                      key={cat.key}
-                      style={[
-                        styles.categoryItem,
-                        isActive && [
-                          styles.categoryItemActive,
-                          { backgroundColor: isDark ? '#0F172A' : '#FFFFFF' },
-                        ],
-                      ]}
-                      onPress={() => setActiveCategory(cat.key)}
-                      activeOpacity={0.7}
-                    >
-                      {isActive && <View style={styles.categoryLeftIndicator} />}
-                      <View style={{ flex: 1, paddingVertical: 14, paddingRight: 8 }}>
-                        <Text
-                          style={[
-                            styles.categoryLabel,
-                            { color: isActive ? '#8B5CF6' : c.textSecondary },
-                            isActive && styles.categoryLabelActive,
-                          ]}
-                          numberOfLines={2}
-                        >
-                          {cat.label}
-                        </Text>
-                        {cat.isNew && (
-                          <View style={styles.newBadgePill}>
-                            <Text style={styles.newBadgeText}>NEW</Text>
-                          </View>
-                        )}
-                      </View>
-                      {hasSelection && <View style={styles.categorySelectionDot} />}
-                    </TouchableOpacity>
-                  );
-                })}
-              </ScrollView>
-            </View>
-
-            {/* Right Pane: Filter Options Content */}
-            <View style={[styles.modalRightPane, { backgroundColor: isDark ? '#0F172A' : '#FFFFFF' }]}>
-              <ScrollView contentContainerStyle={styles.rightPaneScroll} showsVerticalScrollIndicator={false}>
-                {/* 1. PRICE RANGE */}
-                {activeCategory === 'PRICE' && (
-                  <View style={styles.paneSection}>
-                    <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Select Price Range</Text>
-                    {PRICE_PRESETS.map((p) => {
-                      const selected = stagedPriceRange === p.key;
-                      return (
-                        <TouchableOpacity
-                          key={p.key}
-                          style={[
-                            styles.optionRow,
-                            selected && [styles.optionRowSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
-                          ]}
-                          onPress={() => setStagedPriceRange(selected ? '' : p.key)}
-                          activeOpacity={0.7}
-                        >
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.optionTitle, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                              {p.label}
-                            </Text>
-                            <Text style={[styles.optionSub, { color: c.textMuted }]}>{p.sub}</Text>
-                          </View>
-                          <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
-                            {selected && <View style={styles.radioInnerDot} />}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
-
-                {/* 2. BRANDS + MODELS */}
-                {activeCategory === 'BRANDS' && (
-                  <View style={styles.paneSection}>
-                    <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Brands & Makes</Text>
-                    <View style={[styles.modalSearchBox, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9', borderColor: c.border }]}>
-                      <Search size={16} color={c.textMuted} />
-                      <TextInput
-                        placeholder="Search brands…"
-                        placeholderTextColor={c.inputPlaceholder}
-                        value={brandSearch}
-                        onChangeText={setBrandSearch}
-                        style={[styles.modalSearchInput, { color: c.textPrimary }]}
-                      />
-                    </View>
-
-                    {filteredBrands.map((bName) => {
-                      const selected = stagedBrand === bName;
-                      return (
-                        <TouchableOpacity
-                          key={bName}
-                          style={[
-                            styles.checkboxRow,
-                            selected && [styles.checkboxRowSelected, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
-                          ]}
-                          onPress={() => setStagedBrand(selected ? '' : bName)}
-                          activeOpacity={0.7}
-                        >
-                          <View style={[styles.checkboxBox, selected && styles.checkboxBoxSelected]}>
-                            {selected && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
-                          </View>
-                          <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                            {bName}
+                    return (
+                      <TouchableOpacity
+                        key={cat.key}
+                        style={[
+                          styles.categoryItem,
+                          isActive && [
+                            styles.categoryItemActive,
+                            { backgroundColor: isDark ? '#0F172A' : '#FFFFFF' },
+                          ],
+                        ]}
+                        onPress={() => setActiveCategory(cat.key)}
+                        activeOpacity={0.7}
+                      >
+                        {isActive && <View style={styles.categoryLeftIndicator} />}
+                        <View style={{ flex: 1, paddingVertical: 14, paddingRight: 8 }}>
+                          <Text
+                            style={[
+                              styles.categoryLabel,
+                              { color: isActive ? '#8B5CF6' : c.textSecondary },
+                              isActive && styles.categoryLabelActive,
+                            ]}
+                            numberOfLines={2}
+                          >
+                            {cat.label}
                           </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
+                          {cat.isNew && (
+                            <View style={styles.newBadgePill}>
+                              <Text style={styles.newBadgeText}>NEW</Text>
+                            </View>
+                          )}
+                        </View>
+                        {hasSelection && <View style={styles.categorySelectionDot} />}
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+              </View>
 
-                {/* 3. YEAR */}
-                {activeCategory === 'YEAR' && (
-                  <View style={styles.paneSection}>
-                    <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Manufacturing Year</Text>
-                    {YEAR_OPTIONS.map((y) => {
-                      const selected = stagedMinYear === y.value;
-                      return (
-                        <TouchableOpacity
-                          key={y.value}
-                          style={[
-                            styles.optionRow,
-                            selected && [styles.optionRowSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
-                          ]}
-                          onPress={() => setStagedMinYear(selected ? null : y.value)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[styles.optionTitle, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                            {y.label}
-                          </Text>
-                          <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
-                            {selected && <View style={styles.radioInnerDot} />}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
-
-                {/* 4. KMS DRIVEN */}
-                {activeCategory === 'KMS' && (
-                  <View style={styles.paneSection}>
-                    <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Kilometres Driven</Text>
-                    {KMS_OPTIONS.map((k) => {
-                      const selected = stagedMaxKm === k.value;
-                      return (
-                        <TouchableOpacity
-                          key={k.value}
-                          style={[
-                            styles.optionRow,
-                            selected && [styles.optionRowSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
-                          ]}
-                          onPress={() => setStagedMaxKm(selected ? null : k.value)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[styles.optionTitle, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                            {k.label}
-                          </Text>
-                          <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
-                            {selected && <View style={styles.radioInnerDot} />}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
-
-                {/* 5. FUEL TYPE */}
-                {activeCategory === 'FUEL' && (
-                  <View style={styles.paneSection}>
-                    <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Fuel Type</Text>
-                    {FUEL_OPTIONS.map((f) => {
-                      const selected = stagedFuelType === f.key;
-                      return (
-                        <TouchableOpacity
-                          key={f.key}
-                          style={[
-                            styles.checkboxRow,
-                            selected && [styles.checkboxRowSelected, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
-                          ]}
-                          onPress={() => setStagedFuelType(selected ? '' : f.key)}
-                          activeOpacity={0.7}
-                        >
-                          <View style={[styles.checkboxBox, selected && styles.checkboxBoxSelected]}>
-                            {selected && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
-                          </View>
-                          <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                            {f.label}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
-
-                {/* 6. BODY TYPE */}
-                {activeCategory === 'BODY' && (
-                  <View style={styles.paneSection}>
-                    <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Body Type</Text>
-                    <View style={styles.chipsGrid}>
-                      {BODY_OPTIONS.map((b) => {
-                        const selected = stagedBodyType === b.key;
+              {/* Right Pane: Filter Options Content */}
+              <View style={[styles.modalRightPane, { backgroundColor: isDark ? '#0F172A' : '#FFFFFF' }]}>
+                <ScrollView
+                  contentContainerStyle={styles.rightPaneScroll}
+                  showsVerticalScrollIndicator={false}
+                  keyboardShouldPersistTaps="handled"
+                  keyboardDismissMode="on-drag"
+                >
+                  {/* 1. PRICE RANGE */}
+                  {activeCategory === 'PRICE' && (
+                    <View style={styles.paneSection}>
+                      <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Select Price Range</Text>
+                      {PRICE_PRESETS.map((p) => {
+                        const selected = stagedPriceRange === p.key;
                         return (
                           <TouchableOpacity
-                            key={b.key}
+                            key={p.key}
                             style={[
-                              styles.bodyChipCard,
-                              { backgroundColor: isDark ? '#1E293B' : '#F8FAFC', borderColor: c.border },
-                              selected && [styles.bodyChipCardSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF' }],
+                              styles.optionRow,
+                              selected && [styles.optionRowSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
                             ]}
-                            onPress={() => setStagedBodyType(selected ? '' : b.key)}
+                            onPress={() => setStagedPriceRange(selected ? '' : p.key)}
                             activeOpacity={0.7}
                           >
-                            <Text style={{ fontSize: 24 }}>{b.icon}</Text>
-                            <Text style={[styles.bodyChipLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                              {b.label}
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.optionTitle, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                                {p.label}
+                              </Text>
+                              <Text style={[styles.optionSub, { color: c.textMuted }]}>{p.sub}</Text>
+                            </View>
+                            <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
+                              {selected && <View style={styles.radioInnerDot} />}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* 2. BRANDS + MODELS (MULTI-SELECT) */}
+                  {activeCategory === 'BRANDS' && (
+                    <View style={styles.paneSection}>
+                      <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Brands & Models</Text>
+                      <View style={[styles.modalSearchBox, { backgroundColor: isDark ? '#1E293B' : '#F1F5F9', borderColor: c.border }]}>
+                        <Search size={16} color={c.textMuted} />
+                        <TextInput
+                          placeholder="Search brands or models…"
+                          placeholderTextColor={c.inputPlaceholder}
+                          value={brandSearch}
+                          onChangeText={setBrandSearch}
+                          style={[styles.modalSearchInput, { color: c.textPrimary }]}
+                        />
+                        {brandSearch ? (
+                          <TouchableOpacity onPress={() => setBrandSearch('')}>
+                            <X size={15} color={c.textMuted} />
+                          </TouchableOpacity>
+                        ) : null}
+                      </View>
+
+                      {/* Brands Subsection */}
+                      <Text style={[styles.paneSubSectionHeading, { color: c.textSecondary }]}>
+                        Brands {stagedBrands.length > 0 ? `(${stagedBrands.length} selected)` : ''}
+                      </Text>
+                      {filteredBrands.map((bName) => {
+                        const selected = stagedBrands.includes(bName);
+                        return (
+                          <TouchableOpacity
+                            key={bName}
+                            style={[
+                              styles.checkboxRow,
+                              selected && [styles.checkboxRowSelected, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
+                            ]}
+                            onPress={() => {
+                              setStagedBrands((prev) =>
+                                prev.includes(bName) ? prev.filter((b) => b !== bName) : [...prev, bName]
+                              );
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <View style={[styles.checkboxBox, selected && styles.checkboxBoxSelected]}>
+                              {selected && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
+                            </View>
+                            <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                              {bName}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+
+                      {/* Models Subsection */}
+                      {displayModels.length > 0 && (
+                        <>
+                          <Text style={[styles.paneSubSectionHeading, { color: c.textSecondary, marginTop: 14 }]}>
+                            Models {stagedModels.length > 0 ? `(${stagedModels.length} selected)` : ''}
+                          </Text>
+                          {displayModels.map((mName) => {
+                            const selected = stagedModels.includes(mName);
+                            return (
+                              <TouchableOpacity
+                                key={mName}
+                                style={[
+                                  styles.checkboxRow,
+                                  selected && [styles.checkboxRowSelected, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
+                                ]}
+                                onPress={() => {
+                                  setStagedModels((prev) =>
+                                    prev.includes(mName) ? prev.filter((m) => m !== mName) : [...prev, mName]
+                                  );
+                                }}
+                                activeOpacity={0.7}
+                              >
+                                <View style={[styles.checkboxBox, selected && styles.checkboxBoxSelected]}>
+                                  {selected && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
+                                </View>
+                                <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                                  {mName}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        </>
+                      )}
+                    </View>
+                  )}
+
+                  {/* 3. YEAR */}
+                  {activeCategory === 'YEAR' && (
+                    <View style={styles.paneSection}>
+                      <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Manufacturing Year</Text>
+                      {YEAR_OPTIONS.map((y) => {
+                        const selected = stagedMinYear === y.value;
+                        return (
+                          <TouchableOpacity
+                            key={y.value}
+                            style={[
+                              styles.optionRow,
+                              selected && [styles.optionRowSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
+                            ]}
+                            onPress={() => setStagedMinYear(selected ? null : y.value)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.optionTitle, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                              {y.label}
+                            </Text>
+                            <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
+                              {selected && <View style={styles.radioInnerDot} />}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* 4. KMS DRIVEN */}
+                  {activeCategory === 'KMS' && (
+                    <View style={styles.paneSection}>
+                      <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Kilometres Driven</Text>
+                      {KMS_OPTIONS.map((k) => {
+                        const selected = stagedMaxKm === k.value;
+                        return (
+                          <TouchableOpacity
+                            key={k.value}
+                            style={[
+                              styles.optionRow,
+                              selected && [styles.optionRowSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
+                            ]}
+                            onPress={() => setStagedMaxKm(selected ? null : k.value)}
+                            activeOpacity={0.7}
+                          >
+                            <Text style={[styles.optionTitle, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                              {k.label}
+                            </Text>
+                            <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
+                              {selected && <View style={styles.radioInnerDot} />}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* 5. FUEL TYPE (DYNAMIC MASTER DATA) */}
+                  {activeCategory === 'FUEL' && (
+                    <View style={styles.paneSection}>
+                      <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Fuel Type</Text>
+                      {availableFuelTypes.map((f) => {
+                        const selected = stagedFuelType === f.key;
+                        return (
+                          <TouchableOpacity
+                            key={f.key}
+                            style={[
+                              styles.checkboxRow,
+                              selected && [styles.checkboxRowSelected, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
+                            ]}
+                            onPress={() => setStagedFuelType(selected ? '' : f.key)}
+                            activeOpacity={0.7}
+                          >
+                            <View style={[styles.checkboxBox, selected && styles.checkboxBoxSelected]}>
+                              {selected && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
+                            </View>
+                            <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                              {f.label}
                             </Text>
                           </TouchableOpacity>
                         );
                       })}
                     </View>
-                  </View>
-                )}
+                  )}
 
-                {/* 7. TRANSMISSION */}
-                {activeCategory === 'TRANSMISSION' && (
-                  <View style={styles.paneSection}>
-                    <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Transmission</Text>
-                    {['MANUAL', 'AUTOMATIC'].map((trans) => {
-                      const selected = stagedTransmission === trans;
-                      return (
-                        <TouchableOpacity
-                          key={trans}
-                          style={[
-                            styles.optionRow,
-                            selected && [styles.optionRowSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
-                          ]}
-                          onPress={() => setStagedTransmission(selected ? '' : trans)}
-                          activeOpacity={0.7}
-                        >
-                          <Text style={[styles.optionTitle, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                            {trans === 'MANUAL' ? 'Manual Transmission' : 'Automatic Transmission'}
-                          </Text>
-                          <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
-                            {selected && <View style={styles.radioInnerDot} />}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
+                  {/* 6. BODY TYPE (DYNAMIC MASTER DATA) */}
+                  {activeCategory === 'BODY' && (
+                    <View style={styles.paneSection}>
+                      <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Body Type</Text>
+                      <View style={styles.chipsGrid}>
+                        {availableBodyTypes.map((b) => {
+                          const selected = stagedBodyType === b.key;
+                          return (
+                            <TouchableOpacity
+                              key={b.key}
+                              style={[
+                                styles.bodyChipCard,
+                                { backgroundColor: isDark ? '#1E293B' : '#F8FAFC', borderColor: c.border },
+                                selected && [styles.bodyChipCardSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.15)' : '#F5F3FF' }],
+                              ]}
+                              onPress={() => setStagedBodyType(selected ? '' : b.key)}
+                              activeOpacity={0.7}
+                            >
+                              <Text style={{ fontSize: 24 }}>{b.icon}</Text>
+                              <Text style={[styles.bodyChipLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                                {b.label}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  )}
 
-                {/* 8. CAR CATEGORY */}
-                {activeCategory === 'CATEGORY' && (
-                  <View style={styles.paneSection}>
-                    <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>V MOTIV Curations</Text>
-                    {[
-                      { key: 'ASSURED', title: 'V MOTIV Assured', desc: '180-pt certified with warranty' },
-                      { key: 'PREMIUM', title: 'Premium Selection', desc: 'Single owner under 40k km' },
-                      { key: 'BUDGET', title: 'Super Value', desc: 'Certified value under ₹6 Lakh' },
-                    ].map((catItem) => {
-                      const selected = stagedCategory === catItem.key;
-                      return (
-                        <TouchableOpacity
-                          key={catItem.key}
-                          style={[
-                            styles.optionRow,
-                            selected && [styles.optionRowSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
-                          ]}
-                          onPress={() => setStagedCategory(selected ? '' : catItem.key)}
-                          activeOpacity={0.7}
-                        >
-                          <View style={{ flex: 1 }}>
+                  {/* 7. TRANSMISSION (DYNAMIC MASTER DATA) */}
+                  {activeCategory === 'TRANSMISSION' && (
+                    <View style={styles.paneSection}>
+                      <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Transmission</Text>
+                      {availableTransmissions.map((trans) => {
+                        const selected = stagedTransmission === trans.key;
+                        return (
+                          <TouchableOpacity
+                            key={trans.key}
+                            style={[
+                              styles.optionRow,
+                              selected && [styles.optionRowSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
+                            ]}
+                            onPress={() => setStagedTransmission(selected ? '' : trans.key)}
+                            activeOpacity={0.7}
+                          >
                             <Text style={[styles.optionTitle, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                              {catItem.title}
+                              {trans.label}
                             </Text>
-                            <Text style={[styles.optionSub, { color: c.textMuted }]}>{catItem.desc}</Text>
-                          </View>
-                          <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
-                            {selected && <View style={styles.radioInnerDot} />}
-                          </View>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
-
-                {/* 9. COLOR */}
-                {activeCategory === 'COLOR' && (
-                  <View style={styles.paneSection}>
-                    <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Exterior Color</Text>
-                    {COLOR_OPTIONS.map((col) => {
-                      const selected = stagedColor === col.name;
-                      return (
-                        <TouchableOpacity
-                          key={col.name}
-                          style={[
-                            styles.checkboxRow,
-                            selected && [styles.checkboxRowSelected, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
-                          ]}
-                          onPress={() => setStagedColor(selected ? '' : col.name)}
-                          activeOpacity={0.7}
-                        >
-                          <View style={[styles.colorSwatchCircle, { backgroundColor: col.hex, borderColor: col.border }]} />
-                          <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                            {col.name}
-                          </Text>
-                          {selected && (
-                            <View style={{ marginLeft: 'auto' }}>
-                              <Check size={16} color="#8B5CF6" />
+                            <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
+                              {selected && <View style={styles.radioInnerDot} />}
                             </View>
-                          )}
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
 
-                {/* 10. SAFETY & FEATURES */}
-                {activeCategory === 'FEATURES' && (
-                  <View style={styles.paneSection}>
-                    <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Features & Equipment</Text>
-                    {FEATURE_OPTIONS.map((feat) => {
-                      const selected = stagedFeatures.includes(feat);
-                      return (
-                        <TouchableOpacity
-                          key={feat}
-                          style={[
-                            styles.checkboxRow,
-                            selected && [styles.checkboxRowSelected, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
-                          ]}
-                          onPress={() => {
-                            if (selected) {
-                              setStagedFeatures(stagedFeatures.filter((f) => f !== feat));
-                            } else {
-                              setStagedFeatures([...stagedFeatures, feat]);
-                            }
-                          }}
-                          activeOpacity={0.7}
-                        >
-                          <View style={[styles.checkboxBox, selected && styles.checkboxBoxSelected]}>
-                            {selected && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
-                          </View>
-                          <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
-                            {feat}
-                          </Text>
-                        </TouchableOpacity>
-                      );
-                    })}
-                  </View>
-                )}
-              </ScrollView>
+                  {/* 8. CAR CATEGORY */}
+                  {activeCategory === 'CATEGORY' && (
+                    <View style={styles.paneSection}>
+                      <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>V MOTIV Curations</Text>
+                      {[
+                        { key: 'ASSURED', title: 'V MOTIV Assured', desc: '180-pt certified with warranty' },
+                        { key: 'PREMIUM', title: 'Premium Selection', desc: 'Single owner under 40k km' },
+                        { key: 'BUDGET', title: 'Super Value', desc: 'Certified value under ₹6 Lakh' },
+                      ].map((catItem) => {
+                        const selected = stagedCategory === catItem.key;
+                        return (
+                          <TouchableOpacity
+                            key={catItem.key}
+                            style={[
+                              styles.optionRow,
+                              selected && [styles.optionRowSelected, { borderColor: '#8B5CF6', backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
+                            ]}
+                            onPress={() => setStagedCategory(selected ? '' : catItem.key)}
+                            activeOpacity={0.7}
+                          >
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.optionTitle, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                                {catItem.title}
+                              </Text>
+                              <Text style={[styles.optionSub, { color: c.textMuted }]}>{catItem.desc}</Text>
+                            </View>
+                            <View style={[styles.radioCircle, selected && styles.radioCircleSelected]}>
+                              {selected && <View style={styles.radioInnerDot} />}
+                            </View>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* 9. COLOR */}
+                  {activeCategory === 'COLOR' && (
+                    <View style={styles.paneSection}>
+                      <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Exterior Color</Text>
+                      {COLOR_OPTIONS.map((col) => {
+                        const selected = stagedColor === col.name;
+                        return (
+                          <TouchableOpacity
+                            key={col.name}
+                            style={[
+                              styles.checkboxRow,
+                              selected && [styles.checkboxRowSelected, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
+                            ]}
+                            onPress={() => setStagedColor(selected ? '' : col.name)}
+                            activeOpacity={0.7}
+                          >
+                            <View style={[styles.colorSwatchCircle, { backgroundColor: col.hex, borderColor: col.border }]} />
+                            <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                              {col.name}
+                            </Text>
+                            {selected && (
+                              <View style={{ marginLeft: 'auto' }}>
+                                <Check size={16} color="#8B5CF6" />
+                              </View>
+                            )}
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+
+                  {/* 10. SAFETY & FEATURES */}
+                  {activeCategory === 'FEATURES' && (
+                    <View style={styles.paneSection}>
+                      <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Features & Equipment</Text>
+                      {FEATURE_OPTIONS.map((feat) => {
+                        const selected = stagedFeatures.includes(feat);
+                        return (
+                          <TouchableOpacity
+                            key={feat}
+                            style={[
+                              styles.checkboxRow,
+                              selected && [styles.checkboxRowSelected, { backgroundColor: isDark ? 'rgba(139, 92, 246, 0.1)' : '#F5F3FF' }],
+                            ]}
+                            onPress={() => {
+                              if (selected) {
+                                setStagedFeatures(stagedFeatures.filter((f) => f !== feat));
+                              } else {
+                                setStagedFeatures([...stagedFeatures, feat]);
+                              }
+                            }}
+                            activeOpacity={0.7}
+                          >
+                            <View style={[styles.checkboxBox, selected && styles.checkboxBoxSelected]}>
+                              {selected && <Check size={13} color="#FFFFFF" strokeWidth={3} />}
+                            </View>
+                            <Text style={[styles.checkboxLabel, { color: c.textPrimary }, selected && { color: '#8B5CF6', fontWeight: '800' }]}>
+                              {feat}
+                            </Text>
+                          </TouchableOpacity>
+                        );
+                      })}
+                    </View>
+                  )}
+                </ScrollView>
+              </View>
             </View>
-          </View>
 
-          {/* Modal Sticky Bottom Bar with Vibrant Red/Magenta APPLY Button */}
-          <View style={[styles.modalFooter, { borderTopColor: c.border, backgroundColor: isDark ? '#0F172A' : '#FFFFFF' }]}>
-            <TouchableOpacity
-              style={styles.spinnyApplyButton}
-              onPress={handleApplyStaged}
-              activeOpacity={0.85}
+            {/* Modal Sticky Bottom Bar with Vibrant Red/Magenta APPLY Button */}
+            <View
+              style={[
+                styles.modalFooter,
+                {
+                  borderTopColor: c.border,
+                  backgroundColor: isDark ? '#0F172A' : '#FFFFFF',
+                  paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 12),
+                },
+              ]}
             >
-              <Text style={styles.spinnyApplyButtonText}>
-                APPLY {items.length > 0 ? `(${items.length} CARS)` : 'FILTERS'}
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </SafeAreaView>
+              <TouchableOpacity
+                style={styles.spinnyApplyButton}
+                onPress={handleApplyStaged}
+                activeOpacity={0.85}
+              >
+                <Text style={styles.spinnyApplyButtonText}>
+                  APPLY {items.length > 0 ? `(${items.length} CARS)` : 'FILTERS'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+          </KeyboardAvoidingView>
+        </View>
       </Modal>
     </View>
   );
@@ -1370,6 +1583,13 @@ const styles = StyleSheet.create({
   paneSectionHeading: {
     fontSize: 15,
     fontWeight: '700',
+    marginBottom: 6,
+  },
+  paneSubSectionHeading: {
+    fontSize: 12,
+    fontWeight: '800',
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
     marginBottom: 6,
   },
   optionRow: {

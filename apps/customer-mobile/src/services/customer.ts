@@ -23,6 +23,7 @@ export const customer = {
     fuelType?: string;
     transmission?: string;
     make?: string;
+    model?: string;
     bodyType?: string;
     color?: string;
     minYear?: number;

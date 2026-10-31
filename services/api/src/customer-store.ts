@@ -42,6 +42,7 @@ export type InventoryFilters = {
   fuelType?: string;
   transmission?: string;
   make?: string;
+  model?: string;
   bodyType?: string;
   color?: string;
   minYear?: number;
@@ -509,13 +510,16 @@ export class PrismaCustomerStore implements CustomerStore {
     return city.name;
   }
   async inventory(uid: string | undefined, filters: InventoryFilters = {}) {
-    const { search = '', page = 1, limit = 20, city, fuelType, transmission, make, bodyType, color, minYear, maxYear, maxOdometerKm, minPricePaise, maxPricePaise, sort = 'newest' } = filters;
+    const { search = '', page = 1, limit = 20, city, fuelType, transmission, make, model, bodyType, color, minYear, maxYear, maxOdometerKm, minPricePaise, maxPricePaise, sort = 'newest' } = filters;
     const user = uid ? await this.user(uid) : null;
+    const makes = make ? make.split(',').map(m => m.trim()).filter(Boolean) : [];
+    const models = model ? model.split(',').map(m => m.trim()).filter(Boolean) : [];
     const vehicleFilters: Prisma.VehicleWhereInput = {
       ...(city ? { city: { equals: city, mode: 'insensitive' } } : {}),
       ...(fuelType ? { fuelType: { equals: fuelType, mode: 'insensitive' } } : {}),
       ...(transmission ? { transmission: { equals: transmission, mode: 'insensitive' } } : {}),
-      ...(make ? { make: { equals: make, mode: 'insensitive' } } : {}),
+      ...(makes.length === 1 ? { make: { equals: makes[0], mode: 'insensitive' } } : makes.length > 1 ? { make: { in: makes, mode: 'insensitive' } } : {}),
+      ...(models.length === 1 ? { model: { equals: models[0], mode: 'insensitive' } } : models.length > 1 ? { model: { in: models, mode: 'insensitive' } } : {}),
       ...(bodyType ? { bodyType: { equals: bodyType, mode: 'insensitive' } } : {}),
       ...(color ? { color: { equals: color, mode: 'insensitive' } } : {}),
       ...(minYear || maxYear ? { manufacturingYear: { ...(minYear ? { gte: minYear } : {}), ...(maxYear ? { lte: maxYear } : {}) } } : {}),
