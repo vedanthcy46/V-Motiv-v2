@@ -421,6 +421,12 @@ export const App: FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState('ALL');
 
+  // Seller Documentation Checklist Filters
+  const [docSearchQuery, setDocSearchQuery] = useState('');
+  const [docCaseStatusFilter, setDocCaseStatusFilter] = useState('ALL');
+  const [docVerificationFilter, setDocVerificationFilter] = useState('ALL');
+  const [docTypeFilter, setDocTypeFilter] = useState('ALL');
+
   // Modals
   const [assignModal, setAssignModal] = useState<{ open: boolean; request?: InspectionRequest }>({ open: false });
   const [assignInspectorId, setAssignInspectorId] = useState('');
@@ -1780,91 +1786,248 @@ export const App: FC = () => {
         {/* ======================================================== */}
         {/* VIEW 4: DOCUMENTATION VERIFICATION                       */}
         {/* ======================================================== */}
-        {activeTab === 'documentation' ? (
-          <div>
-            <div className="action-bar">
-              <div className="section-heading">
-                <h2>Pre-Acquisition Documentation Checklist</h2>
-                <p>Verify mandatory ownership, identity, lien and authority records before finance settlement release.</p>
-              </div>
-              <button className="btn-secondary" onClick={() => void loadAllData()} disabled={loading}>
-                <IconRefresh />
-              </button>
-            </div>
+        {activeTab === 'documentation' ? (() => {
+          const filteredDocCases = cases.filter(c => {
+            if (docSearchQuery.trim()) {
+              const q = docSearchQuery.trim().toLowerCase();
+              const match =
+                (c.lead.sellerName && c.lead.sellerName.toLowerCase().includes(q)) ||
+                (c.lead.sellerPhone && c.lead.sellerPhone.includes(q)) ||
+                (c.lead.make && c.lead.make.toLowerCase().includes(q)) ||
+                (c.lead.model && c.lead.model.toLowerCase().includes(q)) ||
+                (c.lead.registrationNumber && c.lead.registrationNumber.toLowerCase().includes(q)) ||
+                (c.caseReference && c.caseReference.toLowerCase().includes(q));
+              if (!match) return false;
+            }
+            if (docCaseStatusFilter !== 'ALL' && c.status !== docCaseStatusFilter) {
+              return false;
+            }
+            if (docVerificationFilter === 'PENDING') {
+              const hasPending = c.documents.some(d => ['REQUESTED', 'RECEIVED', 'UNDER_REVIEW'].includes(d.status));
+              if (!hasPending) return false;
+            } else if (docVerificationFilter === 'ALL_VERIFIED') {
+              const allDone = c.documents.length > 0 && c.documents.every(d => ['VERIFIED', 'WAIVED_BY_AUTHORIZED_POLICY'].includes(d.status));
+              if (!allDone) return false;
+            } else if (docVerificationFilter === 'REJECTED') {
+              const hasRejected = c.documents.some(d => d.status === 'REJECTED');
+              if (!hasRejected) return false;
+            }
+            if (docTypeFilter !== 'ALL') {
+              const hasDocType = c.documents.some(d => d.documentType === docTypeFilter);
+              if (!hasDocType) return false;
+            }
+            return true;
+          });
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
-              {cases.map(c => (
-                <article className="card-table" key={c.id}>
-                  <div className="card-table-header">
-                    <div>
-                      <strong>{c.lead.make} {c.lead.model} ({c.lead.manufacturingYear})</strong>
-                      <div className="card-table-subtitle">
-                        Seller: {c.lead.sellerName} · Reg: {c.lead.registrationNumber || 'Not provided'} · Case: {c.caseReference.slice(0, 13)}
-                      </div>
-                    </div>
-                    <span className={`badge ${c.status === 'COMPLETED' ? 'badge-success' : 'badge-warning'}`}>
-                      {c.status.replace(/_/g, ' ')}
-                    </span>
-                  </div>
+          const hasDocFilters = Boolean(docSearchQuery.trim() || docCaseStatusFilter !== 'ALL' || docVerificationFilter !== 'ALL' || docTypeFilter !== 'ALL');
+          const resetDocFilters = () => {
+            setDocSearchQuery('');
+            setDocCaseStatusFilter('ALL');
+            setDocVerificationFilter('ALL');
+            setDocTypeFilter('ALL');
+          };
 
-                  <div className="table-responsive">
-                    <table>
-                      <thead>
-                        <tr>
-                          <th>Document Type</th>
-                          <th>Current Status</th>
-                          <th>Reviewed At</th>
-                          <th>Reviewer Notes</th>
-                          <th>Action</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {c.documents.map(doc => (
-                          <tr key={doc.id}>
-                            <td>
-                              <strong>{doc.documentType.replace(/_/g, ' ')}</strong>
-                            </td>
-                            <td>
-                              <span className={`badge ${doc.status === 'VERIFIED' ? 'badge-success' : doc.status === 'WAIVED_BY_AUTHORIZED_POLICY' ? 'badge-purple' : doc.status === 'REJECTED' ? 'badge-danger' : 'badge-warning'}`}>
-                                {doc.status.replace(/_/g, ' ')}
-                              </span>
-                            </td>
-                            <td>{formatDate(doc.reviewedAt)}</td>
-                            <td>{doc.notes || '—'}</td>
-                            <td>
-                              <button
-                                className="btn-secondary"
-                                style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
-                                onClick={() => {
-                                  setDocModal({
-                                    open: true,
-                                    caseId: c.id,
-                                    docType: doc.documentType,
-                                    currentStatus: doc.status,
-                                  });
-                                  setDocStatus(doc.status === 'REQUESTED' ? 'RECEIVED' : doc.status === 'RECEIVED' ? 'UNDER_REVIEW' : 'VERIFIED');
-                                  setDocNotes(doc.notes || '');
-                                }}
-                              >
-                                Update Status
-                              </button>
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </article>
-              ))}
-              {!cases.length ? (
-                <div className="empty-state">
-                  <h3>No documentation cases</h3>
-                  <p>Accepted seller offers will generate document checklists automatically.</p>
+          return (
+            <div>
+              <div className="action-bar" style={{ flexWrap: 'wrap', gap: '1rem' }}>
+                <div className="section-heading">
+                  <h2>Pre-Acquisition Documentation Checklist</h2>
+                  <p>Verify mandatory ownership, identity, lien and authority records before finance settlement release.</p>
                 </div>
-              ) : null}
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <button className="btn-secondary" onClick={() => void loadAllData()} disabled={loading} title="Reload Cases">
+                    <IconRefresh />
+                  </button>
+                </div>
+              </div>
+
+              {/* Documentation Filter Bar */}
+              <div style={{
+                background: 'rgba(255, 255, 255, 0.03)',
+                border: '1px solid var(--border)',
+                borderRadius: '8px',
+                padding: '12px 16px',
+                marginBottom: '1.25rem',
+                display: 'flex',
+                flexDirection: 'column',
+                gap: '10px',
+              }}>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', alignItems: 'center' }}>
+                  <div style={{ flex: '1 1 240px', position: 'relative' }}>
+                    <input
+                      type="text"
+                      className="search-input"
+                      style={{ width: '100%' }}
+                      placeholder="Search seller, phone, car, reg plate, case reference..."
+                      value={docSearchQuery}
+                      onChange={e => setDocSearchQuery(e.target.value)}
+                    />
+                  </div>
+
+                  <select
+                    className="select-filter"
+                    style={{ flex: '0 1 180px' }}
+                    value={docCaseStatusFilter}
+                    onChange={e => setDocCaseStatusFilter(e.target.value)}
+                  >
+                    <option value="ALL">All Case Statuses</option>
+                    <option value="DOCUMENTATION_REQUIRED">Documentation Required</option>
+                    <option value="SETTLEMENT_READY">Settlement Ready</option>
+                    <option value="HANDOVER_READY">Handover Ready</option>
+                    <option value="COMPLETED">Completed</option>
+                    <option value="ON_HOLD">On Hold</option>
+                  </select>
+
+                  <select
+                    className="select-filter"
+                    style={{ flex: '0 1 190px' }}
+                    value={docVerificationFilter}
+                    onChange={e => setDocVerificationFilter(e.target.value)}
+                  >
+                    <option value="ALL">All Verification States</option>
+                    <option value="PENDING">Pending Review (Action Req.)</option>
+                    <option value="ALL_VERIFIED">All Docs Verified & Cleared</option>
+                    <option value="REJECTED">Has Rejected Documents</option>
+                  </select>
+
+                  <select
+                    className="select-filter"
+                    style={{ flex: '0 1 180px' }}
+                    value={docTypeFilter}
+                    onChange={e => setDocTypeFilter(e.target.value)}
+                  >
+                    <option value="ALL">All Document Types</option>
+                    <option value="RC_FRONT">RC Front</option>
+                    <option value="RC_BACK">RC Back</option>
+                    <option value="INSURANCE_POLICY">Insurance Policy</option>
+                    <option value="POLLUTION_CERTIFICATE">PUC Certificate</option>
+                    <option value="INVOICE">Purchase Invoice</option>
+                    <option value="LOAN_NOC">Bank Loan NOC</option>
+                    <option value="FORM_29_30">Form 29 / 30 (RTO)</option>
+                    <option value="SERVICE_RECORD">Service Record</option>
+                    <option value="AADHAAR">Seller Aadhaar</option>
+                    <option value="PAN">Seller PAN</option>
+                  </select>
+
+                  {hasDocFilters && (
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', color: '#f87171' }}
+                      onClick={resetDocFilters}
+                    >
+                      Clear Filters
+                    </button>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                  <div>
+                    Showing <strong>{filteredDocCases.length}</strong> of <strong>{cases.length}</strong> seller documentation cases
+                    {hasDocFilters ? ' (filtered)' : ''}
+                  </div>
+                  {docTypeFilter !== 'ALL' && (
+                    <div style={{ color: 'var(--color-primary)' }}>
+                      Highlighting documents of type: <strong>{docTypeFilter.replace(/_/g, ' ')}</strong>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                {filteredDocCases.map(c => {
+                  const displayedDocs = docTypeFilter !== 'ALL'
+                    ? c.documents.filter(d => d.documentType === docTypeFilter)
+                    : c.documents;
+
+                  return (
+                    <article className="card-table" key={c.id}>
+                      <div className="card-table-header">
+                        <div>
+                          <strong>{c.lead.make} {c.lead.model} ({c.lead.manufacturingYear})</strong>
+                          <div className="card-table-subtitle">
+                            Seller: {c.lead.sellerName} · Tel: {c.lead.sellerPhone || '—'} · Reg: {c.lead.registrationNumber || 'Not provided'} · Case: {c.caseReference.slice(0, 13)}
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span className={`badge ${c.status === 'COMPLETED' ? 'badge-success' : 'badge-warning'}`}>
+                            {c.status.replace(/_/g, ' ')}
+                          </span>
+                          <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                            {c.documents.filter(d => ['VERIFIED', 'WAIVED_BY_AUTHORIZED_POLICY'].includes(d.status)).length} / {c.documents.length} Verified
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="table-responsive">
+                        <table>
+                          <thead>
+                            <tr>
+                              <th>Document Type</th>
+                              <th>Current Status</th>
+                              <th>Reviewed At</th>
+                              <th>Reviewer Notes</th>
+                              <th>Action</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {displayedDocs.map(doc => (
+                              <tr key={doc.id} style={docTypeFilter !== 'ALL' ? { background: 'rgba(255, 255, 255, 0.04)' } : undefined}>
+                                <td>
+                                  <strong>{doc.documentType.replace(/_/g, ' ')}</strong>
+                                </td>
+                                <td>
+                                  <span className={`badge ${doc.status === 'VERIFIED' ? 'badge-success' : doc.status === 'WAIVED_BY_AUTHORIZED_POLICY' ? 'badge-purple' : doc.status === 'REJECTED' ? 'badge-danger' : 'badge-warning'}`}>
+                                    {doc.status.replace(/_/g, ' ')}
+                                  </span>
+                                </td>
+                                <td>{formatDate(doc.reviewedAt)}</td>
+                                <td>{doc.notes || '—'}</td>
+                                <td>
+                                  <button
+                                    className="btn-secondary"
+                                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
+                                    onClick={() => {
+                                      setDocModal({
+                                        open: true,
+                                        caseId: c.id,
+                                        docType: doc.documentType,
+                                        currentStatus: doc.status,
+                                      });
+                                      setDocStatus(doc.status === 'REQUESTED' ? 'RECEIVED' : doc.status === 'RECEIVED' ? 'UNDER_REVIEW' : 'VERIFIED');
+                                      setDocNotes(doc.notes || '');
+                                    }}
+                                  >
+                                    Update Status
+                                  </button>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    </article>
+                  );
+                })}
+
+                {!filteredDocCases.length && cases.length > 0 ? (
+                  <div className="empty-state">
+                    <h3>No matching documentation cases</h3>
+                    <p>No seller cases matched your current search or status filters. Try clearing your filters.</p>
+                    <button className="btn-secondary" style={{ marginTop: '8px' }} onClick={resetDocFilters}>Reset Filters</button>
+                  </div>
+                ) : null}
+
+                {!cases.length ? (
+                  <div className="empty-state">
+                    <h3>No documentation cases</h3>
+                    <p>Accepted seller offers will generate document checklists automatically.</p>
+                  </div>
+                ) : null}
+              </div>
             </div>
-          </div>
-        ) : null}
+          );
+        })() : null}
 
         {/* ======================================================== */}
         {/* VIEW 5: HANDOVER & CUSTODY                               */}

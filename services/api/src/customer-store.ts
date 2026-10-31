@@ -34,11 +34,28 @@ type SellInput = {
 };
 type DriveInput = { listingId: string; requestedDate: string; timeSlot: string; serviceCity: string; locationPreference: 'HUB' | 'HOME'; address?: string; customerNotes?: string };
 type AddressInput = { label: string; addressLine: string; city: string; pincode: string };
-export type InventoryFilters = { search?: string; page?: number; limit?: number; city?: string; fuelType?: string; transmission?: string; minYear?: number; maxYear?: number; maxOdometerKm?: number; minPricePaise?: number; maxPricePaise?: number; sort?: 'newest' | 'price_asc' | 'price_desc' | 'year_desc' };
+export type InventoryFilters = {
+  search?: string;
+  page?: number;
+  limit?: number;
+  city?: string;
+  fuelType?: string;
+  transmission?: string;
+  make?: string;
+  bodyType?: string;
+  color?: string;
+  minYear?: number;
+  maxYear?: number;
+  maxOdometerKm?: number;
+  minPricePaise?: number;
+  maxPricePaise?: number;
+  sort?: 'newest' | 'price_asc' | 'price_desc' | 'year_desc';
+};
 
 export interface CustomerStore {
   inventory(uid: string | undefined, filters?: InventoryFilters): Promise<unknown>;
   vehicle(uid: string | undefined, id: string): Promise<unknown>;
+  masterData(category?: string): Promise<unknown>;
   wishlist(uid: string): Promise<unknown>;
   addWishlist(uid: string, id: string): Promise<void>;
   removeWishlist(uid: string, id: string): Promise<void>;
@@ -492,9 +509,18 @@ export class PrismaCustomerStore implements CustomerStore {
     return city.name;
   }
   async inventory(uid: string | undefined, filters: InventoryFilters = {}) {
-    const { search = '', page = 1, limit = 20, city, fuelType, transmission, minYear, maxYear, maxOdometerKm, minPricePaise, maxPricePaise, sort = 'newest' } = filters;
+    const { search = '', page = 1, limit = 20, city, fuelType, transmission, make, bodyType, color, minYear, maxYear, maxOdometerKm, minPricePaise, maxPricePaise, sort = 'newest' } = filters;
     const user = uid ? await this.user(uid) : null;
-    const vehicleFilters: Prisma.VehicleWhereInput = { ...(city ? { city: { equals: city, mode: 'insensitive' } } : {}), ...(fuelType ? { fuelType: { equals: fuelType, mode: 'insensitive' } } : {}), ...(transmission ? { transmission: { equals: transmission, mode: 'insensitive' } } : {}), ...(minYear || maxYear ? { manufacturingYear: { ...(minYear ? { gte: minYear } : {}), ...(maxYear ? { lte: maxYear } : {}) } } : {}), ...(maxOdometerKm ? { odometerKm: { lte: maxOdometerKm } } : {}) };
+    const vehicleFilters: Prisma.VehicleWhereInput = {
+      ...(city ? { city: { equals: city, mode: 'insensitive' } } : {}),
+      ...(fuelType ? { fuelType: { equals: fuelType, mode: 'insensitive' } } : {}),
+      ...(transmission ? { transmission: { equals: transmission, mode: 'insensitive' } } : {}),
+      ...(make ? { make: { equals: make, mode: 'insensitive' } } : {}),
+      ...(bodyType ? { bodyType: { equals: bodyType, mode: 'insensitive' } } : {}),
+      ...(color ? { color: { equals: color, mode: 'insensitive' } } : {}),
+      ...(minYear || maxYear ? { manufacturingYear: { ...(minYear ? { gte: minYear } : {}), ...(maxYear ? { lte: maxYear } : {}) } } : {}),
+      ...(maxOdometerKm ? { odometerKm: { lte: maxOdometerKm } } : {}),
+    };
     const where: Prisma.VehicleListingWhereInput = { status: { in: ['PUBLISHED', 'RESERVED'] }, ...(Object.keys(vehicleFilters).length ? { vehicle: { is: vehicleFilters } } : {}), ...(minPricePaise || maxPricePaise ? { pricePaise: { ...(minPricePaise ? { gte: BigInt(minPricePaise) } : {}), ...(maxPricePaise ? { lte: BigInt(maxPricePaise) } : {}) } } : {}), ...(search ? { OR: [
       { title: { contains: search, mode: 'insensitive' } },
       { vehicle: { is: { make: { contains: search, mode: 'insensitive' } } } },
@@ -840,6 +866,23 @@ export class PrismaCustomerStore implements CustomerStore {
     return this.db.user.update({ where: { firebaseUid: uid }, data: { ...data, ...(preferredCity ? { preferredCity } : {}), ...(termsVersion ? { termsVersion, termsAcceptedAt: new Date() } : {}) }, select: profileSelect });
   }
   async cities() { return this.db.supportedCity.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } }); }
+  async masterData(category?: string) {
+    return this.db.masterDataItem.findMany({
+      where: {
+        active: true,
+        ...(category ? { category: { equals: category.trim().toUpperCase() } } : {}),
+      },
+      select: {
+        id: true,
+        category: true,
+        code: true,
+        name: true,
+        parentCode: true,
+        metadata: true,
+      },
+      orderBy: [{ category: 'asc' }, { name: 'asc' }],
+    });
+  }
   async addresses(uid: string) {
     const user = await this.user(uid);
     return this.db.$queryRaw<Array<{ id: string; label: string; addressLine: string; city: string; pincode: string; createdAt: Date }>>(Prisma.sql`SELECT "id", "label", "addressLine", "city", "pincode", "createdAt" FROM "CustomerAddress" WHERE "userId" = ${user.id}::uuid ORDER BY "createdAt" DESC`);

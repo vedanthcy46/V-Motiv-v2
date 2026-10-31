@@ -17,10 +17,29 @@ export type InstantValuationSummary = {
 };
 
 export const customer = {
-  inventory(filters: { search?: string; city?: string; fuelType?: string; transmission?: string; minYear?: number; maxYear?: number; maxOdometerKm?: number; minPricePaise?: number; maxPricePaise?: number; sort?: 'newest' | 'price_asc' | 'price_desc' | 'year_desc'; page?: number; limit?: number } | string = '') {
+  inventory(filters: {
+    search?: string;
+    city?: string;
+    fuelType?: string;
+    transmission?: string;
+    make?: string;
+    bodyType?: string;
+    color?: string;
+    minYear?: number;
+    maxYear?: number;
+    maxOdometerKm?: number;
+    minPricePaise?: number;
+    maxPricePaise?: number;
+    sort?: 'newest' | 'price_asc' | 'price_desc' | 'year_desc';
+    page?: number;
+    limit?: number;
+  } | string = '') {
     const values = typeof filters === 'string' ? { search: filters } : filters;
     const query = Object.entries(values).filter(([, value]) => value !== undefined && value !== '').map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join('&');
     return api<InventoryPage>(`/inventory${query ? `?${query}` : ''}`);
+  },
+  masterData(category?: string) {
+    return api<Array<{ id: string; category: string; code: string; name: string; parentCode: string | null }>>(`/master-data${category ? `?category=${encodeURIComponent(category)}` : ''}`);
   },
   vehicle(id: string) { return api<VehicleSummary>(`/inventory/${id}`); },
   cities() { return api<SupportedCity[]>('/cities'); },

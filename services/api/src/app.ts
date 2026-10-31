@@ -94,7 +94,26 @@ const supportInput = z.object({ subject: z.string().trim().min(3).max(120), cate
 const supportReplyInput = z.object({ body: z.string().trim().min(1).max(2000) }).strict();
 const addressInput = z.object({ label: z.string().trim().min(1).max(40), addressLine: z.string().trim().min(10).max(300), city: z.string().trim().min(2).max(100), pincode: z.string().regex(/^\d{6}$/) }).strict();
 const privacyRequestInput = z.object({ requestType: z.enum(['DATA_ACCESS', 'ACCOUNT_DELETION']) }).strict();
-const inventoryQuery = z.object({ search: z.string().trim().max(80).optional(), page: z.coerce.number().int().min(1).max(10_000).default(1), limit: z.coerce.number().int().min(1).max(50).default(20), city: z.string().trim().max(100).optional(), fuelType: z.string().trim().max(30).optional(), transmission: z.string().trim().max(30).optional(), minYear: z.coerce.number().int().min(1980).max(new Date().getFullYear() + 1).optional(), maxYear: z.coerce.number().int().min(1980).max(new Date().getFullYear() + 1).optional(), maxOdometerKm: z.coerce.number().int().min(0).max(2_000_000).optional(), minPricePaise: z.coerce.number().int().min(0).max(10_000_000_000).optional(), maxPricePaise: z.coerce.number().int().min(0).max(10_000_000_000).optional(), sort: z.enum(['newest', 'price_asc', 'price_desc', 'year_desc']).default('newest') }).strip().superRefine((value, ctx) => { if (value.minYear && value.maxYear && value.minYear > value.maxYear) ctx.addIssue({ code: 'custom', message: 'Invalid year range' }); if (value.minPricePaise && value.maxPricePaise && value.minPricePaise > value.maxPricePaise) ctx.addIssue({ code: 'custom', message: 'Invalid price range' }); });
+const inventoryQuery = z.object({
+  search: z.string().trim().max(80).optional(),
+  page: z.coerce.number().int().min(1).max(10_000).default(1),
+  limit: z.coerce.number().int().min(1).max(50).default(20),
+  city: z.string().trim().max(100).optional(),
+  fuelType: z.string().trim().max(30).optional(),
+  transmission: z.string().trim().max(30).optional(),
+  make: z.string().trim().max(80).optional(),
+  bodyType: z.string().trim().max(80).optional(),
+  color: z.string().trim().max(80).optional(),
+  minYear: z.coerce.number().int().min(1980).max(new Date().getFullYear() + 1).optional(),
+  maxYear: z.coerce.number().int().min(1980).max(new Date().getFullYear() + 1).optional(),
+  maxOdometerKm: z.coerce.number().int().min(0).max(2_000_000).optional(),
+  minPricePaise: z.coerce.number().int().min(0).max(10_000_000_000).optional(),
+  maxPricePaise: z.coerce.number().int().min(0).max(10_000_000_000).optional(),
+  sort: z.enum(['newest', 'price_asc', 'price_desc', 'year_desc']).default('newest'),
+}).strip().superRefine((value, ctx) => {
+  if (value.minYear && value.maxYear && value.minYear > value.maxYear) ctx.addIssue({ code: 'custom', message: 'Invalid year range' });
+  if (value.minPricePaise && value.maxPricePaise && value.minPricePaise > value.maxPricePaise) ctx.addIssue({ code: 'custom', message: 'Invalid price range' });
+});
 function parsed<T>(schema: z.ZodType<T>, value: unknown): T {
   try {
     return schema.parse(value);
@@ -361,6 +380,10 @@ export function createApp(deps: {
     unifiedApiRouter.get('/inventory', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.inventory((res.locals.identity as Identity | undefined)?.uid, parsed(inventoryQuery, req.query))));
     unifiedApiRouter.get('/inventory/:id', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.vehicle((res.locals.identity as Identity | undefined)?.uid, parsed(uuid, req.params.id))));
     unifiedApiRouter.get('/cities', async (_req, res) => res.json(await deps.customer!.cities()));
+    unifiedApiRouter.get('/master-data', async (req, res) => {
+      const category = req.query.category ? String(req.query.category).trim() : undefined;
+      res.json(await deps.customer!.masterData(category));
+    });
   }
 
   // Authenticated customer & profile routes
