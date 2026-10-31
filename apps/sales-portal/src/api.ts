@@ -647,7 +647,7 @@ export const salesApi = {
   allAcquisitionOffers: (user: User, params: { page?: number; limit?: number; status?: string } = {}) =>
     call<{ items: AcquisitionOfferItem[]; total: number; page: number; totalPages: number }>(user, `/acquisition-offers?${query(params)}`),
   getAcquisitionOffers: (user: User, leadId: string) =>
-    call<Array<{ id: string; offerAmountPaise: string; status: string; validUntil: string; terms: string | null; createdAt: string }>>(user, `/seller-leads/${leadId}/offers`),
+    call<Array<{ id: string; offerAmountPaise: string; status: string; validUntil: string; terms: string | null; createdAt: string; version?: number; declineReason?: string | null; acceptedAt?: string | null; declinedAt?: string | null }>>(user, `/seller-leads/${leadId}/offers`),
   proposeAcquisitionOffer: (user: User, leadId: string, input: { valuationId?: string; offerAmountPaise: string; validUntil?: string; terms?: string; reason?: string }) =>
     call<{ id: string; status: string; message?: string }>(user, `/seller-leads/${leadId}/offers`, { method: 'POST', body: JSON.stringify(input) }),
   recordOfferResponse: (user: User, leadId: string, offerId: string, input: { decision: 'ACCEPTED' | 'DECLINED'; declineReason?: string }) =>

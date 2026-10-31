@@ -18,6 +18,7 @@ import {
   CarFront,
   CheckCircle,
   ChevronRight,
+  Clock,
   IndianRupee,
   MapPin,
   QrCode,
@@ -499,10 +500,20 @@ export function RequestsScreen() {
                         {activeOffer ? (
                           <View style={[styles.offerCallout, { backgroundColor: c.brandAccent }]}>
                             <IndianRupee size={16} color={c.brandNavy} />
-                            <Text style={[styles.offerCalloutText, { color: c.brandNavy }]}>
-                              Offer Available: {formatPaise(activeOffer.offerAmountPaise)}
+                            <Text style={[styles.offerCalloutText, { color: c.brandNavy, fontWeight: '700' }]}>
+                              {item.offers?.some(o => o.status === 'DECLINED')
+                                ? `Revised Counter-Offer: ${formatPaise(activeOffer.offerAmountPaise)}`
+                                : `Offer Available: ${formatPaise(activeOffer.offerAmountPaise)}`}
                             </Text>
                             <ChevronRight size={14} color={c.brandNavy} />
+                          </View>
+                        ) : item.offers?.[0]?.status === 'DECLINED' ? (
+                          <View style={[styles.offerCallout, { backgroundColor: 'rgba(245, 158, 11, 0.12)', borderWidth: 1, borderColor: 'rgba(245, 158, 11, 0.35)' }]}>
+                            <Clock size={15} color={isDark ? '#FBBF24' : '#D97706'} />
+                            <Text style={[styles.offerCalloutText, { color: isDark ? '#FBBF24' : '#D97706', flex: 1, fontSize: 13, fontWeight: '700' }]}>
+                              Offer Declined · Reviewing Counter-Offer
+                            </Text>
+                            <ChevronRight size={14} color={isDark ? '#FBBF24' : '#D97706'} />
                           </View>
                         ) : (item.status === 'OFFER_PENDING' || item.inspection?.isCompleted) ? (
                           <View style={[styles.offerCallout, { backgroundColor: 'rgba(16, 185, 129, 0.12)', borderWidth: 1, borderColor: 'rgba(16, 185, 129, 0.35)' }]}>

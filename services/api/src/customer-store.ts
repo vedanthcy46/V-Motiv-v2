@@ -792,16 +792,42 @@ export class PrismaCustomerStore implements CustomerStore {
           status: 'DECLINED',
           declinedAt: new Date(),
           declineReason: input.reason,
-          version: { increment: 1 },
         },
       });
+      // Lead moves to OFFER_PENDING so sales team can renegotiate and issue a revised counter-offer
       await tx.acquisitionLead.update({
         where: { id: offer.leadId },
-        data: { status: 'REJECTED' },
+        data: { status: 'OFFER_PENDING' },
       });
       await tx.auditEvent.create({
-        data: { actorId: user.id, action: 'ACQUISITION_OFFER_DECLINED', entityId: offerId },
+        data: {
+          actorId: user.id,
+          action: 'ACQUISITION_OFFER_DECLINED',
+          entityType: 'AcquisitionOffer',
+          entityId: offerId,
+          details: { reason: input.reason, leadId: offer.leadId, referenceCode: offer.lead.referenceCode, version: offer.version },
+        },
       });
+      await tx.emailOutbox.create({
+        data: {
+          userId: user.id,
+          eventKey: `offer-declined/${offerId}`,
+          recipient: user.email,
+          templateVersion: 'offer-declined-v1',
+          subject: 'Offer Declined — V MOTIV Vehicle Acquisition',
+          text: `You declined our offer for your ${offer.lead.make} ${offer.lead.model} (${offer.lead.referenceCode}). Our acquisitions and pricing team has been notified. We will review your comments and may contact you or present a revised counter-offer.`,
+        },
+      }).catch(() => undefined);
+      await tx.notification.create({
+        data: {
+          userId: user.id,
+          eventType: 'ACQUISITION_OFFER_DECLINED',
+          title: 'Offer Declined — In Negotiation',
+          body: `You declined our offer for your ${offer.lead.make} ${offer.lead.model}. Our team is reviewing whether an updated counter-offer can be presented.`,
+          entityType: 'AcquisitionLead',
+          entityId: offer.leadId,
+        },
+      }).catch(() => undefined);
       return savedOffer;
     });
 

@@ -2591,7 +2591,7 @@ function SellerLeadDrawer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [interactions, setInteractions] = useState<NonNullable<SellerLead['interactions']>>([]);
-  const [offers, setOffers] = useState<Array<{ id: string; offerAmountPaise: string; status: string; validUntil: string }>>([]);
+  const [offers, setOffers] = useState<Array<{ id: string; offerAmountPaise: string; status: string; validUntil: string; terms?: string | null; createdAt?: string; version?: number; declineReason?: string | null; acceptedAt?: string | null; declinedAt?: string | null }>>([]);
   const [valuations, setValuations] = useState<ValuationItem[]>([]);
 
   // Form states
@@ -2885,6 +2885,9 @@ function SellerLeadDrawer({
     } catch (err) {
       if (err instanceof ApiError && err.code === 'OFFER_PROPOSAL_REQUIRES_APPROVED_VALUATION') {
         setError('Offer proposal requires an authorized valuation recommendation. Please establish or approve the valuation below.');
+        setShowValuationForm(true);
+      } else if (err instanceof ApiError && err.code === 'OFFER_EXCEEDS_APPROVED_VALUATION') {
+        setError('Proposed offer exceeds the current approved valuation baseline. Please submit or authorize an updated valuation baseline below.');
         setShowValuationForm(true);
       } else {
         setError(err instanceof ApiError ? `Error: ${err.code}` : 'Offer proposal rejected');
@@ -3647,35 +3650,71 @@ function SellerLeadDrawer({
                   padding: '16px',
                   marginBottom: '16px',
                 }}>
-                  <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                    <span>📢 Issue Official Purchase Offer to Seller</span>
-                    {valuations[0]?.status === 'APPROVED' && !showValuationForm && (
-                      <button type="button" className="text-button" style={{ fontSize: '0.8rem' }} onClick={() => setShowValuationForm(true)}>
-                        Revise Valuation Baseline
-                      </button>
-                    )}
-                  </div>
-                  <div className="form-grid">
-                    <div className="form-group">
-                      <label className="form-label">Purchase Offer Amount (₹)</label>
-                      <input
-                        className="form-input font-mono"
-                        value={offerRupees}
-                        onChange={e => setOfferRupees(e.target.value)}
-                        placeholder="Offer amount in ₹"
-                      />
-                    </div>
-                    <div className="form-group" style={{ justifyContent: 'flex-end', alignItems: 'flex-end' }}>
-                      <button
-                        className="btn-primary"
-                        onClick={handleProposeOffer}
-                        disabled={busy || !offerRupees}
-                        style={{ width: '100%' }}
-                      >
-                        {busy ? 'Processing...' : 'Propose Purchase Offer'}
-                      </button>
-                    </div>
-                  </div>
+                  {(() => {
+                    const latestOffer = offers[0];
+                    const isDeclined = latestOffer?.status === 'DECLINED';
+                    const nextVersion = (latestOffer?.version || 1) + (isDeclined ? 1 : 0);
+                    return (
+                      <>
+                        {isDeclined && (
+                          <div style={{
+                            background: 'rgba(239, 68, 68, 0.08)',
+                            border: '1px solid rgba(239, 68, 68, 0.35)',
+                            borderRadius: '8px',
+                            padding: '14px',
+                            marginBottom: '16px',
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f87171', fontWeight: 600, fontSize: '0.92rem' }}>
+                                <Icons.Offers size={18} />
+                                <span>Previous Purchase Offer (v{latestOffer.version || 1} · {formatCurrency(latestOffer.offerAmountPaise)}) was Declined</span>
+                              </div>
+                              <span className="badge badge-red">Declined by Seller</span>
+                            </div>
+                            <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+                              <strong>Decline Reason / Feedback:</strong> {latestOffer.declineReason || 'Price not acceptable to seller'}
+                              {lead.expectedPricePaise && (
+                                <span> · Seller Expectation: <strong className="font-mono">{formatCurrency(lead.expectedPricePaise)}</strong></span>
+                              )}
+                            </div>
+                            <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                              The seller lead remains active in commercial negotiation. You can propose a revised counter-offer (v{nextVersion}) below to continue the acquisition.
+                            </div>
+                          </div>
+                        )}
+
+                        <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                          <span>{isDeclined ? `🔄 Issue Revised Counter-Offer (v${nextVersion})` : '📢 Issue Official Purchase Offer to Seller'}</span>
+                          {valuations[0]?.status === 'APPROVED' && !showValuationForm && (
+                            <button type="button" className="text-button" style={{ fontSize: '0.8rem' }} onClick={() => setShowValuationForm(true)}>
+                              Revise Valuation Baseline
+                            </button>
+                          )}
+                        </div>
+                        <div className="form-grid">
+                          <div className="form-group">
+                            <label className="form-label">{isDeclined ? `Counter-Offer Amount v${nextVersion} (₹)` : 'Purchase Offer Amount (₹)'}</label>
+                            <input
+                              className="form-input font-mono"
+                              value={offerRupees}
+                              onChange={e => setOfferRupees(e.target.value)}
+                              placeholder="Offer amount in ₹"
+                            />
+                          </div>
+                          <div className="form-group" style={{ justifyContent: 'flex-end', alignItems: 'flex-end' }}>
+                            <button
+                              className="btn-primary"
+                              onClick={handleProposeOffer}
+                              disabled={busy || !offerRupees}
+                              style={{ width: '100%' }}
+                            >
+                              {busy ? 'Processing...' : isDeclined ? `Issue Revised Counter-Offer (v${nextVersion})` : 'Propose Purchase Offer'}
+                            </button>
+                          </div>
+                        </div>
+                      </>
+                    );
+                  })()}
                 </div>
               )}
 
@@ -3751,14 +3790,31 @@ function SellerLeadDrawer({
                     {offers.map(o => (
                       <tr key={`o-${o.id}`}>
                         <td>
-                          <div style={{ fontWeight: 600 }}>Official Offer</div>
-                          <div className="table-sub">{formatDate(o.validUntil)}</div>
+                          <div style={{ fontWeight: 600 }}>Official Offer (v{o.version || 1})</div>
+                          <div className="table-sub">{formatDate(o.createdAt || o.validUntil)}</div>
                         </td>
                         <td className="font-mono" style={{ fontWeight: 700, color: 'var(--color-primary)' }}>
                           {formatCurrency(o.offerAmountPaise)}
                         </td>
                         <td><span className={`badge ${statusBadgeClass(o.status)}`}>{o.status}</span></td>
-                        <td>Valid until: {formatDate(o.validUntil)}</td>
+                        <td style={{ maxWidth: '240px' }}>
+                          {o.status === 'DECLINED' && o.declineReason ? (
+                            <div style={{
+                              padding: '4px 8px',
+                              borderRadius: '4px',
+                              fontSize: '0.78rem',
+                              lineHeight: 1.3,
+                              background: 'rgba(239, 68, 68, 0.12)',
+                              color: '#f87171',
+                            }}>
+                              Declined: {o.declineReason}
+                            </div>
+                          ) : (
+                            <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                              Valid until: {formatDate(o.validUntil)}
+                            </span>
+                          )}
+                        </td>
                         <td>
                           {o.status === 'OFFERED' && (
                             <div style={{ display: 'flex', gap: '4px' }}>
@@ -3777,7 +3833,8 @@ function SellerLeadDrawer({
                                 className="btn-danger btn-sm"
                                 onClick={async () => {
                                   if (!user) return;
-                                  await salesApi.recordOfferResponse(user, lead.id, o.id, { decision: 'DECLINED', declineReason: 'Seller declined' });
+                                  const reason = prompt('Enter customer decline reason (e.g. Price too low, expecting higher offer):') || 'Price not acceptable';
+                                  await salesApi.recordOfferResponse(user, lead.id, o.id, { decision: 'DECLINED', declineReason: reason });
                                   await loadInteractions();
                                   onRefresh();
                                 }}
@@ -3785,6 +3842,22 @@ function SellerLeadDrawer({
                                 Declined
                               </button>
                             </div>
+                          )}
+                          {o.status === 'DECLINED' && (
+                            <button
+                              type="button"
+                              className="btn-secondary btn-sm"
+                              onClick={() => {
+                                setOfferRupees('');
+                                const el = document.querySelector('input[placeholder="Offer amount in ₹"]') as HTMLInputElement | null;
+                                if (el) {
+                                  el.focus();
+                                  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }
+                              }}
+                            >
+                              Counter-Offer
+                            </button>
                           )}
                         </td>
                       </tr>

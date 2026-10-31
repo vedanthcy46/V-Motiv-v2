@@ -522,8 +522,9 @@ export class PrismaSalesStore implements SalesStore {
       SUBMITTED: ['QUALIFYING', 'CANCELLED'],
       QUALIFYING: ['INSPECTION_SCHEDULED', 'OFFER_PENDING', 'CANCELLED'],
       INSPECTION_SCHEDULED: ['OFFER_PENDING', 'CANCELLED'],
-      OFFER_PENDING: ['OFFERED', 'CANCELLED'],
-      OFFERED: ['ACCEPTED', 'REJECTED', 'CANCELLED'],
+      OFFER_PENDING: ['OFFERED', 'REJECTED', 'CANCELLED'],
+      OFFERED: ['ACCEPTED', 'OFFER_PENDING', 'REJECTED', 'CANCELLED'],
+      REJECTED: ['OFFER_PENDING', 'OFFERED', 'CANCELLED'],
     };
     if (!allowed[lead.status]?.includes(input.status)) throw new HttpError(409, 'INVALID_LEAD_STATUS_TRANSITION');
     return this.db.$transaction(async tx => {
@@ -1412,8 +1413,8 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
     reason?: string;
   }) {
     const lead = await this.db.acquisitionLead.findFirst({
-      where: { id: leadId, ...scope(actor), status: { in: ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED', 'OFFER_PENDING', 'OFFERED'] } },
-      select: { id: true, referenceCode: true, make: true, model: true, manufacturingYear: true, sellerName: true, sellerPhone: true, expectedPricePaise: true, city: true },
+      where: { id: leadId, ...scope(actor), status: { in: ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED', 'OFFER_PENDING', 'OFFERED', 'REJECTED'] } },
+      select: { id: true, referenceCode: true, make: true, model: true, manufacturingYear: true, sellerName: true, sellerPhone: true, expectedPricePaise: true, city: true, userId: true },
     });
     if (!lead) throw new HttpError(409, 'OFFER_PROPOSAL_NOT_ELIGIBLE');
 
@@ -1437,8 +1438,8 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
             version: { increment: 1 },
           },
         });
-      } else if (!valuation) {
-        // If no valuation exists, check for an approved inspection report to establish baseline valuation
+      } else if (!valuation || (valuation.status === 'APPROVED' && input.offerAmountPaise > valuation.recommendedPurchasePaise)) {
+        // If no valuation exists or higher counter-offer exceeds previous approved baseline, establish baseline valuation
         const approvedReport = await this.db.inspectionReport.findFirst({
           where: { request: { leadId }, status: 'APPROVED' },
           orderBy: { revision: 'desc' },
@@ -1454,7 +1455,7 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
               otherCostsPaise: 0n,
               requiredMarginPaise: resalePaise - input.offerAmountPaise,
               recommendedPurchasePaise: input.offerAmountPaise,
-              notes: input.reason || 'Authorized acquisition valuation baseline established by administration.',
+              notes: input.reason || (valuation ? 'Authorized acquisition valuation baseline revised for counter-offer by administration.' : 'Authorized acquisition valuation baseline established by administration.'),
               status: 'APPROVED',
               createdById: actor.userId,
               approvedById: actor.userId,
@@ -1492,18 +1493,30 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
         await tx.auditEvent.create({
           data: {
             actorId: actor.userId,
-            action: 'ACQUISITION_OFFER_PROPOSED',
+            action: nextVersion > 1 ? 'ACQUISITION_COUNTER_OFFER_PROPOSED' : 'ACQUISITION_OFFER_PROPOSED',
             entityType: 'AcquisitionOffer',
             entityId: offer.id,
-            details: { leadId, referenceCode: lead.referenceCode, amountPaise: input.offerAmountPaise.toString(), version: nextVersion },
+            details: { leadId, referenceCode: lead.referenceCode, amountPaise: input.offerAmountPaise.toString(), version: nextVersion, isCounterOffer: nextVersion > 1 },
           },
         });
+        if (lead.userId) {
+          await tx.notification.create({
+            data: {
+              userId: lead.userId,
+              eventType: nextVersion > 1 ? 'ACQUISITION_COUNTER_OFFER_RECEIVED' : 'ACQUISITION_OFFER_RECEIVED',
+              title: nextVersion > 1 ? `Revised Purchase Offer (v${nextVersion})` : 'Guaranteed Purchase Offer Received',
+              body: `V MOTIV has issued an official purchase offer of ₹${(Number(input.offerAmountPaise) / 100).toLocaleString('en-IN')} for your ${lead.make} ${lead.model}.`,
+              entityType: 'AcquisitionOffer',
+              entityId: offer.id,
+            },
+          }).catch(() => undefined);
+        }
         return {
           id: offer.id,
           status: 'OFFERED',
           valuationId: valuation.id,
           offerAmountPaise: offer.offerAmountPaise.toString(),
-          message: 'Official purchase offer issued to seller.',
+          message: nextVersion > 1 ? `Revised counter-offer (v${nextVersion}) issued to seller.` : 'Official purchase offer issued to seller.',
         };
       });
     }
@@ -1526,7 +1539,7 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
     }
     const lead = await this.db.acquisitionLead.findFirst({
       where: { id: leadId, ...scope(actor), status: 'OFFERED' },
-      select: { id: true, referenceCode: true },
+      select: { id: true, referenceCode: true, userId: true },
     });
     if (!lead) throw new HttpError(404, 'SELLER_LEAD_NOT_FOUND');
 
@@ -1540,15 +1553,15 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
       const updatedOffer = await tx.acquisitionOffer.update({
         where: { id: offerId },
         data: {
-          status: input.decision === 'ACCEPTED' ? 'ACCEPTED' : 'DECLINED',
-          acceptedAt: input.decision === 'ACCEPTED' ? new Date() : null,
-          declinedAt: input.decision === 'DECLINED' ? new Date() : null,
+          status: 'DECLINED',
+          declinedAt: new Date(),
           declineReason: input.declineReason,
         },
       });
+      // Keep lead active in negotiation under OFFER_PENDING so sales team can issue a revised counter-offer
       await tx.acquisitionLead.update({
         where: { id: leadId },
-        data: { status: 'REJECTED' },
+        data: { status: 'OFFER_PENDING' },
       });
       await tx.auditEvent.create({
         data: {
@@ -1556,9 +1569,21 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
           action: 'OFFER_DECLINED_BY_SELLER',
           entityType: 'AcquisitionOffer',
           entityId: offerId,
-          details: { leadId, referenceCode: lead.referenceCode, decision: input.decision, reason: input.declineReason },
+          details: { leadId, referenceCode: lead.referenceCode, decision: input.decision, reason: input.declineReason, version: offer.version },
         },
       });
+      if (lead.userId) {
+        await tx.notification.create({
+          data: {
+            userId: lead.userId,
+            eventType: 'ACQUISITION_OFFER_DECLINED',
+            title: 'Offer Response Recorded',
+            body: `You declined our offer ${offer.version ? `(v${offer.version})` : ''}. Our team is reviewing whether a revised counter-offer can be presented.`,
+            entityType: 'AcquisitionLead',
+            entityId: leadId,
+          },
+        }).catch(() => undefined);
+      }
       return updatedOffer;
     });
   }

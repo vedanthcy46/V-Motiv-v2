@@ -221,11 +221,15 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
 
   const activeOffer = lead.offers?.find((o) => o.status === 'OFFERED');
   const acceptedOffer = lead.offers?.find((o) => o.status === 'ACCEPTED');
+  const declinedOffers = (lead.offers || []).filter((o) => o.status === 'DECLINED');
+  const latestDeclinedOffer = declinedOffers[0];
+  const isRevisedOffer = Boolean(activeOffer && (activeOffer.version > 1 || declinedOffers.length > 0));
   const isInspectionCompleted = Boolean(
     lead.inspection?.isCompleted ||
-    ['OFFER_PENDING', 'OFFERED', 'ACCEPTED'].includes(lead.status)
+    ['OFFER_PENDING', 'OFFERED', 'ACCEPTED', 'REJECTED'].includes(lead.status)
   );
   const isCancellable = ['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'].includes(lead.status) && !isInspectionCompleted;
+  const effectiveTimelineStatus = (lead.status === 'REJECTED' && latestDeclinedOffer) ? 'OFFER_PENDING' : lead.status;
 
   return (
     <SafeAreaView style={styles.container}>
@@ -272,7 +276,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
           <Text style={styles.sectionTitle}>Request Status</Text>
           <View style={styles.timelineRow}>
             {TIMELINE_STEPS.map((step, idx) => {
-              const currentStepIdx = TIMELINE_STEPS.findIndex((s) => s.key === lead.status);
+              const currentStepIdx = TIMELINE_STEPS.findIndex((s) => s.key === effectiveTimelineStatus);
               const isPast = idx < currentStepIdx;
               const isCurrent = idx === currentStepIdx;
               return (
@@ -304,9 +308,21 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
         {activeOffer ? (
           <View style={styles.offerCard}>
             <View style={styles.offerBadge}>
-              <Text style={styles.offerBadgeText}>FINAL ACQUISITION OFFER</Text>
+              <Text style={styles.offerBadgeText}>
+                {isRevisedOffer ? `REVISED ACQUISITION OFFER (v${activeOffer.version})` : 'FINAL ACQUISITION OFFER'}
+              </Text>
             </View>
+            {isRevisedOffer && (
+              <Text style={{ fontSize: 12, color: colors.brandAccent, fontWeight: '700', textAlign: 'center', marginTop: 4 }}>
+                Updated Counter-Offer from V MOTIV Pricing Team
+              </Text>
+            )}
             <Text style={styles.offerPrice}>{formatPaise(activeOffer.offerAmountPaise)}</Text>
+            {latestDeclinedOffer && (
+              <Text style={{ fontSize: 11, color: colors.textMuted, textAlign: 'center', marginBottom: 4 }}>
+                Previous declined offer: {formatPaise(latestDeclinedOffer.offerAmountPaise)}
+              </Text>
+            )}
             <Text style={styles.offerValidity}>
               Valid until: {new Date(activeOffer.validUntil).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
             </Text>
@@ -350,8 +366,35 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
           </View>
         ) : null}
 
-        {/* Valuation in Progress Callout */}
-        {lead.status === 'OFFER_PENDING' && !activeOffer && (
+        {/* Renegotiation in Progress Callout (When Offer was Declined) */}
+        {latestDeclinedOffer && !activeOffer && !acceptedOffer && (
+          <View style={[styles.valuationCallout, { borderColor: isDark ? '#F59E0B' : '#D97706', backgroundColor: isDark ? 'rgba(245, 158, 11, 0.1)' : '#FFFBEB' }]}>
+            <View style={[styles.valuationIconWrap, { backgroundColor: isDark ? 'rgba(245, 158, 11, 0.2)' : '#FEF3C7' }]}>
+              <Clock size={20} color={isDark ? '#FBBF24' : '#B45309'} />
+            </View>
+            <View style={{ flex: 1, gap: 4 }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 6 }}>
+                <Text style={[styles.valuationCalloutTitle, { color: isDark ? '#FBBF24' : '#92400E' }]}>
+                  Offer Declined · Negotiation in Progress
+                </Text>
+                <View style={{ backgroundColor: isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2', paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: '#EF4444' }}>
+                    v{latestDeclinedOffer.version || 1} ({formatPaise(latestDeclinedOffer.offerAmountPaise)})
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.valuationCalloutSub}>
+                You declined our previous offer{latestDeclinedOffer.declineReason ? ` ("${latestDeclinedOffer.declineReason}")` : ''}. Our sales and pricing specialists are reviewing your expectations and may present an updated counter-offer shortly.
+              </Text>
+              <Text style={{ fontSize: 11, color: isDark ? '#94A3B8' : '#64748B', marginTop: 2 }}>
+                ✓ Certified 180-point vehicle inspection remains valid. No re-inspection needed.
+              </Text>
+            </View>
+          </View>
+        )}
+
+        {/* Valuation in Progress Callout (Initial) */}
+        {lead.status === 'OFFER_PENDING' && !activeOffer && !latestDeclinedOffer && (
           <View style={styles.valuationCallout}>
             <View style={styles.valuationIconWrap}>
               <Clock size={20} color={isDark ? '#FEF08A' : '#B45309'} />

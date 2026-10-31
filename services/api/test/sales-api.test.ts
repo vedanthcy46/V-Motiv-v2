@@ -478,7 +478,7 @@ describe('Sales Executive Portal API Boundaries', () => {
     const decisionRes = await request(app)
       .post('/api/v2/sales/seller-leads/22222222-2222-4222-8222-222222222222/offers/aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa/decision')
       .set('Authorization', 'Bearer valid-firebase-token')
-      .send({ decision: 'ACCEPTED' });
+      .send({ decision: 'DECLINED', declineReason: 'Seller expects higher offer price' });
     expect(decisionRes.status).toBe(200);
   });
 
