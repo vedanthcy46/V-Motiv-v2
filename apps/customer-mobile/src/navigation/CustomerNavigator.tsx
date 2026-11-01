@@ -1,9 +1,11 @@
 import React from 'react';
-import { Platform } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Bookmark, CarFront, CircleUserRound, ClipboardList, House, Warehouse } from 'lucide-react-native';
+import { AdaptiveGlass } from '../components/AdaptiveGlass';
 import { ExploreScreen } from '../screens/ExploreScreen';
 import { SellScreen } from '../screens/SellScreen';
 import { WishlistScreen } from '../screens/WishlistScreen';
@@ -70,25 +72,32 @@ function CustomerTabs() {
           bottom: bottomFloatingInset,
           height: 64,
           borderRadius: 32,
-          backgroundColor: isDark ? 'rgba(14, 35, 67, 0.95)' : 'rgba(255, 255, 255, 0.97)',
-          borderColor: isDark ? 'rgba(247, 181, 3, 0.22)' : 'rgba(226, 232, 240, 0.95)',
-          borderWidth: 1,
-          borderTopWidth: 1,
-          borderTopColor: isDark ? 'rgba(247, 181, 3, 0.22)' : 'rgba(226, 232, 240, 0.95)',
+          backgroundColor: 'transparent',
+          borderWidth: 0,
+          borderTopWidth: 0,
+          elevation: 0,
           paddingTop: 8,
           paddingBottom: 8,
-          elevation: 14,
-          shadowColor: isDark ? '#000000' : '#061A38',
-          shadowOffset: { width: 0, height: 6 },
-          shadowOpacity: isDark ? 0.45 : 0.12,
-          shadowRadius: 16,
         },
+        tabBarBackground: () => (
+          <AdaptiveGlass
+            variant="floatingNav"
+            containerStyle={StyleSheet.absoluteFill}
+            style={StyleSheet.absoluteFill}
+            rimBorderColor={isDark ? 'rgba(247, 181, 3, 0.32)' : 'rgba(226, 232, 240, 0.95)'}
+          />
+        ),
         tabBarLabelStyle: { fontSize: 10.5, fontWeight: '700', marginTop: 2 },
         tabBarIcon: ({ color: iconColor, size }) => {
           const Icon = icons[route.name as keyof typeof icons] || House;
           return <Icon accessibilityElementsHidden size={22} color={iconColor} />;
         },
       })}
+      screenListeners={{
+        tabPress: () => {
+          void Haptics.selectionAsync().catch(() => {});
+        },
+      }}
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Explore" component={ExploreScreen} />

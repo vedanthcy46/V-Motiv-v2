@@ -11,6 +11,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import * as Haptics from 'expo-haptics';
 import { useFocusEffect } from '@react-navigation/native';
 import type { BottomTabScreenProps } from '@react-navigation/bottom-tabs';
 import {
@@ -28,6 +29,7 @@ import {
   KeyRound,
 } from 'lucide-react-native';
 import { BrandLogo } from '../components/BrandLogo';
+import { AdaptiveGlass } from '../components/AdaptiveGlass';
 import { NotificationsModal } from '../components/NotificationsModal';
 import { CustomerButton } from '../components/customer-ui';
 import { customer } from '../services/customer';
@@ -137,14 +139,15 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
         showsVerticalScrollIndicator={false}
       >
         {/* ── Top bar ── */}
-        <View style={[styles.topBar, { backgroundColor: c.surface, borderColor: c.border }]}>
+        <AdaptiveGlass variant="elevated" containerStyle={styles.topBarGlassContainer} style={styles.topBar}>
           <BrandLogo size={28} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Notifications${unread > 0 ? `, ${unread} unread` : ''}`}
-            onPress={() =>
-              state === 'signed-in' ? setNotificationsOpen(true) : navigation.navigate('Account')
-            }
+            onPress={() => {
+              void Haptics.selectionAsync().catch(() => {});
+              state === 'signed-in' ? setNotificationsOpen(true) : navigation.navigate('Account');
+            }}
             style={({ pressed }) => [styles.bellBtn, pressed && { opacity: 0.6 }]}
           >
             <Bell size={24} color={isDark ? '#FFFFFF' : c.textPrimary} />
@@ -154,7 +157,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
               </View>
             )}
           </Pressable>
-        </View>
+        </AdaptiveGlass>
 
         {/* ── Greeting ── */}
         <View style={styles.greetSection}>
@@ -170,11 +173,18 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Buy a Car. Explore available cars, see prices and request a test drive."
-            onPress={() => navigation.navigate('Explore')}
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              navigation.navigate('Explore');
+            }}
             style={({ pressed }) => [
               styles.primaryCard,
-              { backgroundColor: isDark ? c.surface : c.brandNavy, borderWidth: 1, borderColor: c.border },
-              pressed && { opacity: 0.85 },
+              {
+                backgroundColor: isDark ? 'rgba(17, 39, 68, 0.94)' : c.brandNavy,
+                borderWidth: 1.2,
+                borderColor: isDark ? 'rgba(247, 181, 3, 0.35)' : 'rgba(255, 255, 255, 0.15)',
+              },
+              pressed && { opacity: 0.88, transform: [{ scale: 0.98 }] },
             ]}
           >
             <CarFront size={36} color={c.brandAccent} accessibilityElementsHidden />
@@ -191,11 +201,18 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Sell a Car. Tell us about your car and save progress as you go."
-            onPress={() => root?.navigate('Sell')}
+            onPress={() => {
+              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+              root?.navigate('Sell');
+            }}
             style={({ pressed }) => [
               styles.primaryCard,
-              { backgroundColor: c.brandAccent },
-              pressed && { opacity: 0.85 },
+              {
+                backgroundColor: c.brandAccent,
+                borderWidth: 1.2,
+                borderColor: 'rgba(255, 255, 255, 0.4)',
+              },
+              pressed && { opacity: 0.88, transform: [{ scale: 0.98 }] },
             ]}
           >
             <Tag size={36} color={c.brandNavy} accessibilityElementsHidden />
@@ -595,14 +612,17 @@ const styles = StyleSheet.create({
     gap: 20,
     paddingBottom: 110,
   },
+  topBarGlassContainer: {
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
   topBar: {
-    borderRadius: 16,
+    borderRadius: 18,
     paddingHorizontal: 20,
     paddingVertical: 14,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    borderWidth: 1,
   },
   bellBtn: {
     minWidth: 44,

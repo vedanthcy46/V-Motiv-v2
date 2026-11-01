@@ -34,6 +34,8 @@ import {
   X,
 } from 'lucide-react-native';
 import { BrandHeader, EmptyState, Loading, PrimaryButton } from '../components/ui';
+import * as Haptics from 'expo-haptics';
+import { AdaptiveGlass } from '../components/AdaptiveGlass';
 import { VehicleCard } from '../components/VehicleCard';
 import { customer } from '../services/customer';
 import type { RootStack, Tabs } from '../navigation/types';
@@ -467,6 +469,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   };
 
   const openFilterModal = (cat: FilterCategoryKey = 'PRICE') => {
+    void Haptics.selectionAsync().catch(() => {});
     setStagedPriceRange(priceRange);
     setStagedBrands([...brands]);
     setStagedModels([...models]);
@@ -484,6 +487,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   };
 
   const handleClearAllStaged = () => {
+    void Haptics.selectionAsync().catch(() => {});
     setStagedPriceRange('');
     setStagedBrands([]);
     setStagedModels([]);
@@ -498,6 +502,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   };
 
   const handleApplyStaged = () => {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
     setPriceRange(stagedPriceRange);
     setBrands([...stagedBrands]);
     setModels([...stagedModels]);
@@ -513,6 +518,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   };
 
   const cycleSort = () => {
+    void Haptics.selectionAsync().catch(() => {});
     const sequence: Array<'newest' | 'price_asc' | 'price_desc' | 'year_desc'> = [
       'newest',
       'price_asc',
