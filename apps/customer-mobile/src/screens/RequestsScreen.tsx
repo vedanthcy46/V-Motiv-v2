@@ -27,8 +27,6 @@ import {
   XCircle,
 } from 'lucide-react-native';
 import { customer } from '../services/customer';
-import * as Haptics from 'expo-haptics';
-import { AdaptiveGlass } from '../components/AdaptiveGlass';
 import { fetchCustomerServiceRequests, type ServiceRequestSummary } from '../services/service-api';
 import { fetchConnectAlerts, markConnectAlertRead, type ConnectNotificationItem } from '../services/connect-api';
 import { useAuth } from '../auth/AuthProvider';
@@ -253,17 +251,14 @@ export function RequestsScreen() {
                 style={[
                   styles.tabItem,
                   { backgroundColor: c.surface, borderColor: c.border },
-                  active && { backgroundColor: isDark ? 'rgba(247, 181, 3, 0.18)' : '#FFF5D6', borderColor: c.brandAccent },
+                  active && { backgroundColor: c.selected, borderColor: c.brandAccent },
                 ]}
-                onPress={() => {
-                  void Haptics.selectionAsync().catch(() => {});
-                  setFilter(tab.key as FilterTab);
-                }}
+                onPress={() => setFilter(tab.key as FilterTab)}
               >
                 <Text
                   style={[
                     styles.tabText,
-                    { color: active ? (isDark ? c.brandAccent : c.brandNavy) : c.textSecondary, fontWeight: active ? '800' : '600' },
+                    { color: active ? c.brandAccent : c.textSecondary, fontWeight: active ? '700' : '600' },
                   ]}
                 >
                   {tab.label}

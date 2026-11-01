@@ -34,8 +34,6 @@ import {
   Wrench,
   Zap,
 } from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
-import { AdaptiveGlass } from '../components/AdaptiveGlass';
 import { customer } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
@@ -461,22 +459,19 @@ export function VehicleScreen({ route, navigation }: Props) {
       </ScrollView>
 
       {/* Floating Bottom Action Bar */}
-      <AdaptiveGlass
-        variant="elevated"
-        containerStyle={[
-          styles.bottomBarContainer,
+      <View
+        style={[
+          styles.bottomBar,
           {
-            paddingBottom: Math.max(insets.bottom, 12),
+            paddingBottom: Math.max(insets.bottom, space.md),
           },
         ]}
-        style={styles.bottomBar}
       >
         <TouchableOpacity
           style={[styles.enquiryBtn, hasEnquiry && styles.btnWithdrawn]}
           activeOpacity={0.8}
           disabled={withdrawingEnquiry}
           onPress={() => {
-            void Haptics.selectionAsync().catch(() => {});
             if (state !== 'signed-in') { navigation.navigate('Tabs', { screen: 'Account' }); return; }
             if (hasEnquiry && enquiryId) {
               Alert.alert('Withdraw Enquiry', 'Remove your purchase enquiry for this vehicle?', [
@@ -510,7 +505,6 @@ export function VehicleScreen({ route, navigation }: Props) {
           activeOpacity={0.8}
           disabled={withdrawingDrive || item.isHeld}
           onPress={() => {
-            void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
             if (item.isHeld) {
               Alert.alert(
                 'Vehicle On Hold',
@@ -555,7 +549,7 @@ export function VehicleScreen({ route, navigation }: Props) {
             {item.isHeld ? 'Vehicle On Hold 🔒' : hasTestDrive ? 'Drive Booked ✓' : 'Book Test Drive'}
           </Text>
         </TouchableOpacity>
-      </AdaptiveGlass>
+      </View>
     </SafeAreaView>
   );
 }
@@ -879,23 +873,17 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       fontSize: 11,
       lineHeight: 16,
     },
-    bottomBarContainer: {
+    bottomBar: {
       position: 'absolute',
       bottom: 0,
       left: 0,
       right: 0,
-      borderTopLeftRadius: 24,
-      borderTopRightRadius: 24,
-      borderBottomLeftRadius: 0,
-      borderBottomRightRadius: 0,
-      borderTopWidth: 1,
-      borderTopColor: isDark ? 'rgba(247, 181, 3, 0.25)' : 'rgba(226, 232, 240, 0.9)',
-    },
-    bottomBar: {
+      backgroundColor: colors.surface,
       flexDirection: 'row',
-      paddingHorizontal: space.lg,
-      paddingTop: space.md,
+      padding: space.md,
       gap: space.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
     },
     enquiryBtn: {
       flex: 1,

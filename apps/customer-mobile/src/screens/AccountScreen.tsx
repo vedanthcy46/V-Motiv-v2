@@ -27,8 +27,6 @@ import {
   User,
 } from 'lucide-react-native';
 import { BrandLogo } from '../components/BrandLogo';
-import * as Haptics from 'expo-haptics';
-import { AdaptiveGlass } from '../components/AdaptiveGlass';
 import { NotificationsModal } from '../components/NotificationsModal';
 import {
   fetchUserNotifications,
@@ -218,13 +216,13 @@ export function AccountScreen() {
   return (
     <View style={[styles.container, { backgroundColor: c.background }]}>
       {/* Top Header */}
-      <AdaptiveGlass variant="elevated" style={[styles.topBar, { paddingTop: insets.top + space.sm, borderBottomColor: c.border }]}>
+      <View style={[styles.topBar, { paddingTop: insets.top + space.sm, backgroundColor: c.surface, borderBottomColor: c.border }]}>
         <BrandLogo variant="horizontal" size={26} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
         <View style={styles.verifiedAccountBadge}>
           <CheckCircle2 size={12} color={c.brandAccent} />
           <Text style={[styles.verifiedAccountText, { color: c.brandAccent }]}>VERIFIED ACCOUNT</Text>
         </View>
-      </AdaptiveGlass>
+      </View>
 
       <ScrollView
         contentContainerStyle={[
@@ -234,7 +232,7 @@ export function AccountScreen() {
         showsVerticalScrollIndicator={false}
       >
         {/* User Profile Card */}
-        <AdaptiveGlass variant="elevated" style={styles.userCard}>
+        <View style={[styles.userCard, { backgroundColor: c.surface, borderColor: c.border }]}>
           <View style={[styles.avatar, { backgroundColor: c.surfaceSecondary, borderColor: c.brandAccent }]}>
             <Text style={[styles.avatarText, { color: c.brandAccent }]}>{initials}</Text>
           </View>
@@ -248,7 +246,7 @@ export function AccountScreen() {
               </View>
             ) : null}
           </View>
-        </AdaptiveGlass>
+        </View>
 
         {/* Authorized Staff / Inspector Workspace Switcher */}
         {isInspector ? (
@@ -289,10 +287,7 @@ export function AccountScreen() {
                     selected && { backgroundColor: c.selected },
                   ]}
                   activeOpacity={0.7}
-                  onPress={() => {
-                    void Haptics.selectionAsync().catch(() => {});
-                    setMode(opt.key);
-                  }}
+                  onPress={() => setMode(opt.key)}
                   accessibilityRole="radio"
                   accessibilityState={{ checked: selected }}
                   accessibilityLabel={`${opt.label}. ${opt.desc}`}

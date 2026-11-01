@@ -29,8 +29,6 @@ import {
 } from 'lucide-react-native';
 import { customer, type InstantValuationSummary } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
-import * as Haptics from 'expo-haptics';
-import { AdaptiveGlass } from '../components/AdaptiveGlass';
 import { useAppTheme, radius, space } from '../theme';
 import { friendlyError } from '../format';
 import { CarBrandLogo } from '../components/CarBrandLogo';
@@ -252,10 +250,7 @@ function Pill({
           borderColor: active ? themeColors.brandAccent : themeColors.border,
         },
       ]}
-      onPress={() => {
-        void Haptics.selectionAsync().catch(() => {});
-        onPress();
-      }}
+      onPress={onPress}
     >
       <Text
         style={[
@@ -762,14 +757,11 @@ export function SellScreen() {
         style={{ flex: 1 }}
       >
         {/* Header */}
-        <AdaptiveGlass variant="elevated" style={styles.header}>
+        <View style={[styles.header, { backgroundColor: c.surface, borderBottomColor: c.border, borderBottomWidth: 1 }]}>
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel={step > 1 ? 'Back' : 'Close'}
-            onPress={() => {
-              void Haptics.selectionAsync().catch(() => {});
-              step > 1 ? setStep(step - 1) : navigation.goBack();
-            }}
+            onPress={() => (step > 1 ? setStep(step - 1) : navigation.goBack())}
             style={styles.backBtn}
           >
             <ChevronLeft size={24} color={c.textPrimary} />
@@ -779,10 +771,10 @@ export function SellScreen() {
             <Text style={[styles.stepCounter, { color: c.textMuted }]}>Step {step} of 7</Text>
           </View>
           <View style={{ width: 44 }} />
-        </AdaptiveGlass>
+        </View>
 
         {/* Progress bar */}
-        <View style={[styles.progressBar, { backgroundColor: isDark ? '#1C3154' : c.border }]}>
+        <View style={[styles.progressBar, { backgroundColor: c.border }]}>
           <View style={[styles.progressFill, { backgroundColor: c.brandAccent, width: `${(step / 7) * 100}%` as any }]} />
         </View>
 
