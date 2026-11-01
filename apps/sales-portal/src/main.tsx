@@ -53,6 +53,8 @@ type PageKey =
   | 'pipeline'
   | 'tasks'
   | 'communications'
+  | 'service-leads'
+  | 'rental-leads'
   | 'reports';
 
 const formatCurrency = (paise: string | number | null | undefined): string => {
@@ -373,6 +375,8 @@ function App() {
   const [inspectionRequests, setInspectionRequests] = useState<InspectionRequestItem[]>([]);
   const [acquisitionOffers, setAcquisitionOffers] = useState<AcquisitionOfferItem[]>([]);
   const [valuations, setValuations] = useState<ValuationItem[]>([]);
+  const [serviceBookings, setServiceBookings] = useState<any[]>([]);
+  const [rentalBookings, setRentalBookings] = useState<any[]>([]);
   const [reviewRequests, setReviewRequests] = useState<ReviewRequestsData | null>(null);
   const [reviewTab, setReviewTab] = useState<'pending' | 'decided'>('pending');
   const [discountStatusFilter, setDiscountStatusFilter] = useState('');
@@ -507,6 +511,12 @@ function App() {
       } else if (page === 'customers' || page === 'communications') {
         const res = await salesApi.customers(currentUser, { search: page === 'customers' ? search : undefined });
         setCustomers(res.items);
+      } else if (page === 'service-leads') {
+        const sRes = await salesApi.serviceBookings(currentUser).catch(() => ({ items: [], total: 0 }));
+        setServiceBookings(sRes?.items || []);
+      } else if (page === 'rental-leads') {
+        const rRes = await salesApi.rentalBookings(currentUser).catch(() => []);
+        setRentalBookings(Array.isArray(rRes) ? rRes : []);
       } else if (page === 'reports') {
         const rep = await salesApi.reports(currentUser);
         setReports(rep);
@@ -624,6 +634,14 @@ function App() {
           </button>
           <button className={`nav-item ${page === 'pipeline' ? 'active' : ''}`} onClick={() => selectPage('pipeline')}>
             <Icons.Pipeline size={17} /> Pipeline & Quotes
+          </button>
+
+          <div className="nav-section-title">Automotive Service & Rentals</div>
+          <button className={`nav-item ${page === 'service-leads' ? 'active' : ''}`} onClick={() => selectPage('service-leads')}>
+            <Icons.TestDrives size={17} /> Service Bookings
+          </button>
+          <button className={`nav-item ${page === 'rental-leads' ? 'active' : ''}`} onClick={() => selectPage('rental-leads')}>
+            <Icons.Inventory size={17} /> Rental Enquiries
           </button>
 
           <div className="nav-section-title">Client & Follow-ups</div>
@@ -2154,6 +2172,165 @@ function App() {
               customers={customers}
               initialCustomerId={prefilledCustomerId}
             />
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: SERVICE LEADS & BOOKINGS                       */}
+          {/* ==================================================== */}
+          {page === 'service-leads' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">AUTOMOTIVE SERVICE CRM</p>
+                  <h1>Car Service Bookings & Follow-ups</h1>
+                  <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>
+                    Customer maintenance and repair bookings across V MOTIV Hubs. Coordinate scheduling and assist customers.
+                  </p>
+                </div>
+              </div>
+
+              <div className="table-responsive">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Job # & Date</th>
+                      <th>Customer Details</th>
+                      <th>Vehicle</th>
+                      <th>Category & Hub</th>
+                      <th>Scheduled Slot</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!serviceBookings.length ? (
+                      <tr>
+                        <td colSpan={7} className="empty-state">
+                          <p>No customer service bookings found.</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      serviceBookings.map((job: any) => (
+                        <tr key={job.id}>
+                          <td>
+                            <strong>{job.requestNumber}</strong>
+                            <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{formatDate(job.createdAt)}</div>
+                          </td>
+                          <td>
+                            <div><strong>{job.customer?.displayName || 'Customer'}</strong></div>
+                            <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{job.customer?.phone || job.customer?.email || '—'}</div>
+                          </td>
+                          <td>
+                            <div><strong>{job.vehicle?.make} {job.vehicle?.model}</strong></div>
+                            <span className="code-pill" style={{ fontSize: '11px' }}>{job.vehicle?.registrationNumber || '—'}</span>
+                          </td>
+                          <td>
+                            <div style={{ fontWeight: 600, color: 'var(--accent)' }}>{job.categoryKey?.replace(/_/g, ' ')}</div>
+                            <small style={{ color: 'var(--muted)' }}>{job.hub?.name || 'Local Hub'}</small>
+                          </td>
+                          <td>
+                            <div>{job.scheduledDate}</div>
+                            <small style={{ color: 'var(--muted)' }}>{job.scheduledTimeSlot}</small>
+                          </td>
+                          <td>
+                            <span className="badge neutral">{job.status}</span>
+                          </td>
+                          <td>
+                            {job.customer?.phone && (
+                              <a href={`tel:${job.customer.phone}`} className="button secondary small">
+                                Call Customer
+                              </a>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ==================================================== */}
+          {/* VIEW: RENTAL LEADS & ENQUIRIES                       */}
+          {/* ==================================================== */}
+          {page === 'rental-leads' && (
+            <div>
+              <div className="page-header">
+                <div>
+                  <p className="eyebrow">SELF-DRIVE RENTAL CRM</p>
+                  <h1>Car Rental Enquiries & Trips</h1>
+                  <p style={{ color: 'var(--muted)', fontSize: '13px', marginTop: '4px' }}>
+                    Customer rental bookings, driver KYC compliance, and trip coordination across V MOTIV Hubs.
+                  </p>
+                </div>
+              </div>
+
+              <div className="table-responsive">
+                <table>
+                  <thead>
+                    <tr>
+                      <th>Booking # & Date</th>
+                      <th>Customer</th>
+                      <th>Vehicle</th>
+                      <th>Trip Period</th>
+                      <th>Total Payable</th>
+                      <th>KYC Status</th>
+                      <th>Status</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {!rentalBookings.length ? (
+                      <tr>
+                        <td colSpan={8} className="empty-state">
+                          <p>No rental bookings found.</p>
+                        </td>
+                      </tr>
+                    ) : (
+                      rentalBookings.map((b: any) => (
+                        <tr key={b.id}>
+                          <td>
+                            <strong>{b.bookingNumber}</strong>
+                            <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{formatDate(b.startTime)}</div>
+                          </td>
+                          <td>
+                            <div><strong>{b.customer?.displayName || 'Customer'}</strong></div>
+                            <div style={{ fontSize: '11px', color: 'var(--muted)' }}>{b.customer?.phone || b.customer?.email || '—'}</div>
+                          </td>
+                          <td>
+                            <div><strong>{b.vehicle?.make} {b.vehicle?.model}</strong></div>
+                            <span className="code-pill" style={{ fontSize: '11px' }}>{b.vehicle?.registrationNumber || 'Fleet'}</span>
+                          </td>
+                          <td>
+                            <div>{formatDate(b.startTime)}</div>
+                            <small style={{ color: 'var(--muted)' }}>to {formatDate(b.endTime)}</small>
+                          </td>
+                          <td className="money">
+                            <strong>{formatCurrency(b.totalPayablePaise)}</strong>
+                          </td>
+                          <td>
+                            <span className={`badge ${b.kycStatus === 'VERIFIED' ? 'success' : 'warning'}`}>
+                              {b.kycStatus || 'PENDING'}
+                            </span>
+                          </td>
+                          <td>
+                            <span className="badge neutral">{b.status}</span>
+                          </td>
+                          <td>
+                            {b.customer?.phone && (
+                              <a href={`tel:${b.customer.phone}`} className="button secondary small">
+                                Assist Driver
+                              </a>
+                            )}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
           )}
 
           {/* ==================================================== */}

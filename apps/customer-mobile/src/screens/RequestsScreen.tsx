@@ -28,6 +28,7 @@ import {
 } from 'lucide-react-native';
 import { customer } from '../services/customer';
 import { fetchCustomerServiceRequests, type ServiceRequestSummary } from '../services/service-api';
+import { fetchCustomerRentals, type RentalBookingDetails } from '../services/rental-api';
 import { fetchConnectAlerts, markConnectAlertRead, type ConnectNotificationItem } from '../services/connect-api';
 import { useAuth } from '../auth/AuthProvider';
 import { BrandLogo } from '../components/BrandLogo';
@@ -36,7 +37,7 @@ import { useAppTheme, radius, space } from '../theme';
 import { formatPaise, friendlyError } from '../format';
 import type { ActivityItem, PurchaseEnquiry, SellingRequest, SupportCase, TestDrive } from '../types';
 
-type FilterTab = 'ALL' | 'CONNECT' | 'SERVICE' | 'SELLING' | 'TEST_DRIVES' | 'PURCHASES' | 'SUPPORT';
+type FilterTab = 'ALL' | 'CONNECT' | 'SERVICE' | 'RENTAL' | 'SELLING' | 'TEST_DRIVES' | 'PURCHASES' | 'SUPPORT';
 
 export function RequestsScreen() {
   const insets = useSafeAreaInsets();
@@ -51,6 +52,7 @@ export function RequestsScreen() {
   const [purchases, setPurchases] = useState<PurchaseEnquiry[]>([]);
   const [cases, setCases] = useState<SupportCase[]>([]);
   const [serviceRequests, setServiceRequests] = useState<ServiceRequestSummary[]>([]);
+  const [rentals, setRentals] = useState<RentalBookingDetails[]>([]);
   const [connectAlerts, setConnectAlerts] = useState<ConnectNotificationItem[]>([]);
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const [activityTotal, setActivityTotal] = useState(0);
@@ -66,7 +68,7 @@ export function RequestsScreen() {
     if (state !== 'signed-in') return;
     try {
       setError('');
-      const [d, s, p, cs, activity, sr, ca] = await Promise.all([
+      const [d, s, p, cs, activity, sr, ca, rnt] = await Promise.all([
         customer.testDrives(),
         customer.sellingRequests(),
         customer.purchaseEnquiries(),
@@ -74,6 +76,7 @@ export function RequestsScreen() {
         customer.activity(),
         fetchCustomerServiceRequests().catch(() => []),
         fetchConnectAlerts().catch(() => ({ items: [], total: 0, page: 1, limit: 20, totalPages: 1 })),
+        fetchCustomerRentals().catch(() => []),
       ]);
       setDrives(d);
       setSelling(s);
@@ -81,6 +84,7 @@ export function RequestsScreen() {
       setCases(cs);
       setServiceRequests(sr);
       setConnectAlerts(ca.items || []);
+      setRentals(rnt);
       setActivityItems(activity.items);
       setActivityTotal(activity.total);
       setActivityPage(activity.page);
@@ -161,7 +165,7 @@ export function RequestsScreen() {
     }
   }
 
-  const totalCount = activityTotal + connectAlerts.length;
+  const totalCount = activityTotal + connectAlerts.length + serviceRequests.length + rentals.length;
 
   function openActivity(item: ActivityItem) {
     if (item.kind === 'SELLING') {
@@ -239,6 +243,7 @@ export function RequestsScreen() {
             { key: 'ALL', label: `All (${totalCount})` },
             { key: 'CONNECT', label: `Connect (${connectAlerts.length})` },
             { key: 'SERVICE', label: `Service (${serviceRequests.length})` },
+            { key: 'RENTAL', label: `Rentals (${rentals.length})` },
             { key: 'SELLING', label: `Selling (${selling.length})` },
             { key: 'TEST_DRIVES', label: `Test Drives (${drives.length})` },
             { key: 'PURCHASES', label: `Enquiries (${purchases.length})` },
@@ -728,6 +733,66 @@ export function RequestsScreen() {
                           </Text>
                           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                             <Text style={{ color: c.brandAccent, fontSize: 12, fontWeight: '700' }}>Track Live</Text>
+                            <ChevronRight size={14} color={c.brandAccent} />
+                          </View>
+                        </View>
+                      </TouchableOpacity>
+                    ))
+                  )}
+                </View>
+              )}
+
+              {/* Car Rental Bookings */}
+              {filter === 'RENTAL' && (
+                <View style={styles.section}>
+                  <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Car Rental Bookings</Text>
+                  {rentals.length === 0 ? (
+                    <Text style={[styles.emptyBody, { color: c.textSecondary }]}>
+                      No car rental bookings found. You can explore available self-drive rental cars anytime.
+                    </Text>
+                  ) : (
+                    rentals.map((item) => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
+                        activeOpacity={0.8}
+                        onPress={() =>
+                          navigation.navigate('RentalBookingDetails', { bookingId: item.id })
+                        }
+                      >
+                        <View style={styles.cardHeader}>
+                          <View style={{ flex: 1 }}>
+                            <Text style={[styles.cardTitle, { color: c.textPrimary }]}>
+                              {item.vehicle?.make} {item.vehicle?.model} ({item.vehicle?.year || 'Rental'})
+                            </Text>
+                            <Text style={[styles.cardSubtitle, { color: c.brandAccent }]}>
+                              Booking #{item.bookingNumber} · {formatPaise(item.totalPayablePaise)}
+                            </Text>
+                          </View>
+                          <StatusBadge status={item.status} themeColors={c} />
+                        </View>
+                        <View style={styles.driveDetails}>
+                          <View style={styles.driveRow}>
+                            <Calendar size={14} color={c.brandAccent} />
+                            <Text style={[styles.driveText, { color: c.textSecondary }]}>
+                              {new Date(item.startTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} → {new Date(item.endTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+                            </Text>
+                          </View>
+                          {item.pickupHub?.name ? (
+                            <View style={styles.driveRow}>
+                              <MapPin size={14} color={c.brandAccent} />
+                              <Text style={[styles.driveText, { color: c.textSecondary }]}>
+                                {item.pickupHub.name} ({item.pickupHub.city})
+                              </Text>
+                            </View>
+                          ) : null}
+                        </View>
+                        <View style={[styles.metaRow, { alignItems: 'center', paddingTop: space.xs }]}>
+                          <Text style={[styles.metaText, { color: c.textMuted }]}>
+                            KYC: {item.kycStatus || 'PENDING'}
+                          </Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <Text style={{ color: c.brandAccent, fontSize: 12, fontWeight: '700' }}>Manage Trip</Text>
                             <ChevronRight size={14} color={c.brandAccent} />
                           </View>
                         </View>

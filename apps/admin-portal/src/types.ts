@@ -1,5 +1,5 @@
-export type Branch = { id: string; code: string; name: string; city: string; address?: string | null; active?: boolean };
-export type ManagedBranch = Branch & { active: boolean; createdAt: string; _count: { employees: number; invitations: number } };
+export type Branch = { id: string; code: string; name: string; city: string; address?: string | null; active?: boolean; supportsService?: boolean; supportsRentals?: boolean };
+export type ManagedBranch = Branch & { active: boolean; supportsService: boolean; supportsRentals: boolean; createdAt: string; _count: { employees: number; invitations: number } };
 export type ServiceArea = { id: string; name: string; active: boolean; createdAt: string };
 export type Permission = { key: string; description: string };
 export type Role = { id: string; key: string; name: string; description: string; privileged: boolean; permissions: Array<{ permission: Permission }> };

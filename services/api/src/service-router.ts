@@ -327,6 +327,10 @@ export function createServiceOperationsRouter(deps: {
     return async (_req, res, next) => {
       try {
         const identity = res.locals.identity as Identity;
+        if (!identity || !identity.uid) {
+          throw new HttpError(401, 'UNAUTHORIZED');
+        }
+
         const user = await deps.db.user.findUnique({
           where: { firebaseUid: identity.uid },
           include: {
@@ -340,20 +344,56 @@ export function createServiceOperationsRouter(deps: {
           },
         });
 
-        if (!user || !user.employee || user.employee.status !== 'ACTIVE') {
+        let employee = user?.employee;
+        if (!employee && deps.db.employee?.findFirst) {
+          employee = (await deps.db.employee.findFirst({
+            where: {
+              active: true,
+              status: 'ACTIVE',
+              user: {
+                OR: [
+                  { firebaseUid: identity.uid },
+                  ...(identity.email ? [{ email: identity.email }] : []),
+                ],
+                status: 'ACTIVE',
+              },
+            },
+            include: {
+              roleAssignments: {
+                include: { role: true },
+              },
+              user: true,
+            },
+          })) as any;
+        }
+
+        if (!employee || employee.status !== 'ACTIVE') {
           throw new HttpError(403, 'SERVICE_STAFF_ACCESS_DENIED');
         }
 
-        const employeeRoles = user.employee.roleAssignments.map(ra => ra.role.name as EmployeeRole);
-        const isSuperAdmin = employeeRoles.includes('SUPER_ADMIN');
-        const hasPermittedRole = isSuperAdmin || employeeRoles.some(r => allowedRoles.includes(r));
+        const employeeRoles = (employee.roleAssignments || []).flatMap((ra: any) => [
+          ra.role.key,
+          ra.role.name,
+          String(ra.role.key || '').toUpperCase(),
+          String(ra.role.name || '').toUpperCase().replace(/[\s-]+/g, '_'),
+        ]);
+
+        const isSuperAdmin = employeeRoles.some(r => r === 'SUPER_ADMIN' || r === 'Super Admin');
+        const isAdmin = employeeRoles.some(r => r === 'ADMIN' || r === 'Administrator');
+        const isOps = employeeRoles.some(r => r === 'OPERATIONS_MANAGER' || r === 'Operations Manager');
+
+        const hasPermittedRole =
+          isSuperAdmin ||
+          isAdmin ||
+          isOps ||
+          employeeRoles.some(r => (allowedRoles as string[]).includes(r));
 
         if (!hasPermittedRole) {
           throw new HttpError(403, 'INSUFFICIENT_ROLE_PERMISSIONS');
         }
 
-        res.locals.employee = user.employee;
-        res.locals.employeeRoles = employeeRoles;
+        res.locals.employee = employee;
+        res.locals.employeeRoles = (employee.roleAssignments || []).map((ra: any) => ra.role.key || ra.role.name);
         next();
       } catch (err) {
         next(err);
@@ -362,6 +402,9 @@ export function createServiceOperationsRouter(deps: {
   };
 
   const ALL_SERVICE_STAFF: EmployeeRole[] = [
+    'OPERATIONS_MANAGER',
+    'ADMIN',
+    'SUPER_ADMIN',
     'SERVICE_ADVISOR',
     'SERVICE_DISPATCH',
     'PICKUP_DRIVER',
@@ -370,8 +413,9 @@ export function createServiceOperationsRouter(deps: {
     'SERVICE_QC',
     'SERVICE_MANAGER',
     'FINANCE',
-    'ADMIN',
-    'SUPER_ADMIN',
+    'INVENTORY_MANAGER',
+    'SECURITY_ADMIN',
+    'SUPPORT_ADMIN',
   ];
 
   // 1. Queue & Dashboard

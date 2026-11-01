@@ -97,7 +97,7 @@ const privacyRequestInput = z.object({ requestType: z.enum(['DATA_ACCESS', 'ACCO
 const inventoryQuery = z.object({
   search: z.string().trim().max(80).optional(),
   page: z.coerce.number().int().min(1).max(10_000).default(1),
-  limit: z.coerce.number().int().min(1).max(50).default(20),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
   city: z.string().trim().max(100).optional(),
   fuelType: z.string().trim().max(30).optional(),
   transmission: z.string().trim().max(30).optional(),
@@ -488,7 +488,7 @@ export function createApp(deps: {
       await triggerEmailDrain();
       res.status(201).json(result);
     });
-    unifiedApiRouter.get('/me/activity', auth, async (req, res) => res.json(await deps.customer!.activity((res.locals.identity as Identity).uid, parsed(z.coerce.number().int().min(1).default(1), req.query.page ?? 1), parsed(z.coerce.number().int().min(1).max(50).default(20), req.query.limit ?? 20))));
+    unifiedApiRouter.get('/me/activity', auth, async (req, res) => res.json(await deps.customer!.activity((res.locals.identity as Identity).uid, parsed(z.coerce.number().int().min(1).default(1), req.query.page ?? 1), parsed(z.coerce.number().int().min(1).max(100).default(20), req.query.limit ?? 20))));
     unifiedApiRouter.get('/me/addresses', auth, async (_req, res) => res.json(await deps.customer!.addresses((res.locals.identity as Identity).uid)));
     unifiedApiRouter.post('/me/addresses', auth, async (req, res) => res.status(201).json(await deps.customer!.createAddress((res.locals.identity as Identity).uid, parsed(addressInput, req.body))));
     unifiedApiRouter.delete('/me/addresses/:id', auth, async (req, res) => { await deps.customer!.deleteAddress((res.locals.identity as Identity).uid, parsed(uuid, req.params.id)); res.status(204).end(); });

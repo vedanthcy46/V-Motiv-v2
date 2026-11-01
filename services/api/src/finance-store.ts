@@ -893,6 +893,7 @@ export class PrismaFinanceStore {
       buyerEmail?: string;
       buyerPhone?: string;
       listingId?: string;
+      stockUnitId?: string;
       quotationId?: string;
       reservationId?: string;
       totalPayablePaise: string | number;
@@ -937,8 +938,34 @@ export class PrismaFinanceStore {
       resolvedCustomerId = newUser.id;
     }
 
-    // Resolve or create vehicle listing
+    // Resolve or create vehicle listing & link stock unit
     let resolvedListingId = input.listingId;
+    const candidateStockId = input.stockUnitId || input.listingId;
+    if (candidateStockId) {
+      const stockUnit = await this.db.vehicleStockUnit.findFirst({
+        where: { OR: [{ id: candidateStockId }, { stockCode: candidateStockId }] },
+        include: { vehicle: { include: { listing: true } } },
+      });
+      if (stockUnit) {
+        if (stockUnit.vehicle?.listing) {
+          resolvedListingId = stockUnit.vehicle.listing.id;
+        } else if (stockUnit.vehicleId) {
+          let listing = await this.db.vehicleListing.findFirst({ where: { vehicleId: stockUnit.vehicleId } });
+          if (!listing) {
+            listing = await this.db.vehicleListing.create({
+              data: {
+                vehicleId: stockUnit.vehicleId,
+                title: `${stockUnit.manufacturingYear} ${stockUnit.make} ${stockUnit.model} ${stockUnit.variant || ''}`.trim(),
+                pricePaise: totalPaise > 0n ? totalPaise : 120000000n,
+                status: 'PUBLISHED',
+                publishedAt: new Date(),
+              },
+            });
+          }
+          resolvedListingId = listing.id;
+        }
+      }
+    }
     if (resolvedListingId) {
       const existingListing = await this.db.vehicleListing.findUnique({ where: { id: resolvedListingId } });
       if (!existingListing) resolvedListingId = undefined;
@@ -1253,6 +1280,22 @@ export class PrismaFinanceStore {
         },
       });
 
+      if (isFullySettled) {
+        if (obligation.listingId) {
+          await tx.vehicleListing.updateMany({
+            where: { id: obligation.listingId },
+            data: { status: 'SOLD' },
+          });
+        }
+        const vehicleId = obligation.listing?.vehicle?.id || (obligation.listing as any)?.vehicleId;
+        if (vehicleId) {
+          await tx.vehicleStockUnit.updateMany({
+            where: { vehicleId },
+            data: { status: 'SOLD' },
+          });
+        }
+      }
+
       await tx.auditEvent.create({
         data: {
           actorId: actor.userId,
@@ -1334,41 +1377,101 @@ export class PrismaFinanceStore {
       companyBankAccountId?: string;
       evidenceUri?: string;
       notes?: string;
+      obligationId?: string;
     }
   ) {
     requirePermission(actor, 'finance.receipt.record');
     const amountPaise = BigInt(input.amountPaise);
     const count = await this.db.incomingReceipt.count();
     const receiptNumber = `REC-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    const shouldAllocate = Boolean(input.obligationId);
 
-    const created = await this.db.incomingReceipt.create({
-      data: {
-        receiptNumber,
-        customerId: input.customerId,
-        payerName: input.payerName,
-        amountPaise,
-        unappliedAmountPaise: amountPaise,
-        paymentMethod: input.paymentMethod,
-        transactionReference: input.transactionReference,
-        companyBankAccountId: input.companyBankAccountId,
-        evidenceUri: input.evidenceUri,
-        notes: input.notes,
-        status: 'PENDING_VERIFICATION',
-        recordedByEmployeeId: actor.userId,
-      },
+    return this.db.$transaction(async tx => {
+      const created = await tx.incomingReceipt.create({
+        data: {
+          receiptNumber,
+          customerId: input.customerId,
+          payerName: input.payerName,
+          amountPaise,
+          unappliedAmountPaise: shouldAllocate ? 0n : amountPaise,
+          paymentMethod: input.paymentMethod,
+          transactionReference: input.transactionReference,
+          companyBankAccountId: input.companyBankAccountId,
+          evidenceUri: input.evidenceUri,
+          notes: input.notes,
+          status: shouldAllocate ? 'VERIFIED' : 'PENDING_VERIFICATION',
+          verifiedAt: shouldAllocate ? new Date() : undefined,
+          verifiedByEmployeeId: shouldAllocate ? actor.userId : undefined,
+          recordedByEmployeeId: actor.userId,
+        },
+      });
+
+      if (shouldAllocate && input.obligationId) {
+        const obligation = await tx.buyerPaymentObligation.findUnique({
+          where: { id: input.obligationId },
+          include: { customer: true, listing: true },
+        });
+        if (obligation) {
+          const allocatePaise = amountPaise > obligation.remainingBalancePaise ? obligation.remainingBalancePaise : amountPaise;
+          const unapplied = amountPaise - allocatePaise;
+          if (unapplied > 0n) {
+            await tx.incomingReceipt.update({
+              where: { id: created.id },
+              data: { unappliedAmountPaise: unapplied },
+            });
+          }
+          await tx.receiptAllocation.create({
+            data: {
+              receiptId: created.id,
+              obligationId: obligation.id,
+              allocatedAmountPaise: allocatePaise,
+              notes: input.notes || 'Allocated during receipt recording',
+              allocatedByEmployeeId: actor.userId,
+            },
+          });
+          const newPaid = obligation.paidAmountPaise + allocatePaise;
+          const newRemaining = obligation.remainingBalancePaise - allocatePaise;
+          const isFullySettled = newRemaining === 0n;
+          await tx.buyerPaymentObligation.update({
+            where: { id: obligation.id },
+            data: {
+              paidAmountPaise: newPaid,
+              remainingBalancePaise: newRemaining,
+              status: isFullySettled ? 'PAID_VERIFIED' : 'PARTIALLY_PAID',
+              deliveryEligible: isFullySettled,
+              version: { increment: 1 },
+            },
+          });
+          if (isFullySettled) {
+            if (obligation.listingId) {
+              await tx.vehicleListing.updateMany({
+                where: { id: obligation.listingId },
+                data: { status: 'SOLD' },
+              });
+            }
+            const vehicleId = (obligation.listing as any)?.vehicleId || (obligation.listing as any)?.vehicle?.id;
+            if (vehicleId) {
+              await tx.vehicleStockUnit.updateMany({
+                where: { vehicleId },
+                data: { status: 'SOLD' },
+              });
+            }
+          }
+        }
+      }
+
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'FINANCE_INCOMING_RECEIPT_RECORDED',
+          entityType: 'IncomingReceipt',
+          entityId: created.id,
+          details: { receiptNumber, transactionReference: input.transactionReference, allocatedObligationId: input.obligationId },
+        },
+      });
+
+      return receiptView(created);
     });
-
-    await this.db.auditEvent.create({
-      data: {
-        actorId: actor.userId,
-        action: 'FINANCE_INCOMING_RECEIPT_RECORDED',
-        entityType: 'IncomingReceipt',
-        entityId: created.id,
-        details: { receiptNumber, transactionReference: input.transactionReference },
-      },
-    });
-
-    return receiptView(created);
   }
 
   async verifyIncomingReceipt(
@@ -1426,7 +1529,16 @@ export class PrismaFinanceStore {
     return this.db.$transaction(async tx => {
       const receipt = await tx.incomingReceipt.findUnique({ where: { id: input.receiptId } });
       if (!receipt) throw new HttpError(404, 'RECEIPT_NOT_FOUND');
-      if (receipt.status !== 'VERIFIED') throw new HttpError(409, 'RECEIPT_MUST_BE_VERIFIED');
+      if (receipt.status !== 'VERIFIED') {
+        await tx.incomingReceipt.update({
+          where: { id: receipt.id },
+          data: {
+            status: 'VERIFIED',
+            verifiedByEmployeeId: actor.userId,
+            verifiedAt: new Date(),
+          },
+        });
+      }
       if (receipt.unappliedAmountPaise < allocatePaise) {
         throw new HttpError(409, 'INSUFFICIENT_UNAPPLIED_RECEIPT_FUNDS');
       }
@@ -1478,6 +1590,22 @@ export class PrismaFinanceStore {
           version: { increment: 1 },
         },
       });
+
+      if (isFullySettled) {
+        if (obligation.listingId) {
+          await tx.vehicleListing.updateMany({
+            where: { id: obligation.listingId },
+            data: { status: 'SOLD' },
+          });
+        }
+        const vehicleId = (obligation.listing as any)?.vehicleId || (obligation.listing as any)?.vehicle?.id;
+        if (vehicleId) {
+          await tx.vehicleStockUnit.updateMany({
+            where: { vehicleId },
+            data: { status: 'SOLD' },
+          });
+        }
+      }
 
       await tx.auditEvent.create({
         data: {

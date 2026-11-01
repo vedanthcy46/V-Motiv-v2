@@ -69,8 +69,8 @@ export interface AdminStore {
   roles(actor: AdminActor): Promise<unknown[]>;
   branches(actor: AdminActor): Promise<unknown[]>;
   manageBranches(actor: AdminActor): Promise<unknown[]>;
-  createBranch(actor: AdminActor, input: { code: string; name: string; city: string; address?: string }): Promise<unknown>;
-  updateBranch(actor: AdminActor, id: string, input: { name?: string; city?: string; address?: string | null; active?: boolean }): Promise<unknown>;
+  createBranch(actor: AdminActor, input: { code: string; name: string; city: string; address?: string; supportsService?: boolean; supportsRentals?: boolean }): Promise<unknown>;
+  updateBranch(actor: AdminActor, id: string, input: { name?: string; city?: string; address?: string | null; active?: boolean; supportsService?: boolean; supportsRentals?: boolean }): Promise<unknown>;
   serviceAreas(actor: AdminActor): Promise<unknown[]>;
   createServiceArea(actor: AdminActor, name: string): Promise<unknown>;
   updateServiceArea(actor: AdminActor, id: string, active: boolean): Promise<unknown>;
@@ -215,20 +215,32 @@ export class PrismaAdminStore implements AdminStore {
 
   branches(actor: AdminActor) {
     requirePermission(actor, 'branch.read');
-    return this.db.branch.findMany({ where: { active: true }, orderBy: [{ city: 'asc' }, { name: 'asc' }], select: { id: true, code: true, name: true, city: true, address: true, active: true } });
+    return this.db.branch.findMany({ where: { active: true }, orderBy: [{ city: 'asc' }, { name: 'asc' }], select: { id: true, code: true, name: true, city: true, address: true, active: true, supportsService: true, supportsRentals: true } });
   }
 
   async manageBranches(actor: AdminActor) {
     requirePermission(actor, 'branch.read');
     const scoped = actor.roles.includes('SUPER_ADMIN') ? {} : { id: { in: actor.branches.map(branch => branch.id) } };
-    return this.db.branch.findMany({ where: scoped, orderBy: [{ active: 'desc' }, { city: 'asc' }, { name: 'asc' }], select: { id: true, code: true, name: true, city: true, address: true, active: true, createdAt: true, _count: { select: { employees: true, invitations: true } } } });
+    return this.db.branch.findMany({ where: scoped, orderBy: [{ active: 'desc' }, { city: 'asc' }, { name: 'asc' }], select: { id: true, code: true, name: true, city: true, address: true, active: true, supportsService: true, supportsRentals: true, createdAt: true, _count: { select: { employees: true, invitations: true } } } });
   }
 
-  async createBranch(actor: AdminActor, input: { code: string; name: string; city: string; address?: string }) {
+  async createBranch(actor: AdminActor, input: { code: string; name: string; city: string; address?: string; supportsService?: boolean; supportsRentals?: boolean }) {
     requirePermission(actor, 'branch.manage');
     const code = input.code.trim().toUpperCase();
+    const supportsService = input.supportsService !== undefined ? input.supportsService : true;
+    const supportsRentals = input.supportsRentals !== undefined ? input.supportsRentals : true;
     return this.db.$transaction(async tx => {
-      const branch = await tx.branch.create({ data: { code, name: input.name.trim(), city: input.city.trim(), address: input.address?.trim() || null }, select: { id: true, code: true, name: true, city: true, address: true, active: true } }).catch(error => {
+      const branch = await tx.branch.create({
+        data: {
+          code,
+          name: input.name.trim(),
+          city: input.city.trim(),
+          address: input.address?.trim() || null,
+          supportsService,
+          supportsRentals,
+        },
+        select: { id: true, code: true, name: true, city: true, address: true, active: true, supportsService: true, supportsRentals: true },
+      }).catch(error => {
         if ((error as { code?: string }).code === 'P2002') throw new HttpError(409, 'BRANCH_CODE_EXISTS');
         throw error;
       });
@@ -240,6 +252,8 @@ export class PrismaAdminStore implements AdminStore {
           city: branch.city,
           address: branch.address || `${branch.city} Hub Facility`,
           isActive: branch.active,
+          supportsService: branch.supportsService,
+          supportsRentals: branch.supportsRentals,
         },
         create: {
           branchId: branch.id,
@@ -248,14 +262,16 @@ export class PrismaAdminStore implements AdminStore {
           city: branch.city,
           address: branch.address || `${branch.city} Hub Facility`,
           isActive: branch.active,
+          supportsService: branch.supportsService,
+          supportsRentals: branch.supportsRentals,
         },
       }).catch(() => undefined);
-      await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'BRANCH_CREATED', entityType: 'Branch', entityId: branch.id, details: { code: branch.code, city: branch.city } } });
+      await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'BRANCH_CREATED', entityType: 'Branch', entityId: branch.id, details: { code: branch.code, city: branch.city, supportsService, supportsRentals } } });
       return branch;
     });
   }
 
-  async updateBranch(actor: AdminActor, id: string, input: { name?: string; city?: string; address?: string | null; active?: boolean }) {
+  async updateBranch(actor: AdminActor, id: string, input: { name?: string; city?: string; address?: string | null; active?: boolean; supportsService?: boolean; supportsRentals?: boolean }) {
     requirePermission(actor, 'branch.manage');
     if (!actor.roles.includes('SUPER_ADMIN') && !actor.branches.some(branch => branch.id === id)) throw new HttpError(403, 'BRANCH_SCOPE_DENIED');
     return this.db.$transaction(async tx => {
@@ -265,14 +281,38 @@ export class PrismaAdminStore implements AdminStore {
         const activeAssignments = await tx.employeeBranchAssignment.count({ where: { branchId: id, employee: { active: true, status: 'ACTIVE' } } });
         if (activeAssignments) throw new HttpError(409, 'BRANCH_HAS_ACTIVE_EMPLOYEES');
       }
-      const updated = await tx.branch.update({ where: { id }, data: { ...(input.name !== undefined ? { name: input.name.trim() } : {}), ...(input.city !== undefined ? { city: input.city.trim() } : {}), ...(input.address !== undefined ? { address: input.address?.trim() || null } : {}), ...(input.active !== undefined ? { active: input.active } : {}) }, select: { id: true, code: true, name: true, city: true, address: true, active: true } });
-      await tx.serviceHub.updateMany({
-        where: { branchId: id },
+      const updated = await tx.branch.update({
+        where: { id },
         data: {
           ...(input.name !== undefined ? { name: input.name.trim() } : {}),
           ...(input.city !== undefined ? { city: input.city.trim() } : {}),
-          ...(input.address !== undefined ? { address: input.address?.trim() || `${input.city || branch.city} Hub Facility` } : {}),
-          ...(input.active !== undefined ? { isActive: input.active } : {}),
+          ...(input.address !== undefined ? { address: input.address?.trim() || null } : {}),
+          ...(input.active !== undefined ? { active: input.active } : {}),
+          ...(input.supportsService !== undefined ? { supportsService: input.supportsService } : {}),
+          ...(input.supportsRentals !== undefined ? { supportsRentals: input.supportsRentals } : {}),
+        },
+        select: { id: true, code: true, name: true, city: true, address: true, active: true, supportsService: true, supportsRentals: true },
+      });
+      await tx.serviceHub.upsert({
+        where: { code: updated.code },
+        update: {
+          branchId: updated.id,
+          name: updated.name,
+          city: updated.city,
+          address: updated.address || `${updated.city} Hub Facility`,
+          isActive: updated.active,
+          supportsService: updated.supportsService,
+          supportsRentals: updated.supportsRentals,
+        },
+        create: {
+          branchId: updated.id,
+          code: updated.code,
+          name: updated.name,
+          city: updated.city,
+          address: updated.address || `${updated.city} Hub Facility`,
+          isActive: updated.active,
+          supportsService: updated.supportsService,
+          supportsRentals: updated.supportsRentals,
         },
       }).catch(() => undefined);
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'BRANCH_UPDATED', entityType: 'Branch', entityId: id, details: input } });

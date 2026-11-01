@@ -89,6 +89,7 @@ const recordReceiptInput = z.object({
   evidenceUri: z.string().max(1000).optional(),
   receivedAt: z.string().optional(),
   branchId: uuid.optional(),
+  obligationId: uuid.or(z.literal('')).optional().transform(v => v || undefined),
   notes: z.string().max(2000).optional(),
 });
 
@@ -409,7 +410,8 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
     try {
       const input = createObligationInput.parse(req.body);
       const customerId = input.customerId || input.buyerUserId;
-      const listingId = input.listingId || input.vehicleListingId || input.stockUnitId;
+      const listingId = input.listingId || input.vehicleListingId;
+      const stockUnitId = input.stockUnitId;
       const totalPayablePaise = input.totalPayablePaise || input.salePricePaise || '0';
       res.status(201).json(
         await deps.store.createBuyerObligation(res.locals.financeActor, {
@@ -418,6 +420,7 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
           buyerEmail: input.buyerEmail,
           buyerPhone: input.buyerPhone,
           listingId,
+          stockUnitId,
           quotationId: input.quotationId,
           reservationId: input.reservationId,
           totalPayablePaise,

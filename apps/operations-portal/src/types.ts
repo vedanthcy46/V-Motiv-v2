@@ -378,3 +378,196 @@ export type AcquisitionOfferItem = {
     model: string;
   };
 };
+
+export type ServiceJobStatus =
+  | 'SUBMITTED'
+  | 'REQUESTED'
+  | 'AWAITING_DISPATCH'
+  | 'VEHICLE_RECEIVED'
+  | 'DIAGNOSIS_PENDING'
+  | 'ESTIMATE_PENDING'
+  | 'IN_PROGRESS'
+  | 'QC_PENDING'
+  | 'READY_FOR_DELIVERY'
+  | 'DELIVERED'
+  | 'CANCELLED';
+
+export type ServiceJobItem = {
+  id: string;
+  requestNumber: string;
+  categoryKey: string;
+  status: ServiceJobStatus;
+  scheduledDate: string;
+  scheduledTimeSlot: string;
+  fulfillmentType: 'DOORSTEP_PICKUP' | 'HUB_DROP';
+  pickupAddress?: string | null;
+  customerNotes?: string | null;
+  createdAt: string;
+  customer?: {
+    id: string;
+    displayName?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  } | null;
+  vehicle?: {
+    id: string;
+    make: string;
+    model: string;
+    variant?: string | null;
+    year: number;
+    registrationNumber?: string | null;
+    fuelType?: string | null;
+  } | null;
+  hub?: {
+    id: string;
+    name: string;
+    city: string;
+  } | null;
+  assignedAdvisor?: {
+    id: string;
+    displayName?: string | null;
+  } | null;
+  assignedTechnician?: {
+    id: string;
+    displayName?: string | null;
+  } | null;
+  estimates?: {
+    id: string;
+    totalAmountPaise: string | number;
+    status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+    items?: {
+      id: string;
+      itemType: string;
+      description: string;
+      quantity: number;
+      unitRatePaise: string | number;
+      lineTotalPaise: string | number;
+    }[];
+  }[];
+  custodyRecord?: {
+    id: string;
+    odometerKm: number;
+    fuelPercent: number;
+    exteriorNotes?: string | null;
+  } | null;
+  qcRecord?: {
+    id: string;
+    isPassed: boolean;
+    checklistNotes: string;
+  } | null;
+  paymentRecord?: {
+    id: string;
+    amountPaise: string | number;
+    status: 'PENDING' | 'PAID_VERIFIED' | 'REFUNDED';
+    paymentMethod: string;
+  } | null;
+};
+
+export type ServiceQueueResponse = {
+  items: ServiceJobItem[];
+  total: number;
+  page: number;
+  totalPages: number;
+};
+
+export type RentalFleetItem = {
+  id: string;
+  fleetNumber: string;
+  registrationNumber: string;
+  vin: string;
+  make: string;
+  model: string;
+  variant?: string | null;
+  year: number;
+  hubId: string;
+  status: string;
+  isEligibleForRental?: boolean;
+  commercialPermitExpiry?: string | null;
+  insuranceExpiry?: string | null;
+  fitnessCertExpiry?: string | null;
+  baseDailyRatePaise: string | number;
+  securityDepositPaise: string | number;
+  includedKmPerDay?: number;
+  includedDailyKm?: number;
+  extraKmRatePaise: string | number;
+  seats: number;
+  transmission: string;
+  fuelType: string;
+  color: string;
+  hub?: {
+    id: string;
+    name: string;
+    city: string;
+  };
+  blocks?: {
+    id: string;
+    startTime: string;
+    endTime: string;
+    reason: string;
+    notes?: string | null;
+    createdAt: string;
+  }[];
+  activeBlock?: {
+    id: string;
+    startTime: string;
+    endTime: string;
+    reason: string;
+    notes?: string | null;
+  } | null;
+};
+
+export type RentalBookingItem = {
+  id: string;
+  bookingNumber: string;
+  customerId: string;
+  vehicleId: string;
+  pickupHubId: string;
+  returnHubId: string;
+  startTime: string;
+  endTime: string;
+  status: 'PENDING_PAYMENT' | 'CONFIRMED' | 'VEHICLE_COLLECTED' | 'TRIP_ACTIVE' | 'RETURN_INSPECTED' | 'SETTLED' | 'CANCELLED';
+  kycStatus: 'PENDING_REVIEW' | 'VERIFIED' | 'REJECTED';
+  totalPayablePaise: string | number;
+  securityDepositPaise: string | number;
+  customer?: {
+    id: string;
+    displayName?: string | null;
+    email?: string | null;
+    phone?: string | null;
+  };
+  vehicle?: RentalFleetItem;
+  pickupHub?: {
+    id: string;
+    name: string;
+    city: string;
+  };
+  driverVerification?: {
+    id: string;
+    licenseNumber: string;
+    licenseExpiry: string;
+    dateOfBirth: string;
+    drivingExperienceYears: number;
+    licenseFrontUrl?: string;
+    licenseBackUrl?: string;
+    status: string;
+    rejectionReason?: string | null;
+  } | null;
+  tripEvidence?: {
+    id: string;
+    pickupOdometerKm?: number;
+    pickupFuelPercent?: number;
+    pickupTime?: string;
+    returnOdometerKm?: number;
+    returnFuelPercent?: number;
+    returnTime?: string;
+    excessKm?: number;
+    damageChargePaise?: string | number;
+  } | null;
+};
+
+export type RentalOperationsSummary = {
+  activeFleet: number;
+  activeBookings: number;
+  pendingKyc: number;
+  returnsDueToday: number;
+};

@@ -415,15 +415,21 @@ export interface InvoiceDocument {
 }
 
 export interface VehicleProfitabilityItem {
+  id?: string;
   stockUnitId: string;
+  stockCode?: string;
   vin: string;
+  registrationNumber?: string;
+  title?: string;
   make: string;
   model: string;
+  variant?: string;
   year: number;
   status: string;
   acquisitionCostPaise: string;
   refurbishmentExpensesPaise: string;
   totalInvestedPaise: string;
+  listingPricePaise?: string;
   realizedSalePricePaise: string;
   realizedGrossMarginPaise: string;
   realizedGrossMarginPercent: number;
@@ -524,6 +530,7 @@ export const financeApi = {
     evidenceUri?: string;
     receivedAt?: string;
     branchId?: string;
+    obligationId?: string;
   }) => call<IncomingReceipt>(u, '/receipts', {
     method: 'POST',
     body: JSON.stringify(body),

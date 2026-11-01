@@ -6,7 +6,12 @@ import type {
   DashboardMetrics,
   InspectionRequest,
   InspectorEmployee,
+  RentalBookingItem,
+  RentalFleetItem,
+  RentalOperationsSummary,
   SellerLeadValuation,
+  ServiceJobItem,
+  ServiceQueueResponse,
   TestDrive,
   VehicleStockUnit,
 } from './types';
@@ -302,4 +307,116 @@ export const api = {
     call<unknown>(u, '/valuations/policies'),
   updatePricingPolicy: (u: User, body: unknown) =>
     call<unknown>(u, '/valuations/policies/changes', { method: 'POST', body: JSON.stringify(body) }),
+
+  // --- Car Service Operations ---
+  serviceQueue: (u: User, query?: { hubId?: string; status?: string; search?: string; page?: number; limit?: number }) => {
+    const params = new URLSearchParams();
+    if (query?.hubId) params.set('hubId', query.hubId);
+    if (query?.status && query.status !== 'ALL') params.set('status', query.status);
+    if (query?.search) params.set('search', query.search);
+    if (query?.page) params.set('page', String(query.page));
+    if (query?.limit) params.set('limit', String(query.limit));
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return call<ServiceQueueResponse>(u, `/operations/service/queue${qs}`);
+  },
+  serviceJobDetails: (u: User, id: string) =>
+    call<ServiceJobItem>(u, `/operations/service/jobs/${id}`),
+  scheduleServiceJob: (u: User, id: string, body: { advisorId?: string; scheduledDate: string; scheduledTimeSlot: string }) =>
+    call<unknown>(u, `/operations/service/jobs/${id}/schedule`, { method: 'POST', body: JSON.stringify(body) }),
+  dispatchServiceJob: (u: User, id: string, body: { driverId: string; type: 'PICKUP' | 'RETURN'; scheduledTime?: string }) =>
+    call<unknown>(u, `/operations/service/jobs/${id}/dispatch`, { method: 'POST', body: JSON.stringify(body) }),
+  recordServiceCustody: (u: User, id: string, body: { intakeType: string; odometerKm: number; fuelPercent: number; exteriorNotes?: string; photos?: string[] }) =>
+    call<unknown>(u, `/operations/service/jobs/${id}/custody`, { method: 'POST', body: JSON.stringify(body) }),
+  recordServiceDiagnosis: (u: User, id: string, body: { technicianNotes: string; recommendedRepairs?: string[]; photos?: string[] }) =>
+    call<unknown>(u, `/operations/service/jobs/${id}/diagnosis`, { method: 'POST', body: JSON.stringify(body) }),
+  createServiceEstimate: (u: User, id: string, body: { items: { itemType: string; description: string; quantity: number; unitRatePaise: string | number; taxRateBps?: number }[]; notes?: string }) =>
+    call<unknown>(u, `/operations/service/jobs/${id}/estimates`, { method: 'POST', body: JSON.stringify(body) }),
+  recordServiceQc: (u: User, id: string, body: { isPassed: boolean; checklistNotes: string; photos?: string[] }) =>
+    call<unknown>(u, `/operations/service/jobs/${id}/qc`, { method: 'POST', body: JSON.stringify(body) }),
+  recordServiceReturn: (u: User, id: string, body: { returnOdometerKm: number; returnNotes?: string; customerSigned?: boolean }) =>
+    call<unknown>(u, `/operations/service/jobs/${id}/return`, { method: 'POST', body: JSON.stringify(body) }),
+  recordServicePayment: (u: User, id: string, body: { amountPaise: string | number; paymentMethod: string; transactionReference?: string; notes?: string }) =>
+    call<unknown>(u, `/operations/service/jobs/${id}/payments`, { method: 'POST', body: JSON.stringify(body) }),
+
+  // --- Car Rental Operations ---
+  rentalHubs: (u: User) =>
+    call<Array<{ id: string; name: string; city: string; address: string; code: string; isActive: boolean }>>(u, '/rentals/hubs'),
+  rentalSummary: (u: User) =>
+    call<RentalOperationsSummary>(u, '/operations/rentals/summary'),
+  rentalFleet: (u: User, query?: { hubId?: string; status?: string }) => {
+    const params = new URLSearchParams();
+    if (query?.hubId) params.set('hubId', query.hubId);
+    if (query?.status) params.set('status', query.status);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return call<RentalFleetItem[]>(u, `/operations/rentals/fleet${qs}`);
+  },
+  createRentalFleetVehicle: (u: User, body: {
+    fleetNumber?: string;
+    registrationNumber: string;
+    vin?: string;
+    make: string;
+    model: string;
+    variant?: string;
+    year: number;
+    hubId: string;
+    transmission: string;
+    fuelType: string;
+    seats: number;
+    color: string;
+    images?: string[];
+    commercialPermitNumber?: string;
+    commercialPermitExpiry?: string;
+    insurancePolicyNumber?: string;
+    insuranceExpiry?: string;
+    fitnessCertExpiry?: string;
+    baseDailyRatePaise: string | number;
+    baseHourlyRatePaise?: string | number;
+    securityDepositPaise?: string | number;
+    includedKmPerDay?: number;
+    includedDailyKm?: number;
+    extraKmRatePaise?: string | number;
+  }) => call<RentalFleetItem>(u, '/operations/rentals/fleet', { method: 'POST', body: JSON.stringify(body) }),
+  updateRentalFleetVehicle: (u: User, id: string, body: {
+    isEligibleForRental?: boolean;
+    status?: string;
+    baseDailyRatePaise?: string | number;
+    securityDepositPaise?: string | number;
+    includedKmPerDay?: number;
+    hubId?: string;
+  }) => call<RentalFleetItem>(u, `/operations/rentals/fleet/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  createRentalBlock: (u: User, vehicleId: string, body: { startTime: string; endTime: string; reason: string; notes?: string }) =>
+    call<unknown>(u, `/operations/rentals/fleet/${vehicleId}/blocks`, { method: 'POST', body: JSON.stringify(body) }),
+  releaseRentalMaintenance: (u: User, vehicleId: string, notes?: string) =>
+    call<RentalFleetItem>(u, `/operations/rentals/fleet/${vehicleId}/release-maintenance`, { method: 'POST', body: JSON.stringify({ notes }) }),
+  releaseRentalBlock: (u: User, vehicleId: string, blockId: string) =>
+    call<{ released: boolean; blockId: string }>(u, `/operations/rentals/fleet/${vehicleId}/blocks/${blockId}/release`, { method: 'POST' }),
+  deleteRentalBlock: (u: User, vehicleId: string, blockId: string) =>
+    call<{ deleted: boolean; blockId: string }>(u, `/operations/rentals/fleet/${vehicleId}/blocks/${blockId}`, { method: 'DELETE' }),
+  rentalBookings: (u: User, query?: { hubId?: string; status?: string }) => {
+    const params = new URLSearchParams();
+    if (query?.hubId) params.set('hubId', query.hubId);
+    if (query?.status) params.set('status', query.status);
+    const qs = params.toString() ? `?${params.toString()}` : '';
+    return call<RentalBookingItem[]>(u, `/operations/rentals/bookings${qs}`);
+  },
+  rentalBookingDetails: (u: User, id: string) =>
+    call<RentalBookingItem>(u, `/operations/rentals/bookings/${id}`),
+  reviewRentalKyc: (u: User, bookingId: string, body: { status: 'VERIFIED' | 'REJECTED'; rejectionReason?: string }) =>
+    call<unknown>(u, `/operations/rentals/bookings/${bookingId}/kyc/review`, { method: 'POST', body: JSON.stringify(body) }),
+  recordRentalHandover: (u: User, bookingId: string, body: { odometerKm: number; fuelPercent: number; keyReleased: boolean; conditionNotes?: string; photos?: string[] }) =>
+    call<unknown>(u, `/operations/rentals/bookings/${bookingId}/handover`, { method: 'POST', body: JSON.stringify(body) }),
+  recordRentalReturn: (u: User, bookingId: string, body: {
+    odometerKm: number;
+    fuelPercent: number;
+    keyReceived: boolean;
+    conditionNotes?: string;
+    photos?: string[];
+    excessKm?: number;
+    excessKmChargePaise?: string | number;
+    damageChargePaise?: string | number;
+    fuelRefillChargePaise?: string | number;
+    lateReturnChargePaise?: string | number;
+  }) => call<unknown>(u, `/operations/rentals/bookings/${bookingId}/return`, { method: 'POST', body: JSON.stringify(body) }),
+  approveRentalExtension: (u: User, extensionId: string, body: { approved: boolean; reason?: string }) =>
+    call<unknown>(u, `/operations/rentals/extensions/${extensionId}/approve`, { method: 'POST', body: JSON.stringify(body) }),
 };

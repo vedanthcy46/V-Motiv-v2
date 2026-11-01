@@ -740,7 +740,7 @@ export class PrismaServiceStore {
 
   async listHubs(city?: string) {
     await this.ensureSeedData();
-    const where: Prisma.ServiceHubWhereInput = { isActive: true };
+    const where: Prisma.ServiceHubWhereInput = { isActive: true, supportsService: true };
     if (city) {
       const c = city.trim().toLowerCase();
       if (c === 'bengaluru' || c === 'bangalore') {

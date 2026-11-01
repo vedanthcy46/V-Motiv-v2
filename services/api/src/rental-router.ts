@@ -105,29 +105,30 @@ const cancelBookingSchema = z.object({
 });
 
 const fleetCreateSchema = z.object({
-  fleetNumber: z.string().trim().min(3).max(30),
+  fleetNumber: z.string().trim().min(3).max(30).optional(),
   registrationNumber: z.string().trim().min(5).max(30),
   vin: z.string().trim().min(5).max(30),
   make: z.string().trim().min(1).max(50),
   model: z.string().trim().min(1).max(50),
   variant: z.string().trim().max(50).optional(),
-  year: z.number().int().min(2015).max(new Date().getFullYear() + 1),
+  year: z.number().int().min(2010).max(new Date().getFullYear() + 1),
   transmission: z.enum(['MANUAL', 'AUTOMATIC']),
   fuelType: z.enum(['PETROL', 'DIESEL', 'EV', 'HYBRID', 'CNG']),
   seats: z.number().int().min(2).max(10).default(5),
   color: z.string().trim().min(2).max(40),
   hubId: uuid,
-  images: z.array(z.string().trim()).min(1),
-  commercialPermitNumber: z.string().trim().min(3),
-  commercialPermitExpiry: z.string().datetime().or(z.string().min(10)),
-  insurancePolicyNumber: z.string().trim().min(3),
-  insuranceExpiry: z.string().datetime().or(z.string().min(10)),
-  fitnessCertExpiry: z.string().datetime().or(z.string().min(10)),
+  images: z.array(z.string().trim()).optional().default([]),
+  commercialPermitNumber: z.string().trim().min(3).optional(),
+  commercialPermitExpiry: z.string().datetime().or(z.string().min(10)).optional(),
+  insurancePolicyNumber: z.string().trim().min(3).optional(),
+  insuranceExpiry: z.string().datetime().or(z.string().min(10)).optional(),
+  fitnessCertExpiry: z.string().datetime().or(z.string().min(10)).optional(),
   baseDailyRatePaise: z.number().int().positive(),
-  baseHourlyRatePaise: z.number().int().positive(),
-  securityDepositPaise: z.number().int().min(0),
-  includedKmPerDay: z.number().int().min(50).default(250),
-  extraKmRatePaise: z.number().int().positive().default(1200),
+  baseHourlyRatePaise: z.number().int().positive().optional(),
+  securityDepositPaise: z.number().int().min(0).default(500000),
+  includedKmPerDay: z.number().int().min(50).default(250).optional(),
+  includedDailyKm: z.number().int().min(50).optional(),
+  extraKmRatePaise: z.number().int().positive().default(1200).optional(),
   features: z.array(z.string().trim()).optional(),
 });
 
@@ -169,19 +170,10 @@ export function createRentalCustomerRouter(deps: {
   // Public: Hubs list
   router.get('/hubs', async (_req, res, next) => {
     try {
-      const now = new Date();
       const hubs = await deps.db.serviceHub.findMany({
         where: {
           isActive: true,
-          rentalVehicles: {
-            some: {
-              isEligibleForRental: true,
-              status: 'AVAILABLE',
-              commercialPermitExpiry: { gte: now },
-              insuranceExpiry: { gte: now },
-              fitnessCertExpiry: { gte: now },
-            },
-          },
+          supportsRentals: true,
         },
         orderBy: { city: 'asc' },
       });
@@ -359,20 +351,56 @@ export function createRentalOperationsRouter(deps: {
           },
         });
 
-        if (!user || !user.employee || user.employee.status !== 'ACTIVE') {
+        let employee = user?.employee;
+        if (!employee && deps.db.employee?.findFirst) {
+          employee = (await deps.db.employee.findFirst({
+            where: {
+              active: true,
+              status: 'ACTIVE',
+              user: {
+                OR: [
+                  { firebaseUid: identity.uid },
+                  ...(identity.email ? [{ email: identity.email }] : []),
+                ],
+                status: 'ACTIVE',
+              },
+            },
+            include: {
+              roleAssignments: {
+                include: { role: true },
+              },
+              user: true,
+            },
+          })) as any;
+        }
+
+        if (!employee || employee.status !== 'ACTIVE') {
           throw new HttpError(403, 'RENTAL_STAFF_ACCESS_DENIED');
         }
 
-        const employeeRoles = user.employee.roleAssignments.map(ra => ra.role.name as EmployeeRole);
-        const isSuperAdmin = employeeRoles.includes('SUPER_ADMIN');
-        const hasPermittedRole = isSuperAdmin || employeeRoles.some(r => allowedRoles.includes(r));
+        const employeeRoles = (employee.roleAssignments || []).flatMap((ra: any) => [
+          ra.role.key,
+          ra.role.name,
+          String(ra.role.key || '').toUpperCase(),
+          String(ra.role.name || '').toUpperCase().replace(/[\s-]+/g, '_'),
+        ]);
+
+        const isSuperAdmin = employeeRoles.some(r => r === 'SUPER_ADMIN' || r === 'Super Admin');
+        const isAdmin = employeeRoles.some(r => r === 'ADMIN' || r === 'Administrator');
+        const isOps = employeeRoles.some(r => r === 'OPERATIONS_MANAGER' || r === 'Operations Manager');
+
+        const hasPermittedRole =
+          isSuperAdmin ||
+          isAdmin ||
+          isOps ||
+          employeeRoles.some(r => (allowedRoles as string[]).includes(r));
 
         if (!hasPermittedRole) {
           throw new HttpError(403, 'INSUFFICIENT_ROLE_PERMISSIONS');
         }
 
-        res.locals.employee = user.employee;
-        res.locals.employeeRoles = employeeRoles;
+        res.locals.employee = employee;
+        res.locals.employeeRoles = (employee.roleAssignments || []).map((ra: any) => ra.role.key || ra.role.name);
         next();
       } catch (err) {
         next(err);
@@ -426,6 +454,17 @@ export function createRentalOperationsRouter(deps: {
     }
   });
 
+  // Update fleet vehicle (eligibility, status, pricing)
+  router.patch('/fleet/:id', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
+    try {
+      const vehicleId = uuid.parse(req.params.id);
+      const vehicle = await deps.store.updateFleetVehicle(vehicleId, req.body);
+      res.json(vehicle);
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // Add vehicle block
   router.post('/fleet/:id/blocks', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
     try {
@@ -434,6 +473,42 @@ export function createRentalOperationsRouter(deps: {
       const employee = res.locals.employee;
       const block = await deps.store.addVehicleBlock(vehicleId, { ...input, createdById: employee.userId } as any);
       res.status(201).json(block);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Release vehicle from maintenance to AVAILABLE
+  router.post('/fleet/:id/release-maintenance', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
+    try {
+      const vehicleId = uuid.parse(req.params.id);
+      const notes = typeof req.body?.notes === 'string' ? req.body.notes : undefined;
+      const vehicle = await deps.store.releaseVehicleFromMaintenance(vehicleId, notes);
+      res.json(vehicle);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Release (end early) a specific vehicle block
+  router.post('/fleet/:id/blocks/:blockId/release', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
+    try {
+      const vehicleId = uuid.parse(req.params.id);
+      const blockId = uuid.parse(req.params.blockId);
+      const result = await deps.store.releaseVehicleBlock(vehicleId, blockId);
+      res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Permanently delete an accidental vehicle block
+  router.delete('/fleet/:id/blocks/:blockId', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
+    try {
+      const vehicleId = uuid.parse(req.params.id);
+      const blockId = uuid.parse(req.params.blockId);
+      const result = await deps.store.deleteVehicleBlock(vehicleId, blockId);
+      res.json(result);
     } catch (e) {
       next(e);
     }

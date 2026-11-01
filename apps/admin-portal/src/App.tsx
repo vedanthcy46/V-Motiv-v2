@@ -1017,6 +1017,7 @@ function BranchesPage({ user, actor }: { user: User; actor: AdminActor }) {
   const [reload, setReload] = useState(0);
   const [branchOpen, setBranchOpen] = useState(false);
   const [initialAreaForBranch, setInitialAreaForBranch] = useState<string | undefined>(undefined);
+  const [editBranch, setEditBranch] = useState<ManagedBranch | null>(null);
   const [areaOpen, setAreaOpen] = useState(false);
   const canManage = actor.permissions.includes('branch.manage');
 
@@ -1104,6 +1105,7 @@ function BranchesPage({ user, actor }: { user: User; actor: AdminActor }) {
                     <tr>
                       <th>Service Hub / Branch</th>
                       <th>City & Physical Address</th>
+                      <th>Capabilities</th>
                       <th>Active Staff</th>
                       <th>Pending Invitations</th>
                       <th>Status</th>
@@ -1121,14 +1123,69 @@ function BranchesPage({ user, actor }: { user: User; actor: AdminActor }) {
                           <strong>{branch.city}</strong>
                           <small>{branch.address || 'Physical facility address not recorded'}</small>
                         </td>
+                        <td>
+                          <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
+                            {branch.supportsService !== false && (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '2px 8px',
+                                borderRadius: 4,
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                                color: '#0284c7',
+                                border: '1px solid rgba(56, 189, 248, 0.3)'
+                              }}>
+                                <span>🔧</span> Service
+                              </span>
+                            )}
+                            {branch.supportsRentals !== false && (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                gap: 4,
+                                padding: '2px 8px',
+                                borderRadius: 4,
+                                fontSize: '0.75rem',
+                                fontWeight: 600,
+                                backgroundColor: 'rgba(247, 181, 3, 0.15)',
+                                color: '#b45309',
+                                border: '1px solid rgba(247, 181, 3, 0.35)'
+                              }}>
+                                <span>🚗</span> Rental Hub
+                              </span>
+                            )}
+                            {branch.supportsService === false && branch.supportsRentals === false && (
+                              <span style={{
+                                display: 'inline-flex',
+                                alignItems: 'center',
+                                padding: '2px 8px',
+                                borderRadius: 4,
+                                fontSize: '0.75rem',
+                                fontWeight: 500,
+                                color: 'var(--muted)',
+                                backgroundColor: 'var(--surface-sunken)'
+                              }}>
+                                No Active Services
+                              </span>
+                            )}
+                          </div>
+                        </td>
                         <td>{branch._count.employees} staff assigned</td>
                         <td>{branch._count.invitations} pending</td>
                         <td><StatusBadge value={branch.active ? 'ACTIVE' : 'DEACTIVATED'}/></td>
                         {canManage && (
                           <td>
-                            <button className="text-button" onClick={() => setBranchActive(branch)}>
-                              {branch.active ? 'Deactivate' : 'Reactivate'}
-                            </button>
+                            <div style={{ display: 'flex', gap: 10, alignItems: 'center' }}>
+                              <button className="text-button" onClick={() => setEditBranch(branch)}>
+                                Edit
+                              </button>
+                              <button className="text-button" onClick={() => setBranchActive(branch)}>
+                                {branch.active ? 'Deactivate' : 'Reactivate'}
+                              </button>
+                            </div>
                           </td>
                         )}
                       </tr>
@@ -1225,6 +1282,14 @@ function BranchesPage({ user, actor }: { user: User; actor: AdminActor }) {
           onDone={() => { setBranchOpen(false); setInitialAreaForBranch(undefined); setReload(value => value + 1); }}
         />
       )}
+      {editBranch && (
+        <EditBranchDialog
+          user={user}
+          branch={editBranch}
+          onClose={() => setEditBranch(null)}
+          onDone={() => { setEditBranch(null); setReload(value => value + 1); }}
+        />
+      )}
       {areaOpen && (
         <CreateServiceAreaDialog
           user={user}
@@ -1245,6 +1310,8 @@ function CreateBranchDialog({ user, areas, initialArea, onClose, onDone }: { use
   const [name, setName] = useState(() => initialArea ? `V MOTIV ${initialArea.split(' ')[0]} Hub` : '');
   const [city, setCity] = useState(initialArea || '');
   const [address, setAddress] = useState('');
+  const [supportsService, setSupportsService] = useState(true);
+  const [supportsRentals, setSupportsRentals] = useState(true);
 
   useEffect(() => { ref.current?.showModal(); }, []);
 
@@ -1268,7 +1335,9 @@ function CreateBranchDialog({ user, areas, initialArea, onClose, onDone }: { use
         code: code.trim().toUpperCase(),
         name: name.trim(),
         city: city.trim(),
-        address: address.trim() || undefined
+        address: address.trim() || undefined,
+        supportsService,
+        supportsRentals,
       });
       onDone();
     } catch (error) {
@@ -1348,9 +1417,173 @@ function CreateBranchDialog({ user, areas, initialArea, onClose, onDone }: { use
             onChange={e => setAddress(e.target.value)}
           />
         </label>
+
+        <fieldset style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px', margin: '12px 0' }}>
+          <legend style={{ padding: '0 6px', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Supported Hub Capabilities</legend>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', margin: '4px 0', fontSize: '0.875rem' }}>
+            <input
+              type="checkbox"
+              checked={supportsService}
+              onChange={e => setSupportsService(e.target.checked)}
+              style={{ width: 'auto', margin: 0 }}
+            />
+            <span><strong>Supports Vehicle Service</strong> (Workshop, maintenance & inspection bays)</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', margin: '6px 0 2px 0', fontSize: '0.875rem' }}>
+            <input
+              type="checkbox"
+              checked={supportsRentals}
+              onChange={e => setSupportsRentals(e.target.checked)}
+              style={{ width: 'auto', margin: 0 }}
+            />
+            <span><strong>Supports Car Rentals</strong> (Pickup and return fleet hub)</span>
+          </label>
+        </fieldset>
+
         <footer>
           <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
           <button className="button primary" disabled={busy}>{busy ? 'Creating Hub…' : 'Create Service Hub'}</button>
+        </footer>
+      </form>
+    </dialog>
+  );
+}
+
+function EditBranchDialog({
+  user,
+  branch,
+  onClose,
+  onDone,
+}: {
+  user: User;
+  branch: ManagedBranch;
+  onClose: () => void;
+  onDone: () => void;
+}) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [error, setError] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [name, setName] = useState(branch.name);
+  const [city, setCity] = useState(branch.city);
+  const [address, setAddress] = useState(branch.address || '');
+  const [supportsService, setSupportsService] = useState(branch.supportsService !== false);
+  const [supportsRentals, setSupportsRentals] = useState(branch.supportsRentals !== false);
+  const [active, setActive] = useState(branch.active);
+
+  useEffect(() => { ref.current?.showModal(); }, []);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await adminApi.updateBranch(user, branch.id, {
+        name: name.trim(),
+        city: city.trim(),
+        address: address.trim() || null,
+        supportsService,
+        supportsRentals,
+        active,
+      });
+      onDone();
+    } catch (error) {
+      setError(errorMessage(error));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <dialog ref={ref} onCancel={onClose} className="dialog compact">
+      <form onSubmit={submit}>
+        <header>
+          <div>
+            <p className="eyebrow">Operating Facility</p>
+            <h2>Edit Service & Rental Hub</h2>
+          </div>
+          <button type="button" className="icon-button" aria-label="Close edit form" onClick={onClose}><Icon name="close"/></button>
+        </header>
+        {error && <div className="alert error" role="alert">{error}</div>}
+
+        <label>
+          Branch / Hub Code
+          <input
+            value={branch.code}
+            disabled
+            style={{ opacity: 0.7, cursor: 'not-allowed', backgroundColor: 'var(--surface-sunken)' }}
+          />
+          <small style={{ color: 'var(--muted)', display: 'block', marginTop: 2 }}>Hub codes are immutable unique identifiers.</small>
+        </label>
+
+        <label>
+          Service Hub Name <span aria-hidden="true">*</span>
+          <input
+            name="name"
+            required
+            minLength={2}
+            maxLength={120}
+            value={name}
+            onChange={e => setName(e.target.value)}
+          />
+        </label>
+
+        <label>
+          City or Area <span aria-hidden="true">*</span>
+          <input
+            name="city"
+            required
+            minLength={2}
+            maxLength={120}
+            value={city}
+            onChange={e => setCity(e.target.value)}
+          />
+        </label>
+
+        <label>
+          Physical Address
+          <textarea
+            name="address"
+            maxLength={500}
+            placeholder="Street address, landmark, workshop and parking bays location"
+            value={address}
+            onChange={e => setAddress(e.target.value)}
+          />
+        </label>
+
+        <fieldset style={{ border: '1px solid var(--border)', borderRadius: 6, padding: '12px 14px', margin: '12px 0' }}>
+          <legend style={{ padding: '0 6px', fontSize: '0.8125rem', fontWeight: 600, color: 'var(--text-secondary)' }}>Supported Hub Capabilities</legend>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', margin: '4px 0', fontSize: '0.875rem' }}>
+            <input
+              type="checkbox"
+              checked={supportsService}
+              onChange={e => setSupportsService(e.target.checked)}
+              style={{ width: 'auto', margin: 0 }}
+            />
+            <span><strong>Supports Vehicle Service</strong> (Workshop, maintenance & inspection bays)</span>
+          </label>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', margin: '6px 0 2px 0', fontSize: '0.875rem' }}>
+            <input
+              type="checkbox"
+              checked={supportsRentals}
+              onChange={e => setSupportsRentals(e.target.checked)}
+              style={{ width: 'auto', margin: 0 }}
+            />
+            <span><strong>Supports Car Rentals</strong> (Pickup and return fleet hub)</span>
+          </label>
+        </fieldset>
+
+        <label style={{ display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer', margin: '8px 0', fontSize: '0.875rem' }}>
+          <input
+            type="checkbox"
+            checked={active}
+            onChange={e => setActive(e.target.checked)}
+            style={{ width: 'auto', margin: 0 }}
+          />
+          <span><strong>Active Operating Facility</strong> (Available for operations & staff scope)</span>
+        </label>
+
+        <footer>
+          <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
+          <button className="button primary" disabled={busy}>{busy ? 'Saving Changes…' : 'Save Changes'}</button>
         </footer>
       </form>
     </dialog>

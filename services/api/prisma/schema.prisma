@@ -1421,6 +1421,8 @@ model Branch {
   city String
   address String?
   active Boolean @default(true)
+  supportsService Boolean @default(true)
+  supportsRentals Boolean @default(true)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   employees EmployeeBranchAssignment[]
@@ -2262,6 +2264,8 @@ model ServiceHub {
   operatingHours String @default("08:00 - 19:00 Mon-Sat")
   phone String?
   isActive Boolean @default(true)
+  supportsService Boolean @default(true)
+  supportsRentals Boolean @default(true)
   capacityPerSlot Int @default(4)
   pickupRadiusKm Float @default(25.0)
   pickupFeePaise BigInt @default(49900)

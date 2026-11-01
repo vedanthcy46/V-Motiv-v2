@@ -29,10 +29,14 @@ const branchCreateInput = z.object({
   code: z.string().trim().min(2).max(24).regex(/^[A-Za-z0-9_-]+$/),
   name: z.string().trim().min(2).max(120), city: z.string().trim().min(2).max(120),
   address: z.string().trim().max(500).optional(),
+  supportsService: z.boolean().optional(),
+  supportsRentals: z.boolean().optional(),
 }).strict();
 const branchUpdateInput = z.object({
   name: z.string().trim().min(2).max(120).optional(), city: z.string().trim().min(2).max(120).optional(),
   address: z.string().trim().max(500).nullable().optional(), active: z.boolean().optional(),
+  supportsService: z.boolean().optional(),
+  supportsRentals: z.boolean().optional(),
 }).strict().refine(value => Object.keys(value).length > 0);
 const serviceAreaCreateInput = z.object({ name: z.string().trim().min(2).max(120) }).strict();
 const serviceAreaUpdateInput = z.object({ active: z.boolean() }).strict();

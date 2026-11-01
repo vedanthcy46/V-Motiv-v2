@@ -46,9 +46,13 @@ import {
   IconQC,
   IconRefresh,
   IconRefurbishment,
+  IconRentals,
   IconSearch,
+  IconService,
   IconStudio,
 } from './icons';
+import { ServiceOperationsPanel } from './components/ServiceOperationsPanel';
+import { RentalOperationsPanel } from './components/RentalOperationsPanel';
 import './styles.css';
 
 type TabKey =
@@ -63,6 +67,8 @@ type TabKey =
   | 'studio'
   | 'publication'
   | 'deliveries'
+  | 'service'
+  | 'rentals'
   | 'team';
 
 function needsQualityControl(stock: VehicleStockUnit) {
@@ -1128,6 +1134,8 @@ export const App: FC = () => {
     studio: 'Listing Studio & Photography',
     publication: 'Retail Publication',
     deliveries: 'Test Drives & Buyer Delivery',
+    service: 'Car Service & Workshop Operations',
+    rentals: 'Rental Fleet & Trips',
     team: 'Operations Team & Tasks',
   };
 
@@ -1256,6 +1264,22 @@ export const App: FC = () => {
             <IconDelivery />
             <span>Test Drives & Delivery</span>
             {testDrives.length ? <span className="tab-badge">{testDrives.length}</span> : null}
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'service' ? 'active' : ''}
+            onClick={() => { setActiveTab('service'); setSidebarOpen(false); }}
+          >
+            <IconService />
+            <span>Car Service & Hubs</span>
+          </button>
+          <button
+            type="button"
+            className={activeTab === 'rentals' ? 'active' : ''}
+            onClick={() => { setActiveTab('rentals'); setSidebarOpen(false); }}
+          >
+            <IconRentals />
+            <span>Rental Fleet & Trips</span>
           </button>
           <button
             type="button"
@@ -2958,7 +2982,31 @@ export const App: FC = () => {
         ) : null}
 
         {/* ======================================================== */}
-        {/* VIEW 12: TEAM & WORKLOAD                                 */}
+        {/* VIEW 12: CAR SERVICE OPERATIONS                           */}
+        {/* ======================================================== */}
+        {activeTab === 'service' ? (
+          <ServiceOperationsPanel
+            user={user}
+            branches={branches}
+            onError={err => setError(err)}
+            onSuccess={msg => setSuccessMsg(msg)}
+          />
+        ) : null}
+
+        {/* ======================================================== */}
+        {/* VIEW 13: RENTAL FLEET & OPERATIONS                        */}
+        {/* ======================================================== */}
+        {activeTab === 'rentals' ? (
+          <RentalOperationsPanel
+            user={user}
+            branches={branches}
+            onError={err => setError(err)}
+            onSuccess={msg => setSuccessMsg(msg)}
+          />
+        ) : null}
+
+        {/* ======================================================== */}
+        {/* VIEW 14: TEAM & WORKLOAD                                 */}
         {/* ======================================================== */}
         {activeTab === 'team' ? (
           <div>

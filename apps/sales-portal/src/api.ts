@@ -30,6 +30,19 @@ export class ApiError extends Error {
   }
 }
 
+async function callDirect<T>(user: User, path: string, init: RequestInit = {}, retry = true): Promise<T> {
+  const token = await user.getIdToken(!retry);
+  const response = await fetch(`${base}${path}`, {
+    ...init,
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...init.headers },
+    signal: init.signal ?? AbortSignal.timeout(15_000),
+  });
+  if (response.status === 401 && retry) { await user.getIdToken(true); return callDirect<T>(user, path, init, false); }
+  if (!response.ok) { const body = (await response.json().catch(() => ({ code: 'REQUEST_FAILED' }))) as { code?: string }; throw new ApiError(response.status, body.code || 'REQUEST_FAILED'); }
+  if (response.status === 204) return undefined as T;
+  return response.json() as Promise<T>;
+}
+
 async function call<T>(user: User, path: string, init: RequestInit = {}, retry = true): Promise<T> {
   const token = await user.getIdToken(!retry);
   const response = await fetch(`${base}/sales${path}`, {
@@ -741,4 +754,10 @@ export const salesApi = {
     call<{ success: boolean }>(user, `/notifications/${id}/read`, { method: 'PATCH' }),
   markAllNotificationsRead: (user: User) =>
     call<{ success: boolean }>(user, '/notifications/read-all', { method: 'POST' }),
+
+  // Service & Rental Leads
+  serviceBookings: (user: User) =>
+    callDirect<{ items: any[]; total: number }>(user, '/operations/service/queue?limit=25'),
+  rentalBookings: (user: User) =>
+    callDirect<any[]>(user, '/operations/rentals/bookings'),
 };

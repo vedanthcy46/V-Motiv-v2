@@ -10,6 +10,8 @@ interface NavbarProps {
   onOpenAuth: () => void;
   onOpenAccount: () => void;
   onNavigate: (sectionId: string) => void;
+  onOpenService?: () => void;
+  onOpenRentals?: () => void;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
@@ -19,6 +21,8 @@ export const Navbar: React.FC<NavbarProps> = ({
   onOpenAuth,
   onOpenAccount,
   onNavigate,
+  onOpenService,
+  onOpenRentals,
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
@@ -51,6 +55,30 @@ export const Navbar: React.FC<NavbarProps> = ({
             </li>
             <li>
               <a href="#sell" onClick={(e) => handleNavClick(e, 'sell')}>Sell Your Car</a>
+            </li>
+            <li>
+              <a
+                href="#service"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (onOpenService) onOpenService();
+                  else handleNavClick(e, 'service');
+                }}
+              >
+                Service
+              </a>
+            </li>
+            <li>
+              <a
+                href="#rentals"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (onOpenRentals) onOpenRentals();
+                  else handleNavClick(e, 'rentals');
+                }}
+              >
+                Rentals
+              </a>
             </li>
             <li>
               <a href="#how-it-works" onClick={(e) => handleNavClick(e, 'how-it-works')}>How It Works</a>
@@ -138,6 +166,30 @@ export const Navbar: React.FC<NavbarProps> = ({
             </li>
             <li>
               <a href="#sell" onClick={(e) => handleNavClick(e, 'sell')}>Sell Your Car</a>
+            </li>
+            <li>
+              <a
+                href="#service"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (onOpenService) onOpenService();
+                  else handleNavClick(e, 'service');
+                }}
+              >
+                Service
+              </a>
+            </li>
+            <li>
+              <a
+                href="#rentals"
+                onClick={(e) => {
+                  e.preventDefault();
+                  if (onOpenRentals) onOpenRentals();
+                  else handleNavClick(e, 'rentals');
+                }}
+              >
+                Rentals
+              </a>
             </li>
             <li>
               <a href="#how-it-works" onClick={(e) => handleNavClick(e, 'how-it-works')}>How It Works</a>

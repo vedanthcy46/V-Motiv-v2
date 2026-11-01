@@ -34,6 +34,8 @@ import { AccountModal } from './components/AccountModal';
 import { SellCarModal } from './components/SellCarModal';
 import { VehicleDetailModal } from './components/VehicleDetailModal';
 import { LegalModal } from './components/LegalModal';
+import { ServiceModal } from './components/ServiceModal';
+import { RentalsModal } from './components/RentalsModal';
 
 type ConnectVehicle = { nickname: string; make?: string; model?: string; year?: number; messagingEnabled: boolean; callingEnabled: boolean };
 
@@ -700,6 +702,8 @@ function MarketingApp() {
   const [authReason, setAuthReason] = useState('');
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [sellModalOpen, setSellModalOpen] = useState(false);
+  const [serviceModalOpen, setServiceModalOpen] = useState(false);
+  const [rentalsModalOpen, setRentalsModalOpen] = useState(false);
   const [selectedVehicle, setSelectedVehicle] = useState<ListingItem | null>(null);
   const [legalModalType, setLegalModalType] = useState<'terms' | 'privacy' | null>(null);
   const [bookedListingIds, setBookedListingIds] = useState<Set<string>>(new Set());
@@ -806,6 +810,10 @@ function MarketingApp() {
       if (path === '/sell' || hash === '#sell') {
         scrollToSection('sell');
         setSellModalOpen(true);
+      } else if (path === '/service' || hash === '#service') {
+        setServiceModalOpen(true);
+      } else if (path === '/rentals' || hash === '#rentals') {
+        setRentalsModalOpen(true);
       } else if (path === '/terms') {
         setLegalModalType('terms');
       } else if (path === '/privacy') {
@@ -848,6 +856,10 @@ function MarketingApp() {
     scrollToSection(sectionId);
     if (sectionId === 'sell') {
       setSellModalOpen(true);
+    } else if (sectionId === 'service') {
+      setServiceModalOpen(true);
+    } else if (sectionId === 'rentals') {
+      setRentalsModalOpen(true);
     }
     if (window.location.pathname !== '/') {
       window.history.pushState({}, '', `/#${sectionId}`);
@@ -918,6 +930,8 @@ function MarketingApp() {
         onOpenAuth={() => handleOpenAuth()}
         onOpenAccount={() => setAccountModalOpen(true)}
         onNavigate={navigateTo}
+        onOpenService={() => setServiceModalOpen(true)}
+        onOpenRentals={() => setRentalsModalOpen(true)}
       />
 
       <main>
@@ -1020,6 +1034,32 @@ function MarketingApp() {
             window.history.replaceState({}, '', '/');
           }
         }}
+      />
+
+      <ServiceModal
+        isOpen={serviceModalOpen}
+        onClose={() => {
+          setServiceModalOpen(false);
+          if (window.location.hash === '#service') {
+            window.history.replaceState({}, '', '/');
+          }
+        }}
+        user={user}
+        cities={cities}
+        onRequestAuth={(reason) => handleOpenAuth(reason)}
+      />
+
+      <RentalsModal
+        isOpen={rentalsModalOpen}
+        onClose={() => {
+          setRentalsModalOpen(false);
+          if (window.location.hash === '#rentals') {
+            window.history.replaceState({}, '', '/');
+          }
+        }}
+        user={user}
+        cities={cities}
+        onRequestAuth={(reason) => handleOpenAuth(reason)}
       />
     </div>
   );

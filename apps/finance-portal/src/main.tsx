@@ -1668,8 +1668,8 @@ function App() {
                       return (
                         <tr key={p.stockUnitId || p.vin}>
                           <td>
-                            <strong>{p.year ? `${p.year} ` : ''}{p.make || ''} {p.model || ''}{(!p.make && (p as any).title) ? (p as any).title : ''}</strong>
-                            <small>VIN: <span className="code-pill">{p.vin || (p as any).registrationNumber || (p as any).stockCode || '—'}</span></small>
+                            <strong>{p.title || `${p.year ? `${p.year} ` : ''}${p.make || ''} ${p.model || ''} ${p.variant || ''}`.trim() || 'Vehicle Unit'}</strong>
+                            <small>VIN / Reg: <span className="code-pill">{p.vin || (p as any).registrationNumber || (p as any).stockCode || '—'}</span></small>
                           </td>
                           <td className="money">{money(p.acquisitionCostPaise)}</td>
                           <td className="money" style={{ color: 'var(--warning)' }}>
@@ -1684,13 +1684,15 @@ function App() {
                               : 'Unsold (In Stock)'}
                           </td>
                           <td className="money" style={{ color: hasRealizedSale ? (isProfit ? 'var(--success)' : 'var(--danger)') : 'var(--muted)' }}>
-                            {hasRealizedSale ? money(p.realizedGrossMarginPaise) : '—'}
+                            {hasRealizedSale ? money(p.realizedGrossMarginPaise || (p as any).grossMarginPaise) : '—'}
                           </td>
                           <td>
                             {(() => {
                               const marginPct = typeof p.realizedGrossMarginPercent === 'number' && !isNaN(p.realizedGrossMarginPercent)
                                 ? p.realizedGrossMarginPercent
-                                : 0;
+                                : typeof (p as any).marginPercentage === 'number'
+                                ? (p as any).marginPercentage
+                                : parseFloat(String((p as any).marginPercentage || '0')) || 0;
                               return hasRealizedSale ? (
                                 <span className={`status ${marginPct >= 8 ? 'success' : marginPct > 0 ? 'warning' : 'danger'}`}>
                                   <span /> {marginPct.toFixed(1)}%
@@ -1703,8 +1705,8 @@ function App() {
                             })()}
                           </td>
                           <td>
-                            <span className={`status ${p.deliveryEligible ? 'success' : 'neutral'}`}>
-                              <span /> {p.deliveryEligible ? 'DELIVERY READY' : 'IN INVENTORY'}
+                            <span className={`status ${hasRealizedSale ? 'success' : 'neutral'}`}>
+                              <span /> {p.status === 'SOLD' ? 'SOLD' : p.deliveryEligible ? 'DELIVERY READY' : 'IN INVENTORY'}
                             </span>
                           </td>
                         </tr>
@@ -1783,6 +1785,7 @@ function App() {
           user={user}
           busy={busy}
           bankAccounts={bankAccounts}
+          obligations={obligations}
           onClose={() => setActiveModal(null)}
           onAction={runAction}
         />
@@ -1816,6 +1819,7 @@ function App() {
         <CreateObligationDialog
           user={user}
           busy={busy}
+          profitability={profitability}
           onClose={() => setActiveModal(null)}
           onAction={runAction}
         />
@@ -2597,12 +2601,14 @@ function RecordReceiptDialog({
   user,
   busy,
   bankAccounts,
+  obligations,
   onClose,
   onAction,
 }: {
   user: User;
   busy: boolean;
   bankAccounts: CompanyBankAccount[];
+  obligations?: BuyerPaymentObligation[];
   onClose: () => void;
   onAction: (task: () => Promise<unknown>) => void;
 }) {
@@ -2610,6 +2616,7 @@ function RecordReceiptDialog({
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const amountPaise = BigInt(Math.round(Number(fd.get('amountRupees')) * 100)).toString();
+    const obligationId = String(fd.get('obligationId') || '').trim() || undefined;
 
     onAction(() =>
       financeApi.recordReceipt(user, {
@@ -2619,6 +2626,7 @@ function RecordReceiptDialog({
         bankReference: String(fd.get('bankReference') || ''),
         companyBankAccountId: String(fd.get('companyBankAccountId') || ''),
         amountPaise,
+        obligationId,
         evidenceUri: String(fd.get('evidenceUri') || ''),
       })
     );
@@ -2680,6 +2688,21 @@ function RecordReceiptDialog({
                 {bankAccounts.map(b => (
                   <option key={b.id} value={b.id}>{b.bankName} ({b.accountNumberMasked})</option>
                 ))}
+              </select>
+            </label>
+          </div>
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label>
+              Allocate Directly to Buyer Obligation (Optional)
+              <select name="obligationId" defaultValue="">
+                <option value="">Hold as unapplied customer funds</option>
+                {(obligations || [])
+                  .filter(ob => BigInt(ob.remainingBalancePaise || '0') > 0n)
+                  .map(ob => (
+                    <option key={ob.id} value={ob.id}>
+                      {ob.obligationNumber} — {ob.buyerName} (Remaining: {money(ob.remainingBalancePaise)})
+                    </option>
+                  ))}
               </select>
             </label>
           </div>
@@ -2844,11 +2867,13 @@ function AllocateReceiptDialog({
 function CreateObligationDialog({
   user,
   busy,
+  profitability,
   onClose,
   onAction,
 }: {
   user: User;
   busy: boolean;
+  profitability?: VehicleProfitabilityItem[];
   onClose: () => void;
   onAction: (task: () => Promise<unknown>) => void;
 }) {
@@ -2859,12 +2884,14 @@ function CreateObligationDialog({
     const depositPaise = BigInt(Math.round(Number(fd.get('depositRupees') || 0) * 100)).toString();
     const emailVal = String(fd.get('buyerEmail') || '').trim();
     const phoneVal = String(fd.get('buyerPhone') || '').trim();
+    const stockUnitId = String(fd.get('stockUnitId') || '').trim() || undefined;
 
     onAction(() =>
       financeApi.createObligation(user, {
         buyerName: String(fd.get('buyerName')),
         buyerEmail: emailVal.length > 0 ? emailVal : undefined,
         buyerPhone: phoneVal.length > 0 ? phoneVal : undefined,
+        stockUnitId,
         salePricePaise,
         bookingDepositPaise: depositPaise,
       })
@@ -2883,6 +2910,34 @@ function CreateObligationDialog({
         </header>
 
         <div className="form-grid">
+          <div style={{ gridColumn: '1 / -1' }}>
+            <label>
+              Select Vehicle Stock Unit (from Inventory)
+              <select
+                name="stockUnitId"
+                defaultValue=""
+                onChange={e => {
+                  const unit = profitability?.find(p => (p.stockUnitId || p.id) === e.target.value);
+                  if (unit) {
+                    const priceInput = (e.target.form?.elements.namedItem('salePriceRupees') as HTMLInputElement);
+                    if (priceInput && (!priceInput.value || priceInput.value === '0')) {
+                      const suggested = unit.listingPricePaise && BigInt(unit.listingPricePaise) > 0n
+                        ? Math.round(Number(unit.listingPricePaise) / 100)
+                        : Math.round(Number(unit.acquisitionCostPaise || '0') / 100);
+                      if (suggested > 0) priceInput.value = String(suggested);
+                    }
+                  }
+                }}
+              >
+                <option value="">-- Select Vehicle from Stock (Recommended) --</option>
+                {(profitability || []).map(p => (
+                  <option key={p.stockUnitId || p.id} value={p.stockUnitId || p.id}>
+                    {p.year ? `${p.year} ` : ''}{p.make || ''} {p.model || ''} {p.variant || ''} — Reg/VIN: {p.vin || (p as any).registrationNumber || p.stockCode || '—'} ({money(p.acquisitionCostPaise)})
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
           <div>
             <label>
               Buyer Legal Name <span aria-hidden="true">*</span>
@@ -2973,7 +3028,14 @@ function ViewObligationAllocationsDialog({
               ))}
               {!obligation.allocations?.length && (
                 <tr key="empty">
-                  <td colSpan={5} className="empty-state">No payment allocations recorded yet.</td>
+                  <td colSpan={5} className="empty-state" style={{ padding: '2.5rem 1rem', textAlign: 'center' }}>
+                    <p style={{ margin: '0 0 1rem 0', color: 'var(--muted)' }}>No payment allocations recorded yet.</p>
+                    {BigInt(obligation.remainingBalancePaise || '0') > 0n && onRecordPayment && (
+                      <button type="button" className="button primary" onClick={onRecordPayment}>
+                        + Record Received Payment Now
+                      </button>
+                    )}
+                  </td>
                 </tr>
               )}
             </tbody>

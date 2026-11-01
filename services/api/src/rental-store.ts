@@ -1392,25 +1392,228 @@ export class PrismaRentalStore {
    * Operations: Fleet vehicle listing with filters.
    */
   async getFleet(filter?: { hubId?: string; status?: RentalVehicleStatus }) {
+    const now = new Date();
+
     const where: Prisma.RentalFleetVehicleWhereInput = {};
     if (filter?.hubId) where.hubId = filter.hubId;
-    if (filter?.status) where.status = filter.status;
 
-    return await this.db.rentalFleetVehicle.findMany({
+    const vehicles = await this.db.rentalFleetVehicle.findMany({
       where,
       orderBy: { createdAt: 'desc' },
       include: {
         hub: true,
-        blocks: { where: { endTime: { gt: new Date() } } },
+        blocks: { orderBy: { startTime: 'desc' } },
       },
     });
+
+    const staleMaintenanceVehicleIds: string[] = [];
+
+    const mapped = vehicles.map(v => {
+      const activeBlock = v.blocks.find(b => b.startTime <= now && b.endTime > now) ?? null;
+      let effectiveStatus = v.status;
+
+      if (activeBlock) {
+        effectiveStatus = activeBlock.reason === RentalBlockReason.CLEANING
+          ? RentalVehicleStatus.CLEANING
+          : RentalVehicleStatus.MAINTENANCE;
+      } else if (v.status === RentalVehicleStatus.MAINTENANCE || v.status === RentalVehicleStatus.CLEANING) {
+        // Vehicle has no current active block; auto-heal back to AVAILABLE
+        effectiveStatus = RentalVehicleStatus.AVAILABLE;
+        staleMaintenanceVehicleIds.push(v.id);
+      }
+
+      return { ...v, status: effectiveStatus, activeBlock };
+    });
+
+    // Auto-heal database records that were permanently stuck in MAINTENANCE
+    if (staleMaintenanceVehicleIds.length > 0) {
+      void this.db.rentalFleetVehicle.updateMany({
+        where: { id: { in: staleMaintenanceVehicleIds } },
+        data: { status: RentalVehicleStatus.AVAILABLE },
+      }).catch(() => { /* non-blocking */ });
+    }
+
+    // Apply status filter after deriving effective status
+    if (filter?.status) {
+      return mapped.filter(v => v.status === filter.status);
+    }
+    return mapped;
+  }
+
+  /**
+   * Operations: Explicitly release vehicle from MAINTENANCE back to AVAILABLE.
+   * Closes active/future blocks (truncating endTime to now to preserve historical records)
+   * and sets vehicle status to AVAILABLE and eligible.
+   */
+  async releaseVehicleFromMaintenance(vehicleId: string, notes?: string) {
+    const now = new Date();
+    return await this.db.$transaction(async tx => {
+      const vehicle = await tx.rentalFleetVehicle.findUnique({
+        where: { id: vehicleId },
+        include: { blocks: { orderBy: { startTime: 'desc' } } },
+      });
+      if (!vehicle) {
+        throw new HttpError(404, 'VEHICLE_NOT_FOUND');
+      }
+
+      // Truncate all active or upcoming blocks to now so maintenance history is retained
+      const activeOrUpcomingBlocks = vehicle.blocks.filter(b => b.endTime > now);
+      for (const b of activeOrUpcomingBlocks) {
+        const releaseNote = `[Released to AVAILABLE on ${now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}${notes ? `: ${notes}` : ''}]`;
+        const updatedNotes = b.notes ? `${b.notes} · ${releaseNote}` : releaseNote;
+
+        await tx.rentalVehicleBlock.update({
+          where: { id: b.id },
+          data: {
+            endTime: b.startTime < now ? now : b.startTime,
+            notes: updatedNotes,
+          },
+        });
+      }
+
+      const updated = await tx.rentalFleetVehicle.update({
+        where: { id: vehicleId },
+        data: {
+          status: RentalVehicleStatus.AVAILABLE,
+          isEligibleForRental: true,
+        },
+        include: {
+          hub: true,
+          blocks: { orderBy: { startTime: 'desc' } },
+        },
+      });
+
+      return {
+        ...updated,
+        status: RentalVehicleStatus.AVAILABLE,
+        activeBlock: null,
+      };
+    });
+  }
+
+  /**
+   * Operations: Release (end early) a vehicle block and restore AVAILABLE status if no other active block remains.
+   * Preserves the maintenance history record with the actual release time.
+   */
+  async releaseVehicleBlock(vehicleId: string, blockId: string) {
+    const now = new Date();
+    return await this.db.$transaction(async tx => {
+      const block = await tx.rentalVehicleBlock.findUnique({ where: { id: blockId } });
+      if (!block || block.vehicleId !== vehicleId) {
+        throw new HttpError(404, 'BLOCK_NOT_FOUND');
+      }
+
+      const releaseNote = `[Released early on ${now.toLocaleString('en-IN', { timeZone: 'Asia/Kolkata' })}]`;
+      const updatedNotes = block.notes ? `${block.notes} · ${releaseNote}` : releaseNote;
+
+      // Truncate block to now so history is preserved
+      await tx.rentalVehicleBlock.update({
+        where: { id: blockId },
+        data: {
+          endTime: block.startTime < now ? now : block.startTime,
+          notes: updatedNotes,
+        },
+      });
+
+      // If no other block is active, restore vehicle status to AVAILABLE
+      const otherActive = await tx.rentalVehicleBlock.findFirst({
+        where: { vehicleId, id: { not: blockId }, startTime: { lte: now }, endTime: { gt: now } },
+      });
+      if (!otherActive) {
+        await tx.rentalFleetVehicle.update({
+          where: { id: vehicleId },
+          data: { status: RentalVehicleStatus.AVAILABLE },
+        });
+      }
+
+      return { released: true, blockId };
+    });
+  }
+
+  /**
+   * Operations: Permanently delete an accidental or invalid vehicle block.
+   */
+  async deleteVehicleBlock(vehicleId: string, blockId: string) {
+    return await this.db.$transaction(async tx => {
+      const block = await tx.rentalVehicleBlock.findUnique({ where: { id: blockId } });
+      if (!block || block.vehicleId !== vehicleId) {
+        throw new HttpError(404, 'BLOCK_NOT_FOUND');
+      }
+
+      await tx.rentalVehicleBlock.delete({ where: { id: blockId } });
+
+      const now = new Date();
+      const otherActive = await tx.rentalVehicleBlock.findFirst({
+        where: { vehicleId, startTime: { lte: now }, endTime: { gt: now } },
+      });
+      if (!otherActive) {
+        await tx.rentalFleetVehicle.update({
+          where: { id: vehicleId },
+          data: { status: RentalVehicleStatus.AVAILABLE },
+        });
+      }
+
+      return { deleted: true, blockId };
+    });
+  }
+
+  /**
+   * Helper: Resolve ServiceHub id from either a ServiceHub id or a Branch id.
+   */
+  async resolveHubId(idOrBranchId?: string): Promise<string> {
+    if (!idOrBranchId) {
+      const first = await this.db.serviceHub.findFirst({ where: { isActive: true }, select: { id: true } });
+      if (first) return first.id;
+      throw new HttpError(400, 'NO_ACTIVE_HUBS_AVAILABLE');
+    }
+
+    // 1. Direct ServiceHub id check
+    const directHub = await this.db.serviceHub.findUnique({ where: { id: idOrBranchId }, select: { id: true } });
+    if (directHub) return directHub.id;
+
+    // 2. Check if it's a branchId
+    const branchHub = await this.db.serviceHub.findFirst({ where: { branchId: idOrBranchId }, select: { id: true } });
+    if (branchHub) return branchHub.id;
+
+    // 3. If a Branch exists with this ID, find or auto-upsert a corresponding ServiceHub
+    const branch = await this.db.branch.findUnique({ where: { id: idOrBranchId } });
+    if (branch) {
+      const upserted = await this.db.serviceHub.upsert({
+        where: { code: branch.code },
+        update: {
+          branchId: branch.id,
+          name: branch.name,
+          city: branch.city,
+          address: branch.address || `${branch.city} Hub Facility`,
+          isActive: branch.active,
+          supportsRentals: true,
+        },
+        create: {
+          branchId: branch.id,
+          code: branch.code,
+          name: branch.name,
+          city: branch.city,
+          address: branch.address || `${branch.city} Hub Facility`,
+          isActive: branch.active,
+          supportsRentals: true,
+        },
+        select: { id: true },
+      });
+      return upserted.id;
+    }
+
+    // 4. Fallback to any active hub
+    const fallback = await this.db.serviceHub.findFirst({ where: { isActive: true }, select: { id: true } });
+    if (fallback) return fallback.id;
+
+    return idOrBranchId;
   }
 
   /**
    * Operations: Add fleet vehicle.
    */
   async createFleetVehicle(input: {
-    fleetNumber: string;
+    fleetNumber?: string;
     registrationNumber: string;
     vin: string;
     make: string;
@@ -1422,46 +1625,93 @@ export class PrismaRentalStore {
     seats?: number;
     color: string;
     hubId: string;
-    images: string[];
-    commercialPermitNumber: string;
-    commercialPermitExpiry: string | Date;
-    insurancePolicyNumber: string;
-    insuranceExpiry: string | Date;
-    fitnessCertExpiry: string | Date;
-    baseDailyRatePaise: number | bigint;
-    baseHourlyRatePaise: number | bigint;
-    securityDepositPaise: number | bigint;
+    images?: string[];
+    commercialPermitNumber?: string;
+    commercialPermitExpiry?: string | Date;
+    insurancePolicyNumber?: string;
+    insuranceExpiry?: string | Date;
+    fitnessCertExpiry?: string | Date;
+    baseDailyRatePaise: number | bigint | string;
+    baseHourlyRatePaise?: number | bigint | string;
+    securityDepositPaise?: number | bigint | string;
     includedKmPerDay?: number;
-    extraKmRatePaise?: number | bigint;
+    includedDailyKm?: number;
+    extraKmRatePaise?: number | bigint | string;
     features?: string[];
   }) {
+    const regClean = input.registrationNumber.trim().toUpperCase();
+    const oneYearLater = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    const fleetNumber = input.fleetNumber?.trim() || `VMF-${Math.floor(100 + Math.random() * 899)}`;
+    const commercialPermitNumber = input.commercialPermitNumber?.trim() || `COMM-${regClean}`;
+    const commercialPermitExpiry = input.commercialPermitExpiry ? new Date(input.commercialPermitExpiry) : oneYearLater;
+    const insurancePolicyNumber = input.insurancePolicyNumber?.trim() || `POL-${regClean}`;
+    const insuranceExpiry = input.insuranceExpiry ? new Date(input.insuranceExpiry) : oneYearLater;
+    const fitnessCertExpiry = input.fitnessCertExpiry ? new Date(input.fitnessCertExpiry) : oneYearLater;
+    const baseDailyRatePaise = BigInt(input.baseDailyRatePaise);
+    const baseHourlyRatePaise = input.baseHourlyRatePaise ? BigInt(input.baseHourlyRatePaise) : BigInt(Math.max(100, Math.round(Number(baseDailyRatePaise) / 10)));
+    const securityDepositPaise = input.securityDepositPaise !== undefined ? BigInt(input.securityDepositPaise) : 500000n;
+    const includedKmPerDay = input.includedKmPerDay || input.includedDailyKm || 250;
+    const images = (input.images && input.images.length > 0) ? input.images : ['https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'];
+    const resolvedHubId = await this.resolveHubId(input.hubId);
+
     return await this.db.rentalFleetVehicle.create({
       data: {
-        fleetNumber: input.fleetNumber,
-        registrationNumber: input.registrationNumber,
-        vin: input.vin,
-        make: input.make,
-        model: input.model,
-        variant: input.variant,
+        fleetNumber,
+        registrationNumber: regClean,
+        vin: input.vin.trim().toUpperCase(),
+        make: input.make.trim(),
+        model: input.model.trim(),
+        variant: input.variant?.trim() || null,
         year: input.year,
-        transmission: input.transmission,
-        fuelType: input.fuelType,
+        transmission: input.transmission as any,
+        fuelType: input.fuelType as any,
         seats: input.seats || 5,
-        color: input.color,
-        hubId: input.hubId,
-        images: input.images as any,
-        commercialPermitNumber: input.commercialPermitNumber,
-        commercialPermitExpiry: new Date(input.commercialPermitExpiry),
-        insurancePolicyNumber: input.insurancePolicyNumber,
-        insuranceExpiry: new Date(input.insuranceExpiry),
-        fitnessCertExpiry: new Date(input.fitnessCertExpiry),
-        baseDailyRatePaise: BigInt(input.baseDailyRatePaise),
-        baseHourlyRatePaise: BigInt(input.baseHourlyRatePaise),
-        securityDepositPaise: BigInt(input.securityDepositPaise),
-        includedKmPerDay: input.includedKmPerDay || 250,
+        color: input.color.trim(),
+        hubId: resolvedHubId,
+        images: images as any,
+        commercialPermitNumber,
+        commercialPermitExpiry,
+        insurancePolicyNumber,
+        insuranceExpiry,
+        fitnessCertExpiry,
+        baseDailyRatePaise,
+        baseHourlyRatePaise,
+        securityDepositPaise,
+        includedKmPerDay,
         extraKmRatePaise: BigInt(input.extraKmRatePaise || 1200),
         features: (input.features || []) as any,
         status: RentalVehicleStatus.AVAILABLE,
+      },
+      include: { hub: true },
+    });
+  }
+
+  /**
+   * Operations: Update fleet vehicle (eligibility, status, rates, hub).
+   */
+  async updateFleetVehicle(
+    vehicleId: string,
+    input: {
+      isEligibleForRental?: boolean;
+      status?: RentalVehicleStatus;
+      baseDailyRatePaise?: number | bigint | string;
+      securityDepositPaise?: number | bigint | string;
+      includedKmPerDay?: number;
+      extraKmRatePaise?: number | bigint | string;
+      hubId?: string;
+    }
+  ) {
+    const resolvedHubId = input.hubId ? await this.resolveHubId(input.hubId) : undefined;
+    return await this.db.rentalFleetVehicle.update({
+      where: { id: vehicleId },
+      data: {
+        ...(input.isEligibleForRental !== undefined ? { isEligibleForRental: input.isEligibleForRental } : {}),
+        ...(input.status !== undefined ? { status: input.status } : {}),
+        ...(input.baseDailyRatePaise !== undefined ? { baseDailyRatePaise: BigInt(input.baseDailyRatePaise) } : {}),
+        ...(input.securityDepositPaise !== undefined ? { securityDepositPaise: BigInt(input.securityDepositPaise) } : {}),
+        ...(input.includedKmPerDay !== undefined ? { includedKmPerDay: input.includedKmPerDay } : {}),
+        ...(input.extraKmRatePaise !== undefined ? { extraKmRatePaise: BigInt(input.extraKmRatePaise) } : {}),
+        ...(resolvedHubId !== undefined ? { hubId: resolvedHubId } : {}),
       },
       include: { hub: true },
     });
@@ -1486,15 +1736,31 @@ export class PrismaRentalStore {
       throw new HttpError(400, 'BLOCK_END_TIME_MUST_BE_AFTER_START');
     }
 
-    return await this.db.rentalVehicleBlock.create({
-      data: {
-        vehicleId,
-        reason: input.reason,
-        startTime: start,
-        endTime: end,
-        notes: input.notes,
-        createdById: input.createdById,
-      },
+    return await this.db.$transaction(async tx => {
+      const block = await tx.rentalVehicleBlock.create({
+        data: {
+          vehicleId,
+          reason: input.reason,
+          startTime: start,
+          endTime: end,
+          notes: input.notes,
+          createdById: input.createdById,
+        },
+      });
+
+      // If the block covers now, update vehicle status immediately
+      const now = new Date();
+      if (start <= now && end > now) {
+        const newStatus = input.reason === RentalBlockReason.CLEANING
+          ? RentalVehicleStatus.CLEANING
+          : RentalVehicleStatus.MAINTENANCE;
+        await tx.rentalFleetVehicle.update({
+          where: { id: vehicleId },
+          data: { status: newStatus },
+        });
+      }
+
+      return block;
     });
   }
 
