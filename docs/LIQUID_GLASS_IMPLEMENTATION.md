@@ -1,19 +1,16 @@
 # V MOTIV V2 — Liquid Glass Implementation Guide
 ## Cross-Platform Adaptive Architecture & Optimization
 
-### 1. Architectural Strategy
+### 1. Architectural Strategy & Native Resilience
 
-Liquid Glass blends specular reflection, translucent light diffusion, and structural depth. Achieving this on mobile requires strict platform adaptation to prevent performance degradation:
+Liquid Glass blends specular reflection, translucent light diffusion, and structural depth. In real-world Expo development workflows with custom dev clients or prebuilt APK binaries, adding native view libraries (such as `expo-linear-gradient` or `expo-blur`) causes the runtime error:
+`Invariant Violation: Unable to get the view config for default view from module ExpoLinearGradient`
+because the compiled native binary lacks the new native view manager class.
 
-- **iOS Platform Behavior**:
-  - Leverages native `expo-blur` (`BlurView`) with dynamic intensity (45 to 75).
-  - Integrates `expo-linear-gradient` to produce the authentic top-edge specular highlight refraction rim.
-  - Layered structure: Root container → `BlurView` backdrop → Specular gradient line → Foreground content.
-
-- **Android Platform Behavior**:
-  - Real-time Gaussian blur on low-end Android GPU pipelines causes dropped frames during fast scrolling.
-  - Android leverages tinted translucent fills (`rgba(14, 35, 67, 0.76)` / `rgba(255, 255, 255, 0.78)`), high-resolution perimeter strokes, specular rim gradients, and hardware elevation shadows.
-  - This guarantees consistent 60fps rendering across entry-level and flagship devices alike.
+To ensure 100% crash-free resilience across all runtime clients (Expo Go, custom development client builds, Android emulators, and physical devices):
+- **`AdaptiveGlass`** is built entirely on standard, universally linked React Native primitives (`View`, `StyleSheet`, hardware `elevation`, `shadow*`).
+- **Specular Refraction Rim**: Rendered using a high-precision 1.5px semi-transparent specular line (`rgba(255, 255, 255, 0.9)` in light mode, `rgba(247, 181, 3, 0.28)` in dark mode) along the upper curved boundary.
+- **Zero Native Rebuild Requirement**: Developers and users can update their JavaScript code immediately without needing to re-compile APK/AAB binaries with `eas build` or `npx expo run:android`.
 
 ---
 
@@ -24,7 +21,6 @@ Location: `apps/customer-mobile/src/components/AdaptiveGlass.tsx`
 ```tsx
 <AdaptiveGlass
   variant="floatingNav" // 'surface' | 'elevated' | 'subtle' | 'floatingNav' | 'modal'
-  intensity={65}
   rim={true}
   containerStyle={styles.bottomBarContainer}
   style={styles.bottomBar}
