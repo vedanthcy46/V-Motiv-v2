@@ -323,17 +323,17 @@ export const api = {
     call<ServiceJobItem>(u, `/operations/service/jobs/${id}`),
   scheduleServiceJob: (u: User, id: string, body: { advisorId?: string; scheduledDate: string; scheduledTimeSlot: string }) =>
     call<unknown>(u, `/operations/service/jobs/${id}/schedule`, { method: 'POST', body: JSON.stringify(body) }),
-  dispatchServiceJob: (u: User, id: string, body: { driverId: string; type: 'PICKUP' | 'RETURN'; scheduledTime?: string }) =>
+  dispatchServiceJob: (u: User, id: string, body: { driverId?: string; type: 'PICKUP' | 'RETURN'; scheduledTime?: string }) =>
     call<unknown>(u, `/operations/service/jobs/${id}/dispatch`, { method: 'POST', body: JSON.stringify(body) }),
-  recordServiceCustody: (u: User, id: string, body: { intakeType: string; odometerKm: number; fuelPercent: number; exteriorNotes?: string; photos?: string[] }) =>
+  recordServiceCustody: (u: User, id: string, body: Record<string, any>) =>
     call<unknown>(u, `/operations/service/jobs/${id}/custody`, { method: 'POST', body: JSON.stringify(body) }),
-  recordServiceDiagnosis: (u: User, id: string, body: { technicianNotes: string; recommendedRepairs?: string[]; photos?: string[] }) =>
+  recordServiceDiagnosis: (u: User, id: string, body: Record<string, any>) =>
     call<unknown>(u, `/operations/service/jobs/${id}/diagnosis`, { method: 'POST', body: JSON.stringify(body) }),
-  createServiceEstimate: (u: User, id: string, body: { items: { itemType: string; description: string; quantity: number; unitRatePaise: string | number; taxRateBps?: number }[]; notes?: string }) =>
+  createServiceEstimate: (u: User, id: string, body: Record<string, any>) =>
     call<unknown>(u, `/operations/service/jobs/${id}/estimates`, { method: 'POST', body: JSON.stringify(body) }),
-  recordServiceQc: (u: User, id: string, body: { isPassed: boolean; checklistNotes: string; photos?: string[] }) =>
+  recordServiceQc: (u: User, id: string, body: Record<string, any>) =>
     call<unknown>(u, `/operations/service/jobs/${id}/qc`, { method: 'POST', body: JSON.stringify(body) }),
-  recordServiceReturn: (u: User, id: string, body: { returnOdometerKm: number; returnNotes?: string; customerSigned?: boolean }) =>
+  recordServiceReturn: (u: User, id: string, body: Record<string, any>) =>
     call<unknown>(u, `/operations/service/jobs/${id}/return`, { method: 'POST', body: JSON.stringify(body) }),
   recordServicePayment: (u: User, id: string, body: { amountPaise: string | number; paymentMethod: string; transactionReference?: string; notes?: string }) =>
     call<unknown>(u, `/operations/service/jobs/${id}/payments`, { method: 'POST', body: JSON.stringify(body) }),

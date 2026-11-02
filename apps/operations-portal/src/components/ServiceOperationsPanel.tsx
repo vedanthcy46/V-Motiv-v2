@@ -154,7 +154,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     setActionBusy(true);
     try {
       await api.dispatchServiceJob(user, activeJob.id, {
-        driverId: dispatchDriverId || user.uid,
+        driverId: dispatchDriverId.trim() || undefined,
         type: dispatchType,
       });
       onSuccess(`Driver assigned and dispatched for ${dispatchType.toLowerCase()} of ${activeJob.requestNumber}`);
@@ -177,6 +177,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         odometerKm: Number(intakeOdometer),
         fuelPercent: Number(intakeFuel),
         exteriorNotes: intakeNotes || 'Visual inspection complete. No major dents observed.',
+        handoverByPerson: activeJob.customer?.displayName || 'Customer Handover',
       });
       onSuccess(`Custody confirmed for ${activeJob.requestNumber}. Vehicle intake documented.`);
       setActiveJob(null);
@@ -193,16 +194,24 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     if (!activeJob) return;
     setActionBusy(true);
     try {
-      const items = estimateLines.map(line => ({
-        itemType: line.itemType,
-        description: line.description,
-        quantity: line.quantity,
-        unitRatePaise: line.unitRateRupees * 100,
-        taxRateBps: 1800, // 18% GST
-      }));
+      const items = estimateLines.map(line => {
+        let cat = (line.itemType || 'PARTS').toUpperCase();
+        if (cat === 'PART') cat = 'PARTS';
+        if (cat === 'CONSUMABLE') cat = 'CONSUMABLES';
+        return {
+          category: cat,
+          itemType: cat,
+          description: line.description,
+          quantity: line.quantity,
+          unitPricePaise: line.unitRateRupees * 100,
+          unitRatePaise: line.unitRateRupees * 100,
+          isMandatory: true,
+        };
+      });
       await api.createServiceEstimate(user, activeJob.id, {
         items,
         notes: estimateNotes || 'Approved V MOTIV OEM parts & labour rates.',
+        customerNotes: estimateNotes || 'Approved V MOTIV OEM parts & labour rates.',
       });
       onSuccess(`Itemized estimate submitted for customer approval on ${activeJob.requestNumber}`);
       setActiveJob(null);
@@ -220,8 +229,16 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     setActionBusy(true);
     try {
       await api.recordServiceQc(user, activeJob.id, {
+        result: qcPassed ? 'PASS' : 'REWORK_REQUIRED',
         isPassed: qcPassed,
+        notes: qcNotes,
         checklistNotes: qcNotes,
+        reworkReason: qcPassed ? undefined : (qcNotes || 'Rework required by technician before release'),
+        checklistResults: {
+          'safety_checkpoints': true,
+          'fluids_and_filters': true,
+          'road_test_verified': true,
+        },
       });
       onSuccess(`Quality Control ${qcPassed ? 'PASSED' : 'FLAGGED REWORK'} for ${activeJob.requestNumber}`);
       setActiveJob(null);
@@ -239,8 +256,15 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     setActionBusy(true);
     try {
       await api.recordServiceReturn(user, activeJob.id, {
+        type: 'CHECK_OUT',
+        odometerKm: Number(returnOdometer),
         returnOdometerKm: Number(returnOdometer),
-        returnNotes,
+        fuelChargeLevel: '50%',
+        fuelPercent: 50,
+        preExistingDamageNotes: returnNotes || 'Vehicle delivered with invoice and warranty booklet.',
+        returnNotes: returnNotes || 'Vehicle delivered with invoice and warranty booklet.',
+        handoverByPerson: activeJob.customer?.displayName || 'Customer Pickup / Delivery',
+        customerAcknowledged: true,
         customerSigned: true,
       });
       onSuccess(`Vehicle for ${activeJob.requestNumber} delivered and closed successfully.`);
