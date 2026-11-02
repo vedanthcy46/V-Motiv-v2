@@ -2695,6 +2695,12 @@ model RentalBooking {
   cancellationReason String?
   cancelledAt DateTime?
   customerNotes String?
+  paymentPlanSnapshot Json?
+  rentalPaymentStatus String? @default("NOT_PAID")
+  depositStatus String? @default("NOT_COLLECTED")
+  balanceDueAt DateTime?
+  verifiedPaidPaise BigInt @default(0)
+  outstandingBalancePaise BigInt @default(0)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2842,6 +2848,7 @@ model RentalPaymentRecord {
   verifiedByFinanceId String? @db.Uuid
   verifiedAt DateTime?
   idempotencyKey String? @unique
+  installmentType String?
   createdAt DateTime @default(now())
 
   booking RentalBooking @relation(fields: [bookingId], references: [id], onDelete: Cascade)
@@ -2863,4 +2870,21 @@ model RentalAuditEvent {
 
   @@index([bookingId, eventType])
   @@index([vehicleId])
+}
+
+
+model RentalPaymentPolicy {
+  id String @id @default(uuid()) @db.Uuid
+  version String @unique
+  name String
+  description String?
+  isActive Boolean @default(true)
+  isApproved Boolean @default(true)
+  allowPartialMoreThanHours Int @default(72)
+  allowPartialWindowHours Int @default(24)
+  requireFullWithinHours Int @default(24)
+  balanceDueHoursBeforePickup Int @default(24)
+  partialPlans Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }

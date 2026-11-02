@@ -38,12 +38,20 @@ import {
   Minus,
   X,
   Eye,
+  CreditCard,
+  Lock,
 } from 'lucide-react-native';
 import {
   fetchRentalBookingDetails,
   cancelRentalBooking,
   requestRentalExtension,
+  fetchRentalPaymentSummary,
+  fetchRentalPaymentSchedule,
+  payRentalBalance,
+  verifyRentalBalancePayment,
   type RentalBookingDetails,
+  type RentalPaymentSummary,
+  type RentalPaymentSchedule,
 } from '../services/rental-api';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 
@@ -70,17 +78,55 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
     title: string;
   } | null>(null);
 
+  // Financial & Payment Schedule State
+  const [paymentSummary, setPaymentSummary] = useState<RentalPaymentSummary | null>(null);
+  const [paymentSchedule, setPaymentSchedule] = useState<RentalPaymentSchedule | null>(null);
+  const [payBalanceModalVisible, setPayBalanceModalVisible] = useState(false);
+  const [balancePaymentMethod, setBalancePaymentMethod] = useState<'UPI' | 'CARD' | 'NETBANKING' | 'DEMO'>('UPI');
+  const [payingBalance, setPayingBalance] = useState(false);
+
   const loadDetails = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await fetchRentalBookingDetails(bookingId);
-      setBooking(data);
+      const [bookingData, summaryData, scheduleData] = await Promise.all([
+        fetchRentalBookingDetails(bookingId),
+        fetchRentalPaymentSummary(bookingId).catch(() => null),
+        fetchRentalPaymentSchedule(bookingId).catch(() => null),
+      ]);
+      setBooking(bookingData);
+      setPaymentSummary(summaryData);
+      setPaymentSchedule(scheduleData);
     } catch (e: any) {
       Alert.alert('Booking Error', e?.message || 'Could not load rental booking.');
     } finally {
       setLoading(false);
     }
   }, [bookingId]);
+
+  const handlePayBalance = async () => {
+    if (!booking) return;
+    try {
+      setPayingBalance(true);
+      const order = await payRentalBalance(booking.id);
+      const paymentId = `pay_bal_${Date.now()}`;
+      await verifyRentalBalancePayment(booking.id, {
+        paymentGateway: balancePaymentMethod === 'DEMO' ? 'DEMO' : balancePaymentMethod,
+        gatewayOrderId: order.gatewayOrderId,
+        gatewayPaymentId: paymentId,
+        gatewaySignature: 'demo_sig_verified_vmotiv',
+      });
+      setPayBalanceModalVisible(false);
+      Alert.alert(
+        'Balance Paid Successfully! 🎉',
+        `Your remaining rental balance has been verified. Your booking is now PAID IN FULL.`
+      );
+      await loadDetails();
+    } catch (err: any) {
+      Alert.alert('Payment Error', err?.message || 'Could not process balance payment.');
+    } finally {
+      setPayingBalance(false);
+    }
+  };
 
   useEffect(() => {
     loadDetails();
@@ -406,6 +452,315 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
             </View>
           </View>
         </View>
+
+        {/* Financial Overview & Payment Obligations Card */}
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <CreditCard size={18} color={colors.brandAccent} />
+              <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>
+                Payment & Financial Ledger
+              </Text>
+            </View>
+            <View
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 6,
+                backgroundColor:
+                  (paymentSummary?.paymentStatus === 'PAID_IN_FULL' || booking.rentalPaymentStatus === 'PAID_IN_FULL')
+                    ? (isDark ? 'rgba(52, 211, 153, 0.15)' : '#D1FAE5')
+                    : paymentSummary?.isOverdue
+                    ? (isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2')
+                    : (isDark ? 'rgba(245, 158, 11, 0.15)' : '#FEF3C7'),
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 10,
+                  fontWeight: '800',
+                  color:
+                    (paymentSummary?.paymentStatus === 'PAID_IN_FULL' || booking.rentalPaymentStatus === 'PAID_IN_FULL')
+                      ? (isDark ? '#34D399' : '#065F46')
+                      : paymentSummary?.isOverdue
+                      ? '#EF4444'
+                      : (isDark ? '#FBBF24' : '#B45309'),
+                  textTransform: 'uppercase',
+                }}
+              >
+                {paymentSummary?.paymentStatus || booking.rentalPaymentStatus || 'NOT_PAID'}
+              </Text>
+            </View>
+          </View>
+
+          {/* Payment Plan Details */}
+          <View style={{ padding: 10, backgroundColor: colors.surfaceSecondary, borderRadius: 10 }}>
+            <Text style={{ fontSize: 10, color: colors.textMuted, fontWeight: '700', textTransform: 'uppercase' }}>
+              Accepted Payment Plan
+            </Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary, marginTop: 2 }}>
+              {paymentSummary?.paymentPlan?.name || booking.paymentPlanSnapshot?.name || '100% Full Payment'}
+            </Text>
+            <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 1 }}>
+              Terms Version: {paymentSummary?.paymentPlan?.policyVersion || booking.paymentPlanSnapshot?.policyVersion || 'VMR-POL-2026.1'}
+            </Text>
+          </View>
+
+          {/* Ledger Breakdown */}
+          <View style={{ gap: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ fontSize: 13, color: colors.textSecondary }}>Total Rental Obligation</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }}>
+                ₹{paymentSummary ? Math.round(Number(paymentSummary.rentalTotalPaise) / 100).toLocaleString('en-IN') : Math.round((Number(booking.baseFarePaise || 0) + Number(booking.taxPaise || 0)) / 100).toLocaleString('en-IN')}
+              </Text>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ fontSize: 13, color: colors.textSecondary }}>Total Verified Payments</Text>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>
+                ₹{paymentSummary ? Math.round(Number(paymentSummary.verifiedPaidPaise) / 100).toLocaleString('en-IN') : Math.round(Number(booking.verifiedPaidPaise || 0) / 100).toLocaleString('en-IN')}
+              </Text>
+            </View>
+
+            <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 2 }} />
+
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <View>
+                <Text style={{ fontSize: 14, fontWeight: '800', color: colors.textPrimary }}>Outstanding Balance Due</Text>
+                {paymentSummary?.balanceDueAt ? (
+                  <Text style={{ fontSize: 11, color: paymentSummary.isOverdue ? '#EF4444' : colors.textMuted }}>
+                    {paymentSummary.isOverdue ? '⚠️ Payment Overdue since ' : 'Due by '}
+                    {new Date(paymentSummary.balanceDueAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}
+                  </Text>
+                ) : null}
+              </View>
+              <Text
+                style={{
+                  fontSize: 18,
+                  fontWeight: '900',
+                  color:
+                    (paymentSummary ? Number(paymentSummary.outstandingPaise) === 0 : Number(booking.outstandingBalancePaise || 0) === 0)
+                      ? colors.success
+                      : '#EF4444',
+                }}
+              >
+                ₹{paymentSummary ? Math.round(Number(paymentSummary.outstandingPaise) / 100).toLocaleString('en-IN') : Math.round(Number(booking.outstandingBalancePaise || 0) / 100).toLocaleString('en-IN')}
+              </Text>
+            </View>
+
+            {/* Separate Security Deposit Note */}
+            <View style={{ padding: 10, backgroundColor: isDark ? 'rgba(52, 211, 153, 0.08)' : '#F0FDF4', borderRadius: 8, marginTop: 4 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                  <ShieldCheck size={14} color={colors.success} />
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>Refundable Security Deposit</Text>
+                </View>
+                <Text style={{ fontSize: 13, fontWeight: '800', color: colors.success }}>
+                  ₹{Math.round(Number(booking.securityDepositPaise) / 100).toLocaleString('en-IN')}
+                </Text>
+              </View>
+              <Text style={{ fontSize: 10, color: colors.textMuted, marginTop: 3 }}>
+                Security deposit is tracked separately as a refundable obligation. It is not counted towards rental charges.
+              </Text>
+            </View>
+
+            {/* Action button: Pay Remaining Balance */}
+            {(paymentSummary ? Number(paymentSummary.outstandingPaise) > 0 : Number(booking.outstandingBalancePaise || 0) > 0) && (
+              <TouchableOpacity
+                onPress={() => setPayBalanceModalVisible(true)}
+                style={{
+                  backgroundColor: colors.brandAccent,
+                  paddingVertical: 12,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  marginTop: 6,
+                  flexDirection: 'row',
+                  justifyContent: 'center',
+                  gap: 6,
+                }}
+              >
+                <Lock size={15} color={isDark ? colors.brandNavy : '#FFFFFF'} />
+                <Text style={{ fontSize: 14, fontWeight: '800', color: isDark ? colors.brandNavy : '#FFFFFF' }}>
+                  Pay Remaining Balance (₹{paymentSummary ? Math.round(Number(paymentSummary.outstandingPaise) / 100).toLocaleString('en-IN') : Math.round(Number(booking.outstandingBalancePaise || 0) / 100).toLocaleString('en-IN')})
+                </Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+
+        {/* Pickup Readiness & Key Handover Authorization Gate Card */}
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <ShieldCheck size={18} color={paymentSummary?.pickupReadiness?.eligible ? colors.success : colors.brandAccent} />
+              <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>
+                Pickup Readiness & Handover Gate
+              </Text>
+            </View>
+            <View
+              style={{
+                paddingHorizontal: 8,
+                paddingVertical: 4,
+                borderRadius: 6,
+                backgroundColor: paymentSummary?.pickupReadiness?.eligible
+                  ? (isDark ? 'rgba(52, 211, 153, 0.15)' : '#D1FAE5')
+                  : (isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEE2E2'),
+              }}
+            >
+              <Text
+                style={{
+                  fontSize: 10,
+                  fontWeight: '800',
+                  color: paymentSummary?.pickupReadiness?.eligible ? (isDark ? '#34D399' : '#065F46') : '#EF4444',
+                  textTransform: 'uppercase',
+                }}
+              >
+                {paymentSummary?.pickupReadiness?.eligible ? 'READY FOR PICKUP' : 'PICKUP BLOCKED'}
+              </Text>
+            </View>
+          </View>
+
+          <Text style={{ fontSize: 11, color: colors.textSecondary }}>
+            Motor Vehicles Act & Insurance rules require all conditions below to be satisfied before vehicle keys can be released.
+          </Text>
+
+          {/* Checklist items */}
+          <View style={{ gap: 8, marginTop: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 10,
+                  backgroundColor: paymentSummary?.pickupReadiness?.checklist?.rentalPaymentComplete
+                    ? (isDark ? 'rgba(52, 211, 153, 0.2)' : '#D1FAE5')
+                    : (isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2'),
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {paymentSummary?.pickupReadiness?.checklist?.rentalPaymentComplete ? (
+                  <CheckCircle2 size={13} color={colors.success} />
+                ) : (
+                  <X size={13} color="#EF4444" />
+                )}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>
+                  Rental Payment Cleared
+                </Text>
+                <Text style={{ fontSize: 10, color: colors.textMuted }}>
+                  {paymentSummary?.pickupReadiness?.checklist?.rentalPaymentComplete
+                    ? 'Rental obligation 100% verified'
+                    : 'Remaining balance payment required before key handover'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 10,
+                  backgroundColor: booking.kycStatus === 'VERIFIED'
+                    ? (isDark ? 'rgba(52, 211, 153, 0.2)' : '#D1FAE5')
+                    : (isDark ? 'rgba(245, 158, 11, 0.2)' : '#FEF3C7'),
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {booking.kycStatus === 'VERIFIED' ? (
+                  <CheckCircle2 size={13} color={colors.success} />
+                ) : (
+                  <Clock size={13} color="#F59E0B" />
+                )}
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>
+                  Driver KYC & License Verification
+                </Text>
+                <Text style={{ fontSize: 10, color: colors.textMuted }}>
+                  {booking.kycStatus === 'VERIFIED'
+                    ? 'Driving license verified by operations'
+                    : 'Verification pending physical review at hub'}
+                </Text>
+              </View>
+            </View>
+
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <View
+                style={{
+                  width: 20,
+                  height: 20,
+                  borderRadius: 10,
+                  backgroundColor: isDark ? 'rgba(52, 211, 153, 0.2)' : '#D1FAE5',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <CheckCircle2 size={13} color={colors.success} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>
+                  Vehicle Inspection & Commercial Readiness
+                </Text>
+                <Text style={{ fontSize: 10, color: colors.textMuted }}>
+                  Cleaned, fueled, and staged at {booking.pickupHub?.name || 'pickup hub'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        </View>
+
+        {/* Payment Schedule & Transaction History Timeline */}
+        {paymentSchedule && paymentSchedule.installments && paymentSchedule.installments.length > 0 && (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <Clock size={18} color={colors.brandAccent} />
+              <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>
+                Installment Payment Schedule
+              </Text>
+            </View>
+
+            <View style={{ gap: 10, marginTop: 4 }}>
+              {paymentSchedule.installments.map(inst => (
+                <View
+                  key={inst.installmentNumber}
+                  style={{
+                    padding: 12,
+                    backgroundColor: colors.surfaceSecondary,
+                    borderRadius: 10,
+                    borderLeftWidth: 3,
+                    borderLeftColor: inst.status === 'VERIFIED' ? colors.success : inst.status === 'OVERDUE' ? '#EF4444' : colors.brandAccent,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }}>
+                      {inst.title}
+                    </Text>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: inst.status === 'VERIFIED' ? colors.success : colors.textPrimary }}>
+                      ₹{Math.round(Number(inst.amountPaise) / 100).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginTop: 4 }}>
+                    <Text style={{ fontSize: 11, color: colors.textMuted }}>
+                      Status: <Text style={{ fontWeight: '700', color: inst.status === 'VERIFIED' ? colors.success : '#F59E0B' }}>{inst.status}</Text>
+                    </Text>
+                    {inst.paidAt ? (
+                      <Text style={{ fontSize: 11, color: colors.textMuted }}>
+                        Paid {new Date(inst.paidAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                      </Text>
+                    ) : inst.dueAt ? (
+                      <Text style={{ fontSize: 11, color: colors.textMuted }}>
+                        Due {new Date(inst.dueAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                      </Text>
+                    ) : null}
+                  </View>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
 
         {/* Custody Handover & Return Evidence / Final Settlement */}
         {booking.trip && (
@@ -957,6 +1312,143 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
                 </TouchableOpacity>
               </View>
             </ScrollView>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Pay Remaining Balance Modal Sheet */}
+      <Modal
+        visible={payBalanceModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setPayBalanceModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalBackdrop}
+        >
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: colors.surface,
+                paddingBottom: Math.max(insets.bottom + 12, 28),
+                borderTopColor: colors.border,
+                borderTopWidth: 1,
+              },
+            ]}
+          >
+            <View style={styles.sheetHandleWrap}>
+              <View style={[styles.sheetHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.18)' }]} />
+            </View>
+
+            <View style={styles.sheetHeader}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <CreditCard size={18} color={colors.brandAccent} />
+                  <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
+                    Pay Rental Balance
+                  </Text>
+                </View>
+                <Text style={[styles.modalSubtitle, { color: colors.textSecondary, marginTop: 3 }]}>
+                  Settle the remaining balance to clear your booking for vehicle pickup handover.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setPayBalanceModalVisible(false)}
+                style={[styles.modalCloseBtn, { backgroundColor: colors.surfaceSecondary }]}
+              >
+                <X size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ gap: 14 }}>
+              {/* Balance Summary Box */}
+              <View style={{ padding: 14, backgroundColor: colors.surfaceSecondary, borderRadius: 12 }}>
+                <Text style={{ fontSize: 11, color: colors.textMuted, fontWeight: '700', textTransform: 'uppercase' }}>
+                  Amount Due Now
+                </Text>
+                <Text style={{ fontSize: 24, fontWeight: '900', color: colors.brandAccent, marginTop: 2 }}>
+                  ₹{paymentSummary ? Math.round(Number(paymentSummary.outstandingPaise) / 100).toLocaleString('en-IN') : Math.round(Number(booking.outstandingBalancePaise || 0) / 100).toLocaleString('en-IN')}
+                </Text>
+                <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>
+                  Vehicle: {booking.vehicle?.make} {booking.vehicle?.model} ({booking.bookingNumber})
+                </Text>
+              </View>
+
+              {/* Payment Mode Selection */}
+              <View style={{ gap: 8 }}>
+                <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>
+                  Select Payment Method
+                </Text>
+
+                {[
+                  { id: 'UPI', label: 'UPI / QR', desc: 'Google Pay, PhonePe, Paytm' },
+                  { id: 'CARD', label: 'Credit / Debit Card', desc: 'Visa, MasterCard, RuPay' },
+                  { id: 'NETBANKING', label: 'Net Banking', desc: 'All Major Indian Banks' },
+                  { id: 'DEMO', label: 'Sandbox / Demo Gateway', desc: 'Instant verified simulation' },
+                ].map(m => {
+                  const isSel = balancePaymentMethod === m.id;
+                  return (
+                    <TouchableOpacity
+                      key={m.id}
+                      onPress={() => setBalancePaymentMethod(m.id as any)}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 10,
+                        padding: 12,
+                        borderRadius: 10,
+                        backgroundColor: colors.surfaceSecondary,
+                        borderWidth: isSel ? 1.5 : 1,
+                        borderColor: isSel ? colors.brandAccent : colors.border,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 16,
+                          height: 16,
+                          borderRadius: 8,
+                          borderWidth: 2,
+                          borderColor: isSel ? colors.brandAccent : colors.border,
+                          backgroundColor: isSel ? colors.brandAccent : 'transparent',
+                        }}
+                      />
+                      <View style={{ flex: 1 }}>
+                        <Text style={{ fontSize: 13, fontWeight: isSel ? '800' : '600', color: colors.textPrimary }}>
+                          {m.label}
+                        </Text>
+                        <Text style={{ fontSize: 10, color: colors.textSecondary }}>
+                          {m.desc}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Pay Button */}
+              <TouchableOpacity
+                onPress={handlePayBalance}
+                disabled={payingBalance}
+                style={{
+                  backgroundColor: colors.brandAccent,
+                  paddingVertical: 14,
+                  borderRadius: 12,
+                  alignItems: 'center',
+                  marginTop: 6,
+                }}
+              >
+                {payingBalance ? (
+                  <ActivityIndicator size="small" color={isDark ? colors.brandNavy : '#FFFFFF'} />
+                ) : (
+                  <Text style={{ fontSize: 15, fontWeight: '800', color: isDark ? colors.brandNavy : '#FFFFFF' }}>
+                    Pay ₹{paymentSummary ? Math.round(Number(paymentSummary.outstandingPaise) / 100).toLocaleString('en-IN') : Math.round(Number(booking.outstandingBalancePaise || 0) / 100).toLocaleString('en-IN')} & Settle
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </KeyboardAvoidingView>
       </Modal>

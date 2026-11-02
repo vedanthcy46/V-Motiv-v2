@@ -751,53 +751,125 @@ export function RequestsScreen() {
                       No car rental bookings found. You can explore available self-drive rental cars anytime.
                     </Text>
                   ) : (
-                    rentals.map((item) => (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
-                        activeOpacity={0.8}
-                        onPress={() =>
-                          navigation.navigate('RentalBookingDetails', { bookingId: item.id })
-                        }
-                      >
-                        <View style={styles.cardHeader}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.cardTitle, { color: c.textPrimary }]}>
-                              {item.vehicle?.make} {item.vehicle?.model} ({item.vehicle?.year || 'Rental'})
-                            </Text>
-                            <Text style={[styles.cardSubtitle, { color: c.brandAccent }]}>
-                              Booking #{item.bookingNumber} · {formatPaise(item.totalPayablePaise)}
-                            </Text>
-                          </View>
-                          <StatusBadge status={item.status} themeColors={c} />
-                        </View>
-                        <View style={styles.driveDetails}>
-                          <View style={styles.driveRow}>
-                            <Calendar size={14} color={c.brandAccent} />
-                            <Text style={[styles.driveText, { color: c.textSecondary }]}>
-                              {new Date(item.startTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} → {new Date(item.endTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
-                            </Text>
-                          </View>
-                          {item.pickupHub?.name ? (
-                            <View style={styles.driveRow}>
-                              <MapPin size={14} color={c.brandAccent} />
-                              <Text style={[styles.driveText, { color: c.textSecondary }]}>
-                                {item.pickupHub.name} ({item.pickupHub.city})
+                    rentals.map((item) => {
+                      const verifiedPaid = Number(item.verifiedPaidPaise || 0);
+                      const outstanding = Number(item.outstandingBalancePaise || 0);
+                      const isOverdue = !!item.balanceDueAt && new Date(item.balanceDueAt).getTime() < Date.now() && outstanding > 0;
+
+                      let paymentStatusText = 'NOT PAID';
+                      let paymentStatusBg = isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2';
+                      let paymentStatusColor = '#EF4444';
+
+                      if (item.rentalPaymentStatus === 'PAID_IN_FULL' || outstanding === 0) {
+                        paymentStatusText = 'PAID IN FULL';
+                        paymentStatusBg = isDark ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5';
+                        paymentStatusColor = '#10B981';
+                      } else if (isOverdue) {
+                        paymentStatusText = 'PAYMENT OVERDUE';
+                        paymentStatusBg = isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2';
+                        paymentStatusColor = '#EF4444';
+                      } else if (item.rentalPaymentStatus === 'PARTIALLY_PAID' || verifiedPaid > 0) {
+                        paymentStatusText = 'PARTIALLY PAID';
+                        paymentStatusBg = isDark ? 'rgba(245, 158, 11, 0.2)' : '#FEF3C7';
+                        paymentStatusColor = '#F59E0B';
+                      }
+
+                      const planName = item.paymentPlanSnapshot?.planName ||
+                        (item.paymentPlanSnapshot?.advancePercentage ? `${item.paymentPlanSnapshot.advancePercentage}% Advance` : null);
+
+                      const isPickupReady = (item.status === 'CONFIRMED' || item.status === 'VEHICLE_COLLECTED' || item.status === 'RETURN_INSPECTED' || item.status === 'SETTLED') &&
+                        outstanding === 0 &&
+                        item.kycStatus === 'VERIFIED';
+
+                      return (
+                        <TouchableOpacity
+                          key={item.id}
+                          style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
+                          activeOpacity={0.8}
+                          onPress={() =>
+                            navigation.navigate('RentalBookingDetails', { bookingId: item.id })
+                          }
+                        >
+                          <View style={styles.cardHeader}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.cardTitle, { color: c.textPrimary }]}>
+                                {item.vehicle?.make} {item.vehicle?.model} ({item.vehicle?.year || 'Rental'})
+                              </Text>
+                              <Text style={[styles.cardSubtitle, { color: c.brandAccent }]}>
+                                Booking #{item.bookingNumber} · {formatPaise(item.totalPayablePaise)}
                               </Text>
                             </View>
-                          ) : null}
-                        </View>
-                        <View style={[styles.metaRow, { alignItems: 'center', paddingTop: space.xs }]}>
-                          <Text style={[styles.metaText, { color: c.textMuted }]}>
-                            KYC: {item.kycStatus || 'PENDING'}
-                          </Text>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                            <Text style={{ color: c.brandAccent, fontSize: 12, fontWeight: '700' }}>Manage Trip</Text>
-                            <ChevronRight size={14} color={c.brandAccent} />
+                            <StatusBadge status={item.status} themeColors={c} />
                           </View>
-                        </View>
-                      </TouchableOpacity>
-                    ))
+
+                          {/* Payment Plan & Gate Badges */}
+                          <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 4, marginBottom: 8 }}>
+                            {planName && (
+                              <View style={{ backgroundColor: isDark ? 'rgba(59, 130, 246, 0.2)' : '#DBEAFE', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                                <Text style={{ fontSize: 10, fontWeight: '700', color: '#3B82F6' }}>
+                                  {planName.toUpperCase()}
+                                </Text>
+                              </View>
+                            )}
+                            <View style={{ backgroundColor: paymentStatusBg, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                              <Text style={{ fontSize: 10, fontWeight: '800', color: paymentStatusColor }}>
+                                {paymentStatusText}
+                              </Text>
+                            </View>
+                            {item.status === 'CONFIRMED' && (
+                              <View style={{ backgroundColor: isPickupReady ? (isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5') : (isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2'), paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6 }}>
+                                <Text style={{ fontSize: 10, fontWeight: '700', color: isPickupReady ? '#10B981' : '#EF4444' }}>
+                                  {isPickupReady ? '✓ PICKUP READY' : '⊘ PICKUP BLOCKED'}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+
+                          <View style={styles.driveDetails}>
+                            <View style={styles.driveRow}>
+                              <Calendar size={14} color={c.brandAccent} />
+                              <Text style={[styles.driveText, { color: c.textSecondary }]}>
+                                {new Date(item.startTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} → {new Date(item.endTime).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })}
+                              </Text>
+                            </View>
+                            {item.pickupHub?.name ? (
+                              <View style={styles.driveRow}>
+                                <MapPin size={14} color={c.brandAccent} />
+                                <Text style={[styles.driveText, { color: c.textSecondary }]}>
+                                  {item.pickupHub.name} ({item.pickupHub.city})
+                                </Text>
+                              </View>
+                            ) : null}
+                          </View>
+
+                          {/* Financial Summary & Due Date */}
+                          <View style={{ backgroundColor: c.surfaceSecondary || (isDark ? '#1F2937' : '#F3F4F6'), borderRadius: 8, padding: 8, marginVertical: 6, gap: 4 }}>
+                            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <Text style={{ fontSize: 11, color: c.textSecondary }}>Rental Paid: <Text style={{ fontWeight: '700', color: c.textPrimary }}>₹{Math.round(verifiedPaid / 100).toLocaleString('en-IN')}</Text></Text>
+                              <Text style={{ fontSize: 11, color: c.textSecondary }}>Balance: <Text style={{ fontWeight: '800', color: outstanding > 0 ? '#EF4444' : '#10B981' }}>₹{Math.round(outstanding / 100).toLocaleString('en-IN')}</Text></Text>
+                            </View>
+                            {outstanding > 0 && item.balanceDueAt && (
+                              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
+                                <Clock size={11} color={isOverdue ? '#EF4444' : c.textMuted} />
+                                <Text style={{ fontSize: 10, color: isOverdue ? '#EF4444' : c.textMuted, fontWeight: isOverdue ? '700' : '500' }}>
+                                  Balance Due: {new Date(item.balanceDueAt).toLocaleString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' })} {isOverdue ? '(OVERDUE)' : ''}
+                                </Text>
+                              </View>
+                            )}
+                          </View>
+
+                          <View style={[styles.metaRow, { alignItems: 'center', paddingTop: space.xs }]}>
+                            <Text style={[styles.metaText, { color: c.textMuted }]}>
+                              KYC: {item.kycStatus || 'PENDING'}
+                            </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                              <Text style={{ color: c.brandAccent, fontSize: 12, fontWeight: '700' }}>Manage Trip</Text>
+                              <ChevronRight size={14} color={c.brandAccent} />
+                            </View>
+                          </View>
+                        </TouchableOpacity>
+                      );
+                    })
                   )}
                 </View>
               )}

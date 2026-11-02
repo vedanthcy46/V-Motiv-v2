@@ -9,6 +9,10 @@ import type {
   RentalBookingItem,
   RentalFleetItem,
   RentalOperationsSummary,
+  RentalPaymentDashboard,
+  RentalPaymentSummary,
+  RentalPaymentSchedule,
+  RentalPaymentTransaction,
   SellerLeadValuation,
   ServiceJobItem,
   ServiceQueueResponse,
@@ -403,13 +407,33 @@ export const api = {
     call<{ released: boolean; blockId: string }>(u, `/operations/rentals/fleet/${vehicleId}/blocks/${blockId}/release`, { method: 'POST' }),
   deleteRentalBlock: (u: User, vehicleId: string, blockId: string) =>
     call<{ deleted: boolean; blockId: string }>(u, `/operations/rentals/fleet/${vehicleId}/blocks/${blockId}`, { method: 'DELETE' }),
-  rentalBookings: (u: User, query?: { hubId?: string; status?: string }) => {
+  rentalBookings: (u: User, query?: { hubId?: string; status?: string; paymentStatus?: string }) => {
     const params = new URLSearchParams();
     if (query?.hubId) params.set('hubId', query.hubId);
     if (query?.status) params.set('status', query.status);
+    if (query?.paymentStatus) params.set('paymentStatus', query.paymentStatus);
     const qs = params.toString() ? `?${params.toString()}` : '';
     return call<RentalBookingItem[]>(u, `/operations/rentals/bookings${qs}`);
   },
+  rentalPaymentDashboard: (u: User) =>
+    call<RentalPaymentDashboard>(u, '/operations/rentals/dashboard/payments'),
+  rentalPaymentSummary: (u: User, bookingId: string) =>
+    call<RentalPaymentSummary>(u, `/operations/rentals/bookings/${bookingId}/payment-summary`),
+  rentalPaymentSchedule: (u: User, bookingId: string) =>
+    call<RentalPaymentSchedule>(u, `/operations/rentals/bookings/${bookingId}/payment-schedule`),
+  rentalPickupReadiness: (u: User, bookingId: string) =>
+    call<{
+      isReady: boolean;
+      reasons: string[];
+      checklist: {
+        bookingConfirmed: boolean;
+        rentalPaymentComplete: boolean;
+        driverEligible: boolean;
+        vehicleReady: boolean;
+      };
+    }>(u, `/operations/rentals/bookings/${bookingId}/pickup-readiness`),
+  rentalPaymentHistory: (u: User, bookingId: string) =>
+    call<RentalPaymentTransaction[]>(u, `/operations/rentals/bookings/${bookingId}/payment-history`),
   rentalBookingDetails: (u: User, id: string) =>
     call<RentalBookingItem>(u, `/operations/rentals/bookings/${id}`),
   reviewRentalKyc: (u: User, bookingId: string, body: { decision?: 'APPROVE' | 'REJECT'; status?: 'VERIFIED' | 'REJECTED'; rejectionReason?: string }) =>

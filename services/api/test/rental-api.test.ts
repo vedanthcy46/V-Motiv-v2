@@ -260,6 +260,67 @@ function setupApp(activeRole: 'CUSTOMER' | 'OTHER_CUSTOMER' | 'RENTAL_DISPATCH' 
       status: 'VERIFIED',
       amountPaise: 452000n,
     }),
+    getPaymentOptions: vi.fn().mockResolvedValue({
+      quoteId: HOLD_ID,
+      policyVersion: 'VMR-POL-2026.1',
+      rentalChargesPaise: '708000',
+      securityDepositPaise: '500000',
+      plans: [
+        { planId: 'ADVANCE_25', advancePercent: 25, advancePaise: '177000', balancePaise: '531000', isAvailable: true },
+        { planId: 'FULL_100', advancePercent: 100, advancePaise: '708000', balancePaise: '0', isAvailable: true },
+      ],
+    }),
+    getPaymentSummary: vi.fn().mockResolvedValue({
+      bookingId: BOOKING_ID,
+      bookingNumber: 'VMR-2026-0001',
+      rentalTotalPaise: '708000',
+      verifiedPaidPaise: '177000',
+      outstandingPaise: '531000',
+      paymentStatus: 'PARTIALLY_PAID',
+      balanceDueAt: '2026-11-04T10:00:00.000Z',
+      isOverdue: false,
+      deposit: { requiredPaise: '500000', status: 'NOT_COLLECTED' },
+      pickupReadiness: { eligible: false, blockers: ['RENTAL_BALANCE_PENDING'] },
+    }),
+    getPaymentSchedule: vi.fn().mockResolvedValue({
+      bookingId: BOOKING_ID,
+      currency: 'INR',
+      rentalTotalPaise: '708000',
+      installments: [
+        { installmentNumber: 1, type: 'ADVANCE', amountPaise: '177000', status: 'VERIFIED' },
+        { installmentNumber: 2, type: 'BALANCE', amountPaise: '531000', status: 'PENDING' },
+      ],
+      deposit: { title: 'Refundable Security Deposit', amountPaise: '500000', status: 'NOT_COLLECTED' },
+    }),
+    getPaymentHistory: vi.fn().mockResolvedValue([
+      { id: 'pay-1', installmentType: 'ADVANCE', amountPaise: '177000', status: 'VERIFIED', paymentGateway: 'RAZORPAY' },
+    ]),
+    createBalancePaymentOrder: vi.fn().mockResolvedValue({
+      bookingId: BOOKING_ID,
+      bookingNumber: 'VMR-2026-0001',
+      gatewayOrderId: 'order_bal_123',
+      amountPaise: '531000',
+      currency: 'INR',
+    }),
+    verifyBalancePayment: vi.fn().mockResolvedValue({
+      success: true,
+      rentalPaymentStatus: 'PAID_IN_FULL',
+      verifiedPaidPaise: '708000',
+      outstandingBalancePaise: '0',
+    }),
+    getPickupReadiness: vi.fn().mockResolvedValue({
+      eligible: false,
+      blockers: ['RENTAL_BALANCE_PENDING'],
+      checklist: { rentalPaymentComplete: false, driverEligible: true, vehicleReady: true },
+    }),
+    getOperationsPaymentDashboard: vi.fn().mockResolvedValue({
+      partiallyPaidBookings: 2,
+      fullyPaidBookings: 5,
+      overduePayments: 1,
+      upcomingPickupsBlocked: 3,
+      paymentReconciliation: 0,
+      totalBookings: 8,
+    }),
   };
 
   const app = createApp({
@@ -568,6 +629,74 @@ describe('V MOTIV V2 — Advance Car Rental Platform API Suite', () => {
     expect(res.body.status).toBe('VERIFIED');
     expect(mockRentalStore.authorizeDepositRefund).toHaveBeenCalled();
   });
+
+  it('15. GET /api/v2/rentals/holds/:id/payment-options returns configurable advance payment plans', async () => {
+    const { app, mockRentalStore } = setupApp('CUSTOMER');
+    const res = await request(app)
+      .get(`/api/v2/rentals/holds/${HOLD_ID}/payment-options`)
+      .expect(200);
+
+    expect(res.body.policyVersion).toBe('VMR-POL-2026.1');
+    expect(res.body.plans).toBeInstanceOf(Array);
+    expect(mockRentalStore.getPaymentOptions).toHaveBeenCalled();
+  });
+
+  it('16. GET /api/v2/rentals/bookings/:id/payment-summary returns authoritative ledger snapshot', async () => {
+    const { app, mockRentalStore } = setupApp('CUSTOMER');
+    const res = await request(app)
+      .get(`/api/v2/rentals/bookings/${BOOKING_ID}/payment-summary`)
+      .set('Authorization', 'Bearer customer-token')
+      .expect(200);
+
+    expect(res.body.bookingId).toBe(BOOKING_ID);
+    expect(res.body.paymentStatus).toBe('PARTIALLY_PAID');
+    expect(res.body.outstandingPaise).toBe('531000');
+    expect(mockRentalStore.getPaymentSummary).toHaveBeenCalled();
+  });
+
+  it('17. POST /api/v2/rentals/bookings/:id/pay-balance creates idempotent balance payment order', async () => {
+    const { app, mockRentalStore } = setupApp('CUSTOMER');
+    const res = await request(app)
+      .post(`/api/v2/rentals/bookings/${BOOKING_ID}/pay-balance`)
+      .set('Authorization', 'Bearer customer-token')
+      .expect(201);
+
+    expect(res.body.gatewayOrderId).toBe('order_bal_123');
+    expect(res.body.amountPaise).toBe('531000');
+    expect(mockRentalStore.createBalancePaymentOrder).toHaveBeenCalled();
+  });
+
+  it('18. POST /api/v2/rentals/bookings/:id/verify-balance-payment transitions booking to PAID_IN_FULL', async () => {
+    const { app, mockRentalStore } = setupApp('CUSTOMER');
+    const res = await request(app)
+      .post(`/api/v2/rentals/bookings/${BOOKING_ID}/verify-balance-payment`)
+      .set('Authorization', 'Bearer customer-token')
+      .send({
+        paymentGateway: 'RAZORPAY',
+        gatewayOrderId: 'order_bal_123',
+        gatewayPaymentId: 'pay_bal_456',
+        gatewaySignature: 'sig_bal_789',
+      })
+      .expect(200);
+
+    expect(res.body.rentalPaymentStatus).toBe('PAID_IN_FULL');
+    expect(res.body.outstandingBalancePaise).toBe('0');
+    expect(mockRentalStore.verifyBalancePayment).toHaveBeenCalled();
+  });
+
+  it('19. GET /api/v2/operations/rentals/payment-dashboard returns real-time financial tracking widgets', async () => {
+    const { app, mockRentalStore } = setupApp('RENTAL_DISPATCH');
+    const res = await request(app)
+      .get('/api/v2/operations/rentals/payment-dashboard')
+      .set('Authorization', 'Bearer dispatch-token')
+      .expect(200);
+
+    expect(res.body.partiallyPaidBookings).toBe(2);
+    expect(res.body.fullyPaidBookings).toBe(5);
+    expect(res.body.overduePayments).toBe(1);
+    expect(res.body.upcomingPickupsBlocked).toBe(3);
+    expect(mockRentalStore.getOperationsPaymentDashboard).toHaveBeenCalled();
+  });
 });
 
 describe('PrismaRentalStore — Core Engine Unit Rules', () => {
@@ -624,5 +753,57 @@ describe('PrismaRentalStore — Core Engine Unit Rules', () => {
     expect(quote.totalPayablePaise).toBe(1208000n); // ₹6,000 + ₹1,080 + ₹5,000 = ₹12,080
     expect(quote.includedKm).toBe(500); // 2 * 250 km
     expect(quote.termsVersion).toBe('VMR-TERMS-V2026.1');
+  });
+
+  it('Evaluates authoritative pickup readiness: blocks when balance is pending', () => {
+    const readiness = store.computePickupReadiness(
+      {
+        status: 'CONFIRMED',
+        kycStatus: 'VERIFIED',
+        vehicle: { status: 'AVAILABLE' },
+      },
+      600000n, // ₹6,000 pending
+      'PARTIALLY_PAID'
+    );
+
+    expect(readiness.eligible).toBe(false);
+    expect(readiness.blockers).toContain('RENTAL_BALANCE_PENDING');
+    expect(readiness.checklist.rentalPaymentComplete).toBe(false);
+    expect(readiness.checklist.driverEligible).toBe(true);
+    expect(readiness.checklist.vehicleReady).toBe(true);
+  });
+
+  it('Evaluates authoritative pickup readiness: eligible when fully paid and KYC verified', () => {
+    const readiness = store.computePickupReadiness(
+      {
+        status: 'CONFIRMED',
+        kycStatus: 'VERIFIED',
+        rentalPaymentStatus: 'PAID_IN_FULL',
+        vehicle: { status: 'AVAILABLE' },
+      },
+      0n, // ₹0 balance
+      'PAID_IN_FULL'
+    );
+
+    expect(readiness.eligible).toBe(true);
+    expect(readiness.blockers.length).toBe(0);
+    expect(readiness.checklist.rentalPaymentComplete).toBe(true);
+    expect(readiness.checklist.driverEligible).toBe(true);
+  });
+
+  it('Evaluates authoritative pickup readiness: blocks if driver KYC is not verified', () => {
+    const readiness = store.computePickupReadiness(
+      {
+        status: 'CONFIRMED',
+        kycStatus: 'PENDING_REVIEW',
+        rentalPaymentStatus: 'PAID_IN_FULL',
+        vehicle: { status: 'AVAILABLE' },
+      },
+      0n,
+      'PAID_IN_FULL'
+    );
+
+    expect(readiness.eligible).toBe(false);
+    expect(readiness.blockers).toContain('KYC_NOT_VERIFIED');
   });
 });

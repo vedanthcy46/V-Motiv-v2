@@ -172,9 +172,38 @@ Platform Status: **ALL 3 CORE MODULES COMPLETE & PRODUCTION READY**
 
 ---
 
+
+### K. Rental Advance Payment, Full Payment & Balance Tracking Platform
+- **Database Architecture (services/api/prisma/schema.prisma)**:
+  - Migration: `20261103000000_rental_payment_advances`.
+  - Added to `RentalBooking`: `paymentPlanSnapshot`, `rentalPaymentStatus`, `depositStatus`, `balanceDueAt`, `verifiedPaidPaise`, `outstandingBalancePaise`.
+  - Added to `RentalPaymentRecord`: `installmentType` (`ADVANCE`, `BALANCE`, `SECURITY_DEPOSIT`, `FULL`).
+  - Added model: `RentalPaymentPolicy` (`VMR-POL-2026.1`).
+- **Shared Backend API & Logic (services/api/src/rental-store.ts, rental-router.ts)**:
+  - Policy-driven payment plans: 25% or 50% advance, 100% full, with strict integer paise precision.
+  - Checkout & server-side payment verification (transitions to `PARTIALLY_PAID` or `PAID_IN_FULL`).
+  - Payment summary, installment schedule, and transaction history endpoints.
+  - Idempotent balance payment order creation and verification.
+  - Authoritative Pickup Readiness Gate: physically gates handover in `recordPickupHandover` with 403 on unpaid balance.
+  - Operations payment dashboard metrics.
+- **Customer Mobile App (apps/customer-mobile)**:
+  - `RentalCheckoutScreen.tsx`: Dynamic payment options (25% Advance vs 100% Full Payment), advance amount, remaining balance, and deadline notice.
+  - `RentalBookingDetailsScreen.tsx`: Financial summary card, authoritative pickup readiness gate checklist, installment schedule timeline, and keyboard-aware balance payment modal.
+  - `RequestsScreen.tsx`: Rental cards render payment plan badge, payment status badge, paid vs pending amounts, and pickup readiness badge (`✓ PICKUP READY` vs `⊘ PICKUP BLOCKED`).
+- **Operations Portal (apps/operations-portal)**:
+  - `RentalOperationsPanel.tsx`: 5 Payment KPI summary widgets, filter tabs, enriched table columns, drawer overview breakdown and gate checklist, strict handover blocking on pending balance, and dedicated Billing & Ledger tab.
+- **Dedicated Documentation Suite**:
+  - `docs/RENTAL_PARTIAL_PAYMENT_ARCHITECTURE.md`
+  - `docs/RENTAL_PAYMENT_POLICY.md`
+  - `docs/RENTAL_INSTALLMENT_LEDGER.md`
+  - `docs/RENTAL_PICKUP_READINESS.md`
+  - `docs/RENTAL_PAYMENT_TEST_RESULTS.md`
+
+---
+
 ## 2. MONOREPO TEST & BUILD STATUS
 
-- **Backend API Suite**: **148 automated tests passing** (`npm test --prefix services/api`).
+- **Backend API Suite**: **167 automated tests passing** (`npm test --prefix services/api`).
 - **Customer Mobile Suite**: `tsc --noEmit` passes with **0 errors**.
 - **Sales Portal Web**: `npm run build --prefix apps/sales-portal` passes with **0 errors** (built in 1.27s).
 - **Operations Portal Web**: `npm run build --prefix apps/operations-portal` passes with **0 errors** (built in 1.08s).

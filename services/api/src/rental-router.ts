@@ -45,6 +45,7 @@ const checkoutSchema = z.object({
   customerNotes: z.string().trim().max(1000).optional(),
   acceptTerms: z.literal(true),
   termsVersion: z.string().trim().default('VMR-TERMS-V2026.1'),
+  paymentPlanId: z.enum(['FULL_100', 'ADVANCE_25', 'ADVANCE_50']).default('FULL_100'),
 });
 
 const verifyPaymentSchema = z.object({
@@ -264,6 +265,107 @@ export function createRentalCustomerRouter(deps: {
       const input = parse(verifyPaymentSchema, req.body);
       const result = await deps.store.verifyPayment(userId, bookingId, input);
       res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Get payment options for a hold or vehicle
+  router.get('/holds/:id/payment-options', async (req, res, next) => {
+    try {
+      const holdId = uuid.parse(req.params.id);
+      const options = await deps.store.getPaymentOptions(holdId);
+      res.json(options);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.get('/quotes/:id/payment-options', async (req, res, next) => {
+    try {
+      const quoteOrVehicleId = uuid.parse(req.params.id);
+      const startTime = typeof req.query.startTime === 'string' ? req.query.startTime : undefined;
+      const options = await deps.store.getPaymentOptions(quoteOrVehicleId, startTime);
+      res.json(options);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Get authoritative payment summary for a booking
+  router.get('/bookings/:id/payment-summary', authMiddleware, async (req, res, next) => {
+    try {
+      const identity = res.locals.identity as Identity;
+      const userId = await deps.store.resolveUserId(identity.uid);
+      const bookingId = uuid.parse(req.params.id);
+      const summary = await deps.store.getPaymentSummary(bookingId, userId);
+      res.json(summary);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Get itemized payment schedule (Advance, Balance, Deposit)
+  router.get('/bookings/:id/payment-schedule', authMiddleware, async (req, res, next) => {
+    try {
+      const identity = res.locals.identity as Identity;
+      const userId = await deps.store.resolveUserId(identity.uid);
+      const bookingId = uuid.parse(req.params.id);
+      const schedule = await deps.store.getPaymentSchedule(bookingId, userId);
+      res.json(schedule);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Create payment order for remaining rental balance
+  router.post('/bookings/:id/pay-balance', authMiddleware, async (req, res, next) => {
+    try {
+      const identity = res.locals.identity as Identity;
+      const userId = await deps.store.resolveUserId(identity.uid);
+      const bookingId = uuid.parse(req.params.id);
+      const order = await deps.store.createBalancePaymentOrder(userId, bookingId);
+      res.status(201).json(order);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Verify remaining balance payment
+  router.post('/bookings/:id/verify-balance-payment', authMiddleware, async (req, res, next) => {
+    try {
+      const identity = res.locals.identity as Identity;
+      const userId = await deps.store.resolveUserId(identity.uid);
+      const bookingId = uuid.parse(req.params.id);
+      const input = parse(verifyPaymentSchema, req.body);
+      const result = await deps.store.verifyBalancePayment(userId, bookingId, input);
+      res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Payment transaction history
+  router.get('/bookings/:id/payment-history', authMiddleware, async (req, res, next) => {
+    try {
+      const identity = res.locals.identity as Identity;
+      const userId = await deps.store.resolveUserId(identity.uid);
+      const bookingId = uuid.parse(req.params.id);
+      const history = await deps.store.getPaymentHistory(bookingId, userId);
+      res.json(history);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Authoritative pickup readiness
+  router.get('/bookings/:id/pickup-readiness', authMiddleware, async (req, res, next) => {
+    try {
+      const identity = res.locals.identity as Identity;
+      const userId = await deps.store.resolveUserId(identity.uid);
+      const bookingId = uuid.parse(req.params.id);
+      const readiness = await deps.store.getPickupReadiness(bookingId, userId);
+      res.json(readiness);
     } catch (e) {
       next(e);
     }
@@ -556,13 +658,47 @@ export function createRentalOperationsRouter(deps: {
     }
   });
 
-  // Bookings list for operations
+  // Payment Dashboard summary widgets for operations
+  router.get('/payment-dashboard', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
+    try {
+      const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : undefined;
+      const dashboard = await deps.store.getOperationsPaymentDashboard(branchId);
+      res.json(dashboard);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Bookings list for operations with paymentStatus filter
   router.get('/bookings', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
     try {
       const status = typeof req.query.status === 'string' ? (req.query.status as any) : undefined;
+      const paymentStatus = typeof req.query.paymentStatus === 'string' ? req.query.paymentStatus : undefined;
       const hubId = typeof req.query.hubId === 'string' ? req.query.hubId : undefined;
-      const bookings = await deps.store.getOperationsBookings({ status, hubId });
+      const bookings = await deps.store.getOperationsBookings({ status, paymentStatus, hubId });
       res.json(bookings);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Payment summary for operations
+  router.get('/bookings/:id/payment-summary', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
+    try {
+      const bookingId = uuid.parse(req.params.id);
+      const summary = await deps.store.getPaymentSummary(bookingId, undefined, true);
+      res.json(summary);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Authoritative pickup readiness for operations
+  router.get('/bookings/:id/pickup-readiness', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
+    try {
+      const bookingId = uuid.parse(req.params.id);
+      const readiness = await deps.store.getPickupReadiness(bookingId);
+      res.json(readiness);
     } catch (e) {
       next(e);
     }

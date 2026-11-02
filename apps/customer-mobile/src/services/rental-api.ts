@@ -96,15 +96,123 @@ export interface CheckoutHoldPayload {
   customerNotes?: string;
   acceptTerms: boolean;
   termsVersion: string;
+  paymentPlanId?: 'FULL_100' | 'ADVANCE_25' | 'ADVANCE_50';
 }
 
 export interface CheckoutHoldResponse {
   bookingId: string;
   bookingNumber: string;
   totalPayablePaise: string | number;
+  rentalTotalPaise?: string | number;
+  initialPaymentDuePaise?: string | number;
+  paymentPlan?: any;
   gatewayOrderId: string;
   currency: string;
   validUntil: string;
+}
+
+export interface RentalPaymentPlan {
+  planId: 'FULL_100' | 'ADVANCE_25' | 'ADVANCE_50' | string;
+  name: string;
+  type: 'FULL' | 'PARTIAL';
+  advancePercent: number;
+  advancePaise: string | number;
+  balancePaise: string | number;
+  securityDepositPaise: string | number;
+  initialPaymentDuePaise: string | number;
+  balanceDueAt?: string | null;
+  isAvailable: boolean;
+  ineligibilityReason?: string | null;
+}
+
+export interface RentalPaymentOptionsResponse {
+  quoteId: string;
+  policyVersion: string;
+  currency: string;
+  pickupTime: string;
+  hoursToPickup: number;
+  rentalChargesPaise: string | number;
+  baseFarePaise: string | number;
+  taxPaise: string | number;
+  securityDepositPaise: string | number;
+  termsVersion: string;
+  plans: RentalPaymentPlan[];
+}
+
+export interface RentalPaymentSummary {
+  bookingId: string;
+  bookingNumber: string;
+  bookingStatus: string;
+  currency: string;
+  paymentPlan: {
+    planId: string;
+    type: string;
+    name: string;
+    advancePercent: number;
+    policyVersion: string;
+  };
+  rentalTotalPaise: string | number;
+  baseFarePaise: string | number;
+  taxPaise: string | number;
+  verifiedPaidPaise: string | number;
+  outstandingPaise: string | number;
+  paymentStatus: 'NOT_PAID' | 'PARTIALLY_PAID' | 'PAID_IN_FULL' | 'OVERDUE' | 'RECONCILIATION_REQUIRED';
+  balanceDueAt?: string | null;
+  isOverdue: boolean;
+  deposit: {
+    requiredPaise: string | number;
+    status: string;
+  };
+  pickupReadiness: {
+    eligible: boolean;
+    blockers: string[];
+    checklist: {
+      rentalPaymentComplete: boolean;
+      depositSatisfied: boolean;
+      driverEligible: boolean;
+      vehicleReady: boolean;
+      termsAccepted: boolean;
+      bookingConfirmed: boolean;
+    };
+  };
+}
+
+export interface RentalPaymentSchedule {
+  bookingId: string;
+  bookingNumber: string;
+  currency: string;
+  rentalTotalPaise: string | number;
+  installments: Array<{
+    installmentNumber: number;
+    type: 'ADVANCE' | 'FULL' | 'BALANCE';
+    title: string;
+    amountPaise: string | number;
+    status: string;
+    paidAt?: string | null;
+    dueAt?: string | null;
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
+  }>;
+  deposit: {
+    title: string;
+    amountPaise: string | number;
+    status: string;
+    note?: string;
+  };
+}
+
+export interface RentalPaymentTransaction {
+  id: string;
+  bookingId: string;
+  type: string;
+  installmentType: string;
+  amountPaise: string | number;
+  status: string;
+  paymentGateway: string;
+  gatewayOrderId?: string | null;
+  gatewayPaymentId?: string | null;
+  createdAt: string;
+  verifiedAt?: string | null;
 }
 
 export interface VerifyPaymentPayload {
@@ -207,6 +315,25 @@ export interface RentalBookingDetails {
     isCustomerDisputed: boolean;
     status: string;
   }>;
+  paymentPlanSnapshot?: any;
+  rentalPaymentStatus?: 'NOT_PAID' | 'PARTIALLY_PAID' | 'PAID_IN_FULL' | 'OVERDUE' | 'RECONCILIATION_REQUIRED' | null;
+  depositStatus?: string | null;
+  balanceDueAt?: string | null;
+  verifiedPaidPaise?: string | number;
+  outstandingBalancePaise?: string | number;
+  isOverdue?: boolean;
+  pickupReadiness?: {
+    eligible: boolean;
+    blockers: string[];
+    checklist: {
+      rentalPaymentComplete: boolean;
+      depositSatisfied: boolean;
+      driverEligible: boolean;
+      vehicleReady: boolean;
+      termsAccepted: boolean;
+      bookingConfirmed: boolean;
+    };
+  };
 }
 
 // -------------------------------------------------------------
@@ -314,4 +441,63 @@ export async function requestRentalExtension(
       body: JSON.stringify({ requestedEndTime }),
     }
   );
+}
+
+export async function fetchRentalPaymentOptions(holdId: string): Promise<RentalPaymentOptionsResponse> {
+  return api<RentalPaymentOptionsResponse>(`/api/v2/rentals/holds/${holdId}/payment-options`);
+}
+
+export async function fetchRentalPaymentSummary(bookingId: string): Promise<RentalPaymentSummary> {
+  return api<RentalPaymentSummary>(`/api/v2/rentals/bookings/${bookingId}/payment-summary`);
+}
+
+export async function fetchRentalPaymentSchedule(bookingId: string): Promise<RentalPaymentSchedule> {
+  return api<RentalPaymentSchedule>(`/api/v2/rentals/bookings/${bookingId}/payment-schedule`);
+}
+
+export async function payRentalBalance(bookingId: string): Promise<{
+  bookingId: string;
+  bookingNumber: string;
+  gatewayOrderId: string;
+  amountPaise: string | number;
+  currency: string;
+}> {
+  return api<{
+    bookingId: string;
+    bookingNumber: string;
+    gatewayOrderId: string;
+    amountPaise: string | number;
+    currency: string;
+  }>(`/api/v2/rentals/bookings/${bookingId}/pay-balance`, {
+    method: 'POST',
+  });
+}
+
+export async function verifyRentalBalancePayment(
+  bookingId: string,
+  payload: VerifyPaymentPayload
+): Promise<{ success: boolean; rentalPaymentStatus: string; verifiedPaidPaise: string | number; outstandingBalancePaise: string | number }> {
+  return api<{ success: boolean; rentalPaymentStatus: string; verifiedPaidPaise: string | number; outstandingBalancePaise: string | number }>(
+    `/api/v2/rentals/bookings/${bookingId}/verify-balance-payment`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
+}
+
+export async function fetchRentalPaymentHistory(bookingId: string): Promise<RentalPaymentTransaction[]> {
+  return api<RentalPaymentTransaction[]>(`/api/v2/rentals/bookings/${bookingId}/payment-history`);
+}
+
+export async function fetchRentalPickupReadiness(bookingId: string): Promise<{
+  eligible: boolean;
+  blockers: string[];
+  checklist: Record<string, boolean>;
+}> {
+  return api<{
+    eligible: boolean;
+    blockers: string[];
+    checklist: Record<string, boolean>;
+  }>(`/api/v2/rentals/bookings/${bookingId}/pickup-readiness`);
 }

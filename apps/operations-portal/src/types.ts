@@ -580,6 +580,30 @@ export type RentalBookingItem = {
   endTime: string;
   status: 'PENDING_PAYMENT' | 'CONFIRMED' | 'VEHICLE_COLLECTED' | 'TRIP_ACTIVE' | 'RETURN_INSPECTED' | 'SETTLED' | 'CANCELLED';
   kycStatus: 'PENDING_REVIEW' | 'VERIFIED' | 'REJECTED';
+  baseFarePaise?: string | number;
+  taxPaise?: string | number;
+  paymentPlanSnapshot?: {
+    planId: string;
+    planName: string;
+    advancePercentage: number;
+    balancePercentage: number;
+    policyVersion: string;
+  } | null;
+  rentalPaymentStatus?: 'NOT_PAID' | 'PARTIALLY_PAID' | 'PAID_IN_FULL' | 'REFUNDED' | string;
+  depositStatus?: 'NOT_COLLECTED' | 'COLLECTED' | 'REFUND_QUEUED' | 'REFUNDED' | 'RETAINED' | string;
+  balanceDueAt?: string | null;
+  verifiedPaidPaise?: string | number;
+  outstandingBalancePaise?: string | number;
+  pickupReadiness?: {
+    isReady: boolean;
+    reasons: string[];
+    checklist: {
+      bookingConfirmed: boolean;
+      rentalPaymentComplete: boolean;
+      driverEligible: boolean;
+      vehicleReady: boolean;
+    };
+  };
   totalPayablePaise: string | number;
   securityDepositPaise: string | number;
   customer?: {
@@ -648,4 +672,68 @@ export type RentalOperationsSummary = {
   activeBookings: number;
   pendingKyc: number;
   returnsDueToday: number;
+};
+
+export type RentalPaymentDashboard = {
+  partiallyPaidCount: number;
+  fullyPaidCount: number;
+  overdueCount: number;
+  blockedPickupsCount: number;
+  reconciliationPendingCount: number;
+};
+
+export type RentalPaymentSummary = {
+  bookingId: string;
+  bookingNumber: string;
+  rentalPaymentStatus: string;
+  depositStatus: string;
+  rentalTotalPaise: string;
+  verifiedPaidPaise: string;
+  outstandingPaise: string;
+  securityDepositPaise: string;
+  balanceDueAt: string | null;
+  isOverdue: boolean;
+  paymentPlan: {
+    planId: string;
+    planName: string;
+    advancePercentage: number;
+    balancePercentage: number;
+    policyVersion: string;
+  } | null;
+  pickupReadiness: {
+    isReady: boolean;
+    reasons: string[];
+    checklist: {
+      bookingConfirmed: boolean;
+      rentalPaymentComplete: boolean;
+      driverEligible: boolean;
+      vehicleReady: boolean;
+    };
+  };
+};
+
+export type RentalPaymentSchedule = {
+  bookingId: string;
+  bookingNumber: string;
+  rentalPaymentStatus: string;
+  installments: Array<{
+    type: 'ADVANCE' | 'BALANCE';
+    percentage: number;
+    amountPaise: string;
+    amountRupees: number;
+    status: 'PAID' | 'PENDING' | 'OVERDUE';
+    dueAt: string;
+    paidAt: string | null;
+  }>;
+};
+
+export type RentalPaymentTransaction = {
+  id: string;
+  amountPaise: string;
+  amountRupees: number;
+  status: string;
+  provider: string;
+  reference: string;
+  installmentType: string | null;
+  createdAt: string;
 };

@@ -1,7 +1,16 @@
 import React, { useState, useEffect, type FC, type FormEvent } from 'react';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
-import type { Branch, RentalBookingItem, RentalFleetItem, RentalOperationsSummary } from '../types';
+import type {
+  Branch,
+  RentalBookingItem,
+  RentalFleetItem,
+  RentalOperationsSummary,
+  RentalPaymentDashboard,
+  RentalPaymentSummary,
+  RentalPaymentSchedule,
+  RentalPaymentTransaction,
+} from '../types';
 import { IconCheck, IconCross, IconRefresh, IconRentals, IconSearch } from '../icons';
 
 function formatRupees(paise?: string | number | null): string {
@@ -54,20 +63,27 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [summary, setSummary] = useState<RentalOperationsSummary | null>(null);
   const [fleet, setFleet] = useState<RentalFleetItem[]>([]);
   const [bookings, setBookings] = useState<RentalBookingItem[]>([]);
+  const [paymentDashboard, setPaymentDashboard] = useState<RentalPaymentDashboard | null>(null);
   const [hubs, setHubs] = useState<Array<{ id: string; name: string; city: string }>>([]);
   const [bookingStatusFilter, setBookingStatusFilter] = useState('ALL');
   const [selectedHubId, setSelectedHubId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
 
-  // Modals
+  // Modals & Drawer
   const [onboardModalOpen, setOnboardModalOpen] = useState(false);
   const [walkInModalOpen, setWalkInModalOpen] = useState(false);
   const [blockModalVehicle, setBlockModalVehicle] = useState<RentalFleetItem | null>(null);
   const [historyModalVehicle, setHistoryModalVehicle] = useState<RentalFleetItem | null>(null);
   const [expandedVehicleId, setExpandedVehicleId] = useState<string | null>(null);
   const [activeBooking, setActiveBooking] = useState<RentalBookingItem | null>(null);
-  const [bookingDrawerTab, setBookingDrawerTab] = useState<'overview' | 'kyc' | 'handover' | 'return' | 'extension'>('overview');
+  const [bookingDrawerTab, setBookingDrawerTab] = useState<'overview' | 'kyc' | 'handover' | 'return' | 'extension' | 'payment'>('overview');
   const [actionBusy, setActionBusy] = useState(false);
+
+  // Active Booking Payment & Audit State
+  const [activePaymentSummary, setActivePaymentSummary] = useState<RentalPaymentSummary | null>(null);
+  const [activePaymentSchedule, setActivePaymentSchedule] = useState<RentalPaymentSchedule | null>(null);
+  const [activePaymentHistory, setActivePaymentHistory] = useState<RentalPaymentTransaction[]>([]);
+  const [loadingPaymentDetails, setLoadingPaymentDetails] = useState(false);
 
   // Walk-In / Offline Hub Booking Form State
   const [walkInVehicleId, setWalkInVehicleId] = useState('');
@@ -390,14 +406,19 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const loadData = async () => {
     setLoading(true);
     try {
-      const [hubsList, sum, flt, bks] = await Promise.all([
+      const isPaymentFilter = ['PARTIALLY_PAID', 'PAID_IN_FULL', 'OVERDUE'].includes(bookingStatusFilter);
+      const isBookingFilter = ['CONFIRMED', 'TRIP_ACTIVE', 'RETURN_INSPECTED', 'SETTLED', 'CANCELLED'].includes(bookingStatusFilter);
+
+      const [hubsList, sum, flt, bks, payDash] = await Promise.all([
         api.rentalHubs(user).catch(() => []),
         api.rentalSummary(user).catch(() => ({ activeFleet: 0, activeBookings: 0, pendingKyc: 0, returnsDueToday: 0 })),
         api.rentalFleet(user, { hubId: selectedHubId || undefined }),
         api.rentalBookings(user, {
           hubId: selectedHubId || undefined,
-          status: bookingStatusFilter !== 'ALL' ? bookingStatusFilter : undefined,
+          status: isBookingFilter ? bookingStatusFilter : undefined,
+          paymentStatus: isPaymentFilter ? bookingStatusFilter : undefined,
         }),
+        api.rentalPaymentDashboard(user).catch(() => null),
       ]);
       if (hubsList && hubsList.length > 0) {
         setHubs(hubsList);
@@ -405,6 +426,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       setSummary(sum);
       setFleet(flt || []);
       setBookings(bks || []);
+      setPaymentDashboard(payDash);
       if (!onboardHubId) {
         setOnboardHubId(hubsList?.[0]?.id || branches[0]?.id || '');
       }
@@ -418,6 +440,33 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   useEffect(() => {
     void loadData();
   }, [selectedHubId, bookingStatusFilter]);
+
+  // Load authoritative payment details & ledger whenever active booking changes
+  useEffect(() => {
+    if (!activeBooking) {
+      setActivePaymentSummary(null);
+      setActivePaymentSchedule(null);
+      setActivePaymentHistory([]);
+      return;
+    }
+    let isMounted = true;
+    setLoadingPaymentDetails(true);
+    Promise.all([
+      api.rentalPaymentSummary(user, activeBooking.id).catch(() => null),
+      api.rentalPaymentSchedule(user, activeBooking.id).catch(() => null),
+      api.rentalPaymentHistory(user, activeBooking.id).catch(() => []),
+    ]).then(([sum, sched, hist]) => {
+      if (isMounted) {
+        if (sum) setActivePaymentSummary(sum);
+        if (sched) setActivePaymentSchedule(sched);
+        if (hist) setActivePaymentHistory(hist);
+        setLoadingPaymentDetails(false);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [activeBooking?.id]);
 
   // Handle Onboard Fleet
   const handleOnboardSubmit = async (e: FormEvent) => {
@@ -1205,9 +1254,51 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       {/* VIEW B: BOOKINGS & TRIPS */}
       {subTab === 'bookings' && (
         <div>
+          {/* Operations Payment Summary Widgets */}
+          <div
+            className="grid-summary"
+            style={{
+              display: 'grid',
+              gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+              gap: '0.75rem',
+              marginBottom: '1rem',
+            }}
+          >
+            <div className="card-kpi" style={{ background: 'var(--surface)', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Partially Paid</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: '#f59e0b' }}>
+                {paymentDashboard?.partiallyPaidCount ?? bookings.filter(b => b.rentalPaymentStatus === 'PARTIALLY_PAID').length}
+              </div>
+            </div>
+            <div className="card-kpi" style={{ background: 'var(--surface)', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Paid In Full</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: '#10b981' }}>
+                {paymentDashboard?.fullyPaidCount ?? bookings.filter(b => b.rentalPaymentStatus === 'PAID_IN_FULL').length}
+              </div>
+            </div>
+            <div className="card-kpi" style={{ background: 'var(--surface)', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Overdue Payments</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: '#ef4444' }}>
+                {paymentDashboard?.overdueCount ?? bookings.filter(b => b.rentalPaymentStatus === 'OVERDUE' || (b.balanceDueAt && new Date(b.balanceDueAt).getTime() < Date.now() && Number(b.outstandingBalancePaise || 0) > 0)).length}
+              </div>
+            </div>
+            <div className="card-kpi" style={{ background: 'var(--surface)', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Pickups Blocked</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: '#ef4444' }}>
+                {paymentDashboard?.blockedPickupsCount ?? bookings.filter(b => b.status === 'CONFIRMED' && (Number(b.outstandingBalancePaise || 0) > 0 || b.kycStatus !== 'VERIFIED')).length}
+              </div>
+            </div>
+            <div className="card-kpi" style={{ background: 'var(--surface)', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+              <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Pending Reconciliation</span>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: 'var(--accent, #3b82f6)' }}>
+                {paymentDashboard?.reconciliationPendingCount ?? bookings.filter(b => (b.status === 'RETURN_INSPECTED' || b.status === 'SETTLED') && b.depositStatus === 'REFUND_QUEUED').length}
+              </div>
+            </div>
+          </div>
+
           {/* Status filter buttons */}
           <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap', marginBottom: '1rem' }}>
-            {['ALL', 'CONFIRMED', 'TRIP_ACTIVE', 'RETURN_INSPECTED', 'SETTLED', 'CANCELLED'].map(st => (
+            {['ALL', 'PARTIALLY_PAID', 'PAID_IN_FULL', 'OVERDUE', 'CONFIRMED', 'TRIP_ACTIVE', 'RETURN_INSPECTED', 'SETTLED', 'CANCELLED'].map(st => (
               <button
                 key={st}
                 type="button"
@@ -1227,71 +1318,125 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   <th>Booking # & Date</th>
                   <th>Customer</th>
                   <th>Car Booked</th>
-                  <th>Trip Dates (Asia/Kolkata)</th>
-                  <th>Total Payable</th>
-                  <th>KYC Status</th>
-                  <th>Booking Status</th>
+                  <th>Trip Dates</th>
+                  <th>Payment Plan</th>
+                  <th>Rental Total & Paid</th>
+                  <th>Balance Due</th>
+                  <th>Payment Status</th>
+                  <th>Pickup Gate</th>
                   <th style={{ textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {loading ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '2rem', color: 'var(--muted)' }}>Loading bookings…</td>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: '2rem', color: 'var(--muted)' }}>Loading bookings…</td>
                   </tr>
                 ) : filteredBookings.length === 0 ? (
                   <tr>
-                    <td colSpan={8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--muted)' }}>
+                    <td colSpan={10} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--muted)' }}>
                       No rental bookings matching current filters.
                     </td>
                   </tr>
                 ) : (
-                  filteredBookings.map(b => (
-                    <tr key={b.id}>
-                      <td>
-                        <strong>{b.bookingNumber}</strong>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{formatDate(b.startTime)}</div>
-                      </td>
-                      <td>
-                        <div><strong>{b.customer?.displayName || 'Customer'}</strong></div>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{b.customer?.phone || b.customer?.email || '—'}</div>
-                      </td>
-                      <td>
-                        <div><strong>{b.vehicle?.make} {b.vehicle?.model}</strong></div>
-                        <span className="code-pill" style={{ fontSize: '0.75rem' }}>{b.vehicle?.registrationNumber || 'Fleet Vehicle'}</span>
-                      </td>
-                      <td>
-                        <div>{formatDate(b.startTime)}</div>
-                        <small style={{ color: 'var(--muted)' }}>to {formatDate(b.endTime)}</small>
-                      </td>
-                      <td className="money">
-                        <strong>{formatRupees(b.totalPayablePaise)}</strong>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Dep: {formatRupees(b.securityDepositPaise)}</div>
-                      </td>
-                      <td>
-                        <span className={`badge ${b.kycStatus === 'VERIFIED' ? 'badge-success' : b.kycStatus === 'REJECTED' ? 'badge-danger' : 'badge-warning'}`}>
-                          {b.kycStatus}
-                        </span>
-                      </td>
-                      <td>
-                        <span className={`badge ${b.status === 'TRIP_ACTIVE' ? 'badge-info' : b.status === 'CONFIRMED' ? 'badge-success' : 'badge-neutral'}`}>
-                          {b.status.replace(/_/g, ' ')}
-                        </span>
-                      </td>
-                      <td style={{ textAlign: 'right' }}>
-                        <button
-                          type="button"
-                          className="button primary small"
-                          onClick={() => {
-                            setActiveBooking(b);
-                            setBookingDrawerTab('overview');
-                          }}
-                        >
-                          Manage Trip
-                        </button>
-                      </td>
-                    </tr>
-                  ))
+                  filteredBookings.map(b => {
+                    const outstanding = Number(b.outstandingBalancePaise || 0);
+                    const verifiedPaid = Number(b.verifiedPaidPaise || 0);
+                    const isOverdue = !!b.balanceDueAt && new Date(b.balanceDueAt).getTime() < Date.now() && outstanding > 0;
+                    const isPickupReady = b.pickupReadiness ? b.pickupReadiness.isReady : (
+                      (b.status === 'CONFIRMED' || b.status === 'TRIP_ACTIVE' || b.status === 'RETURN_INSPECTED' || b.status === 'SETTLED') &&
+                      outstanding === 0 &&
+                      b.kycStatus === 'VERIFIED'
+                    );
+                    const reasons = b.pickupReadiness?.reasons || [];
+
+                    return (
+                      <tr key={b.id}>
+                        <td>
+                          <strong>{b.bookingNumber}</strong>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{formatDate(b.startTime)}</div>
+                        </td>
+                        <td>
+                          <div><strong>{b.customer?.displayName || 'Customer'}</strong></div>
+                          <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{b.customer?.phone || b.customer?.email || '—'}</div>
+                        </td>
+                        <td>
+                          <div><strong>{b.vehicle?.make} {b.vehicle?.model}</strong></div>
+                          <span className="code-pill" style={{ fontSize: '0.75rem' }}>{b.vehicle?.registrationNumber || 'Fleet Vehicle'}</span>
+                        </td>
+                        <td>
+                          <div>{formatDate(b.startTime)}</div>
+                          <small style={{ color: 'var(--muted)' }}>to {formatDate(b.endTime)}</small>
+                        </td>
+                        <td>
+                          <span className="badge badge-info" style={{ fontSize: '0.72rem' }}>
+                            {b.paymentPlanSnapshot?.planName || (b.paymentPlanSnapshot?.advancePercentage ? `${b.paymentPlanSnapshot.advancePercentage}% Advance` : 'Standard')}
+                          </span>
+                        </td>
+                        <td className="money">
+                          <div><strong>{formatRupees(b.totalPayablePaise)}</strong></div>
+                          <div style={{ fontSize: '0.72rem', color: '#10b981' }}>Paid: {formatRupees(verifiedPaid)}</div>
+                          <div style={{ fontSize: '0.72rem', color: outstanding > 0 ? '#ef4444' : 'var(--muted)' }}>
+                            Bal: {formatRupees(outstanding)}
+                          </div>
+                        </td>
+                        <td>
+                          {b.balanceDueAt ? (
+                            <div>
+                              <div style={{ fontSize: '0.75rem' }}>{formatDate(b.balanceDueAt)}</div>
+                              {isOverdue && (
+                                <span className="badge badge-danger" style={{ fontSize: '0.65rem', marginTop: '2px' }}>
+                                  OVERDUE
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span style={{ color: 'var(--muted)' }}>—</span>
+                          )}
+                        </td>
+                        <td>
+                          {(() => {
+                            if (b.rentalPaymentStatus === 'PAID_IN_FULL' || (outstanding === 0 && verifiedPaid > 0)) {
+                              return <span className="badge badge-success" style={{ fontSize: '0.72rem' }}>PAID IN FULL</span>;
+                            }
+                            if (isOverdue || b.rentalPaymentStatus === 'OVERDUE') {
+                              return <span className="badge badge-danger" style={{ fontSize: '0.72rem' }}>OVERDUE</span>;
+                            }
+                            if (b.rentalPaymentStatus === 'PARTIALLY_PAID' || verifiedPaid > 0) {
+                              return <span className="badge badge-warning" style={{ fontSize: '0.72rem' }}>PARTIALLY PAID</span>;
+                            }
+                            return <span className="badge badge-neutral" style={{ fontSize: '0.72rem' }}>NOT PAID</span>;
+                          })()}
+                        </td>
+                        <td>
+                          <span
+                            className={`badge ${isPickupReady ? 'badge-success' : 'badge-danger'}`}
+                            style={{ fontSize: '0.72rem' }}
+                            title={reasons.join('; ')}
+                          >
+                            {isPickupReady ? '✓ READY' : '⊘ BLOCKED'}
+                          </span>
+                          {!isPickupReady && reasons.length > 0 && (
+                            <div style={{ fontSize: '0.68rem', color: '#ef4444', marginTop: '2px', maxWidth: '120px', whiteSpace: 'normal' }}>
+                              {reasons[0]}
+                            </div>
+                          )}
+                        </td>
+                        <td style={{ textAlign: 'right' }}>
+                          <button
+                            type="button"
+                            className="button primary small"
+                            onClick={() => {
+                              setActiveBooking(b);
+                              setBookingDrawerTab('overview');
+                            }}
+                          >
+                            Manage Trip
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -2790,6 +2935,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
             <div className="stepper-nav">
               {[
                 { id: 'overview', label: 'Trip Overview' },
+                { id: 'payment', label: `Billing & Ledger (${activeBooking.rentalPaymentStatus || 'NOT_PAID'})` },
                 { id: 'kyc', label: `1. Driver KYC (${activeBooking.kycStatus})` },
                 { id: 'handover', label: '2. Pickup Handover' },
                 { id: 'return', label: '3. Return Inspection' },
@@ -2823,12 +2969,128 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       <div>Hub: {activeBooking.pickupHub?.name || 'Local Hub'}</div>
                     </div>
                     <div style={{ background: 'var(--surface-secondary)', padding: '0.75rem', borderRadius: '6px' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>BILLING SUMMARY</span>
-                      <div>Total: <strong>{formatRupees(activeBooking.totalPayablePaise)}</strong></div>
-                      <div>Security Deposit: <strong>{formatRupees(activeBooking.securityDepositPaise)}</strong></div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>RESERVATION STATUS</span>
                       <div>Status: <span className="badge badge-info">{activeBooking.status}</span></div>
+                      <div>KYC: <span className={`badge ${activeBooking.kycStatus === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>{activeBooking.kycStatus}</span></div>
+                      <div>Plan: <strong>{activeBooking.paymentPlanSnapshot?.planName || 'Standard'}</strong></div>
                     </div>
                   </div>
+
+                  {/* PAYMENT & FINANCIAL OBLIGATIONS CARD */}
+                  <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px', padding: '1rem', marginBottom: '1.25rem' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '6px' }}>
+                      <span style={{ fontWeight: 800, fontSize: '0.875rem', color: 'var(--text)' }}>
+                        💳 PAYMENT & FINANCIAL OBLIGATIONS
+                      </span>
+                      <span className={`badge ${activeBooking.rentalPaymentStatus === 'PAID_IN_FULL' || Number(activeBooking.outstandingBalancePaise || 0) === 0 ? 'badge-success' : 'badge-warning'}`}>
+                        {activeBooking.rentalPaymentStatus || 'NOT_PAID'}
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                      <div style={{ background: 'var(--surface-secondary)', padding: '0.6rem 0.75rem', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block' }}>TOTAL RENTAL CHARGE</span>
+                        <strong style={{ fontSize: '1rem' }}>{formatRupees(activePaymentSummary?.rentalTotalPaise || (Number(activeBooking.baseFarePaise || 0) + Number(activeBooking.taxPaise || 0)) || activeBooking.totalPayablePaise)}</strong>
+                      </div>
+                      <div style={{ background: 'var(--surface-secondary)', padding: '0.6rem 0.75rem', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block' }}>VERIFIED PAID</span>
+                        <strong style={{ fontSize: '1rem', color: '#10b981' }}>{formatRupees(activePaymentSummary?.verifiedPaidPaise || activeBooking.verifiedPaidPaise || 0)}</strong>
+                      </div>
+                      <div style={{ background: 'var(--surface-secondary)', padding: '0.6rem 0.75rem', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block' }}>OUTSTANDING BALANCE</span>
+                        <strong style={{ fontSize: '1rem', color: Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) > 0 ? '#ef4444' : '#10b981' }}>
+                          {formatRupees(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0)}
+                        </strong>
+                      </div>
+                      <div style={{ background: 'var(--surface-secondary)', padding: '0.6rem 0.75rem', borderRadius: '6px' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block' }}>SECURITY DEPOSIT</span>
+                        <strong style={{ fontSize: '1rem' }}>{formatRupees(activeBooking.securityDepositPaise)}</strong>
+                        <div style={{ fontSize: '0.65rem', color: 'var(--muted)' }}>({activeBooking.depositStatus || 'NOT_COLLECTED'})</div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.75rem', color: 'var(--muted)', flexWrap: 'wrap', gap: '6px', borderTop: '1px solid var(--border)', paddingTop: '0.5rem' }}>
+                      <div>
+                        Balance Deadline: <strong>{formatDate(activePaymentSummary?.balanceDueAt || activeBooking.balanceDueAt)}</strong>
+                        {activeBooking.balanceDueAt && Number(activeBooking.outstandingBalancePaise || 0) > 0 && new Date(activeBooking.balanceDueAt).getTime() < Date.now() && (
+                          <span style={{ color: '#ef4444', fontWeight: 800, marginLeft: '6px' }}>(OVERDUE)</span>
+                        )}
+                      </div>
+                      <div>
+                        Policy Version: <strong>{activePaymentSummary?.paymentPlan?.policyVersion || activeBooking.paymentPlanSnapshot?.policyVersion || 'VMR-POL-2026.1'}</strong>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* AUTHORITATIVE PICKUP READINESS GATE CHECKLIST */}
+                  {(() => {
+                    const readiness = activePaymentSummary?.pickupReadiness || activeBooking.pickupReadiness || {
+                      isReady: (Number(activeBooking.outstandingBalancePaise || 0) === 0 && activeBooking.kycStatus === 'VERIFIED'),
+                      reasons: [
+                        ...(Number(activeBooking.outstandingBalancePaise || 0) > 0 ? [`Rental balance of ${formatRupees(activeBooking.outstandingBalancePaise)} is unpaid`] : []),
+                        ...(activeBooking.kycStatus !== 'VERIFIED' ? ['Primary driver KYC is unverified'] : []),
+                      ],
+                      checklist: {
+                        bookingConfirmed: activeBooking.status !== 'CANCELLED',
+                        rentalPaymentComplete: Number(activeBooking.outstandingBalancePaise || 0) === 0,
+                        driverEligible: activeBooking.kycStatus === 'VERIFIED',
+                        vehicleReady: true,
+                      },
+                    };
+
+                    return (
+                      <div
+                        style={{
+                          background: readiness.isReady ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                          border: `1px solid ${readiness.isReady ? '#10b981' : '#ef4444'}`,
+                          borderRadius: '8px',
+                          padding: '1rem',
+                          marginBottom: '1.25rem',
+                        }}
+                      >
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '6px' }}>
+                          <span style={{ fontWeight: 800, fontSize: '0.875rem', color: readiness.isReady ? '#10b981' : '#ef4444' }}>
+                            🛡️ AUTHORITATIVE PICKUP READINESS GATE
+                          </span>
+                          <span className={`badge ${readiness.isReady ? 'badge-success' : 'badge-danger'}`} style={{ fontWeight: 800 }}>
+                            {readiness.isReady ? '✓ APPROVED FOR HANDOVER' : '⊘ HANDOVER BLOCKED'}
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginBottom: readiness.reasons.length > 0 ? '0.75rem' : '0' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
+                            <span>{readiness.checklist.bookingConfirmed ? '✅' : '❌'}</span>
+                            <span style={{ color: readiness.checklist.bookingConfirmed ? 'var(--text)' : '#ef4444' }}>Booking Confirmed</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
+                            <span>{readiness.checklist.rentalPaymentComplete ? '✅' : '❌'}</span>
+                            <span style={{ color: readiness.checklist.rentalPaymentComplete ? 'var(--text)' : '#ef4444' }}>Rental Charges Paid in Full</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
+                            <span>{readiness.checklist.driverEligible ? '✅' : '❌'}</span>
+                            <span style={{ color: readiness.checklist.driverEligible ? 'var(--text)' : '#ef4444' }}>Driver KYC Approved</span>
+                          </div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
+                            <span>{readiness.checklist.vehicleReady ? '✅' : '❌'}</span>
+                            <span style={{ color: readiness.checklist.vehicleReady ? 'var(--text)' : '#ef4444' }}>Vehicle Prepared & Assigned</span>
+                          </div>
+                        </div>
+
+                        {!readiness.isReady && readiness.reasons.length > 0 && (
+                          <div style={{ background: 'var(--surface)', padding: '0.6rem 0.8rem', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>
+                              Handover Blocking Reasons:
+                            </span>
+                            <ul style={{ margin: '0', paddingLeft: '1.2rem', fontSize: '0.78rem', color: 'var(--text)' }}>
+                              {readiness.reasons.map((r, i) => (
+                                <li key={i}>{r}</li>
+                              ))}
+                            </ul>
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   <div style={{ background: 'var(--surface-secondary)', padding: '0.75rem', borderRadius: '6px', marginBottom: '1rem' }}>
                     <strong>Trip Duration:</strong>
@@ -2880,6 +3142,143 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       </div>
                     </div>
                   )}
+                </div>
+              )}
+
+              {/* TAB: PAYMENT & BILLING LEDGER */}
+              {bookingDrawerTab === 'payment' && (
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                    <div>
+                      <h4 style={{ margin: 0 }}>Rental Billing Ledger & Installment Schedule</h4>
+                      <p style={{ fontSize: '0.8125rem', color: 'var(--muted)', margin: '2px 0 0 0' }}>
+                        Real-time verified payments, outstanding balance, and installment settlement audit trail.
+                      </p>
+                    </div>
+                    {loadingPaymentDetails && (
+                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Loading financial records…</span>
+                    )}
+                  </div>
+
+                  {/* Payment Overview Card */}
+                  <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px', marginBottom: '1.25rem' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem' }}>
+                      <div>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>PAYMENT PLAN</span>
+                        <div style={{ fontWeight: 800, color: 'var(--accent)' }}>
+                          {activePaymentSummary?.paymentPlan?.planName || activeBooking.paymentPlanSnapshot?.planName || 'Full Payment (100%)'}
+                        </div>
+                        <small style={{ color: 'var(--muted)' }}>Ver: {activePaymentSummary?.paymentPlan?.policyVersion || 'VMR-POL-2026.1'}</small>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>TOTAL CHARGES</span>
+                        <div style={{ fontWeight: 800 }}>
+                          {formatRupees(activePaymentSummary?.rentalTotalPaise || (Number(activeBooking.baseFarePaise || 0) + Number(activeBooking.taxPaise || 0)) || activeBooking.totalPayablePaise)}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>VERIFIED PAID</span>
+                        <div style={{ fontWeight: 800, color: '#10b981' }}>
+                          {formatRupees(activePaymentSummary?.verifiedPaidPaise || activeBooking.verifiedPaidPaise || 0)}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>BALANCE REMAINING</span>
+                        <div style={{ fontWeight: 800, color: Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) > 0 ? '#ef4444' : '#10b981' }}>
+                          {formatRupees(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0)}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>SECURITY DEPOSIT</span>
+                        <div style={{ fontWeight: 800 }}>{formatRupees(activeBooking.securityDepositPaise)}</div>
+                        <small style={{ color: 'var(--muted)' }}>{activeBooking.depositStatus || 'NOT_COLLECTED'}</small>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Installment Schedule */}
+                  <div style={{ marginBottom: '1.5rem' }}>
+                    <h5 style={{ margin: '0 0 0.5rem 0' }}>Installment Schedule</h5>
+                    <div className="table-responsive" style={{ background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                      <table style={{ fontSize: '0.8125rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Type</th>
+                            <th>Share</th>
+                            <th>Amount</th>
+                            <th>Due Date</th>
+                            <th>Status</th>
+                            <th>Paid Date</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activePaymentSchedule?.installments && activePaymentSchedule.installments.length > 0 ? (
+                            activePaymentSchedule.installments.map((inst, idx) => (
+                              <tr key={idx}>
+                                <td><strong>{inst.type === 'ADVANCE' ? 'Initial Advance' : 'Remaining Balance'}</strong></td>
+                                <td>{inst.percentage}%</td>
+                                <td className="money"><strong>₹{inst.amountRupees.toLocaleString('en-IN')}</strong></td>
+                                <td>{formatDate(inst.dueAt)}</td>
+                                <td>
+                                  <span className={`badge ${inst.status === 'PAID' ? 'badge-success' : inst.status === 'OVERDUE' ? 'badge-danger' : 'badge-warning'}`}>
+                                    {inst.status}
+                                  </span>
+                                </td>
+                                <td>{inst.paidAt ? formatDate(inst.paidAt) : '—'}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={6} style={{ textAlign: 'center', padding: '1rem', color: 'var(--muted)' }}>
+                                Single payment installment schedule ({formatRupees(activeBooking.totalPayablePaise)}).
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+
+                  {/* Payment Transaction Ledger */}
+                  <div>
+                    <h5 style={{ margin: '0 0 0.5rem 0' }}>Transaction Audit History</h5>
+                    <div className="table-responsive" style={{ background: 'var(--surface)', borderRadius: '6px', border: '1px solid var(--border)' }}>
+                      <table style={{ fontSize: '0.8125rem' }}>
+                        <thead>
+                          <tr>
+                            <th>Transaction ID</th>
+                            <th>Installment</th>
+                            <th>Gateway</th>
+                            <th>Reference / Order ID</th>
+                            <th>Status</th>
+                            <th>Amount</th>
+                            <th>Timestamp</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {activePaymentHistory && activePaymentHistory.length > 0 ? (
+                            activePaymentHistory.map((tx) => (
+                              <tr key={tx.id}>
+                                <td><span className="code-pill">{tx.id.slice(0, 8)}…</span></td>
+                                <td><strong>{tx.installmentType || 'PAYMENT'}</strong></td>
+                                <td>{tx.provider}</td>
+                                <td><span className="code-pill">{tx.reference || '—'}</span></td>
+                                <td><span className="badge badge-success">{tx.status}</span></td>
+                                <td className="money"><strong>₹{tx.amountRupees.toLocaleString('en-IN')}</strong></td>
+                                <td>{formatDate(tx.createdAt)}</td>
+                              </tr>
+                            ))
+                          ) : (
+                            <tr>
+                              <td colSpan={7} style={{ textAlign: 'center', padding: '1rem', color: 'var(--muted)' }}>
+                                No individual transaction records loaded.
+                              </td>
+                            </tr>
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -3408,6 +3807,24 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </div>
                       )}
 
+                      {(() => {
+                        const outstanding = Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0);
+                        if (outstanding > 0) {
+                          return (
+                            <div style={{ padding: '0.85rem 1rem', background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', borderRadius: '8px', marginBottom: '1rem', border: '1px solid #ef4444' }}>
+                              <div style={{ fontWeight: 800, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                ⚠️ VEHICLE HANDOVER STRICTLY BLOCKED — OUTSTANDING RENTAL BALANCE
+                              </div>
+                              <div style={{ fontSize: '0.8rem', marginTop: '4px', color: 'var(--text)' }}>
+                                Customer has an unpaid rental balance of <strong>{formatRupees(outstanding)}</strong>.
+                                Company policy strictly forbids handing over keys until 100% of rental charges are paid in full.
+                              </div>
+                            </div>
+                          );
+                        }
+                        return null;
+                      })()}
+
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                         <div>
                           <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Start Odometer (km) *</label>
@@ -3566,16 +3983,26 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         />
                       </div>
 
-                      <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                        <button type="button" className="btn-secondary button secondary" onClick={() => setActiveBooking(null)}>Cancel</button>
-                        <button
-                          type="submit"
-                          className="btn-primary btn-gold button primary"
-                          disabled={actionBusy || activeBooking.kycStatus !== 'VERIFIED'}
-                        >
-                          {actionBusy ? 'Uploading Photos & Confirming…' : 'Confirm Handover & Start Trip'}
-                        </button>
-                      </div>
+                      {(() => {
+                        const outstanding = Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0);
+                        const isHandoverBlocked = actionBusy || activeBooking.kycStatus !== 'VERIFIED' || outstanding > 0;
+
+                        return (
+                          <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                            <button type="button" className="btn-secondary button secondary" onClick={() => setActiveBooking(null)}>Cancel</button>
+                            <button
+                              type="submit"
+                              className="btn-primary btn-gold button primary"
+                              disabled={isHandoverBlocked}
+                              title={outstanding > 0 ? 'Vehicle release blocked: outstanding rental balance must be settled.' : undefined}
+                            >
+                              {outstanding > 0
+                                ? 'Handover Blocked: Unpaid Balance'
+                                : (actionBusy ? 'Uploading Photos & Confirming…' : 'Confirm Handover & Start Trip')}
+                            </button>
+                          </div>
+                        );
+                      })()}
                     </form>
                   )}
                 </div>

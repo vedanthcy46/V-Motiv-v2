@@ -44,6 +44,8 @@ import {
   checkoutRentalHold,
   verifyRentalPayment,
   submitRentalDriverKyc,
+  fetchRentalPaymentOptions,
+  type RentalPaymentPlan,
 } from '../services/rental-api';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalCheckout'>;
@@ -73,6 +75,11 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
     type: 'front' | 'back';
   } | null>(null);
 
+  // Payment Options & Plans
+  const [plans, setPlans] = useState<RentalPaymentPlan[]>([]);
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('FULL_100');
+  const [loadingPlans, setLoadingPlans] = useState(true);
+
   // Payment method selection
   const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'CARD' | 'NETBANKING' | 'DEMO'>('UPI');
 
@@ -98,6 +105,36 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
     return () => clearInterval(timer);
   }, [navigation]);
 
+  useEffect(() => {
+    let isMounted = true;
+    async function loadOptions() {
+      try {
+        setLoadingPlans(true);
+        const data = await fetchRentalPaymentOptions(holdId);
+        if (!isMounted) return;
+        if (data?.plans && data.plans.length > 0) {
+          setPlans(data.plans);
+          const defaultPlan =
+            data.plans.find(p => p.planId === 'ADVANCE_25' && p.isAvailable) ||
+            data.plans.find(p => p.planId === 'ADVANCE_50' && p.isAvailable) ||
+            data.plans.find(p => p.isAvailable) ||
+            data.plans[0];
+          if (defaultPlan) {
+            setSelectedPlanId(defaultPlan.planId);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load rental payment options, using local quote breakdown:', err);
+      } finally {
+        if (isMounted) setLoadingPlans(false);
+      }
+    }
+    loadOptions();
+    return () => {
+      isMounted = false;
+    };
+  }, [holdId]);
+
   const minutes = Math.floor(secondsRemaining / 60);
   const seconds = secondsRemaining % 60;
   const timerDisplay = `${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
@@ -111,7 +148,17 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
     : vehicle
     ? Math.round(Number(vehicle.securityDepositPaise) / 100)
     : 5000;
-  const totalRupees = baseFareRupees + taxRupees + depositRupees;
+  const rentalTariffRupees = baseFareRupees + taxRupees;
+  const totalRupees = rentalTariffRupees + depositRupees;
+
+  const selectedPlan = plans.find(p => p.planId === selectedPlanId);
+  const advancePayableRupees = selectedPlan
+    ? Math.round(Number(selectedPlan.advancePaise) / 100)
+    : rentalTariffRupees;
+  const remainingBalanceRupees = selectedPlan
+    ? Math.round(Number(selectedPlan.balancePaise) / 100)
+    : 0;
+  const initialPayableRupees = advancePayableRupees;
 
   const processAndStoreLicense = (asset: ImagePicker.ImagePickerAsset, type: 'front' | 'back') => {
     if (type === 'front') {
@@ -196,10 +243,11 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
 
     setSubmitting(true);
     try {
-      // Step 1: Convert hold to checkout booking
+      // Step 1: Convert hold to checkout booking with chosen payment plan
       const checkoutRes = await checkoutRentalHold(holdId, {
         acceptTerms: true,
         termsVersion: 'VMR-TERMS-V2026.1',
+        paymentPlanId: selectedPlanId as any,
       });
 
       const { bookingId, bookingNumber, gatewayOrderId } = checkoutRes;
@@ -268,9 +316,17 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
       });
 
       // Step 4: Success confirmation & Navigate to live booking details
+      const isPartial = selectedPlan?.type === 'PARTIAL';
+      const successTitle = isPartial
+        ? 'Reservation Confirmed! (Advance Received) 🎉'
+        : 'Booking Confirmed & Fully Paid! 🎉';
+      const successMsg = isPartial
+        ? `Reservation ${bookingNumber} is confirmed with advance payment of ₹${advancePayableRupees.toLocaleString('en-IN')}.\n\nRemaining rental balance of ₹${remainingBalanceRupees.toLocaleString('en-IN')} is due 24h prior to pickup.\n\nYour vehicle is reserved in the operations queue.`
+        : `Reservation ${bookingNumber} has been confirmed. Total rental charges of ₹${rentalTariffRupees.toLocaleString('en-IN')} paid in full. Your self-drive rental is registered for key handover.`;
+
       Alert.alert(
-        'Booking Confirmed! 🎉',
-        `Reservation ${bookingNumber} has been confirmed. Your self-drive rental is now registered in the operations queue for key handover.`,
+        successTitle,
+        successMsg,
         [
           {
             text: 'View Booking & Trip',
@@ -392,17 +448,111 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        {/* Price Breakdown Card */}
+        {/* Configurable Booking Payment Options */}
+        <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+          <View style={styles.cardHeader}>
+            <Sparkles size={18} color={colors.brandAccent} />
+            <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>
+              Booking Payment Options
+            </Text>
+          </View>
+          <Text style={[styles.cardSubtitle, { color: colors.textSecondary }]}>
+            Choose how you want to pay for this rental. Policy permits partial advance or 100% full payment.
+          </Text>
+
+          {loadingPlans ? (
+            <View style={{ paddingVertical: 12, alignItems: 'center' }}>
+              <ActivityIndicator size="small" color={colors.brandAccent} />
+              <Text style={{ fontSize: 12, color: colors.textMuted, marginTop: 4 }}>Loading payment options…</Text>
+            </View>
+          ) : plans.length === 0 ? (
+            <View style={{ paddingVertical: 10 }}>
+              <Text style={{ fontSize: 13, color: colors.textSecondary }}>Standard 100% rental prepayment active.</Text>
+            </View>
+          ) : (
+            <View style={{ gap: 10, marginTop: 4 }}>
+              {plans.map(plan => {
+                const isSelected = selectedPlanId === plan.planId;
+                const advRupees = Math.round(Number(plan.advancePaise) / 100);
+                const balRupees = Math.round(Number(plan.balancePaise) / 100);
+                const isAvail = plan.isAvailable;
+
+                return (
+                  <Pressable
+                    key={plan.planId}
+                    accessibilityRole="radio"
+                    accessibilityState={{ selected: isSelected, disabled: !isAvail }}
+                    disabled={!isAvail}
+                    onPress={() => setSelectedPlanId(plan.planId)}
+                    style={[
+                      styles.paymentMethodRow,
+                      {
+                        backgroundColor: colors.surfaceSecondary,
+                        borderColor: isSelected ? colors.brandAccent : colors.border,
+                        opacity: isAvail ? 1 : 0.5,
+                        borderWidth: isSelected ? 1.5 : 1,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={[
+                        styles.radioSelected,
+                        {
+                          borderColor: isSelected
+                            ? (isDark ? colors.brandAccent : colors.brandNavy)
+                            : colors.borderStrong,
+                          backgroundColor: isSelected ? colors.brandAccent : 'transparent',
+                        },
+                      ]}
+                    />
+                    <View style={{ flex: 1 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Text style={[styles.paymentMethodTitle, { color: colors.textPrimary, fontWeight: isSelected ? '800' : '600' }]}>
+                          {plan.name}
+                        </Text>
+                        <Text style={{ fontSize: 14, fontWeight: '900', color: colors.brandAccent }}>
+                          ₹{advRupees.toLocaleString('en-IN')} now
+                        </Text>
+                      </View>
+
+                      {plan.type === 'PARTIAL' ? (
+                        <Text style={[styles.paymentMethodDesc, { color: colors.textSecondary, marginTop: 2 }]}>
+                          Pay ₹{advRupees.toLocaleString('en-IN')} advance · ₹{balRupees.toLocaleString('en-IN')} balance due 24h before pickup
+                        </Text>
+                      ) : (
+                        <Text style={[styles.paymentMethodDesc, { color: colors.textSecondary, marginTop: 2 }]}>
+                          Pay full rental amount now · ₹0 balance due
+                        </Text>
+                      )}
+
+                      {!isAvail && plan.ineligibilityReason ? (
+                        <Text style={{ fontSize: 10, color: '#EF4444', fontWeight: '700', marginTop: 4 }}>
+                          ⚠️ {plan.ineligibilityReason}
+                        </Text>
+                      ) : null}
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
+        {/* Fare Breakdown Card */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Fare Breakdown</Text>
           <View style={{ gap: 8 }}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={{ fontSize: 13, color: colors.textSecondary }}>Rental Base Fare</Text>
+              <Text style={{ fontSize: 13, color: colors.textSecondary }}>Rental Base Tariff</Text>
               <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>₹{baseFareRupees.toLocaleString('en-IN')}</Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
-              <Text style={{ fontSize: 13, color: colors.textSecondary }}>Taxes & GST (18%)</Text>
+              <Text style={{ fontSize: 13, color: colors.textSecondary }}>GST on Rental (18%)</Text>
               <Text style={{ fontSize: 13, fontWeight: '600', color: colors.textPrimary }}>₹{taxRupees.toLocaleString('en-IN')}</Text>
+            </View>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+              <Text style={{ fontSize: 13, fontWeight: '700', color: colors.textPrimary }}>Total Rental Charges</Text>
+              <Text style={{ fontSize: 14, fontWeight: '800', color: colors.textPrimary }}>₹{rentalTariffRupees.toLocaleString('en-IN')}</Text>
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
@@ -411,10 +561,30 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
               </View>
               <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>₹{depositRupees.toLocaleString('en-IN')}</Text>
             </View>
+            <Text style={{ fontSize: 11, color: colors.textMuted, fontStyle: 'italic' }}>
+              Deposit is held separately & refunded post-trip inspection. Not rental revenue.
+            </Text>
+
             <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 4 }} />
+
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={{ fontSize: 15, fontWeight: '800', color: colors.textPrimary }}>Total Amount Payable</Text>
-              <Text style={{ fontSize: 20, fontWeight: '900', color: colors.brandAccent }}>₹{totalRupees.toLocaleString('en-IN')}</Text>
+              <View>
+                <Text style={{ fontSize: 14, fontWeight: '800', color: colors.textPrimary }}>
+                  Payable Now ({selectedPlan?.name || 'Full Payment'})
+                </Text>
+                {remainingBalanceRupees > 0 ? (
+                  <Text style={{ fontSize: 11, color: colors.brandAccent, fontWeight: '700' }}>
+                    Remaining ₹{remainingBalanceRupees.toLocaleString('en-IN')} balance due before pickup
+                  </Text>
+                ) : (
+                  <Text style={{ fontSize: 11, color: colors.success, fontWeight: '600' }}>
+                    Rental settled in full
+                  </Text>
+                )}
+              </View>
+              <Text style={{ fontSize: 20, fontWeight: '900', color: colors.brandAccent }}>
+                ₹{initialPayableRupees.toLocaleString('en-IN')}
+              </Text>
             </View>
           </View>
         </View>
@@ -872,7 +1042,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
                   { color: isDark ? colors.brandNavy : '#FFFFFF' },
                 ]}
               >
-                Confirm Booking & Pay ₹{totalRupees.toLocaleString('en-IN')}
+                Confirm Booking & Pay ₹{initialPayableRupees.toLocaleString('en-IN')}
               </Text>
             </>
           )}
