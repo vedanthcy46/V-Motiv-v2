@@ -30,6 +30,7 @@ import {
   HelpCircle,
   MapPin,
   Plus,
+  RefreshCw,
   Shield,
   Truck,
   Wind,
@@ -40,6 +41,8 @@ import { useAppTheme, radius, space } from '../theme';
 import { useAuth } from '../auth/AuthProvider';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 import { useKeyboard } from '../components/KeyboardAwareFormScreen';
+import { customer } from '../services/customer';
+import type { CustomerAddress } from '../types';
 import {
   createCustomerVehicle,
   createServiceRequest,
@@ -119,6 +122,44 @@ export function ServiceHomeScreen() {
     pincode: userCity.toLowerCase().includes('chennai') ? '600032' : '560103',
     instructions: '',
   });
+  const [savedAddresses, setSavedAddresses] = useState<CustomerAddress[]>([]);
+  const [syncingAddresses, setSyncingAddresses] = useState(false);
+
+  const syncSavedAddresses = useCallback(async (autoSelectIfEmpty = false) => {
+    setSyncingAddresses(true);
+    try {
+      const list = await customer.addresses();
+      const addrList = Array.isArray(list) ? list : [];
+      setSavedAddresses(addrList);
+      if (autoSelectIfEmpty && addrList.length > 0 && addrList[0]) {
+        const first = addrList[0];
+        setPickupAddress(prev => {
+          if (!prev.line1.trim()) {
+            return {
+              ...prev,
+              line1: first.addressLine,
+              city: first.city || prev.city,
+              pincode: first.pincode || prev.pincode,
+            };
+          }
+          return prev;
+        });
+      }
+    } catch (err: any) {
+      console.warn('[SYNC_ADDRESSES_ERROR]', err?.message || err);
+    } finally {
+      setSyncingAddresses(false);
+    }
+  }, []);
+
+  const applySavedAddress = (sa: CustomerAddress) => {
+    setPickupAddress(prev => ({
+      ...prev,
+      line1: sa.addressLine,
+      city: sa.city || prev.city,
+      pincode: sa.pincode || prev.pincode,
+    }));
+  };
 
   const cityHubs = useMemo(() => {
     if (!hubs.length) return [];
@@ -144,6 +185,8 @@ export function ServiceHomeScreen() {
       setVehicles(vList);
       setCategories(cList);
       setHubs(hList);
+
+      void syncSavedAddresses(true);
 
       if (vList.length > 0) {
         if (preselectedVehicleId) {
@@ -641,7 +684,93 @@ export function ServiceHomeScreen() {
       {/* Address Form if Pickup */}
       {fulfillmentType === 'PICKUP_AND_RETURN' && (
         <View style={[styles.addressBox, { backgroundColor: c.surface, borderColor: c.border }]}>
-          <Text style={[styles.addressBoxTitle, { color: c.text }]}>Pickup Address</Text>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: space.sm }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+              <MapPin size={16} color={c.accent} />
+              <Text style={[styles.addressBoxTitle, { color: c.text, marginBottom: 0 }]}>Doorstep Pickup & Return Address</Text>
+            </View>
+            <TouchableOpacity
+              onPress={() => void syncSavedAddresses(false)}
+              disabled={syncingAddresses}
+              accessibilityRole="button"
+              accessibilityLabel="Sync saved addresses"
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                gap: 5,
+                paddingVertical: 5,
+                paddingHorizontal: 10,
+                borderRadius: 8,
+                backgroundColor: isDark ? '#1E3A63' : '#EDF2F7',
+                borderWidth: 1,
+                borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+              }}
+            >
+              {syncingAddresses ? (
+                <ActivityIndicator size="small" color={c.accent} />
+              ) : (
+                <RefreshCw size={13} color={c.accent} />
+              )}
+              <Text style={{ fontSize: 12, fontWeight: '700', color: c.accent }}>
+                {syncingAddresses ? 'Syncing…' : 'Sync Saved'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+
+          {/* Saved Addresses quick-selection bar */}
+          {savedAddresses.length > 0 ? (
+            <View style={{ marginBottom: space.sm, paddingBottom: 4 }}>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
+                Saved Addresses (Tap to Auto-Fill):
+              </Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
+              >
+                {savedAddresses.map(sa => {
+                  const isSelected = pickupAddress.line1 === sa.addressLine && (!sa.pincode || pickupAddress.pincode === sa.pincode);
+                  return (
+                    <TouchableOpacity
+                      key={sa.id}
+                      onPress={() => applySavedAddress(sa)}
+                      accessibilityRole="button"
+                      accessibilityLabel={`Use saved address ${sa.label}`}
+                      style={{
+                        flexDirection: 'row',
+                        alignItems: 'center',
+                        gap: 6,
+                        paddingVertical: 6,
+                        paddingHorizontal: 11,
+                        borderRadius: 20,
+                        backgroundColor: isSelected
+                          ? (isDark ? 'rgba(245, 158, 11, 0.18)' : '#FEF3C7')
+                          : (isDark ? '#162C4E' : '#F1F5F9'),
+                        borderWidth: 1.5,
+                        borderColor: isSelected ? c.accent : (isDark ? '#244577' : '#E2E8F0'),
+                      }}
+                    >
+                      <MapPin size={12} color={isSelected ? c.accent : c.textMuted} />
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: isSelected ? c.accent : c.text }}>
+                        {sa.label || 'Saved'}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: c.textMuted }}>
+                        ({sa.city}{sa.pincode ? ` - ${sa.pincode}` : ''})
+                      </Text>
+                      {isSelected && <Check size={12} color={c.accent} />}
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
+            </View>
+          ) : (
+            <View style={{ marginBottom: 10, padding: 8, borderRadius: 6, backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC' }}>
+              <Text style={{ fontSize: 11, color: c.textMuted }}>
+                No saved address detected on your profile. Fill in below or tap "Sync Saved" to refresh.
+              </Text>
+            </View>
+          )}
+
           <TextInput
             value={pickupAddress.line1}
             onChangeText={txt => setPickupAddress(prev => ({ ...prev, line1: txt }))}

@@ -748,14 +748,15 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                   </p>
 
                   <div style={{ marginTop: '1rem' }}>
-                    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 140px', gap: '0.5rem', fontWeight: 600, fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 140px 38px', gap: '0.5rem', fontWeight: 600, fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px' }}>
                       <span>TYPE</span>
                       <span>DESCRIPTION</span>
                       <span>QTY</span>
                       <span>RATE (₹)</span>
+                      <span></span>
                     </div>
                     {estimateLines.map((line, idx) => (
-                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 140px', gap: '0.5rem', marginBottom: '6px' }}>
+                      <div key={idx} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 140px 38px', gap: '0.5rem', marginBottom: '6px', alignItems: 'center' }}>
                         <select
                           className="select"
                           value={line.itemType}
@@ -772,6 +773,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         <input
                           type="text"
                           className="input"
+                          placeholder="Item description *"
                           value={line.description}
                           onChange={e => {
                             const copy = [...estimateLines];
@@ -801,6 +803,34 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                             setEstimateLines(copy);
                           }}
                         />
+                        <button
+                          type="button"
+                          className="btn-danger btn-sm button danger small"
+                          title="Delete line item"
+                          onClick={() => {
+                            if (estimateLines.length <= 1) {
+                              setEstimateLines([{ itemType: 'LABOUR', description: '', quantity: 1, unitRateRupees: 0 }]);
+                            } else {
+                              setEstimateLines(estimateLines.filter((_, i) => i !== idx));
+                            }
+                          }}
+                          style={{
+                            padding: '0.35rem 0.5rem',
+                            height: '36px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            borderRadius: '4px',
+                            color: '#ef4444',
+                            background: 'rgba(239, 68, 68, 0.12)',
+                            border: '1px solid rgba(239, 68, 68, 0.3)',
+                            cursor: 'pointer',
+                            fontSize: '0.9rem',
+                            fontWeight: 'bold',
+                          }}
+                        >
+                          ✕
+                        </button>
                       </div>
                     ))}
                     <button
