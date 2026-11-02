@@ -37,6 +37,7 @@ import {
   Plus,
   Minus,
   X,
+  Eye,
 } from 'lucide-react-native';
 import {
   fetchRentalBookingDetails,
@@ -61,6 +62,13 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
   const [extensionModalVisible, setExtensionModalVisible] = useState(false);
   const [extensionHours, setExtensionHours] = useState('4');
   const [requestingExtension, setRequestingExtension] = useState(false);
+
+  // Document & Evidence Image Preview Modal
+  const [previewDocModal, setPreviewDocModal] = useState<{
+    visible: boolean;
+    uri: string;
+    title: string;
+  } | null>(null);
 
   const loadDetails = useCallback(async () => {
     try {
@@ -285,6 +293,75 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
           </View>
         </View>
 
+        {/* Uploaded Driver License KYC Documents Preview */}
+        {booking.driverVerification && (booking.driverVerification.licenseFrontUrl || booking.driverVerification.licenseBackUrl) && (
+          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                <FileCheck size={18} color={booking.kycStatus === 'VERIFIED' ? (isDark ? '#34D399' : '#059669') : colors.brandAccent} />
+                <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>
+                  Driver License Documents
+                </Text>
+              </View>
+              <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textMuted }}>
+                {booking.driverVerification.licenseNumber || 'Physical ID'}
+              </Text>
+            </View>
+
+            <Text style={{ fontSize: 11, color: colors.textSecondary }}>
+              Mandatory physical driving license submitted for hub custody verification. Tap any document to preview in full size.
+            </Text>
+
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 2 }}>
+              {booking.driverVerification.licenseFrontUrl ? (
+                <Pressable
+                  onPress={() =>
+                    setPreviewDocModal({
+                      visible: true,
+                      uri: booking.driverVerification!.licenseFrontUrl,
+                      title: 'Driver License — Front Side',
+                    })
+                  }
+                  style={[styles.docPreviewCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                >
+                  <Image
+                    source={{ uri: booking.driverVerification.licenseFrontUrl }}
+                    style={{ width: '100%', height: 85, borderRadius: 8 }}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.docPreviewBadge}>
+                    <Eye size={11} color="#FFFFFF" />
+                    <Text style={{ fontSize: 9, fontWeight: '700', color: '#FFFFFF', marginLeft: 3 }}>Front · Tap to Preview</Text>
+                  </View>
+                </Pressable>
+              ) : null}
+
+              {booking.driverVerification.licenseBackUrl ? (
+                <Pressable
+                  onPress={() =>
+                    setPreviewDocModal({
+                      visible: true,
+                      uri: booking.driverVerification!.licenseBackUrl,
+                      title: 'Driver License — Back Side',
+                    })
+                  }
+                  style={[styles.docPreviewCard, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                >
+                  <Image
+                    source={{ uri: booking.driverVerification.licenseBackUrl }}
+                    style={{ width: '100%', height: 85, borderRadius: 8 }}
+                    resizeMode="cover"
+                  />
+                  <View style={styles.docPreviewBadge}>
+                    <Eye size={11} color="#FFFFFF" />
+                    <Text style={{ fontSize: 9, fontWeight: '700', color: '#FFFFFF', marginLeft: 3 }}>Back · Tap to Preview</Text>
+                  </View>
+                </Pressable>
+              ) : null}
+            </View>
+          </View>
+        )}
+
         {/* Vehicle Card */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
           <View style={styles.cardHeader}>
@@ -486,12 +563,23 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
                     </Text>
                     <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                       {booking.trip.returnPhotos.map((photoUrl, pIdx) => (
-                        <Image
+                        <Pressable
                           key={pIdx}
-                          source={{ uri: photoUrl }}
-                          style={{ width: 85, height: 85, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}
-                          resizeMode="cover"
-                        />
+                          onPress={() =>
+                            setPreviewDocModal({
+                              visible: true,
+                              uri: photoUrl,
+                              title: `Return Inspection Photo #${pIdx + 1}`,
+                            })
+                          }
+                          style={{ borderRadius: 8, overflow: 'hidden' }}
+                        >
+                          <Image
+                            source={{ uri: photoUrl }}
+                            style={{ width: 85, height: 85, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}
+                            resizeMode="cover"
+                          />
+                        </Pressable>
                       ))}
                     </ScrollView>
                   </View>
@@ -534,6 +622,35 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
                     </View>
                   )}
                 </View>
+
+                {booking.trip.pickupPhotos && booking.trip.pickupPhotos.length > 0 && (
+                  <View style={{ marginTop: 10 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                      Departure Handover Photos ({booking.trip.pickupPhotos.length})
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                      {booking.trip.pickupPhotos.map((photoUrl, pIdx) => (
+                        <Pressable
+                          key={pIdx}
+                          onPress={() =>
+                            setPreviewDocModal({
+                              visible: true,
+                              uri: photoUrl,
+                              title: `Departure Handover Photo #${pIdx + 1}`,
+                            })
+                          }
+                          style={{ borderRadius: 8, overflow: 'hidden' }}
+                        >
+                          <Image
+                            source={{ uri: photoUrl }}
+                            style={{ width: 85, height: 85, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}
+                            resizeMode="cover"
+                          />
+                        </Pressable>
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
               </>
             )}
           </View>
@@ -843,6 +960,52 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
           </View>
         </KeyboardAvoidingView>
       </Modal>
+
+      {/* Fullscreen Document & Inspection Image Preview Modal */}
+      {previewDocModal && (
+        <Modal
+          visible={previewDocModal.visible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPreviewDocModal(null)}
+        >
+          <View style={styles.previewModalOverlay}>
+            <View style={[styles.previewModalHeader, { paddingTop: Math.max(insets.top, 20) }]}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={styles.previewModalTitle}>{previewDocModal.title}</Text>
+                <Text style={styles.previewModalSubtitle}>
+                  High-resolution document & vehicle inspection record
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setPreviewDocModal(null)}
+                style={styles.previewCloseBtn}
+                accessibilityLabel="Close image preview"
+              >
+                <X size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.previewImageContainer}>
+              <Image
+                source={{ uri: previewDocModal.uri }}
+                style={styles.previewFullImage}
+                resizeMode="contain"
+              />
+            </View>
+
+            <View style={[styles.previewModalFooter, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+              <TouchableOpacity
+                onPress={() => setPreviewDocModal(null)}
+                style={styles.previewDoneBtn}
+              >
+                <CheckCircle2 size={16} color="#061a38" />
+                <Text style={styles.previewDoneText}>Close Preview</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </View>
   );
 }
@@ -1208,5 +1371,91 @@ const styles = StyleSheet.create({
   modalConfirmText: {
     fontSize: 14,
     fontWeight: '700',
+  },
+  docPreviewCard: {
+    flex: 1,
+    borderRadius: 12,
+    borderWidth: 1,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  docPreviewBadge: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    borderRadius: 5,
+    paddingVertical: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.94)',
+    justifyContent: 'space-between',
+  },
+  previewModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  previewModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
+  previewModalSubtitle: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.65)',
+    marginTop: 2,
+  },
+  previewCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewImageContainer: {
+    flex: 1,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewFullImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  previewModalFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  previewDoneBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#34D399',
+    paddingVertical: 13,
+    borderRadius: 12,
+    gap: 8,
+  },
+  previewDoneText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#061a38',
   },
 });

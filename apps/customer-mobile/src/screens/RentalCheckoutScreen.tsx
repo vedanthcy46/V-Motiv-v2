@@ -11,6 +11,8 @@ import {
   Platform,
   Image,
   ActivityIndicator,
+  Modal,
+  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -31,6 +33,10 @@ import {
   Camera,
   Upload,
   Sparkles,
+  Eye,
+  X,
+  RefreshCw,
+  ZoomIn,
 } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { api } from '../api';
@@ -60,6 +66,12 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
   const [localFrontAsset, setLocalFrontAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [localBackAsset, setLocalBackAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [uploadingLicense, setUploadingLicense] = useState<'front' | 'back' | null>(null);
+  const [previewModal, setPreviewModal] = useState<{
+    visible: boolean;
+    uri: string;
+    title: string;
+    type: 'front' | 'back';
+  } | null>(null);
 
   // Payment method selection
   const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'CARD' | 'NETBANKING' | 'DEMO'>('UPI');
@@ -505,75 +517,179 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
               </Text>
             </View>
             <View style={{ flexDirection: 'row', gap: 10 }}>
-              <Pressable
-                onPress={() => handlePickLicensePhoto('front')}
-                disabled={uploadingLicense !== null}
-                style={[
-                  styles.licensePhotoBox,
-                  {
-                    backgroundColor: colors.surfaceSecondary,
-                    borderColor: driverLicenseFront ? '#10b981' : '#ef4444',
-                    borderWidth: driverLicenseFront ? 1.5 : 1,
-                    borderStyle: driverLicenseFront ? 'solid' : 'dashed',
-                  },
-                ]}
-              >
+              {/* Front Photo Card */}
+              <View style={{ flex: 1 }}>
                 {uploadingLicense === 'front' ? (
-                  <>
+                  <View style={[styles.licensePhotoBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.brandAccent }]}>
                     <ActivityIndicator size="small" color={colors.brandAccent} />
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: colors.brandAccent, marginTop: 4 }}>Uploading…</Text>
-                    <Text style={{ fontSize: 8, color: colors.textMuted }}>Saving to Cloudinary</Text>
-                  </>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: colors.brandAccent, marginTop: 4 }}>Processing…</Text>
+                    <Text style={{ fontSize: 8, color: colors.textMuted }}>Holding in local memory</Text>
+                  </View>
                 ) : driverLicenseFront ? (
-                  <>
-                    <Image source={{ uri: driverLicenseFront }} style={styles.licenseThumbnail} resizeMode="cover" />
-                    <View style={{ position: 'absolute', bottom: 4, left: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4, paddingVertical: 2 }}>
-                      <Text style={{ fontSize: 9, fontWeight: '800', color: '#10b981', textAlign: 'center' }}>✓ Front Uploaded</Text>
+                  <View
+                    style={[
+                      styles.licenseUploadedCard,
+                      {
+                        backgroundColor: colors.surfaceSecondary,
+                        borderColor: '#10b981',
+                      },
+                    ]}
+                  >
+                    <Pressable
+                      onPress={() =>
+                        setPreviewModal({
+                          visible: true,
+                          uri: driverLicenseFront,
+                          title: 'Driving License — Front Side',
+                          type: 'front',
+                        })
+                      }
+                      style={{ position: 'relative', width: '100%', height: 75, borderRadius: 8, overflow: 'hidden' }}
+                    >
+                      <Image source={{ uri: driverLicenseFront }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                      <View style={styles.previewTapOverlay}>
+                        <Eye size={12} color="#FFFFFF" />
+                        <Text style={{ fontSize: 9, fontWeight: '700', color: '#FFFFFF', marginLeft: 3 }}>Tap to Preview</Text>
+                      </View>
+                    </Pressable>
+
+                    <View style={styles.cardActionsRow}>
+                      <TouchableOpacity
+                        onPress={() =>
+                          setPreviewModal({
+                            visible: true,
+                            uri: driverLicenseFront,
+                            title: 'Driving License — Front Side',
+                            type: 'front',
+                          })
+                        }
+                        style={[
+                          styles.smallPillBtn,
+                          {
+                            backgroundColor: isDark ? 'rgba(52, 211, 153, 0.18)' : '#ECFDF5',
+                            borderColor: isDark ? '#059669' : '#A7F3D0',
+                          },
+                        ]}
+                      >
+                        <Eye size={11} color={isDark ? '#34D399' : '#059669'} />
+                        <Text style={[styles.smallPillText, { color: isDark ? '#34D399' : '#059669' }]}>Preview</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => handlePickLicensePhoto('front')}
+                        style={[styles.smallPillBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                      >
+                        <RefreshCw size={11} color={colors.textSecondary} />
+                        <Text style={[styles.smallPillText, { color: colors.textSecondary }]}>Retake</Text>
+                      </TouchableOpacity>
                     </View>
-                  </>
+                  </View>
                 ) : (
-                  <>
+                  <Pressable
+                    onPress={() => handlePickLicensePhoto('front')}
+                    style={[
+                      styles.licensePhotoBox,
+                      {
+                        backgroundColor: colors.surfaceSecondary,
+                        borderColor: '#ef4444',
+                        borderWidth: 1,
+                        borderStyle: 'dashed',
+                      },
+                    ]}
+                  >
                     <Camera size={22} color="#ef4444" />
                     <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textPrimary, marginTop: 4 }}>Front Photo *</Text>
                     <Text style={{ fontSize: 9, color: '#ef4444', fontWeight: '600' }}>Tap to upload</Text>
-                  </>
+                  </Pressable>
                 )}
-              </Pressable>
+              </View>
 
-              <Pressable
-                onPress={() => handlePickLicensePhoto('back')}
-                disabled={uploadingLicense !== null}
-                style={[
-                  styles.licensePhotoBox,
-                  {
-                    backgroundColor: colors.surfaceSecondary,
-                    borderColor: driverLicenseBack ? '#10b981' : '#ef4444',
-                    borderWidth: driverLicenseBack ? 1.5 : 1,
-                    borderStyle: driverLicenseBack ? 'solid' : 'dashed',
-                  },
-                ]}
-              >
+              {/* Back Photo Card */}
+              <View style={{ flex: 1 }}>
                 {uploadingLicense === 'back' ? (
-                  <>
+                  <View style={[styles.licensePhotoBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.brandAccent }]}>
                     <ActivityIndicator size="small" color={colors.brandAccent} />
-                    <Text style={{ fontSize: 10, fontWeight: '700', color: colors.brandAccent, marginTop: 4 }}>Uploading…</Text>
-                    <Text style={{ fontSize: 8, color: colors.textMuted }}>Saving to Cloudinary</Text>
-                  </>
+                    <Text style={{ fontSize: 10, fontWeight: '700', color: colors.brandAccent, marginTop: 4 }}>Processing…</Text>
+                    <Text style={{ fontSize: 8, color: colors.textMuted }}>Holding in local memory</Text>
+                  </View>
                 ) : driverLicenseBack ? (
-                  <>
-                    <Image source={{ uri: driverLicenseBack }} style={styles.licenseThumbnail} resizeMode="cover" />
-                    <View style={{ position: 'absolute', bottom: 4, left: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4, paddingVertical: 2 }}>
-                      <Text style={{ fontSize: 9, fontWeight: '800', color: '#10b981', textAlign: 'center' }}>✓ Back Uploaded</Text>
+                  <View
+                    style={[
+                      styles.licenseUploadedCard,
+                      {
+                        backgroundColor: colors.surfaceSecondary,
+                        borderColor: '#10b981',
+                      },
+                    ]}
+                  >
+                    <Pressable
+                      onPress={() =>
+                        setPreviewModal({
+                          visible: true,
+                          uri: driverLicenseBack,
+                          title: 'Driving License — Back Side',
+                          type: 'back',
+                        })
+                      }
+                      style={{ position: 'relative', width: '100%', height: 75, borderRadius: 8, overflow: 'hidden' }}
+                    >
+                      <Image source={{ uri: driverLicenseBack }} style={{ width: '100%', height: '100%' }} resizeMode="cover" />
+                      <View style={styles.previewTapOverlay}>
+                        <Eye size={12} color="#FFFFFF" />
+                        <Text style={{ fontSize: 9, fontWeight: '700', color: '#FFFFFF', marginLeft: 3 }}>Tap to Preview</Text>
+                      </View>
+                    </Pressable>
+
+                    <View style={styles.cardActionsRow}>
+                      <TouchableOpacity
+                        onPress={() =>
+                          setPreviewModal({
+                            visible: true,
+                            uri: driverLicenseBack,
+                            title: 'Driving License — Back Side',
+                            type: 'back',
+                          })
+                        }
+                        style={[
+                          styles.smallPillBtn,
+                          {
+                            backgroundColor: isDark ? 'rgba(52, 211, 153, 0.18)' : '#ECFDF5',
+                            borderColor: isDark ? '#059669' : '#A7F3D0',
+                          },
+                        ]}
+                      >
+                        <Eye size={11} color={isDark ? '#34D399' : '#059669'} />
+                        <Text style={[styles.smallPillText, { color: isDark ? '#34D399' : '#059669' }]}>Preview</Text>
+                      </TouchableOpacity>
+
+                      <TouchableOpacity
+                        onPress={() => handlePickLicensePhoto('back')}
+                        style={[styles.smallPillBtn, { backgroundColor: colors.surface, borderColor: colors.border }]}
+                      >
+                        <RefreshCw size={11} color={colors.textSecondary} />
+                        <Text style={[styles.smallPillText, { color: colors.textSecondary }]}>Retake</Text>
+                      </TouchableOpacity>
                     </View>
-                  </>
+                  </View>
                 ) : (
-                  <>
+                  <Pressable
+                    onPress={() => handlePickLicensePhoto('back')}
+                    style={[
+                      styles.licensePhotoBox,
+                      {
+                        backgroundColor: colors.surfaceSecondary,
+                        borderColor: '#ef4444',
+                        borderWidth: 1,
+                        borderStyle: 'dashed',
+                      },
+                    ]}
+                  >
                     <Camera size={22} color="#ef4444" />
                     <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textPrimary, marginTop: 4 }}>Back Photo *</Text>
                     <Text style={{ fontSize: 9, color: '#ef4444', fontWeight: '600' }}>Tap to upload</Text>
-                  </>
+                  </Pressable>
                 )}
-              </Pressable>
+              </View>
             </View>
           </View>
         </View>
@@ -762,6 +878,66 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
           )}
         </Pressable>
       </View>
+
+      {/* Fullscreen Document Image Preview Modal */}
+      {previewModal && (
+        <Modal
+          visible={previewModal.visible}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setPreviewModal(null)}
+        >
+          <View style={styles.previewModalOverlay}>
+            <View style={[styles.previewModalHeader, { paddingTop: Math.max(insets.top, 20) }]}>
+              <View style={{ flex: 1, marginRight: 12 }}>
+                <Text style={styles.previewModalTitle}>{previewModal.title}</Text>
+                <Text style={styles.previewModalSubtitle}>
+                  Ensure all details, license number, and photos are legible
+                </Text>
+              </View>
+              <TouchableOpacity
+                onPress={() => setPreviewModal(null)}
+                style={styles.previewCloseBtn}
+                accessibilityLabel="Close document preview"
+              >
+                <X size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            </View>
+
+            <View style={styles.previewImageContainer}>
+              <Image
+                source={{ uri: previewModal.uri }}
+                style={styles.previewFullImage}
+                resizeMode="contain"
+              />
+            </View>
+
+            <View style={[styles.previewModalFooter, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+              <TouchableOpacity
+                onPress={() => {
+                  const type = previewModal.type;
+                  setPreviewModal(null);
+                  setTimeout(() => {
+                    void handlePickLicensePhoto(type);
+                  }, 250);
+                }}
+                style={styles.previewRetakeBtn}
+              >
+                <RefreshCw size={15} color="#FFFFFF" />
+                <Text style={styles.previewRetakeText}>Retake / Replace</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                onPress={() => setPreviewModal(null)}
+                style={styles.previewDoneBtn}
+              >
+                <Check size={16} color="#061a38" />
+                <Text style={styles.previewDoneText}>Looks Sharp ✓</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </Modal>
+      )}
     </KeyboardAvoidingView>
   );
 }
@@ -855,14 +1031,133 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   licensePhotoBox: {
-    flex: 1,
-    height: 80,
+    height: 105,
     borderRadius: 12,
     borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
+    padding: 8,
+  },
+  licenseUploadedCard: {
+    borderRadius: 12,
+    borderWidth: 1.5,
+    padding: 6,
     overflow: 'hidden',
-    padding: 4,
+  },
+  previewTapOverlay: {
+    position: 'absolute',
+    bottom: 4,
+    left: 4,
+    right: 4,
+    backgroundColor: 'rgba(0, 0, 0, 0.72)',
+    borderRadius: 5,
+    paddingVertical: 3,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  cardActionsRow: {
+    flexDirection: 'row',
+    gap: 6,
+    marginTop: 6,
+  },
+  smallPillBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 5,
+    borderRadius: 6,
+    borderWidth: 1,
+    gap: 4,
+  },
+  smallPillText: {
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  previewModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.94)',
+    justifyContent: 'space-between',
+  },
+  previewModalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingBottom: 14,
+    borderBottomWidth: 1,
+    borderBottomColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  previewModalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+    color: '#FFFFFF',
+    letterSpacing: 0.2,
+  },
+  previewModalSubtitle: {
+    fontSize: 11,
+    color: 'rgba(255, 255, 255, 0.65)',
+    marginTop: 2,
+  },
+  previewCloseBtn: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewImageContainer: {
+    flex: 1,
+    padding: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  previewFullImage: {
+    width: '100%',
+    height: '100%',
+    borderRadius: 12,
+  },
+  previewModalFooter: {
+    flexDirection: 'row',
+    gap: 12,
+    paddingHorizontal: 20,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255, 255, 255, 0.12)',
+  },
+  previewRetakeBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.12)',
+    paddingVertical: 13,
+    borderRadius: 12,
+    gap: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  previewRetakeText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  previewDoneBtn: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: '#34D399',
+    paddingVertical: 13,
+    borderRadius: 12,
+    gap: 8,
+  },
+  previewDoneText: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: '#061a38',
   },
   licenseThumbnail: {
     width: '100%',

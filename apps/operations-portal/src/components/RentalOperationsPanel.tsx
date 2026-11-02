@@ -120,6 +120,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   // Onboard local file holding
   const [onboardLocalFiles, setOnboardLocalFiles] = useState<LocalFileItem[]>([]);
 
+  // Lightbox Document & Photo Preview Modal
+  const [lightboxModal, setLightboxModal] = useState<{ url: string; title: string } | null>(null);
+
   // Onboard form state
   const [onboardReg, setOnboardReg] = useState('');
   const [onboardFleetNumber, setOnboardFleetNumber] = useState('');
@@ -2943,8 +2946,22 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           {activeBooking.driverVerification?.licenseFrontUrl ? (
                             <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
                               <span style={{ fontSize: '0.7rem', fontWeight: 700, display: 'block', marginBottom: '4px', color: '#10b981' }}>License Front</span>
-                              <img src={activeBooking.driverVerification.licenseFrontUrl} alt="License Front" style={{ width: '180px', height: '110px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
-                              <a href={activeBooking.driverVerification.licenseFrontUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '4px', display: 'inline-block' }}>View Full Front ↗</a>
+                              <img
+                                src={activeBooking.driverVerification.licenseFrontUrl}
+                                alt="License Front"
+                                onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseFrontUrl || '', title: `Driver License Front — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
+                                style={{ width: '180px', height: '110px', objectFit: 'cover', borderRadius: '4px', display: 'block', cursor: 'zoom-in' }}
+                              />
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseFrontUrl || '', title: `Driver License Front — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
+                                  style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, #f59e0b)', cursor: 'pointer', fontWeight: 600 }}
+                                >
+                                  👁️ Preview
+                                </button>
+                                <a href={activeBooking.driverVerification.licenseFrontUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>↗</a>
+                              </div>
                             </div>
                           ) : (
                             <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
@@ -2954,8 +2971,22 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           {activeBooking.driverVerification?.licenseBackUrl ? (
                             <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
                               <span style={{ fontSize: '0.7rem', fontWeight: 700, display: 'block', marginBottom: '4px', color: '#10b981' }}>License Back</span>
-                              <img src={activeBooking.driverVerification.licenseBackUrl} alt="License Back" style={{ width: '180px', height: '110px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
-                              <a href={activeBooking.driverVerification.licenseBackUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '4px', display: 'inline-block' }}>View Full Back ↗</a>
+                              <img
+                                src={activeBooking.driverVerification.licenseBackUrl}
+                                alt="License Back"
+                                onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseBackUrl || '', title: `Driver License Back — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
+                                style={{ width: '180px', height: '110px', objectFit: 'cover', borderRadius: '4px', display: 'block', cursor: 'zoom-in' }}
+                              />
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                                <button
+                                  type="button"
+                                  onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseBackUrl || '', title: `Driver License Back — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
+                                  style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, #f59e0b)', cursor: 'pointer', fontWeight: 600 }}
+                                >
+                                  👁️ Preview
+                                </button>
+                                <a href={activeBooking.driverVerification.licenseBackUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>↗</a>
+                              </div>
                             </div>
                           ) : (
                             <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
@@ -2995,8 +3026,22 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                               {activeBooking.driverVerification.licenseFrontUrl ? (
                                 <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
-                                  <img src={activeBooking.driverVerification.licenseFrontUrl} alt="License Front" style={{ width: '150px', height: '95px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
-                                  <a href={activeBooking.driverVerification.licenseFrontUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '4px', display: 'inline-block' }}>View Full Front ↗</a>
+                                  <img
+                                    src={activeBooking.driverVerification.licenseFrontUrl}
+                                    alt="License Front"
+                                    onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseFrontUrl || '', title: `Driver License Front — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
+                                    style={{ width: '150px', height: '95px', objectFit: 'cover', borderRadius: '4px', display: 'block', cursor: 'zoom-in' }}
+                                  />
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseFrontUrl || '', title: `Driver License Front — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
+                                      style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, #f59e0b)', cursor: 'pointer', fontWeight: 600 }}
+                                    >
+                                      👁️ Preview
+                                    </button>
+                                    <a href={activeBooking.driverVerification.licenseFrontUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>↗</a>
+                                  </div>
                                 </div>
                               ) : (
                                 <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
@@ -3005,8 +3050,22 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               )}
                               {activeBooking.driverVerification.licenseBackUrl ? (
                                 <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
-                                  <img src={activeBooking.driverVerification.licenseBackUrl} alt="License Back" style={{ width: '150px', height: '95px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
-                                  <a href={activeBooking.driverVerification.licenseBackUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '4px', display: 'inline-block' }}>View Full Back ↗</a>
+                                  <img
+                                    src={activeBooking.driverVerification.licenseBackUrl}
+                                    alt="License Back"
+                                    onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseBackUrl || '', title: `Driver License Back — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
+                                    style={{ width: '150px', height: '95px', objectFit: 'cover', borderRadius: '4px', display: 'block', cursor: 'zoom-in' }}
+                                  />
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' }}>
+                                    <button
+                                      type="button"
+                                      onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseBackUrl || '', title: `Driver License Back — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
+                                      style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, #f59e0b)', cursor: 'pointer', fontWeight: 600 }}
+                                    >
+                                      👁️ Preview
+                                    </button>
+                                    <a href={activeBooking.driverVerification.licenseBackUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>↗</a>
+                                  </div>
                                 </div>
                               ) : (
                                 <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
@@ -3306,8 +3365,19 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.5rem' }}>
                             {activeBooking.trip.pickupPhotos.map((photoUrl: string, idx: number) => (
                               <div key={idx} style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                                <img src={photoUrl} alt={`Dispatch ${idx + 1}`} style={{ width: '100%', height: '80px', objectFit: 'cover', display: 'block' }} />
-                                <a href={photoUrl} target="_blank" rel="noreferrer" style={{ position: 'absolute', bottom: '2px', right: '2px', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.625rem', padding: '1px 4px', borderRadius: '3px' }}>Enlarge ↗</a>
+                                <img
+                                  src={photoUrl}
+                                  alt={`Dispatch ${idx + 1}`}
+                                  onClick={() => setLightboxModal({ url: photoUrl, title: `Dispatch Inspection Photo #${idx + 1}` })}
+                                  style={{ width: '100%', height: '80px', objectFit: 'cover', display: 'block', cursor: 'zoom-in' }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setLightboxModal({ url: photoUrl, title: `Dispatch Inspection Photo #${idx + 1}` })}
+                                  style={{ position: 'absolute', bottom: '2px', right: '2px', background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: '0.625rem', padding: '1px 5px', borderRadius: '3px', border: 'none', cursor: 'pointer' }}
+                                >
+                                  Enlarge 🔍
+                                </button>
                               </div>
                             ))}
                           </div>
@@ -3664,8 +3734,19 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.5rem' }}>
                             {activeBooking.trip.returnPhotos.map((photoUrl: string, idx: number) => (
                               <div key={idx} style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                                <img src={photoUrl} alt={`Return ${idx + 1}`} style={{ width: '100%', height: '80px', objectFit: 'cover', display: 'block' }} />
-                                <a href={photoUrl} target="_blank" rel="noreferrer" style={{ position: 'absolute', bottom: '2px', right: '2px', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.625rem', padding: '1px 4px', borderRadius: '3px' }}>Enlarge ↗</a>
+                                <img
+                                  src={photoUrl}
+                                  alt={`Return ${idx + 1}`}
+                                  onClick={() => setLightboxModal({ url: photoUrl, title: `Return Inspection Photo #${idx + 1}` })}
+                                  style={{ width: '100%', height: '80px', objectFit: 'cover', display: 'block', cursor: 'zoom-in' }}
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => setLightboxModal({ url: photoUrl, title: `Return Inspection Photo #${idx + 1}` })}
+                                  style={{ position: 'absolute', bottom: '2px', right: '2px', background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: '0.625rem', padding: '1px 5px', borderRadius: '3px', border: 'none', cursor: 'pointer' }}
+                                >
+                                  Enlarge 🔍
+                                </button>
                               </div>
                             ))}
                           </div>
@@ -3911,6 +3992,95 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* LIGHTBOX DOCUMENT & PHOTO PREVIEW MODAL */}
+      {lightboxModal && (
+        <div
+          className="modal-overlay"
+          onClick={() => setLightboxModal(null)}
+          style={{
+            zIndex: 2500,
+            background: 'rgba(2, 6, 23, 0.92)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            padding: '1.5rem',
+          }}
+        >
+          <div
+            onClick={e => e.stopPropagation()}
+            style={{
+              maxWidth: '920px',
+              width: '100%',
+              maxHeight: '92vh',
+              background: '#0f172a',
+              border: '1px solid var(--border)',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.85)',
+            }}
+          >
+            <div
+              style={{
+                padding: '0.875rem 1.25rem',
+                borderBottom: '1px solid var(--border)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                background: '#091a33',
+              }}
+            >
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#f8fafc' }}>
+                {lightboxModal.title}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <a
+                  href={lightboxModal.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="button secondary small"
+                  style={{ fontSize: '0.75rem', textDecoration: 'none' }}
+                >
+                  Open in New Tab ↗
+                </a>
+                <button
+                  type="button"
+                  className="icon-button"
+                  onClick={() => setLightboxModal(null)}
+                  title="Close"
+                  style={{ width: '30px', height: '30px', borderRadius: '6px' }}
+                >
+                  <IconCross />
+                </button>
+              </div>
+            </div>
+            <div
+              style={{
+                flex: 1,
+                padding: '1rem',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                background: '#020617',
+                overflow: 'auto',
+              }}
+            >
+              <img
+                src={lightboxModal.url}
+                alt={lightboxModal.title}
+                style={{
+                  maxWidth: '100%',
+                  maxHeight: '75vh',
+                  objectFit: 'contain',
+                  borderRadius: '6px',
+                }}
+              />
             </div>
           </div>
         </div>
