@@ -89,25 +89,36 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [walkInFuelPercent, setWalkInFuelPercent] = useState<number>(100);
   const [walkInNotes, setWalkInNotes] = useState('');
 
+  interface LocalFileItem {
+    file: File;
+    previewUrl: string;
+  }
+
   // Hub KYC Upload State
   const [hubKycLicenseNumber, setHubKycLicenseNumber] = useState('');
   const [hubKycExpiry, setHubKycExpiry] = useState(oneYearFromNow());
   const [hubKycFrontUrl, setHubKycFrontUrl] = useState('');
   const [hubKycBackUrl, setHubKycBackUrl] = useState('');
-  const [hubKycUploadingFront, setHubKycUploadingFront] = useState(false);
-  const [hubKycUploadingBack, setHubKycUploadingBack] = useState(false);
+  const [hubKycFrontLocal, setHubKycFrontLocal] = useState<LocalFileItem | null>(null);
+  const [hubKycBackLocal, setHubKycBackLocal] = useState<LocalFileItem | null>(null);
+  const [editKycDocuments, setEditKycDocuments] = useState(false);
 
   // Dispatch / Handover Inspection Photos
   const [handoverPhotos, setHandoverPhotos] = useState<string[]>([]);
-  const [handoverUploading, setHandoverUploading] = useState(false);
+  const [handoverLocalFiles, setHandoverLocalFiles] = useState<LocalFileItem[]>([]);
+  const [editHandover, setEditHandover] = useState(false);
 
   // Return Inspection Photos
   const [returnPhotos, setReturnPhotos] = useState<string[]>([]);
-  const [returnUploading, setReturnUploading] = useState(false);
+  const [returnLocalFiles, setReturnLocalFiles] = useState<LocalFileItem[]>([]);
+  const [editReturnSettlement, setEditReturnSettlement] = useState(false);
 
-  // Walk-in KYC Uploading states
-  const [walkInUploadingFront, setWalkInUploadingFront] = useState(false);
-  const [walkInUploadingBack, setWalkInUploadingBack] = useState(false);
+  // Walk-in KYC Local Files
+  const [walkInFrontLocal, setWalkInFrontLocal] = useState<LocalFileItem | null>(null);
+  const [walkInBackLocal, setWalkInBackLocal] = useState<LocalFileItem | null>(null);
+
+  // Onboard local file holding
+  const [onboardLocalFiles, setOnboardLocalFiles] = useState<LocalFileItem[]>([]);
 
   // Onboard form state
   const [onboardReg, setOnboardReg] = useState('');
@@ -265,51 +276,23 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     setOnboardImages(p.images);
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
     if (!files || files.length === 0) return;
-    setImageUploading(true);
-    try {
-      for (let i = 0; i < files.length; i++) {
-        const file = files[i]!;
-        if (file.size > 12 * 1024 * 1024) {
-          throw new Error(`${file.name} is larger than the 12 MB upload limit.`);
-        }
-        const base64Data = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
-          reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
-          reader.readAsDataURL(file);
-        });
-
-        try {
-          const res = await api.uploadListingPhoto(user, {
-            base64Data,
-            mimeType: file.type || 'image/jpeg',
-            filename: file.name.replace(/\.[^.]+$/, ''),
-            folder: `vmotiv/rental-fleet/${onboardReg || 'draft'}`,
-          });
-          const url = res.secureUrl || res.url;
-          if (url) {
-            setOnboardImages(prev => [...prev, url]);
-          }
-        } catch {
-          // Fallback if Cloudinary is offline in local dev: preview as data URL
-          const reader = new FileReader();
-          reader.onload = () => {
-            if (typeof reader.result === 'string') {
-              setOnboardImages(prev => [...prev, reader.result as string]);
-            }
-          };
-          reader.readAsDataURL(file);
-        }
+    const newItems: LocalFileItem[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]!;
+      if (file.size > 12 * 1024 * 1024) {
+        onError(`${file.name} is larger than the 12 MB upload limit.`);
+        continue;
       }
-    } catch (err: any) {
-      onError(err?.message || 'Failed to upload photo');
-    } finally {
-      setImageUploading(false);
-      if (e.target) e.target.value = '';
+      newItems.push({
+        file,
+        previewUrl: URL.createObjectURL(file),
+      });
     }
+    setOnboardLocalFiles(prev => [...prev, ...newItems]);
+    if (e.target) e.target.value = '';
   };
 
   const handleAddImageUrl = () => {
@@ -444,7 +427,13 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       const insExp = onboardInsuranceExpiry ? new Date(`${onboardInsuranceExpiry}T00:00:00.000Z`).toISOString() : oneYear;
       const fitExp = onboardFitnessExpiry ? new Date(`${onboardFitnessExpiry}T00:00:00.000Z`).toISOString() : oneYear;
 
-      const vehicleImages = onboardImages.length > 0 ? onboardImages : [
+      const uploadedLocalUrls: string[] = [];
+      for (const item of onboardLocalFiles) {
+        const url = await uploadFileToCloudinary(item.file, `vmotiv/rental-fleet/${reg || 'draft'}`);
+        uploadedLocalUrls.push(url);
+      }
+      const allImages = [...onboardImages, ...uploadedLocalUrls];
+      const vehicleImages = allImages.length > 0 ? allImages : [
         'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'
       ];
 
@@ -476,6 +465,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         features: onboardFeatures,
       });
       onSuccess(`Successfully onboarded ${onboardMake} ${onboardModel} (${reg}) to rental fleet.`);
+      setOnboardLocalFiles([]);
       setOnboardModalOpen(false);
       void loadData();
     } catch (err: any) {
@@ -606,21 +596,35 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const handleHubKycUploadSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!activeBooking) return;
-    if (!hubKycFrontUrl.trim() || !hubKycBackUrl.trim()) {
+    const hasFront = !!hubKycFrontLocal || !!hubKycFrontUrl.trim();
+    const hasBack = !!hubKycBackLocal || !!hubKycBackUrl.trim();
+    if (!hasFront || !hasBack) {
       onError('Both front and back photos of the physical license are required.');
       return;
     }
     setActionBusy(true);
     try {
+      let finalFront = hubKycFrontUrl.trim();
+      let finalBack = hubKycBackUrl.trim();
+      if (hubKycFrontLocal) {
+        finalFront = await uploadFileToCloudinary(hubKycFrontLocal.file, `vmotiv/rental-kyc/${activeBooking.id}`);
+      }
+      if (hubKycBackLocal) {
+        finalBack = await uploadFileToCloudinary(hubKycBackLocal.file, `vmotiv/rental-kyc/${activeBooking.id}`);
+      }
+
       await api.updateRentalKycDocuments(user, activeBooking.id, {
         licenseNumber: hubKycLicenseNumber.trim().toUpperCase(),
         licenseExpiry: new Date(hubKycExpiry).toISOString(),
         dateOfBirth: new Date('1990-01-01').toISOString(),
         drivingExperienceYears: 5,
-        licenseFrontUrl: hubKycFrontUrl.trim(),
-        licenseBackUrl: hubKycBackUrl.trim(),
+        licenseFrontUrl: finalFront,
+        licenseBackUrl: finalBack,
       });
       onSuccess(`Driving license documents attached for booking ${activeBooking.bookingNumber}.`);
+      setHubKycFrontLocal(null);
+      setHubKycBackLocal(null);
+      setEditKycDocuments(false);
       const updated = await api.rentalBookingDetails(user, activeBooking.id);
       setActiveBooking(updated);
       void loadData();
@@ -654,12 +658,23 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       onError('Please select an available fleet vehicle.');
       return;
     }
-    if (!walkInLicenseFrontUrl.trim() || !walkInLicenseBackUrl.trim()) {
+    const hasFront = !!walkInFrontLocal || !!walkInLicenseFrontUrl.trim();
+    const hasBack = !!walkInBackLocal || !!walkInLicenseBackUrl.trim();
+    if (!hasFront || !hasBack) {
       onError('Driving license front and back documents are mandatory.');
       return;
     }
     setActionBusy(true);
     try {
+      let finalFront = walkInLicenseFrontUrl.trim();
+      let finalBack = walkInLicenseBackUrl.trim();
+      if (walkInFrontLocal) {
+        finalFront = await uploadFileToCloudinary(walkInFrontLocal.file, 'vmotiv/rental-kyc');
+      }
+      if (walkInBackLocal) {
+        finalBack = await uploadFileToCloudinary(walkInBackLocal.file, 'vmotiv/rental-kyc');
+      }
+
       const startDateTime = new Date(`${walkInStartDate}T${walkInStartTime}:00`);
       const endDateTime = new Date(startDateTime.getTime() + walkInDays * 24 * 3600 * 1000);
 
@@ -673,8 +688,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         licenseNumber: walkInLicenseNumber.toUpperCase().trim(),
         licenseExpiry: new Date(walkInLicenseExpiry).toISOString(),
         drivingExperienceYears: Number(walkInExperienceYears) || 3,
-        licenseFrontUrl: walkInLicenseFrontUrl.trim(),
-        licenseBackUrl: walkInLicenseBackUrl.trim(),
+        licenseFrontUrl: finalFront,
+        licenseBackUrl: finalBack,
         paymentMethod: walkInPaymentMethod,
         transactionReference: walkInPaymentTxRef.trim() || `COUNTER-${Date.now()}`,
         startOdometerKm: Number(walkInStartOdo) || undefined,
@@ -692,6 +707,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       setWalkInLicenseNumber('');
       setWalkInLicenseFrontUrl('');
       setWalkInLicenseBackUrl('');
+      setWalkInFrontLocal(null);
+      setWalkInBackLocal(null);
       setWalkInPaymentTxRef('');
       void loadData();
     } catch (err: any) {
@@ -707,8 +724,15 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     if (!activeBooking) return;
     setActionBusy(true);
     try {
+      const uploadedHandoverUrls: string[] = [];
+      for (const item of handoverLocalFiles) {
+        const url = await uploadFileToCloudinary(item.file, `vmotiv/rental-dispatch/${activeBooking.id}`);
+        uploadedHandoverUrls.push(url);
+      }
+      const allPhotos = [...handoverPhotos, ...uploadedHandoverUrls];
       const fallbackPhoto = activeBooking.vehicle?.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80';
-      const photosToSend = handoverPhotos.length > 0 ? handoverPhotos : [fallbackPhoto];
+      const photosToSend = allPhotos.length > 0 ? allPhotos : [fallbackPhoto];
+
       await api.recordRentalHandover(user, activeBooking.id, {
         odometerKm: Number(handoverOdometer),
         fuelPercent: Number(handoverFuel),
@@ -719,8 +743,15 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         photos: photosToSend,
       });
       onSuccess(`Vehicle handover complete for booking ${activeBooking.bookingNumber}. Trip is now ACTIVE.`);
-      setActiveBooking(null);
+      setHandoverLocalFiles([]);
       setHandoverPhotos([]);
+      setEditHandover(false);
+      const updated = await api.rentalBookingDetails(user, activeBooking.id).catch(() => null);
+      if (updated) {
+        setActiveBooking(updated);
+      } else {
+        setActiveBooking(null);
+      }
       void loadData();
     } catch (err: any) {
       onError(err?.message || 'Failed to record vehicle handover');
@@ -735,8 +766,15 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     if (!activeBooking) return;
     setActionBusy(true);
     try {
+      const uploadedReturnUrls: string[] = [];
+      for (const item of returnLocalFiles) {
+        const url = await uploadFileToCloudinary(item.file, `vmotiv/rental-return/${activeBooking.id}`);
+        uploadedReturnUrls.push(url);
+      }
+      const allPhotos = [...returnPhotos, ...uploadedReturnUrls];
       const fallbackPhoto = activeBooking.vehicle?.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80';
-      const photosToSend = returnPhotos.length > 0 ? returnPhotos : [fallbackPhoto];
+      const photosToSend = allPhotos.length > 0 ? allPhotos : [fallbackPhoto];
+
       await api.recordRentalReturn(user, activeBooking.id, {
         returnOdometerKm: Number(returnOdometer),
         odometerKm: Number(returnOdometer),
@@ -752,8 +790,15 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         damageChargePaise: returnDamageChargeRupees * 100,
       });
       onSuccess(`Return inspection recorded for booking ${activeBooking.bookingNumber}. Settlement submitted.`);
-      setActiveBooking(null);
+      setReturnLocalFiles([]);
       setReturnPhotos([]);
+      setEditReturnSettlement(false);
+      const updated = await api.rentalBookingDetails(user, activeBooking.id).catch(() => null);
+      if (updated) {
+        setActiveBooking(updated);
+      } else {
+        setActiveBooking(null);
+      }
       void loadData();
     } catch (err: any) {
       onError(err?.message || 'Failed to record return inspection');
@@ -1389,43 +1434,43 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: walkInLicenseFrontUrl ? '#10b981' : 'var(--text)' }}>
-                          License Front Photo * {walkInLicenseFrontUrl && '✓'}
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: (walkInFrontLocal || walkInLicenseFrontUrl) ? '#10b981' : 'var(--text)' }}>
+                          License Front Photo * {(walkInFrontLocal || walkInLicenseFrontUrl) && '✓'}
                         </label>
                         <label
                           htmlFor="walkin-front-file"
                           className="button secondary small"
-                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: walkInUploadingFront ? 'wait' : 'pointer' }}
+                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: 'pointer' }}
                         >
-                          {walkInUploadingFront ? '⏳ Uploading…' : '📁 Upload Photo'}
+                          📁 Choose Photo
                         </label>
                         <input
                           id="walkin-front-file"
                           type="file"
                           accept="image/*"
                           style={{ display: 'none' }}
-                          disabled={walkInUploadingFront}
-                          onChange={async e => {
+                          onChange={e => {
                             const file = e.target.files?.[0];
                             if (!file) return;
-                            setWalkInUploadingFront(true);
-                            try {
-                              const url = await uploadFileToCloudinary(file, 'vmotiv/rental-kyc');
-                              setWalkInLicenseFrontUrl(url);
-                            } catch (err: any) {
-                              onError(err?.message || 'Failed to upload license front');
-                            } finally {
-                              setWalkInUploadingFront(false);
-                            }
+                            setWalkInFrontLocal({ file, previewUrl: URL.createObjectURL(file) });
+                            if (e.target) e.target.value = '';
                           }}
                         />
                       </div>
-                      {walkInLicenseFrontUrl ? (
+                      {(walkInFrontLocal || walkInLicenseFrontUrl) ? (
                         <div style={{ position: 'relative', marginTop: '4px', border: '1px solid #10b981', borderRadius: '4px', padding: '4px', background: 'rgba(16, 185, 129, 0.05)' }}>
-                          <img src={walkInLicenseFrontUrl} alt="Front preview" style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '3px', display: 'block' }} />
+                          <img
+                            src={walkInFrontLocal ? walkInFrontLocal.previewUrl : walkInLicenseFrontUrl}
+                            alt="Front preview"
+                            style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '3px', display: 'block' }}
+                          />
                           <button
                             type="button"
-                            onClick={() => setWalkInLicenseFrontUrl('')}
+                            onClick={() => {
+                              if (walkInFrontLocal) URL.revokeObjectURL(walkInFrontLocal.previewUrl);
+                              setWalkInFrontLocal(null);
+                              setWalkInLicenseFrontUrl('');
+                            }}
                             style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
                             title="Remove photo"
                           >
@@ -1437,7 +1482,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           type="text"
                           className="input"
                           required
-                          placeholder="Upload image or paste link"
+                          placeholder="Select photo above or paste URL"
                           value={walkInLicenseFrontUrl}
                           onChange={e => setWalkInLicenseFrontUrl(e.target.value)}
                           style={{ width: '100%', marginTop: '3px' }}
@@ -1447,43 +1492,43 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: walkInLicenseBackUrl ? '#10b981' : 'var(--text)' }}>
-                          License Back Photo * {walkInLicenseBackUrl && '✓'}
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: (walkInBackLocal || walkInLicenseBackUrl) ? '#10b981' : 'var(--text)' }}>
+                          License Back Photo * {(walkInBackLocal || walkInLicenseBackUrl) && '✓'}
                         </label>
                         <label
                           htmlFor="walkin-back-file"
                           className="button secondary small"
-                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: walkInUploadingBack ? 'wait' : 'pointer' }}
+                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: 'pointer' }}
                         >
-                          {walkInUploadingBack ? '⏳ Uploading…' : '📁 Upload Photo'}
+                          📁 Choose Photo
                         </label>
                         <input
                           id="walkin-back-file"
                           type="file"
                           accept="image/*"
                           style={{ display: 'none' }}
-                          disabled={walkInUploadingBack}
-                          onChange={async e => {
+                          onChange={e => {
                             const file = e.target.files?.[0];
                             if (!file) return;
-                            setWalkInUploadingBack(true);
-                            try {
-                              const url = await uploadFileToCloudinary(file, 'vmotiv/rental-kyc');
-                              setWalkInLicenseBackUrl(url);
-                            } catch (err: any) {
-                              onError(err?.message || 'Failed to upload license back');
-                            } finally {
-                              setWalkInUploadingBack(false);
-                            }
+                            setWalkInBackLocal({ file, previewUrl: URL.createObjectURL(file) });
+                            if (e.target) e.target.value = '';
                           }}
                         />
                       </div>
-                      {walkInLicenseBackUrl ? (
+                      {(walkInBackLocal || walkInLicenseBackUrl) ? (
                         <div style={{ position: 'relative', marginTop: '4px', border: '1px solid #10b981', borderRadius: '4px', padding: '4px', background: 'rgba(16, 185, 129, 0.05)' }}>
-                          <img src={walkInLicenseBackUrl} alt="Back preview" style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '3px', display: 'block' }} />
+                          <img
+                            src={walkInBackLocal ? walkInBackLocal.previewUrl : walkInLicenseBackUrl}
+                            alt="Back preview"
+                            style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '3px', display: 'block' }}
+                          />
                           <button
                             type="button"
-                            onClick={() => setWalkInLicenseBackUrl('')}
+                            onClick={() => {
+                              if (walkInBackLocal) URL.revokeObjectURL(walkInBackLocal.previewUrl);
+                              setWalkInBackLocal(null);
+                              setWalkInLicenseBackUrl('');
+                            }}
                             style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
                             title="Remove photo"
                           >
@@ -1495,7 +1540,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           type="text"
                           className="input"
                           required
-                          placeholder="Upload image or paste link"
+                          placeholder="Select photo above or paste URL"
                           value={walkInLicenseBackUrl}
                           onChange={e => setWalkInLicenseBackUrl(e.target.value)}
                           style={{ width: '100%', marginTop: '3px' }}
@@ -2067,7 +2112,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   </div>
 
                   {/* Image Thumbnails Gallery */}
-                  {onboardImages.length === 0 ? (
+                  {onboardImages.length === 0 && onboardLocalFiles.length === 0 ? (
                     <div
                       style={{
                         padding: '1.5rem',
@@ -2079,7 +2124,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         fontSize: '0.8125rem',
                       }}
                     >
-                      No vehicle photos added yet. Upload images above or click one of the quick model presets!
+                      No vehicle photos added yet. Choose photos from device or click one of the quick model presets!
                     </div>
                   ) : (
                     <div
@@ -2095,7 +2140,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                     >
                       {onboardImages.map((imgUrl, idx) => (
                         <div
-                          key={idx}
+                          key={`remote-${idx}`}
                           style={{
                             position: 'relative',
                             borderRadius: '6px',
@@ -2161,6 +2206,75 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             type="button"
                             onClick={() => handleRemoveImage(idx)}
                             title="Remove this photo"
+                            style={{
+                              position: 'absolute',
+                              top: '4px',
+                              right: '4px',
+                              background: 'rgba(239, 68, 68, 0.85)',
+                              color: '#ffffff',
+                              border: 'none',
+                              width: '20px',
+                              height: '20px',
+                              borderRadius: '50%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              fontSize: '0.625rem',
+                              fontWeight: 800,
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ))}
+
+                      {/* Local held files (staged before submit) */}
+                      {onboardLocalFiles.map((localItem, lIdx) => (
+                        <div
+                          key={`local-${lIdx}`}
+                          style={{
+                            position: 'relative',
+                            borderRadius: '6px',
+                            overflow: 'hidden',
+                            border: '1px dashed #10b981',
+                            background: '#000',
+                            aspectRatio: '4/3',
+                            display: 'flex',
+                            flexDirection: 'column',
+                          }}
+                        >
+                          <img
+                            src={localItem.previewUrl}
+                            alt={`Local Vehicle ${lIdx + 1}`}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                            }}
+                          />
+                          <span
+                            style={{
+                              position: 'absolute',
+                              bottom: '4px',
+                              left: '4px',
+                              background: 'rgba(16, 185, 129, 0.9)',
+                              color: '#fff',
+                              fontSize: '0.5625rem',
+                              fontWeight: 700,
+                              padding: '1px 4px',
+                              borderRadius: '3px',
+                            }}
+                          >
+                            Pending Save
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              URL.revokeObjectURL(localItem.previewUrl);
+                              setOnboardLocalFiles(prev => prev.filter((_, idx) => idx !== lIdx));
+                            }}
+                            title="Remove this local file"
                             style={{
                               position: 'absolute',
                               top: '4px',
@@ -2719,6 +2833,50 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       Start: {formatDate(activeBooking.startTime)} → End: {formatDate(activeBooking.endTime)}
                     </div>
                   </div>
+
+                  {/* SETTLEMENT OVERVIEW BANNER (IF TRIP RETURNED OR SETTLED) */}
+                  {(activeBooking.status === 'SETTLED' || activeBooking.status === 'RETURN_INSPECTED' || activeBooking.trip?.isSettled || activeBooking.trip?.returnTime) && (
+                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <span style={{ fontWeight: 800, color: '#10b981', fontSize: '0.875rem' }}>
+                          🏁 FINAL SETTLEMENT & DEPOSIT RECONCILIATION
+                        </span>
+                        <span className={`badge ${activeBooking.trip?.isSettled ? 'badge-success' : 'badge-info'}`}>
+                          {activeBooking.trip?.isSettled ? 'SETTLEMENT CLOSED' : 'INSPECTION RECORDED'}
+                        </span>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>DISTANCE DRIVEN</span>
+                          <div style={{ fontWeight: 700 }}>
+                            {activeBooking.trip?.returnOdometerKm && activeBooking.trip?.pickupOdometerKm
+                              ? `${activeBooking.trip.returnOdometerKm - activeBooking.trip.pickupOdometerKm} km`
+                              : '—'}
+                          </div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>EXCESS KM</span>
+                          <div style={{ fontWeight: 700 }}>{activeBooking.trip?.excessKm || 0} km</div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>SECURITY DEPOSIT</span>
+                          <div style={{ fontWeight: 700 }}>{formatRupees(activeBooking.securityDepositPaise)}</div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>EXTRA CHARGES</span>
+                          <div style={{ fontWeight: 700, color: '#ef4444' }}>
+                            {formatRupees(activeBooking.trip?.totalAdditionalChargesPaise || 0)}
+                          </div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>NET REFUND</span>
+                          <div style={{ fontWeight: 800, color: '#10b981', fontSize: '1.05rem' }}>
+                            {formatRupees(activeBooking.trip?.depositRefundPaise || 0)}
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2729,34 +2887,63 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                     Verify primary driver government driving license before releasing vehicle keys. Strict KYC is enforced by legal insurance regulations. Both front and back physical license documents are mandatory.
                   </p>
 
-                  {activeBooking.driverVerification ? (
-                    <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '6px' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                  {/* VERIFIED SUMMARY VIEW (SHOWN WHEN KYC IS ALREADY VERIFIED) */}
+                  {activeBooking.kycStatus === 'VERIFIED' && !editKycDocuments ? (
+                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px', padding: '1.25rem', marginBottom: '1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '1.2rem' }}>✅</span>
+                          <div>
+                            <div style={{ fontWeight: 800, color: '#10b981', fontSize: '1rem' }}>
+                              Driver License KYC Verified & Approved
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                              Compliance verification passed. Customer is legally authorized to take custody of the vehicle.
+                            </div>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="button secondary small"
+                          onClick={() => setEditKycDocuments(true)}
+                          style={{ fontSize: '0.75rem' }}
+                        >
+                          ✏️ Update Physical Documents
+                        </button>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', background: 'var(--surface)', padding: '0.875rem', borderRadius: '6px', border: '1px solid var(--border)', marginBottom: '1rem' }}>
                         <div>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>LICENSE NUMBER</span>
-                          <div><strong>{activeBooking.driverVerification.licenseNumber}</strong></div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>LICENSE NUMBER</span>
+                          <div style={{ fontWeight: 700, fontFamily: 'monospace' }}>{activeBooking.driverVerification?.licenseNumber || 'KA01-VERIFIED'}</div>
                         </div>
                         <div>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>VALIDITY EXPIRY</span>
-                          <div><strong>{activeBooking.driverVerification.licenseExpiry ? new Date(activeBooking.driverVerification.licenseExpiry).toLocaleDateString() : '—'}</strong></div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>VALIDITY EXPIRY</span>
+                          <div style={{ fontWeight: 700 }}>
+                            {activeBooking.driverVerification?.licenseExpiry ? new Date(activeBooking.driverVerification.licenseExpiry).toLocaleDateString('en-IN') : '—'}
+                          </div>
                         </div>
                         <div>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>DATE OF BIRTH</span>
-                          <div><strong>{activeBooking.driverVerification.dateOfBirth ? new Date(activeBooking.driverVerification.dateOfBirth).toLocaleDateString() : '—'}</strong></div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>DRIVING EXPERIENCE</span>
+                          <div style={{ fontWeight: 700 }}>{activeBooking.driverVerification?.drivingExperienceYears ?? 3} Years</div>
                         </div>
                         <div>
-                          <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>DRIVING EXPERIENCE</span>
-                          <div><strong>{activeBooking.driverVerification.drivingExperienceYears} Years</strong></div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>DATE OF BIRTH</span>
+                          <div style={{ fontWeight: 700 }}>
+                            {activeBooking.driverVerification?.dateOfBirth ? new Date(activeBooking.driverVerification.dateOfBirth).toLocaleDateString('en-IN') : '—'}
+                          </div>
                         </div>
                       </div>
 
-                      {/* Document Previews */}
-                      <div style={{ marginBottom: '1rem' }}>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>MANDATORY LICENSE DOCUMENTS</span>
+                      <div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>
+                          VERIFIED PHYSICAL DOCUMENTS ON FILE
+                        </span>
                         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
-                          {activeBooking.driverVerification.licenseFrontUrl ? (
+                          {activeBooking.driverVerification?.licenseFrontUrl ? (
                             <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
-                              <img src={activeBooking.driverVerification.licenseFrontUrl} alt="License Front" style={{ width: '150px', height: '95px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
+                              <span style={{ fontSize: '0.7rem', fontWeight: 700, display: 'block', marginBottom: '4px', color: '#10b981' }}>License Front</span>
+                              <img src={activeBooking.driverVerification.licenseFrontUrl} alt="License Front" style={{ width: '180px', height: '110px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
                               <a href={activeBooking.driverVerification.licenseFrontUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '4px', display: 'inline-block' }}>View Full Front ↗</a>
                             </div>
                           ) : (
@@ -2764,9 +2951,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               ⚠️ Front document missing
                             </div>
                           )}
-                          {activeBooking.driverVerification.licenseBackUrl ? (
+                          {activeBooking.driverVerification?.licenseBackUrl ? (
                             <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
-                              <img src={activeBooking.driverVerification.licenseBackUrl} alt="License Back" style={{ width: '150px', height: '95px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
+                              <span style={{ fontSize: '0.7rem', fontWeight: 700, display: 'block', marginBottom: '4px', color: '#10b981' }}>License Back</span>
+                              <img src={activeBooking.driverVerification.licenseBackUrl} alt="License Back" style={{ width: '180px', height: '110px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
                               <a href={activeBooking.driverVerification.licenseBackUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '4px', display: 'inline-block' }}>View Full Back ↗</a>
                             </div>
                           ) : (
@@ -2776,566 +2964,952 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           )}
                         </div>
                       </div>
-
-                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
-                        <div style={{ marginBottom: '0.75rem' }}>
-                          <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted)' }}>
-                            KYC Rejection Reason (Required if rejecting customer documents):
-                          </label>
-                          <input
-                            type="text"
-                            className="input"
-                            placeholder="e.g. License image is blurry, expired card, name mismatch"
-                            value={kycRejectionReason}
-                            onChange={e => setKycRejectionReason(e.target.value)}
-                            style={{ width: '100%', marginTop: '4px' }}
-                          />
-                        </div>
-
-                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                          <div>
-                            Current Status: <span className={`badge ${activeBooking.kycStatus === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>{activeBooking.kycStatus}</span>
-                          </div>
-                          <div style={{ display: 'flex', gap: '0.5rem' }}>
-                            <button
-                              type="button"
-                              className="btn-danger button danger small"
-                              disabled={actionBusy}
-                              onClick={() => {
-                                let reason = kycRejectionReason.trim();
-                                if (!reason) {
-                                  const prompted = window.prompt('Please enter the reason for rejecting this driver license KYC:');
-                                  if (prompted && prompted.trim()) {
-                                    reason = prompted.trim();
-                                    setKycRejectionReason(reason);
-                                  }
-                                }
-                                if (!reason) {
-                                  onError('Please provide a specific rejection reason for the customer.');
-                                  return;
-                                }
-                                void handleKycReview('REJECTED', reason);
-                              }}
-                            >
-                              Reject KYC
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-primary btn-gold button primary small"
-                              disabled={actionBusy || activeBooking.kycStatus === 'VERIFIED' || !activeBooking.driverVerification.licenseFrontUrl || !activeBooking.driverVerification.licenseBackUrl}
-                              onClick={() => void handleKycReview('VERIFIED')}
-                            >
-                              {actionBusy ? 'Verifying…' : 'Approve Driver KYC ✓'}
-                            </button>
-                          </div>
-                        </div>
-                      </div>
                     </div>
                   ) : (
-                    <div style={{ padding: '1.25rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '6px', color: 'var(--muted)', marginBottom: '1.25rem' }}>
-                      Customer has not yet submitted driving license KYC online. Please inspect the original card and attach documents below.
-                    </div>
+                    /* PENDING REVIEW / RE-UPLOAD FORM */
+                    <>
+                      {activeBooking.driverVerification ? (
+                        <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '6px', marginBottom: '1.25rem' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                            <div>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>LICENSE NUMBER</span>
+                              <div><strong>{activeBooking.driverVerification.licenseNumber}</strong></div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>VALIDITY EXPIRY</span>
+                              <div><strong>{activeBooking.driverVerification.licenseExpiry ? new Date(activeBooking.driverVerification.licenseExpiry).toLocaleDateString() : '—'}</strong></div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>DATE OF BIRTH</span>
+                              <div><strong>{activeBooking.driverVerification.dateOfBirth ? new Date(activeBooking.driverVerification.dateOfBirth).toLocaleDateString() : '—'}</strong></div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>DRIVING EXPERIENCE</span>
+                              <div><strong>{activeBooking.driverVerification.drivingExperienceYears} Years</strong></div>
+                            </div>
+                          </div>
+
+                          {/* Document Previews */}
+                          <div style={{ marginBottom: '1rem' }}>
+                            <span style={{ fontSize: '0.75rem', color: 'var(--muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>MANDATORY LICENSE DOCUMENTS</span>
+                            <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                              {activeBooking.driverVerification.licenseFrontUrl ? (
+                                <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
+                                  <img src={activeBooking.driverVerification.licenseFrontUrl} alt="License Front" style={{ width: '150px', height: '95px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
+                                  <a href={activeBooking.driverVerification.licenseFrontUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '4px', display: 'inline-block' }}>View Full Front ↗</a>
+                                </div>
+                              ) : (
+                                <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                                  ⚠️ Front document missing
+                                </div>
+                              )}
+                              {activeBooking.driverVerification.licenseBackUrl ? (
+                                <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
+                                  <img src={activeBooking.driverVerification.licenseBackUrl} alt="License Back" style={{ width: '150px', height: '95px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
+                                  <a href={activeBooking.driverVerification.licenseBackUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '4px', display: 'inline-block' }}>View Full Back ↗</a>
+                                </div>
+                              ) : (
+                                <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                                  ⚠️ Back document missing
+                                </div>
+                              )}
+                            </div>
+                          </div>
+
+                          <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                            <div style={{ marginBottom: '0.75rem' }}>
+                              <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted)' }}>
+                                KYC Rejection Reason (Required if rejecting customer documents):
+                              </label>
+                              <input
+                                type="text"
+                                className="input"
+                                placeholder="e.g. License image is blurry, expired card, name mismatch"
+                                value={kycRejectionReason}
+                                onChange={e => setKycRejectionReason(e.target.value)}
+                                style={{ width: '100%', marginTop: '4px' }}
+                              />
+                            </div>
+
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                              <div>
+                                Current Status: <span className={`badge ${activeBooking.kycStatus === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>{activeBooking.kycStatus}</span>
+                              </div>
+                              <div style={{ display: 'flex', gap: '0.5rem' }}>
+                                <button
+                                  type="button"
+                                  className="btn-danger button danger small"
+                                  disabled={actionBusy}
+                                  onClick={() => {
+                                    let reason = kycRejectionReason.trim();
+                                    if (!reason) {
+                                      const prompted = window.prompt('Please enter the reason for rejecting this driver license KYC:');
+                                      if (prompted && prompted.trim()) {
+                                        reason = prompted.trim();
+                                        setKycRejectionReason(reason);
+                                      }
+                                    }
+                                    if (!reason) {
+                                      onError('Please provide a specific rejection reason for the customer.');
+                                      return;
+                                    }
+                                    void handleKycReview('REJECTED', reason);
+                                  }}
+                                >
+                                  Reject KYC
+                                </button>
+                                <button
+                                  type="button"
+                                  className="btn-primary btn-gold button primary small"
+                                  disabled={actionBusy || activeBooking.kycStatus === 'VERIFIED' || !activeBooking.driverVerification.licenseFrontUrl || !activeBooking.driverVerification.licenseBackUrl}
+                                  onClick={() => void handleKycReview('VERIFIED')}
+                                >
+                                  {actionBusy ? 'Verifying…' : 'Approve Driver KYC ✓'}
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <div style={{ padding: '1.25rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '6px', color: 'var(--muted)', marginBottom: '1.25rem' }}>
+                          Customer has not yet submitted driving license KYC online. Please inspect the original card and attach documents below.
+                        </div>
+                      )}
+
+                      {/* Hub Staff Physical License Document Upload Form */}
+                      <div style={{ marginTop: '1.25rem', border: '1px solid var(--border)', borderRadius: '6px', padding: '1rem', background: 'var(--surface)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                          <h4 style={{ margin: 0, fontSize: '0.95rem' }}>
+                            {activeBooking.driverVerification ? 'Update Physical License Documents at Hub' : 'Attach Customer Physical License at Hub'}
+                          </h4>
+                          {editKycDocuments && (
+                            <button type="button" className="button secondary small" onClick={() => setEditKycDocuments(false)}>
+                              Cancel Update
+                            </button>
+                          )}
+                        </div>
+                        <p style={{ fontSize: '0.8rem', color: 'var(--muted)', margin: '0 0 1rem 0' }}>
+                          Inspect the physical card at the counter. Select photos from device (staged locally until you click Attach).
+                        </p>
+                        <form onSubmit={handleHubKycUploadSubmit}>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                            <div>
+                              <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Number *</label>
+                              <input
+                                type="text"
+                                className="input font-mono"
+                                required
+                                placeholder="e.g. KA0120220045892"
+                                value={hubKycLicenseNumber}
+                                onChange={e => setHubKycLicenseNumber(e.target.value)}
+                                style={{ width: '100%', marginTop: '3px' }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Validity Expiry *</label>
+                              <input
+                                type="date"
+                                className="input"
+                                required
+                                value={hubKycExpiry}
+                                onChange={e => setHubKycExpiry(e.target.value)}
+                                style={{ width: '100%', marginTop: '3px' }}
+                              />
+                            </div>
+                          </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Front Photo *</label>
+                                <label
+                                  htmlFor="hub-kyc-front-file"
+                                  className="button secondary small"
+                                  style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: 'pointer' }}
+                                >
+                                  📁 Choose Photo
+                                </label>
+                                <input
+                                  id="hub-kyc-front-file"
+                                  type="file"
+                                  accept="image/*"
+                                  style={{ display: 'none' }}
+                                  onChange={e => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    setHubKycFrontLocal({ file, previewUrl: URL.createObjectURL(file) });
+                                    if (e.target) e.target.value = '';
+                                  }}
+                                />
+                              </div>
+                              {(hubKycFrontLocal || hubKycFrontUrl) ? (
+                                <div style={{ position: 'relative', marginTop: '4px', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px', background: 'var(--surface-secondary)' }}>
+                                  <img
+                                    src={hubKycFrontLocal ? hubKycFrontLocal.previewUrl : hubKycFrontUrl}
+                                    alt="Front preview"
+                                    style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '3px', display: 'block' }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (hubKycFrontLocal) URL.revokeObjectURL(hubKycFrontLocal.previewUrl);
+                                      setHubKycFrontLocal(null);
+                                      setHubKycFrontUrl('');
+                                    }}
+                                    style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
+                                    title="Remove photo"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ) : (
+                                <input
+                                  type="text"
+                                  className="input"
+                                  required
+                                  placeholder="Choose photo above or paste URL"
+                                  value={hubKycFrontUrl}
+                                  onChange={e => setHubKycFrontUrl(e.target.value)}
+                                  style={{ width: '100%', marginTop: '3px' }}
+                                />
+                              )}
+                            </div>
+
+                            <div>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Back Photo *</label>
+                                <label
+                                  htmlFor="hub-kyc-back-file"
+                                  className="button secondary small"
+                                  style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: 'pointer' }}
+                                >
+                                  📁 Choose Photo
+                                </label>
+                                <input
+                                  id="hub-kyc-back-file"
+                                  type="file"
+                                  accept="image/*"
+                                  style={{ display: 'none' }}
+                                  onChange={e => {
+                                    const file = e.target.files?.[0];
+                                    if (!file) return;
+                                    setHubKycBackLocal({ file, previewUrl: URL.createObjectURL(file) });
+                                    if (e.target) e.target.value = '';
+                                  }}
+                                />
+                              </div>
+                              {(hubKycBackLocal || hubKycBackUrl) ? (
+                                <div style={{ position: 'relative', marginTop: '4px', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px', background: 'var(--surface-secondary)' }}>
+                                  <img
+                                    src={hubKycBackLocal ? hubKycBackLocal.previewUrl : hubKycBackUrl}
+                                    alt="Back preview"
+                                    style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '3px', display: 'block' }}
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      if (hubKycBackLocal) URL.revokeObjectURL(hubKycBackLocal.previewUrl);
+                                      setHubKycBackLocal(null);
+                                      setHubKycBackUrl('');
+                                    }}
+                                    style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
+                                    title="Remove photo"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ) : (
+                                <input
+                                  type="text"
+                                  className="input"
+                                  required
+                                  placeholder="Choose photo above or paste URL"
+                                  value={hubKycBackUrl}
+                                  onChange={e => setHubKycBackUrl(e.target.value)}
+                                  style={{ width: '100%', marginTop: '3px' }}
+                                />
+                              )}
+                            </div>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                            <button type="submit" className="button primary small" disabled={actionBusy}>
+                              {actionBusy ? 'Attaching & Uploading…' : 'Attach License Documents'}
+                            </button>
+                          </div>
+                        </form>
+                      </div>
+                    </>
                   )}
-
-                  {/* Hub Staff Physical License Document Upload Form */}
-                  <div style={{ marginTop: '1.25rem', border: '1px solid var(--border)', borderRadius: '6px', padding: '1rem', background: 'var(--surface)' }}>
-                    <h4 style={{ margin: '0 0 0.4rem 0', fontSize: '0.95rem' }}>
-                      {activeBooking.driverVerification ? 'Update Physical License Documents at Hub' : 'Attach Customer Physical License at Hub'}
-                    </h4>
-                    <p style={{ fontSize: '0.8rem', color: 'var(--muted)', margin: '0 0 1rem 0' }}>
-                      Inspect the original physical card at the counter and upload high-resolution front and back photos (stored securely in Cloudinary).
-                    </p>
-                    <form onSubmit={handleHubKycUploadSubmit}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
-                        <div>
-                          <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Number *</label>
-                          <input
-                            type="text"
-                            className="input"
-                            required
-                            placeholder="e.g. KA0120220045892"
-                            value={hubKycLicenseNumber}
-                            onChange={e => setHubKycLicenseNumber(e.target.value)}
-                            style={{ width: '100%', marginTop: '3px' }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Validity Expiry *</label>
-                          <input
-                            type="date"
-                            className="input"
-                            required
-                            value={hubKycExpiry}
-                            onChange={e => setHubKycExpiry(e.target.value)}
-                            style={{ width: '100%', marginTop: '3px' }}
-                          />
-                        </div>
-                      </div>
-                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Front Photo *</label>
-                            <label
-                              htmlFor="hub-kyc-front-file"
-                              className="button secondary small"
-                              style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: hubKycUploadingFront ? 'wait' : 'pointer' }}
-                            >
-                              {hubKycUploadingFront ? '⏳ Uploading…' : '📁 Upload Photo'}
-                            </label>
-                            <input
-                              id="hub-kyc-front-file"
-                              type="file"
-                              accept="image/*"
-                              style={{ display: 'none' }}
-                              disabled={hubKycUploadingFront}
-                              onChange={async e => {
-                                const file = e.target.files?.[0];
-                                if (!file) return;
-                                setHubKycUploadingFront(true);
-                                try {
-                                  const url = await uploadFileToCloudinary(file, `vmotiv/rental-kyc/${activeBooking.id}`);
-                                  setHubKycFrontUrl(url);
-                                } catch (err: any) {
-                                  onError(err?.message || 'Failed to upload license front');
-                                } finally {
-                                  setHubKycUploadingFront(false);
-                                }
-                              }}
-                            />
-                          </div>
-                          {hubKycFrontUrl ? (
-                            <div style={{ position: 'relative', marginTop: '4px', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px', background: 'var(--surface-secondary)' }}>
-                              <img src={hubKycFrontUrl} alt="Front preview" style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '3px', display: 'block' }} />
-                              <button
-                                type="button"
-                                onClick={() => setHubKycFrontUrl('')}
-                                style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
-                                title="Remove photo"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ) : (
-                            <input
-                              type="text"
-                              className="input"
-                              required
-                              placeholder="Upload image or paste link"
-                              value={hubKycFrontUrl}
-                              onChange={e => setHubKycFrontUrl(e.target.value)}
-                              style={{ width: '100%', marginTop: '3px' }}
-                            />
-                          )}
-                        </div>
-
-                        <div>
-                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                            <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Back Photo *</label>
-                            <label
-                              htmlFor="hub-kyc-back-file"
-                              className="button secondary small"
-                              style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: hubKycUploadingBack ? 'wait' : 'pointer' }}
-                            >
-                              {hubKycUploadingBack ? '⏳ Uploading…' : '📁 Upload Photo'}
-                            </label>
-                            <input
-                              id="hub-kyc-back-file"
-                              type="file"
-                              accept="image/*"
-                              style={{ display: 'none' }}
-                              disabled={hubKycUploadingBack}
-                              onChange={async e => {
-                                const file = e.target.files?.[0];
-                                if (!file) return;
-                                setHubKycUploadingBack(true);
-                                try {
-                                  const url = await uploadFileToCloudinary(file, `vmotiv/rental-kyc/${activeBooking.id}`);
-                                  setHubKycBackUrl(url);
-                                } catch (err: any) {
-                                  onError(err?.message || 'Failed to upload license back');
-                                } finally {
-                                  setHubKycUploadingBack(false);
-                                }
-                              }}
-                            />
-                          </div>
-                          {hubKycBackUrl ? (
-                            <div style={{ position: 'relative', marginTop: '4px', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px', background: 'var(--surface-secondary)' }}>
-                              <img src={hubKycBackUrl} alt="Back preview" style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '3px', display: 'block' }} />
-                              <button
-                                type="button"
-                                onClick={() => setHubKycBackUrl('')}
-                                style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
-                                title="Remove photo"
-                              >
-                                ✕
-                              </button>
-                            </div>
-                          ) : (
-                            <input
-                              type="text"
-                              className="input"
-                              required
-                              placeholder="Upload image or paste link"
-                              value={hubKycBackUrl}
-                              onChange={e => setHubKycBackUrl(e.target.value)}
-                              style={{ width: '100%', marginTop: '3px' }}
-                            />
-                          )}
-                        </div>
-                      </div>
-                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
-                        <button type="submit" className="button primary small" disabled={actionBusy}>
-                          {actionBusy ? 'Saving Documents…' : 'Attach License Documents'}
-                        </button>
-                      </div>
-                    </form>
-                  </div>
                 </div>
               )}
 
               {/* TAB 3: HANDOVER */}
               {bookingDrawerTab === 'handover' && (
-                <form onSubmit={handleHandoverSubmit}>
-                  <p style={{ fontSize: '0.875rem', color: 'var(--muted)', marginBottom: '1rem' }}>
-                    Vehicle Key Release. Confirm start odometer, fuel level, and condition before key handover.
-                  </p>
-
-                  {activeBooking.kycStatus !== 'VERIFIED' && (
-                    <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', marginBottom: '1rem', borderLeft: '3px solid var(--danger)' }}>
-                      <strong>KYC Gate Locked:</strong> Driver KYC must be VERIFIED before physical vehicle keys can be released.
-                    </div>
-                  )}
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                    <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Start Odometer (km) *</label>
-                      <input
-                        type="number"
-                        className="input"
-                        required
-                        value={handoverOdometer}
-                        onChange={e => setHandoverOdometer(Number(e.target.value))}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Start Fuel Level (%) *</label>
-                      <input
-                        type="number"
-                        className="input"
-                        min={0}
-                        max={100}
-                        required
-                        value={handoverFuel}
-                        onChange={e => setHandoverFuel(Number(e.target.value))}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
-                    </div>
-                  </div>
-
-                  {/* DISPATCH INSPECTION PHOTOS (SAVED IN CLOUDINARY) */}
-                  <div style={{ marginTop: '1rem', border: '1px solid var(--border)', borderRadius: '6px', padding: '0.875rem', background: 'var(--surface)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '4px' }}>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text)' }}>
-                        Trip Dispatch Vehicle Photos *
-                      </label>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                        Capture odometer, fuel meter, and vehicle body condition (stored in Cloudinary)
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
-                      <label
-                        htmlFor="handover-photo-upload"
-                        className="button secondary small"
-                        style={{ cursor: handoverUploading ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                      >
-                        {handoverUploading ? '⏳ Uploading to Cloudinary…' : '📷 Upload Dispatch Photos'}
-                      </label>
-                      <input
-                        id="handover-photo-upload"
-                        type="file"
-                        multiple
-                        accept="image/*"
-                        style={{ display: 'none' }}
-                        disabled={handoverUploading}
-                        onChange={async e => {
-                          if (!e.target.files || e.target.files.length === 0) return;
-                          setHandoverUploading(true);
-                          try {
-                            const files = Array.from(e.target.files);
-                            for (const file of files) {
-                              const url = await uploadFileToCloudinary(file, `vmotiv/rental-dispatch/${activeBooking.id}`);
-                              setHandoverPhotos(prev => [...prev, url]);
-                            }
-                          } catch (err: any) {
-                            onError(err?.message || 'Failed to upload dispatch inspection photo');
-                          } finally {
-                            setHandoverUploading(false);
-                            if (e.target) e.target.value = '';
-                          }
-                        }}
-                      />
-                      <span style={{ fontSize: '0.75rem', color: handoverPhotos.length > 0 ? '#10b981' : 'var(--muted)' }}>
-                        {handoverPhotos.length > 0 ? `✓ ${handoverPhotos.length} photo(s) attached` : 'Upload photos or primary vehicle photo will be linked'}
-                      </span>
-                    </div>
-
-                    {/* Photos Grid */}
-                    {handoverPhotos.length > 0 && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.5rem', marginTop: '0.5rem' }}>
-                        {handoverPhotos.map((photoUrl, pIdx) => (
-                          <div key={pIdx} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                            <img src={photoUrl} alt={`Dispatch photo ${pIdx + 1}`} style={{ width: '100%', height: '75px', objectFit: 'cover', display: 'block' }} />
-                            <button
-                              type="button"
-                              onClick={() => setHandoverPhotos(prev => prev.filter((_, i) => i !== pIdx))}
-                              title="Remove photo"
-                              style={{
-                                position: 'absolute',
-                                top: '2px',
-                                right: '2px',
-                                background: 'rgba(239, 68, 68, 0.9)',
-                                color: '#fff',
-                                border: 'none',
-                                width: '18px',
-                                height: '18px',
-                                borderRadius: '50%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                fontSize: '0.625rem',
-                                fontWeight: 'bold',
-                              }}
-                            >
-                              ✕
-                            </button>
+                <div>
+                  {(activeBooking.status === 'TRIP_ACTIVE' || activeBooking.status === 'RETURN_INSPECTED' || activeBooking.status === 'SETTLED' || activeBooking.trip?.pickupTime != null) && !editHandover ? (
+                    /* COMPLETED HANDOVER CARD */
+                    <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid #3b82f6', borderRadius: '8px', padding: '1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '1.2rem' }}>🚗</span>
+                          <div>
+                            <div style={{ fontWeight: 800, color: '#3b82f6', fontSize: '1rem' }}>
+                              Vehicle Handed Over & Trip Dispatched
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                              Physical vehicle keys and documents have been handed over to verified driver.
+                            </div>
                           </div>
-                        ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="button secondary small"
+                          onClick={() => setEditHandover(true)}
+                          style={{ fontSize: '0.75rem' }}
+                        >
+                          ✏️ Amend Handover Telemetry
+                        </button>
                       </div>
-                    )}
-                  </div>
 
-                  <div style={{ marginTop: '1rem' }}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                      <input
-                        type="checkbox"
-                        checked={handoverKeyReleased}
-                        onChange={e => setHandoverKeyReleased(e.target.checked)}
-                      />
-                      <span style={{ fontWeight: 600 }}>Physical key and vehicle documents handed over to verified driver</span>
-                    </label>
-                  </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', background: 'var(--surface)', padding: '0.875rem', borderRadius: '6px', border: '1px solid var(--border)', marginBottom: '1rem' }}>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>START ODOMETER</span>
+                          <div style={{ fontWeight: 800, fontSize: '1.1rem' }}>{activeBooking.trip?.pickupOdometerKm ?? handoverOdometer} km</div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>START FUEL LEVEL</span>
+                          <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#10b981' }}>{activeBooking.trip?.pickupFuelPercent ?? handoverFuel}%</div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>KEY RELEASED</span>
+                          <div style={{ fontWeight: 700, color: '#10b981' }}>Yes (Customer Signed)</div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>DISPATCH TIME</span>
+                          <div style={{ fontWeight: 700 }}>
+                            {activeBooking.trip?.pickupTime ? formatDate(activeBooking.trip.pickupTime) : 'At Departure'}
+                          </div>
+                        </div>
+                      </div>
 
-                  <div style={{ marginTop: '1rem' }}>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Handover Condition Notes</label>
-                    <textarea
-                      className="input"
-                      rows={2}
-                      value={handoverNotes}
-                      onChange={e => setHandoverNotes(e.target.value)}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
-                  </div>
+                      {/* Condition Notes */}
+                      <div style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border)', marginBottom: '1rem' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block', marginBottom: '2px' }}>HANDOVER CONDITION NOTES</span>
+                        <div style={{ fontSize: '0.85rem' }}>{activeBooking.trip?.pickupNotes || handoverNotes}</div>
+                      </div>
 
-                  <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                    <button type="button" className="btn-secondary button secondary" onClick={() => setActiveBooking(null)}>Cancel</button>
-                    <button
-                      type="submit"
-                      className="btn-primary btn-gold button primary"
-                      disabled={actionBusy || activeBooking.kycStatus !== 'VERIFIED'}
-                    >
-                      {actionBusy ? 'Confirming Handover…' : 'Confirm Handover & Start Trip'}
-                    </button>
-                  </div>
-                </form>
+                      {/* Dispatch Inspection Photos */}
+                      <div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>
+                          DISPATCH INSPECTION PHOTOS ({Array.isArray(activeBooking.trip?.pickupPhotos) ? activeBooking.trip.pickupPhotos.length : 0})
+                        </span>
+                        {Array.isArray(activeBooking.trip?.pickupPhotos) && activeBooking.trip.pickupPhotos.length > 0 ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.5rem' }}>
+                            {activeBooking.trip.pickupPhotos.map((photoUrl: string, idx: number) => (
+                              <div key={idx} style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                                <img src={photoUrl} alt={`Dispatch ${idx + 1}`} style={{ width: '100%', height: '80px', objectFit: 'cover', display: 'block' }} />
+                                <a href={photoUrl} target="_blank" rel="noreferrer" style={{ position: 'absolute', bottom: '2px', right: '2px', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.625rem', padding: '1px 4px', borderRadius: '3px' }}>Enlarge ↗</a>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>
+                            Primary fleet vehicle photo linked on file.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    /* HANDOVER FORM */
+                    <form onSubmit={handleHandoverSubmit}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <p style={{ fontSize: '0.875rem', color: 'var(--muted)', margin: 0 }}>
+                          Vehicle Key Release. Confirm start odometer, fuel level, and condition before key handover.
+                        </p>
+                        {editHandover && (
+                          <button type="button" className="button secondary small" onClick={() => setEditHandover(false)}>
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+
+                      {activeBooking.kycStatus !== 'VERIFIED' && (
+                        <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', marginBottom: '1rem', borderLeft: '3px solid var(--danger)' }}>
+                          <strong>KYC Gate Locked:</strong> Driver KYC must be VERIFIED before physical vehicle keys can be released.
+                        </div>
+                      )}
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div>
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Start Odometer (km) *</label>
+                          <input
+                            type="number"
+                            className="input"
+                            required
+                            value={handoverOdometer}
+                            onChange={e => setHandoverOdometer(Number(e.target.value))}
+                            style={{ width: '100%', marginTop: '4px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Start Fuel Level (%) *</label>
+                          <input
+                            type="number"
+                            className="input"
+                            min={0}
+                            max={100}
+                            required
+                            value={handoverFuel}
+                            onChange={e => setHandoverFuel(Number(e.target.value))}
+                            style={{ width: '100%', marginTop: '4px' }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* DISPATCH INSPECTION PHOTOS (HELD LOCALLY UNTIL SUBMIT) */}
+                      <div style={{ marginTop: '1rem', border: '1px solid var(--border)', borderRadius: '6px', padding: '0.875rem', background: 'var(--surface)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '4px' }}>
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text)' }}>
+                            Trip Dispatch Vehicle Photos *
+                          </label>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                            Capture odometer, fuel meter, and vehicle body condition (staged locally until save)
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                          <label
+                            htmlFor="handover-photo-upload"
+                            className="button secondary small"
+                            style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          >
+                            📷 Choose Dispatch Photos
+                          </label>
+                          <input
+                            id="handover-photo-upload"
+                            type="file"
+                            multiple
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            onChange={e => {
+                              if (!e.target.files || e.target.files.length === 0) return;
+                              const files = Array.from(e.target.files);
+                              const items = files.map(file => ({ file, previewUrl: URL.createObjectURL(file) }));
+                              setHandoverLocalFiles(prev => [...prev, ...items]);
+                              if (e.target) e.target.value = '';
+                            }}
+                          />
+                          <span style={{ fontSize: '0.75rem', color: (handoverPhotos.length + handoverLocalFiles.length) > 0 ? '#10b981' : 'var(--muted)' }}>
+                            {(handoverPhotos.length + handoverLocalFiles.length) > 0
+                              ? `✓ ${handoverPhotos.length + handoverLocalFiles.length} photo(s) attached (${handoverLocalFiles.length} staged locally)`
+                              : 'Upload photos or primary vehicle photo will be linked'}
+                          </span>
+                        </div>
+
+                        {/* Photos Grid */}
+                        {(handoverPhotos.length > 0 || handoverLocalFiles.length > 0) && (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.5rem', marginTop: '0.5rem' }}>
+                            {handoverPhotos.map((photoUrl, pIdx) => (
+                              <div key={`remote-${pIdx}`} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                                <img src={photoUrl} alt={`Dispatch photo ${pIdx + 1}`} style={{ width: '100%', height: '75px', objectFit: 'cover', display: 'block' }} />
+                                <button
+                                  type="button"
+                                  onClick={() => setHandoverPhotos(prev => prev.filter((_, i) => i !== pIdx))}
+                                  title="Remove photo"
+                                  style={{
+                                    position: 'absolute',
+                                    top: '2px',
+                                    right: '2px',
+                                    background: 'rgba(239, 68, 68, 0.9)',
+                                    color: '#fff',
+                                    border: 'none',
+                                    width: '18px',
+                                    height: '18px',
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    fontSize: '0.625rem',
+                                    fontWeight: 'bold',
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                            {handoverLocalFiles.map((item, lIdx) => (
+                              <div key={`local-${lIdx}`} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px dashed #10b981' }}>
+                                <img src={item.previewUrl} alt={`Local Dispatch ${lIdx + 1}`} style={{ width: '100%', height: '75px', objectFit: 'cover', display: 'block' }} />
+                                <span style={{ position: 'absolute', bottom: '2px', left: '2px', background: 'rgba(16, 185, 129, 0.9)', color: '#fff', fontSize: '0.5rem', padding: '1px 3px', borderRadius: '2px', fontWeight: 700 }}>Staged</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    URL.revokeObjectURL(item.previewUrl);
+                                    setHandoverLocalFiles(prev => prev.filter((_, i) => i !== lIdx));
+                                  }}
+                                  title="Remove photo"
+                                  style={{
+                                    position: 'absolute',
+                                    top: '2px',
+                                    right: '2px',
+                                    background: 'rgba(239, 68, 68, 0.9)',
+                                    color: '#fff',
+                                    border: 'none',
+                                    width: '18px',
+                                    height: '18px',
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    fontSize: '0.625rem',
+                                    fontWeight: 'bold',
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: '1rem' }}>
+                        <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                          <input
+                            type="checkbox"
+                            checked={handoverKeyReleased}
+                            onChange={e => setHandoverKeyReleased(e.target.checked)}
+                          />
+                          <span style={{ fontWeight: 600 }}>Physical key and vehicle documents handed over to verified driver</span>
+                        </label>
+                      </div>
+
+                      <div style={{ marginTop: '1rem' }}>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Handover Condition Notes</label>
+                        <textarea
+                          className="input"
+                          rows={2}
+                          value={handoverNotes}
+                          onChange={e => setHandoverNotes(e.target.value)}
+                          style={{ width: '100%', marginTop: '4px' }}
+                        />
+                      </div>
+
+                      <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                        <button type="button" className="btn-secondary button secondary" onClick={() => setActiveBooking(null)}>Cancel</button>
+                        <button
+                          type="submit"
+                          className="btn-primary btn-gold button primary"
+                          disabled={actionBusy || activeBooking.kycStatus !== 'VERIFIED'}
+                        >
+                          {actionBusy ? 'Uploading Photos & Confirming…' : 'Confirm Handover & Start Trip'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
               )}
 
               {/* TAB 4: RETURN */}
               {bookingDrawerTab === 'return' && (
-                <form onSubmit={handleReturnSubmit}>
-                  <p style={{ fontSize: '0.875rem', color: 'var(--muted)', marginBottom: '1rem' }}>
-                    Post-trip inspection. Document return odometer, fuel refill charges, and any new damage for deposit reconciliation.
-                  </p>
-
-                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                    <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Return Odometer (km) *</label>
-                      <input
-                        type="number"
-                        className="input"
-                        required
-                        value={returnOdometer}
-                        onChange={e => setReturnOdometer(Number(e.target.value))}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Return Fuel Level (%) *</label>
-                      <input
-                        type="number"
-                        className="input"
-                        min={0}
-                        max={100}
-                        required
-                        value={returnFuel}
-                        onChange={e => setReturnFuel(Number(e.target.value))}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Excess Kilometres</label>
-                      <input
-                        type="number"
-                        className="input"
-                        min={0}
-                        value={returnExcessKm}
-                        onChange={e => {
-                          const km = Number(e.target.value);
-                          setReturnExcessKm(km);
-                          setReturnExcessKmChargeRupees(km * 12);
-                        }}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Excess Km Charge (₹)</label>
-                      <input
-                        type="number"
-                        className="input"
-                        min={0}
-                        value={returnExcessKmChargeRupees}
-                        onChange={e => setReturnExcessKmChargeRupees(Number(e.target.value))}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Damage Claim Charge (₹)</label>
-                      <input
-                        type="number"
-                        className="input"
-                        min={0}
-                        value={returnDamageChargeRupees}
-                        onChange={e => setReturnDamageChargeRupees(Number(e.target.value))}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '1.75rem' }}>
-                        <input
-                          type="checkbox"
-                          checked={returnKeyReceived}
-                          onChange={e => setReturnKeyReceived(e.target.checked)}
-                        />
-                        <span style={{ fontWeight: 600 }}>Physical keys & vehicle documents received back</span>
-                      </label>
-                    </div>
-                  </div>
-
-                  {/* RETURN INSPECTION PHOTOS (SAVED IN CLOUDINARY) */}
-                  <div style={{ marginTop: '1rem', border: '1px solid var(--border)', borderRadius: '6px', padding: '0.875rem', background: 'var(--surface)' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '4px' }}>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text)' }}>
-                        Return Inspection Photos *
-                      </label>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                        Capture return odometer, fuel gauge, and any new scratches/damages (stored in Cloudinary)
-                      </span>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
-                      <label
-                        htmlFor="return-photo-upload"
-                        className="button secondary small"
-                        style={{ cursor: returnUploading ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
-                      >
-                        {returnUploading ? '⏳ Uploading to Cloudinary…' : '📷 Upload Return Photos'}
-                      </label>
-                      <input
-                        id="return-photo-upload"
-                        type="file"
-                        multiple
-                        accept="image/*"
-                        style={{ display: 'none' }}
-                        disabled={returnUploading}
-                        onChange={async e => {
-                          if (!e.target.files || e.target.files.length === 0) return;
-                          setReturnUploading(true);
-                          try {
-                            const files = Array.from(e.target.files);
-                            for (const file of files) {
-                              const url = await uploadFileToCloudinary(file, `vmotiv/rental-return/${activeBooking.id}`);
-                              setReturnPhotos(prev => [...prev, url]);
-                            }
-                          } catch (err: any) {
-                            onError(err?.message || 'Failed to upload return inspection photo');
-                          } finally {
-                            setReturnUploading(false);
-                            if (e.target) e.target.value = '';
-                          }
-                        }}
-                      />
-                      <span style={{ fontSize: '0.75rem', color: returnPhotos.length > 0 ? '#10b981' : 'var(--muted)' }}>
-                        {returnPhotos.length > 0 ? `✓ ${returnPhotos.length} photo(s) attached` : 'Upload photos or primary vehicle photo will be linked'}
-                      </span>
-                    </div>
-
-                    {/* Return Photos Grid */}
-                    {returnPhotos.length > 0 && (
-                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.5rem', marginTop: '0.5rem' }}>
-                        {returnPhotos.map((photoUrl, pIdx) => (
-                          <div key={pIdx} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border)' }}>
-                            <img src={photoUrl} alt={`Return photo ${pIdx + 1}`} style={{ width: '100%', height: '75px', objectFit: 'cover', display: 'block' }} />
-                            <button
-                              type="button"
-                              onClick={() => setReturnPhotos(prev => prev.filter((_, i) => i !== pIdx))}
-                              title="Remove photo"
-                              style={{
-                                position: 'absolute',
-                                top: '2px',
-                                right: '2px',
-                                background: 'rgba(239, 68, 68, 0.9)',
-                                color: '#fff',
-                                border: 'none',
-                                width: '18px',
-                                height: '18px',
-                                borderRadius: '50%',
-                                display: 'flex',
-                                alignItems: 'center',
-                                justifyContent: 'center',
-                                cursor: 'pointer',
-                                fontSize: '0.625rem',
-                                fontWeight: 'bold',
-                              }}
-                            >
-                              ✕
-                            </button>
+                <div>
+                  {(activeBooking.status === 'SETTLED' || activeBooking.status === 'RETURN_INSPECTED' || activeBooking.trip?.isSettled || activeBooking.trip?.returnOdometerKm != null) && !editReturnSettlement ? (
+                    /* COMPLETED SETTLEMENT VIEW (SHOWS FINAL CALCULATED AMOUNT & REFUND INSTEAD OF UPLOAD WORKFLOW) */
+                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px', padding: '1.25rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <span style={{ fontSize: '1.25rem' }}>🏁</span>
+                          <div>
+                            <div style={{ fontWeight: 800, color: '#10b981', fontSize: '1.05rem' }}>
+                              {activeBooking.trip?.isSettled ? 'Final Trip Settlement Completed & Closed' : 'Vehicle Return Inspected — Settlement Reconciled'}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                              Post-trip inspection recorded. Deposit refund and extra charges calculated accurately.
+                            </div>
                           </div>
-                        ))}
+                        </div>
+                        <button
+                          type="button"
+                          className="button secondary small"
+                          onClick={() => setEditReturnSettlement(true)}
+                          style={{ fontSize: '0.75rem' }}
+                        >
+                          ✏️ Re-inspect / Amend Settlement
+                        </button>
                       </div>
-                    )}
-                  </div>
 
-                  <div style={{ marginTop: '1rem' }}>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Return Condition & Damage Notes</label>
-                    <textarea
-                      className="input"
-                      rows={2}
-                      value={returnNotes}
-                      onChange={e => setReturnNotes(e.target.value)}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
-                  </div>
+                      {/* Section 1: Telemetry & Odometer Audit */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem', background: 'var(--surface)', padding: '0.875rem', borderRadius: '6px', border: '1px solid var(--border)', marginBottom: '1rem' }}>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>START ODOMETER</span>
+                          <div style={{ fontWeight: 700 }}>{activeBooking.trip?.pickupOdometerKm ?? '—'} km</div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>RETURN ODOMETER</span>
+                          <div style={{ fontWeight: 800, fontSize: '1.05rem' }}>{activeBooking.trip?.returnOdometerKm ?? returnOdometer} km</div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>DISTANCE DRIVEN</span>
+                          <div style={{ fontWeight: 800, color: '#f59e0b' }}>
+                            {activeBooking.trip?.returnOdometerKm && activeBooking.trip?.pickupOdometerKm
+                              ? `${activeBooking.trip.returnOdometerKm - activeBooking.trip.pickupOdometerKm} km`
+                              : '—'}
+                          </div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>EXCESS KILOMETRES</span>
+                          <div style={{ fontWeight: 700, color: (activeBooking.trip?.excessKm || 0) > 0 ? '#ef4444' : '#10b981' }}>
+                            {activeBooking.trip?.excessKm || 0} km
+                          </div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>RETURN FUEL LEVEL</span>
+                          <div style={{ fontWeight: 700, color: '#10b981' }}>{activeBooking.trip?.returnFuelPercent ?? returnFuel}%</div>
+                        </div>
+                        <div>
+                          <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>KEYS RECEIVED</span>
+                          <div style={{ fontWeight: 700, color: '#10b981' }}>Yes (Customer Signed)</div>
+                        </div>
+                      </div>
 
-                  <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                    <button type="button" className="btn-secondary button secondary" onClick={() => setActiveBooking(null)}>Cancel</button>
-                    <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
-                      {actionBusy ? 'Saving Return…' : 'Confirm Return & Calculate Settlement'}
-                    </button>
-                  </div>
-                </form>
+                      {/* Section 2: Financial Reconciliation Breakdown */}
+                      <div style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '6px', border: '1px solid var(--border)', marginBottom: '1rem' }}>
+                        <div style={{ fontSize: '0.8125rem', fontWeight: 800, textTransform: 'uppercase', color: 'var(--muted)', letterSpacing: '0.05em', marginBottom: '0.75rem' }}>
+                          Financial Reconciliation & Deductions Breakdown
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                          <div style={{ padding: '0.5rem', background: 'var(--surface-secondary)', borderRadius: '4px' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>SECURITY DEPOSIT COLLECTED</span>
+                            <div style={{ fontWeight: 700, fontSize: '1rem' }}>{formatRupees(activeBooking.securityDepositPaise)}</div>
+                          </div>
+                          <div style={{ padding: '0.5rem', background: 'var(--surface-secondary)', borderRadius: '4px' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>EXCESS KM CHARGE</span>
+                            <div style={{ fontWeight: 700, color: Number(activeBooking.trip?.excessKmChargePaise || 0) > 0 ? '#ef4444' : 'var(--text)' }}>
+                              {formatRupees(activeBooking.trip?.excessKmChargePaise || 0)}
+                            </div>
+                          </div>
+                          <div style={{ padding: '0.5rem', background: 'var(--surface-secondary)', borderRadius: '4px' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>FUEL REFILL CHARGE</span>
+                            <div style={{ fontWeight: 700, color: Number(activeBooking.trip?.fuelRefillChargePaise || 0) > 0 ? '#ef4444' : 'var(--text)' }}>
+                              {formatRupees(activeBooking.trip?.fuelRefillChargePaise || 0)}
+                            </div>
+                          </div>
+                          <div style={{ padding: '0.5rem', background: 'var(--surface-secondary)', borderRadius: '4px' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>DAMAGE CLAIM CHARGE</span>
+                            <div style={{ fontWeight: 700, color: Number(activeBooking.trip?.damageChargePaise || 0) > 0 ? '#ef4444' : 'var(--text)' }}>
+                              {formatRupees(activeBooking.trip?.damageChargePaise || 0)}
+                            </div>
+                          </div>
+                          <div style={{ padding: '0.5rem', background: 'var(--surface-secondary)', borderRadius: '4px' }}>
+                            <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>TOTAL EXTRA DEDUCTIONS</span>
+                            <div style={{ fontWeight: 800, color: '#ef4444', fontSize: '1rem' }}>
+                              {formatRupees(activeBooking.trip?.totalAdditionalChargesPaise || 0)}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Section 3: Final Refund Box */}
+                      {(() => {
+                        const depositRupees = Number(activeBooking.securityDepositPaise) / 100;
+                        const totalExtraRupees = Number(activeBooking.trip?.totalAdditionalChargesPaise || 0) / 100;
+                        const refundRupees = activeBooking.trip?.depositRefundPaise != null
+                          ? Number(activeBooking.trip.depositRefundPaise) / 100
+                          : Math.max(0, depositRupees - totalExtraRupees);
+                        const isExtraDue = totalExtraRupees > depositRupees;
+
+                        return (
+                          <div style={{
+                            padding: '1rem 1.25rem',
+                            borderRadius: '8px',
+                            background: isExtraDue ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.15)',
+                            border: isExtraDue ? '1px solid #ef4444' : '1px solid #10b981',
+                            display: 'flex',
+                            justifyContent: 'space-between',
+                            alignItems: 'center',
+                            flexWrap: 'wrap',
+                            gap: '12px',
+                            marginBottom: '1rem',
+                          }}>
+                            <div>
+                              <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: isExtraDue ? '#ef4444' : '#10b981', letterSpacing: '0.05em' }}>
+                                {isExtraDue ? '⚠️ ADDITIONAL BALANCE DUE FROM CUSTOMER' : 'FINAL CALCULATED SECURITY DEPOSIT REFUND'}
+                              </div>
+                              <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: '2px' }}>
+                                {isExtraDue
+                                  ? `Extra charges exceed the ₹${depositRupees.toLocaleString('en-IN')} security deposit.`
+                                  : `Security deposit of ₹${depositRupees.toLocaleString('en-IN')} minus ₹${totalExtraRupees.toLocaleString('en-IN')} deductions.`}
+                              </div>
+                            </div>
+                            <div style={{ fontSize: '1.6rem', fontWeight: 900, color: isExtraDue ? '#ef4444' : '#10b981' }}>
+                              ₹{isExtraDue ? (totalExtraRupees - depositRupees).toLocaleString('en-IN') : refundRupees.toLocaleString('en-IN')}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* Section 4: Condition Notes */}
+                      <div style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border)', marginBottom: '1rem' }}>
+                        <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block', marginBottom: '2px' }}>RETURN INSPECTION CONDITION NOTES</span>
+                        <div style={{ fontSize: '0.85rem' }}>{activeBooking.trip?.returnNotes || returnNotes}</div>
+                      </div>
+
+                      {/* Section 5: Return Inspection Photos */}
+                      <div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>
+                          RETURN INSPECTION PHOTOS ({Array.isArray(activeBooking.trip?.returnPhotos) ? activeBooking.trip.returnPhotos.length : 0})
+                        </span>
+                        {Array.isArray(activeBooking.trip?.returnPhotos) && activeBooking.trip.returnPhotos.length > 0 ? (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.5rem' }}>
+                            {activeBooking.trip.returnPhotos.map((photoUrl: string, idx: number) => (
+                              <div key={idx} style={{ position: 'relative', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                                <img src={photoUrl} alt={`Return ${idx + 1}`} style={{ width: '100%', height: '80px', objectFit: 'cover', display: 'block' }} />
+                                <a href={photoUrl} target="_blank" rel="noreferrer" style={{ position: 'absolute', bottom: '2px', right: '2px', background: 'rgba(0,0,0,0.7)', color: '#fff', fontSize: '0.625rem', padding: '1px 4px', borderRadius: '3px' }}>Enlarge ↗</a>
+                              </div>
+                            ))}
+                          </div>
+                        ) : (
+                          <div style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>
+                            Primary fleet vehicle photo linked on return file.
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : (
+                    /* RETURN FORM (FOR RECORDING RETURN) */
+                    <form onSubmit={handleReturnSubmit}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                        <p style={{ fontSize: '0.875rem', color: 'var(--muted)', margin: 0 }}>
+                          Post-trip inspection. Document return odometer, fuel refill charges, and any new damage for deposit reconciliation.
+                        </p>
+                        {editReturnSettlement && (
+                          <button type="button" className="button secondary small" onClick={() => setEditReturnSettlement(false)}>
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                        <div>
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Return Odometer (km) *</label>
+                          <input
+                            type="number"
+                            className="input"
+                            required
+                            value={returnOdometer}
+                            onChange={e => setReturnOdometer(Number(e.target.value))}
+                            style={{ width: '100%', marginTop: '4px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Return Fuel Level (%) *</label>
+                          <input
+                            type="number"
+                            className="input"
+                            min={0}
+                            max={100}
+                            required
+                            value={returnFuel}
+                            onChange={e => setReturnFuel(Number(e.target.value))}
+                            style={{ width: '100%', marginTop: '4px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Excess Kilometres</label>
+                          <input
+                            type="number"
+                            className="input"
+                            min={0}
+                            value={returnExcessKm}
+                            onChange={e => {
+                              const km = Number(e.target.value);
+                              setReturnExcessKm(km);
+                              setReturnExcessKmChargeRupees(km * 12);
+                            }}
+                            style={{ width: '100%', marginTop: '4px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Excess Km Charge (₹)</label>
+                          <input
+                            type="number"
+                            className="input"
+                            min={0}
+                            value={returnExcessKmChargeRupees}
+                            onChange={e => setReturnExcessKmChargeRupees(Number(e.target.value))}
+                            style={{ width: '100%', marginTop: '4px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Damage Claim Charge (₹)</label>
+                          <input
+                            type="number"
+                            className="input"
+                            min={0}
+                            value={returnDamageChargeRupees}
+                            onChange={e => setReturnDamageChargeRupees(Number(e.target.value))}
+                            style={{ width: '100%', marginTop: '4px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '1.75rem' }}>
+                            <input
+                              type="checkbox"
+                              checked={returnKeyReceived}
+                              onChange={e => setReturnKeyReceived(e.target.checked)}
+                            />
+                            <span style={{ fontWeight: 600 }}>Physical keys & vehicle documents received back</span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* LIVE SETTLEMENT CALCULATION PREVIEW */}
+                      {(() => {
+                        const deposit = Number(activeBooking.securityDepositPaise) / 100;
+                        const deductions = returnExcessKmChargeRupees + returnDamageChargeRupees;
+                        const estRefund = Math.max(0, deposit - deductions);
+                        return (
+                          <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'var(--surface-secondary)', border: '1px solid var(--border)', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                            <div style={{ fontSize: '0.8125rem' }}>
+                              Security Deposit: <strong>₹{deposit.toLocaleString('en-IN')}</strong> − Deductions: <strong style={{ color: '#ef4444' }}>₹{deductions.toLocaleString('en-IN')}</strong>
+                            </div>
+                            <div style={{ fontSize: '0.875rem', fontWeight: 800, color: '#10b981' }}>
+                              Estimated Net Refund: ₹{estRefund.toLocaleString('en-IN')}
+                            </div>
+                          </div>
+                        );
+                      })()}
+
+                      {/* RETURN INSPECTION PHOTOS (HELD LOCALLY UNTIL SUBMIT) */}
+                      <div style={{ marginTop: '1rem', border: '1px solid var(--border)', borderRadius: '6px', padding: '0.875rem', background: 'var(--surface)' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '4px' }}>
+                          <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text)' }}>
+                            Return Inspection Photos *
+                          </label>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                            Capture return odometer, fuel meter, and body condition (staged locally until save)
+                          </span>
+                        </div>
+
+                        <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                          <label
+                            htmlFor="return-photo-upload"
+                            className="button secondary small"
+                            style={{ cursor: 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                          >
+                            📷 Choose Return Photos
+                          </label>
+                          <input
+                            id="return-photo-upload"
+                            type="file"
+                            multiple
+                            accept="image/*"
+                            style={{ display: 'none' }}
+                            onChange={e => {
+                              if (!e.target.files || e.target.files.length === 0) return;
+                              const files = Array.from(e.target.files);
+                              const items = files.map(file => ({ file, previewUrl: URL.createObjectURL(file) }));
+                              setReturnLocalFiles(prev => [...prev, ...items]);
+                              if (e.target) e.target.value = '';
+                            }}
+                          />
+                          <span style={{ fontSize: '0.75rem', color: (returnPhotos.length + returnLocalFiles.length) > 0 ? '#10b981' : 'var(--muted)' }}>
+                            {(returnPhotos.length + returnLocalFiles.length) > 0
+                              ? `✓ ${returnPhotos.length + returnLocalFiles.length} photo(s) attached (${returnLocalFiles.length} staged locally)`
+                              : 'Upload photos or primary vehicle photo will be linked'}
+                          </span>
+                        </div>
+
+                        {/* Return Photos Grid */}
+                        {(returnPhotos.length > 0 || returnLocalFiles.length > 0) && (
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.5rem', marginTop: '0.5rem' }}>
+                            {returnPhotos.map((photoUrl, pIdx) => (
+                              <div key={`remote-${pIdx}`} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                                <img src={photoUrl} alt={`Return photo ${pIdx + 1}`} style={{ width: '100%', height: '75px', objectFit: 'cover', display: 'block' }} />
+                                <button
+                                  type="button"
+                                  onClick={() => setReturnPhotos(prev => prev.filter((_, i) => i !== pIdx))}
+                                  title="Remove photo"
+                                  style={{
+                                    position: 'absolute',
+                                    top: '2px',
+                                    right: '2px',
+                                    background: 'rgba(239, 68, 68, 0.9)',
+                                    color: '#fff',
+                                    border: 'none',
+                                    width: '18px',
+                                    height: '18px',
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    fontSize: '0.625rem',
+                                    fontWeight: 'bold',
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                            {returnLocalFiles.map((item, lIdx) => (
+                              <div key={`local-${lIdx}`} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px dashed #10b981' }}>
+                                <img src={item.previewUrl} alt={`Local Return ${lIdx + 1}`} style={{ width: '100%', height: '75px', objectFit: 'cover', display: 'block' }} />
+                                <span style={{ position: 'absolute', bottom: '2px', left: '2px', background: 'rgba(16, 185, 129, 0.9)', color: '#fff', fontSize: '0.5rem', padding: '1px 3px', borderRadius: '2px', fontWeight: 700 }}>Staged</span>
+                                <button
+                                  type="button"
+                                  onClick={() => {
+                                    URL.revokeObjectURL(item.previewUrl);
+                                    setReturnLocalFiles(prev => prev.filter((_, i) => i !== lIdx));
+                                  }}
+                                  title="Remove photo"
+                                  style={{
+                                    position: 'absolute',
+                                    top: '2px',
+                                    right: '2px',
+                                    background: 'rgba(239, 68, 68, 0.9)',
+                                    color: '#fff',
+                                    border: 'none',
+                                    width: '18px',
+                                    height: '18px',
+                                    borderRadius: '50%',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'center',
+                                    cursor: 'pointer',
+                                    fontSize: '0.625rem',
+                                    fontWeight: 'bold',
+                                  }}
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+
+                      <div style={{ marginTop: '1rem' }}>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Return Condition & Damage Notes</label>
+                        <textarea
+                          className="input"
+                          rows={2}
+                          value={returnNotes}
+                          onChange={e => setReturnNotes(e.target.value)}
+                          style={{ width: '100%', marginTop: '4px' }}
+                        />
+                      </div>
+
+                      <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                        <button type="button" className="btn-secondary button secondary" onClick={() => setActiveBooking(null)}>Cancel</button>
+                        <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
+                          {actionBusy ? 'Uploading Photos & Calculating…' : 'Confirm Return & Calculate Settlement'}
+                        </button>
+                      </div>
+                    </form>
+                  )}
+                </div>
               )}
             </div>
           </div>

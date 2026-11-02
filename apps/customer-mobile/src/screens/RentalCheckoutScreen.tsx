@@ -57,6 +57,8 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
   const [experienceYears, setExperienceYears] = useState('5');
   const [driverLicenseFront, setDriverLicenseFront] = useState<string>('');
   const [driverLicenseBack, setDriverLicenseBack] = useState<string>('');
+  const [localFrontAsset, setLocalFrontAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
+  const [localBackAsset, setLocalBackAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
   const [uploadingLicense, setUploadingLicense] = useState<'front' | 'back' | null>(null);
 
   // Payment method selection
@@ -99,46 +101,20 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
     : 5000;
   const totalRupees = baseFareRupees + taxRupees + depositRupees;
 
-  const processAndUploadLicense = async (asset: ImagePicker.ImagePickerAsset, type: 'front' | 'back') => {
-    setUploadingLicense(type);
-    try {
-      const base64Data = asset.base64;
-      if (!base64Data) {
-        throw new Error('Image data could not be read from device.');
-      }
-      const uploadRes = await api<{ url?: string; secureUrl?: string }>('/media/upload', {
-        method: 'POST',
-        body: JSON.stringify({
-          base64Data,
-          mimeType: asset.mimeType || 'image/jpeg',
-          folder: 'vmotiv/rental-kyc',
-          filename: `license-${type}-${Date.now()}`,
-        }),
-      });
-      const finalUrl = uploadRes?.secureUrl || uploadRes?.url;
-      if (!finalUrl) {
-        throw new Error('No public URL returned from cloud storage.');
-      }
-      if (type === 'front') {
-        setDriverLicenseFront(finalUrl);
-      } else {
-        setDriverLicenseBack(finalUrl);
-      }
-    } catch (err: any) {
-      console.warn('[CLOUDINARY_UPLOAD_ERROR]', err?.message || err);
-      Alert.alert(
-        'Document Upload Error',
-        'Could not upload driving license photo to secure cloud storage. Please check your internet connection and try again.'
-      );
-    } finally {
-      setUploadingLicense(null);
+  const processAndStoreLicense = (asset: ImagePicker.ImagePickerAsset, type: 'front' | 'back') => {
+    if (type === 'front') {
+      setLocalFrontAsset(asset);
+      setDriverLicenseFront(asset.uri);
+    } else {
+      setLocalBackAsset(asset);
+      setDriverLicenseBack(asset.uri);
     }
   };
 
   const handlePickLicensePhoto = async (type: 'front' | 'back') => {
     Alert.alert(
-      `Upload License ${type === 'front' ? 'Front' : 'Back'} Photo`,
-      'Choose how you want to provide your physical driving license document (saved securely to Cloudinary):',
+      `Select License ${type === 'front' ? 'Front' : 'Back'} Photo`,
+      'Choose how you want to provide your physical driving license document (saved securely when you confirm & pay):',
       [
         {
           text: 'Take Photo with Camera',
@@ -155,7 +131,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
                 base64: true,
               });
               if (!result.canceled && result.assets && result.assets[0]) {
-                await processAndUploadLicense(result.assets[0], type);
+                processAndStoreLicense(result.assets[0], type);
               }
             } catch {
               Alert.alert('Camera Error', 'Could not access device camera.');
@@ -173,7 +149,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
                 base64: true,
               });
               if (!result.canceled && result.assets && result.assets[0]) {
-                await processAndUploadLicense(result.assets[0], type);
+                processAndStoreLicense(result.assets[0], type);
               }
             } catch {
               Alert.alert('Gallery Error', 'Photo picker closed or unavailable.');
@@ -216,15 +192,55 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
 
       const { bookingId, bookingNumber, gatewayOrderId } = checkoutRes;
 
-      // Step 2: Submit Driver KYC details
+      // Step 2: Upload staged local license photos to Cloudinary before KYC submission
+      let finalFrontUrl = driverLicenseFront;
+      let finalBackUrl = driverLicenseBack;
+
+      if (localFrontAsset?.base64) {
+        try {
+          const uploadRes = await api<{ url?: string; secureUrl?: string }>('/media/upload', {
+            method: 'POST',
+            body: JSON.stringify({
+              base64Data: localFrontAsset.base64,
+              mimeType: localFrontAsset.mimeType || 'image/jpeg',
+              folder: 'vmotiv/rental-kyc',
+              filename: `license-front-${Date.now()}`,
+            }),
+          });
+          const url = uploadRes?.secureUrl || uploadRes?.url;
+          if (url) finalFrontUrl = url;
+        } catch (uploadErr) {
+          console.warn('License front upload fallback:', uploadErr);
+        }
+      }
+
+      if (localBackAsset?.base64) {
+        try {
+          const uploadRes = await api<{ url?: string; secureUrl?: string }>('/media/upload', {
+            method: 'POST',
+            body: JSON.stringify({
+              base64Data: localBackAsset.base64,
+              mimeType: localBackAsset.mimeType || 'image/jpeg',
+              folder: 'vmotiv/rental-kyc',
+              filename: `license-back-${Date.now()}`,
+            }),
+          });
+          const url = uploadRes?.secureUrl || uploadRes?.url;
+          if (url) finalBackUrl = url;
+        } catch (uploadErr) {
+          console.warn('License back upload fallback:', uploadErr);
+        }
+      }
+
+      // Submit Driver KYC details
       try {
         await submitRentalDriverKyc(bookingId, {
           licenseNumber: licenseNumber.trim().toUpperCase(),
           licenseExpiry: new Date(licenseExpiry).toISOString(),
           dateOfBirth: new Date(dob).toISOString(),
           drivingExperienceYears: Number(experienceYears) || 3,
-          licenseFrontUrl: driverLicenseFront,
-          licenseBackUrl: driverLicenseBack,
+          licenseFrontUrl: finalFrontUrl,
+          licenseBackUrl: finalBackUrl,
         });
       } catch (kycErr: any) {
         console.warn('KYC submission note:', kycErr);

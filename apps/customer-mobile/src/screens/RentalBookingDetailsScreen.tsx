@@ -2,6 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import {
   View,
   Text,
+  Image,
   StyleSheet,
   ScrollView,
   Pressable,
@@ -146,6 +147,35 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
   const endDate = new Date(booking.endTime);
   const totalRupees = Math.round(Number(booking.totalPayablePaise) / 100);
   const depositRupees = Math.round(Number(booking.securityDepositPaise) / 100);
+
+  const isTripSettled =
+    booking.status === 'SETTLED' ||
+    booking.status === 'RETURN_INSPECTED' ||
+    Boolean(booking.trip?.isSettled) ||
+    booking.trip?.returnOdometerKm != null;
+
+  const pickupOdo = Number(booking.trip?.pickupOdometerKm ?? 0);
+  const returnOdo = Number(booking.trip?.returnOdometerKm ?? 0);
+  const totalDistanceKm = returnOdo > pickupOdo ? returnOdo - pickupOdo : 0;
+  const freeAllowanceKm = booking.includedKm || (booking.pricingSnapshot?.includedKm ?? 250);
+  const excessKm = booking.trip?.excessKm ?? Math.max(0, totalDistanceKm - freeAllowanceKm);
+
+  const securityDeposit = Math.round(Number(booking.securityDepositPaise || 0) / 100);
+  const excessKmCharge = Math.round(Number(booking.trip?.excessKmChargePaise || 0) / 100);
+  const fuelRefillCharge = Math.round(Number(booking.trip?.fuelRefillChargePaise || 0) / 100);
+  const damageCharge = Math.round(Number(booking.trip?.damageChargePaise || 0) / 100);
+  const lateReturnCharge = Math.round(Number(booking.trip?.lateReturnChargePaise || 0) / 100);
+  const totalExtraCharges = Math.round(
+    Number(
+      booking.trip?.totalAdditionalChargesPaise != null && Number(booking.trip.totalAdditionalChargesPaise) > 0
+        ? Number(booking.trip.totalAdditionalChargesPaise) / 100
+        : excessKmCharge + fuelRefillCharge + damageCharge + lateReturnCharge
+    )
+  );
+
+  const netRefund = booking.trip?.depositRefundPaise != null
+    ? Math.round(Number(booking.trip.depositRefundPaise) / 100)
+    : Math.max(0, securityDeposit - totalExtraCharges);
 
   const isCancellable = booking.status === 'CONFIRMED' || booking.status === 'PENDING_PAYMENT';
   const isActiveTrip = booking.status === 'TRIP_ACTIVE' || booking.status === 'VEHICLE_COLLECTED';
@@ -300,72 +330,211 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
           </View>
         </View>
 
-        {/* Custody Handover & Return Evidence */}
+        {/* Custody Handover & Return Evidence / Final Settlement */}
         {booking.trip && (
-          <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-            <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
-              Vehicle Custody Report
-            </Text>
-
-            <View style={styles.evidenceRow}>
-              <View style={[styles.evidenceBox, { backgroundColor: colors.surfaceSecondary }]}>
-                <Text style={[styles.evidenceLabel, { color: colors.textMuted }]}>PICKUP ODOMETER</Text>
-                <Text style={[styles.evidenceValue, { color: colors.textPrimary }]}>
-                  {booking.trip.pickupOdometerKm} km
-                </Text>
-                <Text style={[styles.evidenceSub, { color: colors.textSecondary }]}>
-                  Fuel: {booking.trip.pickupFuelPercent}%
-                </Text>
-              </View>
-
-              {booking.trip.returnOdometerKm != null && (
-                <View style={[styles.evidenceBox, { backgroundColor: colors.surfaceSecondary }]}>
-                  <Text style={[styles.evidenceLabel, { color: colors.textMuted }]}>RETURN ODOMETER</Text>
-                  <Text style={[styles.evidenceValue, { color: colors.textPrimary }]}>
-                    {booking.trip.returnOdometerKm} km
-                  </Text>
-                  <Text style={[styles.evidenceSub, { color: colors.textSecondary }]}>
-                    Fuel: {booking.trip.returnFuelPercent}%
-                  </Text>
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: colors.surface,
+                borderColor: isTripSettled ? (isDark ? '#059669' : '#10B981') : colors.border,
+                borderWidth: isTripSettled ? 1.5 : 1,
+              },
+            ]}
+          >
+            {isTripSettled ? (
+              <>
+                <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 10 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                    <View style={{ width: 28, height: 28, borderRadius: 14, backgroundColor: isDark ? 'rgba(16, 185, 129, 0.2)' : '#ECFDF5', alignItems: 'center', justifyContent: 'center' }}>
+                      <CheckCircle2 size={16} color={isDark ? '#34D399' : '#059669'} />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 14, fontWeight: '800', color: colors.textPrimary, letterSpacing: 0.2 }}>
+                        Final Settlement & Refund Statement
+                      </Text>
+                      <Text style={{ fontSize: 11, color: isDark ? '#34D399' : '#059669', fontWeight: '600' }}>
+                        Trip Completed & Handover Reconciled
+                      </Text>
+                    </View>
+                  </View>
+                  <View style={{ paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6, backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#D1FAE5' }}>
+                    <Text style={{ fontSize: 10, fontWeight: '800', color: isDark ? '#34D399' : '#065F46', textTransform: 'uppercase' }}>
+                      {booking.status}
+                    </Text>
+                  </View>
                 </View>
-              )}
-            </View>
 
-            {/* Excess Km / Settlement Info */}
-            {booking.trip.isSettled && (
-              <View
-                style={[
-                  styles.settlementBanner,
-                  {
-                    backgroundColor: isDark ? 'rgba(52, 211, 153, 0.14)' : '#ECFDF5',
-                    borderColor: isDark ? '#34D399' : '#A7F3D0',
+                {/* Telemetry Grid */}
+                <View style={{ backgroundColor: colors.surfaceSecondary, borderRadius: 10, padding: 12, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 10, fontWeight: '700', color: colors.textMuted, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                    Kilometre & Fuel Telemetry Report
+                  </Text>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ fontSize: 10, color: colors.textMuted, fontWeight: '600' }}>START ODO</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary, marginTop: 2 }}>{pickupOdo} km</Text>
+                      <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 1 }}>Fuel: {booking.trip.pickupFuelPercent}%</Text>
+                    </View>
+                    <View style={{ flex: 1, alignItems: 'center' }}>
+                      <Text style={{ fontSize: 10, color: colors.textMuted, fontWeight: '600' }}>RETURN ODO</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: colors.textPrimary, marginTop: 2 }}>{returnOdo} km</Text>
+                      <Text style={{ fontSize: 10, color: colors.textSecondary, marginTop: 1 }}>Fuel: {booking.trip.returnFuelPercent}%</Text>
+                    </View>
+                    <View style={{ flex: 1, alignItems: 'flex-end' }}>
+                      <Text style={{ fontSize: 10, color: colors.textMuted, fontWeight: '600' }}>TOTAL DRIVEN</Text>
+                      <Text style={{ fontSize: 13, fontWeight: '800', color: colors.brandAccent, marginTop: 2 }}>{totalDistanceKm} km</Text>
+                      <Text style={{ fontSize: 10, color: excessKm > 0 ? '#EF4444' : (isDark ? '#34D399' : '#059669'), fontWeight: '700', marginTop: 1 }}>
+                        {excessKm > 0 ? `+${excessKm} km excess` : `${freeAllowanceKm} km free`}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Financial Charges & Deductions Itemized Breakdown */}
+                <View style={{ marginBottom: 12 }}>
+                  <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                    Itemized Deductions & Charges
+                  </Text>
+                  <View style={{ gap: 6 }}>
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 12, color: colors.textSecondary }}>Initial Security Deposit Paid</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>₹{securityDeposit.toLocaleString('en-IN')}</Text>
+                    </View>
+
+                    {excessKmCharge > 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 12, color: '#EF4444' }}>Excess Km Surcharge ({excessKm} km)</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#EF4444' }}>- ₹{excessKmCharge.toLocaleString('en-IN')}</Text>
+                      </View>
+                    )}
+
+                    {fuelRefillCharge > 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 12, color: '#EF4444' }}>Fuel Refill / Deficiency Charge</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#EF4444' }}>- ₹{fuelRefillCharge.toLocaleString('en-IN')}</Text>
+                      </View>
+                    )}
+
+                    {damageCharge > 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 12, color: '#EF4444' }}>Vehicle Damage Assessment</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#EF4444' }}>- ₹{damageCharge.toLocaleString('en-IN')}</Text>
+                      </View>
+                    )}
+
+                    {lateReturnCharge > 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 12, color: '#EF4444' }}>Late Return Charge</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: '#EF4444' }}>- ₹{lateReturnCharge.toLocaleString('en-IN')}</Text>
+                      </View>
+                    )}
+
+                    {totalExtraCharges === 0 && (
+                      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <Text style={{ fontSize: 12, color: isDark ? '#34D399' : '#059669' }}>Extra Deductions</Text>
+                        <Text style={{ fontSize: 12, fontWeight: '700', color: isDark ? '#34D399' : '#059669' }}>₹0 (Full deposit eligible)</Text>
+                      </View>
+                    )}
+
+                    <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 4 }} />
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>Total Extra Charges</Text>
+                      <Text style={{ fontSize: 12, fontWeight: '800', color: totalExtraCharges > 0 ? '#EF4444' : colors.textPrimary }}>
+                        {totalExtraCharges > 0 ? `- ₹${totalExtraCharges.toLocaleString('en-IN')}` : '₹0'}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+
+                {/* Net Deposit Refund / Balance Card */}
+                <View
+                  style={{
+                    backgroundColor: netRefund >= 0
+                      ? (isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5')
+                      : (isDark ? 'rgba(239, 68, 68, 0.15)' : '#FEF2F2'),
+                    borderColor: netRefund >= 0
+                      ? (isDark ? '#059669' : '#A7F3D0')
+                      : (isDark ? '#DC2626' : '#FECACA'),
                     borderWidth: 1,
-                  },
-                ]}
-              >
-                <CheckCircle2 size={18} color={isDark ? '#34D399' : '#10B981'} />
-                <View style={{ flex: 1 }}>
-                  <Text
-                    style={{
-                      fontSize: 13,
-                      fontWeight: '700',
-                      color: isDark ? '#34D399' : '#065F46',
-                    }}
-                  >
-                    Trip Settled & Inspected
-                  </Text>
-                  <Text
-                    style={{
-                      fontSize: 11,
-                      color: isDark ? '#E6F9F0' : '#047857',
-                      marginTop: 2,
-                    }}
-                  >
-                    Excess Km: {booking.trip.excessKm} km · Deposit Refund: ₹
-                    {Math.round(Number(booking.trip.depositRefundPaise) / 100).toLocaleString('en-IN')}
-                  </Text>
+                    borderRadius: 10,
+                    padding: 14,
+                    marginBottom: 10,
+                  }}
+                >
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <View style={{ flex: 1, marginRight: 8 }}>
+                      <Text style={{ fontSize: 11, fontWeight: '800', color: netRefund >= 0 ? (isDark ? '#34D399' : '#065F46') : '#DC2626', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                        {netRefund >= 0 ? '✓ Net Security Deposit Refund' : '⚠ Outstanding Balance Due'}
+                      </Text>
+                      <Text style={{ fontSize: 11, color: netRefund >= 0 ? (isDark ? '#A7F3D0' : '#047857') : '#B91C1C', marginTop: 2 }}>
+                        {netRefund >= 0 ? 'Refund processed to original payment method' : 'Deductions exceeded security deposit amount'}
+                      </Text>
+                    </View>
+                    <Text style={{ fontSize: 20, fontWeight: '900', color: netRefund >= 0 ? (isDark ? '#34D399' : '#059669') : '#DC2626' }}>
+                      ₹{Math.abs(netRefund).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
                 </View>
-              </View>
+
+                {/* Return Inspection Photos */}
+                {booking.trip.returnPhotos && booking.trip.returnPhotos.length > 0 && (
+                  <View style={{ marginTop: 6 }}>
+                    <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
+                      Return Inspection Evidence ({booking.trip.returnPhotos.length} photos)
+                    </Text>
+                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                      {booking.trip.returnPhotos.map((photoUrl, pIdx) => (
+                        <Image
+                          key={pIdx}
+                          source={{ uri: photoUrl }}
+                          style={{ width: 85, height: 85, borderRadius: 8, borderWidth: 1, borderColor: colors.border }}
+                          resizeMode="cover"
+                        />
+                      ))}
+                    </ScrollView>
+                  </View>
+                )}
+
+                {/* Return Notes */}
+                {booking.trip.returnNotes ? (
+                  <View style={{ marginTop: 8, padding: 10, backgroundColor: colors.surfaceSecondary, borderRadius: 8 }}>
+                    <Text style={{ fontSize: 10, color: colors.textMuted, fontWeight: '700', textTransform: 'uppercase' }}>Hub Inspection Remarks</Text>
+                    <Text style={{ fontSize: 11, color: colors.textSecondary, marginTop: 2 }}>{booking.trip.returnNotes}</Text>
+                  </View>
+                ) : null}
+              </>
+            ) : (
+              <>
+                <Text style={[styles.sectionTitle, { color: colors.textPrimary }]}>
+                  Vehicle Custody Report
+                </Text>
+
+                <View style={styles.evidenceRow}>
+                  <View style={[styles.evidenceBox, { backgroundColor: colors.surfaceSecondary }]}>
+                    <Text style={[styles.evidenceLabel, { color: colors.textMuted }]}>PICKUP ODOMETER</Text>
+                    <Text style={[styles.evidenceValue, { color: colors.textPrimary }]}>
+                      {booking.trip.pickupOdometerKm} km
+                    </Text>
+                    <Text style={[styles.evidenceSub, { color: colors.textSecondary }]}>
+                      Fuel: {booking.trip.pickupFuelPercent}%
+                    </Text>
+                  </View>
+
+                  {booking.trip.returnOdometerKm != null && (
+                    <View style={[styles.evidenceBox, { backgroundColor: colors.surfaceSecondary }]}>
+                      <Text style={[styles.evidenceLabel, { color: colors.textMuted }]}>RETURN ODOMETER</Text>
+                      <Text style={[styles.evidenceValue, { color: colors.textPrimary }]}>
+                        {booking.trip.returnOdometerKm} km
+                      </Text>
+                      <Text style={[styles.evidenceSub, { color: colors.textSecondary }]}>
+                        Fuel: {booking.trip.returnFuelPercent}%
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </>
             )}
           </View>
         )}

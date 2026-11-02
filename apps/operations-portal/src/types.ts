@@ -556,6 +556,31 @@ export type RentalBookingItem = {
     licenseBackUrl?: string;
     status: string;
     rejectionReason?: string | null;
+    verifiedAt?: string | null;
+  } | null;
+  trip?: {
+    id: string;
+    pickupTime?: string | null;
+    pickupOdometerKm?: number | null;
+    pickupFuelPercent?: number | null;
+    pickupPhotos?: string[] | null;
+    pickupNotes?: string | null;
+    pickupCustomerSigned?: boolean;
+    returnTime?: string | null;
+    returnOdometerKm?: number | null;
+    returnFuelPercent?: number | null;
+    returnPhotos?: string[] | null;
+    returnNotes?: string | null;
+    returnCustomerSigned?: boolean;
+    excessKm?: number;
+    excessKmChargePaise?: string | number;
+    fuelRefillChargePaise?: string | number;
+    lateReturnChargePaise?: string | number;
+    damageChargePaise?: string | number;
+    totalAdditionalChargesPaise?: string | number;
+    depositRefundPaise?: string | number;
+    isSettled?: boolean;
+    settledAt?: string | null;
   } | null;
   tripEvidence?: {
     id: string;

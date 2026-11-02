@@ -1480,6 +1480,8 @@ input[type="datetime-local"].input {
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  max-height: 92vh;
+  max-width: 95vw;
   animation: slideUp 0.15s ease-out;
 }
 
@@ -1510,6 +1512,25 @@ input[type="datetime-local"].input {
 .modal-body {
   padding: 1.4rem;
   overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+
+.modal-body::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.modal-body::-webkit-scrollbar-track {
+  background: rgba(15, 23, 42, 0.6);
+  border-radius: 999px;
+}
+.modal-body::-webkit-scrollbar-thumb {
+  background: rgba(245, 158, 11, 0.6);
+  border-radius: 999px;
+  border: 1px solid rgba(15, 23, 42, 0.4);
+}
+.modal-body::-webkit-scrollbar-thumb:hover {
+  background: rgba(245, 158, 11, 0.9);
 }
 
 .modal-footer {
