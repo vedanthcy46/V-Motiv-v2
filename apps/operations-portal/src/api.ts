@@ -410,7 +410,15 @@ export const api = {
     call<{ deleted: boolean; archived: boolean; vehicleId: string }>(u, `/operations/rentals/fleet/${vehicleId}`, { method: 'DELETE' }),
   createWalkInRentalBooking: (u: User, body: Record<string, any>) =>
     call<RentalBookingItem>(u, '/operations/rentals/walkin-booking', { method: 'POST', body: JSON.stringify(body) }),
-  recordRentalHandover: (u: User, bookingId: string, body: { odometerKm: number; fuelPercent: number; keyReleased: boolean; conditionNotes?: string; photos?: string[] }) =>
+  recordRentalHandover: (u: User, bookingId: string, body: {
+    odometerKm: number;
+    fuelPercent: number;
+    keyReleased?: boolean;
+    customerSigned?: boolean;
+    conditionNotes?: string;
+    notes?: string;
+    photos?: string[];
+  }) =>
     call<unknown>(u, `/operations/rentals/bookings/${bookingId}/handover`, { method: 'POST', body: JSON.stringify(body) }),
   recordRentalReturn: (u: User, bookingId: string, body: {
     odometerKm: number;

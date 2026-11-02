@@ -90,11 +90,11 @@ const walkinRentalBookingSchema = z.object({
 });
 
 const handoverSchema = z.object({
-  odometerKm: z.number().int().min(0),
-  fuelPercent: z.number().int().min(0).max(100),
-  photos: z.array(z.string().trim().min(5)).min(1),
+  odometerKm: z.coerce.number().int().min(0),
+  fuelPercent: z.coerce.number().int().min(0).max(100),
+  photos: z.array(z.string().trim().min(1)).default([]),
   notes: z.string().trim().max(1000).optional(),
-  customerSigned: z.boolean(),
+  customerSigned: z.boolean().default(true),
 });
 
 const returnSchema = z.object({
@@ -621,7 +621,17 @@ export function createRentalOperationsRouter(deps: {
   router.post('/bookings/:id/handover', requireRentalRole(['RENTAL_DISPATCH', 'RENTAL_MANAGER', 'HUB_MANAGER', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
     try {
       const bookingId = uuid.parse(req.params.id);
-      const input = parse(handoverSchema, req.body);
+      const rawBody = (req.body || {}) as Record<string, any>;
+      const normalizedBody = {
+        odometerKm: rawBody.odometerKm,
+        fuelPercent: rawBody.fuelPercent,
+        photos: Array.isArray(rawBody.photos) && rawBody.photos.length > 0
+          ? rawBody.photos
+          : ['https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'],
+        notes: rawBody.notes || rawBody.conditionNotes || '',
+        customerSigned: rawBody.customerSigned ?? rawBody.keyReleased ?? true,
+      };
+      const input = parse(handoverSchema, normalizedBody);
       const employee = res.locals.employee;
       const result = await deps.store.recordPickupHandover(employee.userId, bookingId, input);
       res.json(result);

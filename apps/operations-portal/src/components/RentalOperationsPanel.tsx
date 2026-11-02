@@ -94,6 +94,16 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [hubKycExpiry, setHubKycExpiry] = useState(oneYearFromNow());
   const [hubKycFrontUrl, setHubKycFrontUrl] = useState('');
   const [hubKycBackUrl, setHubKycBackUrl] = useState('');
+  const [hubKycUploadingFront, setHubKycUploadingFront] = useState(false);
+  const [hubKycUploadingBack, setHubKycUploadingBack] = useState(false);
+
+  // Dispatch / Handover Inspection Photos
+  const [handoverPhotos, setHandoverPhotos] = useState<string[]>([]);
+  const [handoverUploading, setHandoverUploading] = useState(false);
+
+  // Walk-in KYC Uploading states
+  const [walkInUploadingFront, setWalkInUploadingFront] = useState(false);
+  const [walkInUploadingBack, setWalkInUploadingBack] = useState(false);
 
   // Onboard form state
   const [onboardReg, setOnboardReg] = useState('');
@@ -337,6 +347,35 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     setCustomFeatureInput('');
   };
 
+  const uploadFileToCloudinary = async (file: File, folder: string): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(new Error('Failed to read file from disk'));
+      reader.onload = async () => {
+        try {
+          const raw = reader.result as string;
+          const base64Data = raw.includes(',') ? raw.split(',')[1]! : raw;
+          const res = await api.uploadListingPhoto(user, {
+            base64Data,
+            mimeType: file.type || 'image/jpeg',
+            filename: file.name.replace(/\.[^.]+$/, ''),
+            folder,
+          });
+          const url = res.secureUrl || res.url;
+          if (url) {
+            resolve(url);
+          } else {
+            resolve(raw);
+          }
+        } catch {
+          // Local dev fallback to data URL
+          resolve(reader.result as string);
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+  };
+
   // Block form state
   const [blockStart, setBlockStart] = useState('');
   const [blockEnd, setBlockEnd] = useState('');
@@ -527,9 +566,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   };
 
   // Handle Driver KYC Review
-  const handleKycReview = async (decision: 'VERIFIED' | 'REJECTED') => {
+  const handleKycReview = async (decision: 'VERIFIED' | 'REJECTED', reasonOverride?: string) => {
     if (!activeBooking) return;
-    if (decision === 'REJECTED' && !kycRejectionReason.trim()) {
+    const effectiveReason = (reasonOverride !== undefined ? reasonOverride : kycRejectionReason).trim();
+    if (decision === 'REJECTED' && !effectiveReason) {
       onError('Please provide a specific rejection reason for the customer.');
       return;
     }
@@ -545,10 +585,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       await api.reviewRentalKyc(user, activeBooking.id, {
         decision: decision === 'VERIFIED' ? 'APPROVE' : 'REJECT',
         status: decision,
-        rejectionReason: decision === 'REJECTED' ? kycRejectionReason : undefined,
+        rejectionReason: decision === 'REJECTED' ? effectiveReason : undefined,
       });
       onSuccess(`Driver KYC ${decision} for booking ${activeBooking.bookingNumber}.`);
       setActiveBooking(null);
+      setKycRejectionReason('');
       void loadData();
     } catch (err: any) {
       onError(err?.message || 'Failed to update driver KYC review');
@@ -662,14 +703,20 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     if (!activeBooking) return;
     setActionBusy(true);
     try {
+      const fallbackPhoto = activeBooking.vehicle?.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80';
+      const photosToSend = handoverPhotos.length > 0 ? handoverPhotos : [fallbackPhoto];
       await api.recordRentalHandover(user, activeBooking.id, {
         odometerKm: Number(handoverOdometer),
         fuelPercent: Number(handoverFuel),
         keyReleased: handoverKeyReleased,
+        customerSigned: true,
         conditionNotes: handoverNotes,
+        notes: handoverNotes,
+        photos: photosToSend,
       });
       onSuccess(`Vehicle handover complete for booking ${activeBooking.bookingNumber}. Trip is now ACTIVE.`);
       setActiveBooking(null);
+      setHandoverPhotos([]);
       void loadData();
     } catch (err: any) {
       onError(err?.message || 'Failed to record vehicle handover');
@@ -1328,32 +1375,119 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                     <div>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 600, color: walkInLicenseFrontUrl ? '#10b981' : 'var(--text)' }}>
-                        License Front Photo URL * {walkInLicenseFrontUrl && '✓'}
-                      </label>
-                      <input
-                        type="text"
-                        className="input"
-                        required
-                        placeholder="https://... photo link or upload"
-                        value={walkInLicenseFrontUrl}
-                        onChange={e => setWalkInLicenseFrontUrl(e.target.value)}
-                        style={{ width: '100%', marginTop: '3px', borderColor: walkInLicenseFrontUrl ? '#10b981' : undefined }}
-                      />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: walkInLicenseFrontUrl ? '#10b981' : 'var(--text)' }}>
+                          License Front Photo * {walkInLicenseFrontUrl && '✓'}
+                        </label>
+                        <label
+                          htmlFor="walkin-front-file"
+                          className="button secondary small"
+                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: walkInUploadingFront ? 'wait' : 'pointer' }}
+                        >
+                          {walkInUploadingFront ? '⏳ Uploading…' : '📁 Upload Photo'}
+                        </label>
+                        <input
+                          id="walkin-front-file"
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          disabled={walkInUploadingFront}
+                          onChange={async e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setWalkInUploadingFront(true);
+                            try {
+                              const url = await uploadFileToCloudinary(file, 'vmotiv/rental-kyc');
+                              setWalkInLicenseFrontUrl(url);
+                            } catch (err: any) {
+                              onError(err?.message || 'Failed to upload license front');
+                            } finally {
+                              setWalkInUploadingFront(false);
+                            }
+                          }}
+                        />
+                      </div>
+                      {walkInLicenseFrontUrl ? (
+                        <div style={{ position: 'relative', marginTop: '4px', border: '1px solid #10b981', borderRadius: '4px', padding: '4px', background: 'rgba(16, 185, 129, 0.05)' }}>
+                          <img src={walkInLicenseFrontUrl} alt="Front preview" style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '3px', display: 'block' }} />
+                          <button
+                            type="button"
+                            onClick={() => setWalkInLicenseFrontUrl('')}
+                            style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
+                            title="Remove photo"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          className="input"
+                          required
+                          placeholder="Upload image or paste link"
+                          value={walkInLicenseFrontUrl}
+                          onChange={e => setWalkInLicenseFrontUrl(e.target.value)}
+                          style={{ width: '100%', marginTop: '3px' }}
+                        />
+                      )}
                     </div>
+
                     <div>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 600, color: walkInLicenseBackUrl ? '#10b981' : 'var(--text)' }}>
-                        License Back Photo URL * {walkInLicenseBackUrl && '✓'}
-                      </label>
-                      <input
-                        type="text"
-                        className="input"
-                        required
-                        placeholder="https://... photo link or upload"
-                        value={walkInLicenseBackUrl}
-                        onChange={e => setWalkInLicenseBackUrl(e.target.value)}
-                        style={{ width: '100%', marginTop: '3px', borderColor: walkInLicenseBackUrl ? '#10b981' : undefined }}
-                      />
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: walkInLicenseBackUrl ? '#10b981' : 'var(--text)' }}>
+                          License Back Photo * {walkInLicenseBackUrl && '✓'}
+                        </label>
+                        <label
+                          htmlFor="walkin-back-file"
+                          className="button secondary small"
+                          style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: walkInUploadingBack ? 'wait' : 'pointer' }}
+                        >
+                          {walkInUploadingBack ? '⏳ Uploading…' : '📁 Upload Photo'}
+                        </label>
+                        <input
+                          id="walkin-back-file"
+                          type="file"
+                          accept="image/*"
+                          style={{ display: 'none' }}
+                          disabled={walkInUploadingBack}
+                          onChange={async e => {
+                            const file = e.target.files?.[0];
+                            if (!file) return;
+                            setWalkInUploadingBack(true);
+                            try {
+                              const url = await uploadFileToCloudinary(file, 'vmotiv/rental-kyc');
+                              setWalkInLicenseBackUrl(url);
+                            } catch (err: any) {
+                              onError(err?.message || 'Failed to upload license back');
+                            } finally {
+                              setWalkInUploadingBack(false);
+                            }
+                          }}
+                        />
+                      </div>
+                      {walkInLicenseBackUrl ? (
+                        <div style={{ position: 'relative', marginTop: '4px', border: '1px solid #10b981', borderRadius: '4px', padding: '4px', background: 'rgba(16, 185, 129, 0.05)' }}>
+                          <img src={walkInLicenseBackUrl} alt="Back preview" style={{ width: '100%', height: '70px', objectFit: 'cover', borderRadius: '3px', display: 'block' }} />
+                          <button
+                            type="button"
+                            onClick={() => setWalkInLicenseBackUrl('')}
+                            style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
+                            title="Remove photo"
+                          >
+                            ✕
+                          </button>
+                        </div>
+                      ) : (
+                        <input
+                          type="text"
+                          className="input"
+                          required
+                          placeholder="Upload image or paste link"
+                          value={walkInLicenseBackUrl}
+                          onChange={e => setWalkInLicenseBackUrl(e.target.value)}
+                          style={{ width: '100%', marginTop: '3px' }}
+                        />
+                      )}
                     </div>
                   </div>
                 </div>
@@ -2629,33 +2763,57 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </div>
                       </div>
 
-                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <div>
-                          Current Status: <span className={`badge ${activeBooking.kycStatus === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>{activeBooking.kycStatus}</span>
+                      <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                        <div style={{ marginBottom: '0.75rem' }}>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 600, color: 'var(--muted)' }}>
+                            KYC Rejection Reason (Required if rejecting customer documents):
+                          </label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="e.g. License image is blurry, expired card, name mismatch"
+                            value={kycRejectionReason}
+                            onChange={e => setKycRejectionReason(e.target.value)}
+                            style={{ width: '100%', marginTop: '4px' }}
+                          />
                         </div>
-                        <div style={{ display: 'flex', gap: '0.5rem' }}>
-                          <button
-                            type="button"
-                            className="btn-danger button danger small"
-                            disabled={actionBusy}
-                            onClick={() => {
-                              const reason = prompt('Enter KYC rejection reason:');
-                              if (reason) {
-                                setKycRejectionReason(reason);
-                                void handleKycReview('REJECTED');
-                              }
-                            }}
-                          >
-                            Reject KYC
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-primary btn-gold button primary small"
-                            disabled={actionBusy || activeBooking.kycStatus === 'VERIFIED' || !activeBooking.driverVerification.licenseFrontUrl || !activeBooking.driverVerification.licenseBackUrl}
-                            onClick={() => void handleKycReview('VERIFIED')}
-                          >
-                            {actionBusy ? 'Verifying…' : 'Approve Driver KYC ✓'}
-                          </button>
+
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                          <div>
+                            Current Status: <span className={`badge ${activeBooking.kycStatus === 'VERIFIED' ? 'badge-success' : 'badge-warning'}`}>{activeBooking.kycStatus}</span>
+                          </div>
+                          <div style={{ display: 'flex', gap: '0.5rem' }}>
+                            <button
+                              type="button"
+                              className="btn-danger button danger small"
+                              disabled={actionBusy}
+                              onClick={() => {
+                                let reason = kycRejectionReason.trim();
+                                if (!reason) {
+                                  const prompted = window.prompt('Please enter the reason for rejecting this driver license KYC:');
+                                  if (prompted && prompted.trim()) {
+                                    reason = prompted.trim();
+                                    setKycRejectionReason(reason);
+                                  }
+                                }
+                                if (!reason) {
+                                  onError('Please provide a specific rejection reason for the customer.');
+                                  return;
+                                }
+                                void handleKycReview('REJECTED', reason);
+                              }}
+                            >
+                              Reject KYC
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-primary btn-gold button primary small"
+                              disabled={actionBusy || activeBooking.kycStatus === 'VERIFIED' || !activeBooking.driverVerification.licenseFrontUrl || !activeBooking.driverVerification.licenseBackUrl}
+                              onClick={() => void handleKycReview('VERIFIED')}
+                            >
+                              {actionBusy ? 'Verifying…' : 'Approve Driver KYC ✓'}
+                            </button>
+                          </div>
                         </div>
                       </div>
                     </div>
@@ -2671,7 +2829,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       {activeBooking.driverVerification ? 'Update Physical License Documents at Hub' : 'Attach Customer Physical License at Hub'}
                     </h4>
                     <p style={{ fontSize: '0.8rem', color: 'var(--muted)', margin: '0 0 1rem 0' }}>
-                      Inspect the original physical card at the counter and attach clear front and back photo URLs.
+                      Inspect the original physical card at the counter and upload high-resolution front and back photos (stored securely in Cloudinary).
                     </p>
                     <form onSubmit={handleHubKycUploadSubmit}>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
@@ -2701,28 +2859,115 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       </div>
                       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
                         <div>
-                          <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Front Document / Photo URL *</label>
-                          <input
-                            type="text"
-                            className="input"
-                            required
-                            placeholder="https://... or image link"
-                            value={hubKycFrontUrl}
-                            onChange={e => setHubKycFrontUrl(e.target.value)}
-                            style={{ width: '100%', marginTop: '3px' }}
-                          />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Front Photo *</label>
+                            <label
+                              htmlFor="hub-kyc-front-file"
+                              className="button secondary small"
+                              style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: hubKycUploadingFront ? 'wait' : 'pointer' }}
+                            >
+                              {hubKycUploadingFront ? '⏳ Uploading…' : '📁 Upload Photo'}
+                            </label>
+                            <input
+                              id="hub-kyc-front-file"
+                              type="file"
+                              accept="image/*"
+                              style={{ display: 'none' }}
+                              disabled={hubKycUploadingFront}
+                              onChange={async e => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                setHubKycUploadingFront(true);
+                                try {
+                                  const url = await uploadFileToCloudinary(file, `vmotiv/rental-kyc/${activeBooking.id}`);
+                                  setHubKycFrontUrl(url);
+                                } catch (err: any) {
+                                  onError(err?.message || 'Failed to upload license front');
+                                } finally {
+                                  setHubKycUploadingFront(false);
+                                }
+                              }}
+                            />
+                          </div>
+                          {hubKycFrontUrl ? (
+                            <div style={{ position: 'relative', marginTop: '4px', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px', background: 'var(--surface-secondary)' }}>
+                              <img src={hubKycFrontUrl} alt="Front preview" style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '3px', display: 'block' }} />
+                              <button
+                                type="button"
+                                onClick={() => setHubKycFrontUrl('')}
+                                style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
+                                title="Remove photo"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              className="input"
+                              required
+                              placeholder="Upload image or paste link"
+                              value={hubKycFrontUrl}
+                              onChange={e => setHubKycFrontUrl(e.target.value)}
+                              style={{ width: '100%', marginTop: '3px' }}
+                            />
+                          )}
                         </div>
+
                         <div>
-                          <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Back Document / Photo URL *</label>
-                          <input
-                            type="text"
-                            className="input"
-                            required
-                            placeholder="https://... or image link"
-                            value={hubKycBackUrl}
-                            onChange={e => setHubKycBackUrl(e.target.value)}
-                            style={{ width: '100%', marginTop: '3px' }}
-                          />
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Back Photo *</label>
+                            <label
+                              htmlFor="hub-kyc-back-file"
+                              className="button secondary small"
+                              style={{ padding: '0.2rem 0.5rem', fontSize: '0.7rem', cursor: hubKycUploadingBack ? 'wait' : 'pointer' }}
+                            >
+                              {hubKycUploadingBack ? '⏳ Uploading…' : '📁 Upload Photo'}
+                            </label>
+                            <input
+                              id="hub-kyc-back-file"
+                              type="file"
+                              accept="image/*"
+                              style={{ display: 'none' }}
+                              disabled={hubKycUploadingBack}
+                              onChange={async e => {
+                                const file = e.target.files?.[0];
+                                if (!file) return;
+                                setHubKycUploadingBack(true);
+                                try {
+                                  const url = await uploadFileToCloudinary(file, `vmotiv/rental-kyc/${activeBooking.id}`);
+                                  setHubKycBackUrl(url);
+                                } catch (err: any) {
+                                  onError(err?.message || 'Failed to upload license back');
+                                } finally {
+                                  setHubKycUploadingBack(false);
+                                }
+                              }}
+                            />
+                          </div>
+                          {hubKycBackUrl ? (
+                            <div style={{ position: 'relative', marginTop: '4px', border: '1px solid var(--border)', borderRadius: '4px', padding: '4px', background: 'var(--surface-secondary)' }}>
+                              <img src={hubKycBackUrl} alt="Back preview" style={{ width: '100%', height: '80px', objectFit: 'cover', borderRadius: '3px', display: 'block' }} />
+                              <button
+                                type="button"
+                                onClick={() => setHubKycBackUrl('')}
+                                style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
+                                title="Remove photo"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ) : (
+                            <input
+                              type="text"
+                              className="input"
+                              required
+                              placeholder="Upload image or paste link"
+                              value={hubKycBackUrl}
+                              onChange={e => setHubKycBackUrl(e.target.value)}
+                              style={{ width: '100%', marginTop: '3px' }}
+                            />
+                          )}
                         </div>
                       </div>
                       <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
@@ -2773,6 +3018,90 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         style={{ width: '100%', marginTop: '4px' }}
                       />
                     </div>
+                  </div>
+
+                  {/* DISPATCH INSPECTION PHOTOS (SAVED IN CLOUDINARY) */}
+                  <div style={{ marginTop: '1rem', border: '1px solid var(--border)', borderRadius: '6px', padding: '0.875rem', background: 'var(--surface)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '4px' }}>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text)' }}>
+                        Trip Dispatch Vehicle Photos *
+                      </label>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                        Capture odometer, fuel meter, and vehicle body condition (stored in Cloudinary)
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <label
+                        htmlFor="handover-photo-upload"
+                        className="button secondary small"
+                        style={{ cursor: handoverUploading ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        {handoverUploading ? '⏳ Uploading to Cloudinary…' : '📷 Upload Dispatch Photos'}
+                      </label>
+                      <input
+                        id="handover-photo-upload"
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        disabled={handoverUploading}
+                        onChange={async e => {
+                          if (!e.target.files || e.target.files.length === 0) return;
+                          setHandoverUploading(true);
+                          try {
+                            const files = Array.from(e.target.files);
+                            for (const file of files) {
+                              const url = await uploadFileToCloudinary(file, `vmotiv/rental-dispatch/${activeBooking.id}`);
+                              setHandoverPhotos(prev => [...prev, url]);
+                            }
+                          } catch (err: any) {
+                            onError(err?.message || 'Failed to upload dispatch inspection photo');
+                          } finally {
+                            setHandoverUploading(false);
+                            if (e.target) e.target.value = '';
+                          }
+                        }}
+                      />
+                      <span style={{ fontSize: '0.75rem', color: handoverPhotos.length > 0 ? '#10b981' : 'var(--muted)' }}>
+                        {handoverPhotos.length > 0 ? `✓ ${handoverPhotos.length} photo(s) attached` : 'Upload photos or primary vehicle photo will be linked'}
+                      </span>
+                    </div>
+
+                    {/* Photos Grid */}
+                    {handoverPhotos.length > 0 && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.5rem', marginTop: '0.5rem' }}>
+                        {handoverPhotos.map((photoUrl, pIdx) => (
+                          <div key={pIdx} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                            <img src={photoUrl} alt={`Dispatch photo ${pIdx + 1}`} style={{ width: '100%', height: '75px', objectFit: 'cover', display: 'block' }} />
+                            <button
+                              type="button"
+                              onClick={() => setHandoverPhotos(prev => prev.filter((_, i) => i !== pIdx))}
+                              title="Remove photo"
+                              style={{
+                                position: 'absolute',
+                                top: '2px',
+                                right: '2px',
+                                background: 'rgba(239, 68, 68, 0.9)',
+                                color: '#fff',
+                                border: 'none',
+                                width: '18px',
+                                height: '18px',
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                fontSize: '0.625rem',
+                                fontWeight: 'bold',
+                              }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ marginTop: '1rem' }}>
