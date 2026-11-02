@@ -375,6 +375,7 @@ export const api = {
     includedKmPerDay?: number;
     includedDailyKm?: number;
     extraKmRatePaise?: string | number;
+    features?: string[];
   }) => call<RentalFleetItem>(u, '/operations/rentals/fleet', { method: 'POST', body: JSON.stringify(body) }),
   updateRentalFleetVehicle: (u: User, id: string, body: {
     isEligibleForRental?: boolean;

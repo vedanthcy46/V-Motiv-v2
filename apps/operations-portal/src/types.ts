@@ -494,6 +494,10 @@ export type RentalFleetItem = {
   transmission: string;
   fuelType: string;
   color: string;
+  images?: string[];
+  features?: string[];
+  commercialPermitNumber?: string | null;
+  insurancePolicyNumber?: string | null;
   hub?: {
     id: string;
     name: string;

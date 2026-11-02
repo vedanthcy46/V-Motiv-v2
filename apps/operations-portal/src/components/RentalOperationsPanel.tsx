@@ -68,6 +68,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
   // Onboard form state
   const [onboardReg, setOnboardReg] = useState('');
+  const [onboardFleetNumber, setOnboardFleetNumber] = useState('');
   const [onboardVin, setOnboardVin] = useState('');
   const [onboardMake, setOnboardMake] = useState('Hyundai');
   const [onboardModel, setOnboardModel] = useState('Creta');
@@ -79,9 +80,234 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [onboardSeats, setOnboardSeats] = useState<number>(5);
   const [onboardColor, setOnboardColor] = useState('Polar White');
   const [onboardDailyRateRupees, setOnboardDailyRateRupees] = useState<number>(2800);
+  const [onboardHourlyRateRupees, setOnboardHourlyRateRupees] = useState<number>(280);
   const [onboardDepositRupees, setOnboardDepositRupees] = useState<number>(5000);
   const [onboardIncludedKm, setOnboardIncludedKm] = useState<number>(250);
   const [onboardExtraKmRateRupees, setOnboardExtraKmRateRupees] = useState<number>(12);
+  const [onboardOdometerKm, setOnboardOdometerKm] = useState<number>(12000);
+
+  // Documentation / Compliance state
+  const oneYearFromNow = () => new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [onboardPermitNumber, setOnboardPermitNumber] = useState('');
+  const [onboardPermitExpiry, setOnboardPermitExpiry] = useState(oneYearFromNow());
+  const [onboardInsurancePolicy, setOnboardInsurancePolicy] = useState('');
+  const [onboardInsuranceExpiry, setOnboardInsuranceExpiry] = useState(oneYearFromNow());
+  const [onboardFitnessExpiry, setOnboardFitnessExpiry] = useState(oneYearFromNow());
+
+  // Images state
+  const [onboardImages, setOnboardImages] = useState<string[]>([
+    'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80',
+    'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=80',
+  ]);
+  const [imageUrlInput, setImageUrlInput] = useState('');
+  const [imageUploading, setImageUploading] = useState(false);
+
+  // Features state
+  const POPULAR_FEATURES = [
+    'Air Conditioning',
+    'Touchscreen Apple CarPlay & Android Auto',
+    'Reverse Camera & Parking Sensors',
+    'Electric Sunroof',
+    'Cruise Control',
+    'Push Button Start & Keyless Entry',
+    'Fastag Fitted & Active',
+    'GPS Real-Time Tracking',
+    'Wireless Phone Charger',
+    'Leatherette Seats',
+    '6 Airbags & ABS with EBD',
+    'USB-C Fast Charging Ports',
+    'Bluetooth Audio & Calling',
+    'Alloy Wheels',
+  ];
+  const [onboardFeatures, setOnboardFeatures] = useState<string[]>([
+    'Air Conditioning',
+    'Touchscreen Apple CarPlay & Android Auto',
+    'Reverse Camera & Parking Sensors',
+    'Fastag Fitted & Active',
+    'GPS Real-Time Tracking',
+    'Bluetooth Audio & Calling',
+  ]);
+  const [customFeatureInput, setCustomFeatureInput] = useState('');
+
+  const MODEL_PRESETS: Record<string, { make: string; model: string; variant: string; fuel: string; transmission: string; seats: number; dailyRate: number; deposit: number; color: string; images: string[] }> = {
+    'Hyundai Creta': {
+      make: 'Hyundai',
+      model: 'Creta',
+      variant: 'SX(O) AT',
+      fuel: 'PETROL',
+      transmission: 'AUTOMATIC',
+      seats: 5,
+      dailyRate: 2800,
+      deposit: 5000,
+      color: 'Polar White',
+      images: [
+        'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=1200&q=80',
+      ],
+    },
+    'Tata Nexon EV': {
+      make: 'Tata',
+      model: 'Nexon EV',
+      variant: 'Empowered LR 40.5kWh',
+      fuel: 'EV',
+      transmission: 'AUTOMATIC',
+      seats: 5,
+      dailyRate: 3500,
+      deposit: 6000,
+      color: 'Daytona Grey',
+      images: [
+        'https://images.unsplash.com/photo-1563720223185-11003d516935?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1550355291-bbee04a92027?auto=format&fit=crop&w=1200&q=80',
+      ],
+    },
+    'Toyota Innova Crysta': {
+      make: 'Toyota',
+      model: 'Innova Crysta',
+      variant: '2.4 VX 7-Seater',
+      fuel: 'DIESEL',
+      transmission: 'MANUAL',
+      seats: 7,
+      dailyRate: 4200,
+      deposit: 7000,
+      color: 'Silver Metallic',
+      images: [
+        'https://images.unsplash.com/photo-1541899481282-d53bffe3c35d?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1502877338535-766e1452684a?auto=format&fit=crop&w=1200&q=80',
+      ],
+    },
+    'Mahindra Thar 4x4': {
+      make: 'Mahindra',
+      model: 'Thar',
+      variant: 'LX Hardtop AT 4x4',
+      fuel: 'DIESEL',
+      transmission: 'AUTOMATIC',
+      seats: 4,
+      dailyRate: 3800,
+      deposit: 8000,
+      color: 'Napoli Black',
+      images: [
+        'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=1200&q=80',
+        'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=1200&q=80',
+      ],
+    },
+    'Maruti Swift': {
+      make: 'Maruti Suzuki',
+      model: 'Swift',
+      variant: 'ZXi+ AMT',
+      fuel: 'PETROL',
+      transmission: 'AUTOMATIC',
+      seats: 5,
+      dailyRate: 1900,
+      deposit: 4000,
+      color: 'Sizzling Red',
+      images: [
+        'https://images.unsplash.com/photo-1583121274602-3e2820c69888?auto=format&fit=crop&w=1200&q=80',
+      ],
+    },
+  };
+
+  const applyCarPreset = (presetKey: string) => {
+    const p = MODEL_PRESETS[presetKey];
+    if (!p) return;
+    setOnboardMake(p.make);
+    setOnboardModel(p.model);
+    setOnboardVariant(p.variant);
+    setOnboardFuel(p.fuel);
+    setOnboardTransmission(p.transmission);
+    setOnboardSeats(p.seats);
+    setOnboardDailyRateRupees(p.dailyRate);
+    setOnboardHourlyRateRupees(Math.round(p.dailyRate / 10));
+    setOnboardDepositRupees(p.deposit);
+    setOnboardColor(p.color);
+    setOnboardImages(p.images);
+  };
+
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    setImageUploading(true);
+    try {
+      for (let i = 0; i < files.length; i++) {
+        const file = files[i]!;
+        if (file.size > 12 * 1024 * 1024) {
+          throw new Error(`${file.name} is larger than the 12 MB upload limit.`);
+        }
+        const base64Data = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+          reader.onload = () => resolve(String(reader.result).split(',')[1] || '');
+          reader.readAsDataURL(file);
+        });
+
+        try {
+          const res = await api.uploadListingPhoto(user, {
+            base64Data,
+            mimeType: file.type || 'image/jpeg',
+            filename: file.name.replace(/\.[^.]+$/, ''),
+            folder: `vmotiv/rental-fleet/${onboardReg || 'draft'}`,
+          });
+          const url = res.secureUrl || res.url;
+          if (url) {
+            setOnboardImages(prev => [...prev, url]);
+          }
+        } catch {
+          // Fallback if Cloudinary is offline in local dev: preview as data URL
+          const reader = new FileReader();
+          reader.onload = () => {
+            if (typeof reader.result === 'string') {
+              setOnboardImages(prev => [...prev, reader.result as string]);
+            }
+          };
+          reader.readAsDataURL(file);
+        }
+      }
+    } catch (err: any) {
+      onError(err?.message || 'Failed to upload photo');
+    } finally {
+      setImageUploading(false);
+      if (e.target) e.target.value = '';
+    }
+  };
+
+  const handleAddImageUrl = () => {
+    const url = imageUrlInput.trim();
+    if (!url) return;
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      onError('Please enter a valid HTTP/HTTPS image URL.');
+      return;
+    }
+    setOnboardImages(prev => [...prev, url]);
+    setImageUrlInput('');
+  };
+
+  const handleRemoveImage = (indexToRemove: number) => {
+    setOnboardImages(prev => prev.filter((_, idx) => idx !== indexToRemove));
+  };
+
+  const handleSetCoverImage = (indexToCover: number) => {
+    setOnboardImages(prev => {
+      const copy = [...prev];
+      const [item] = copy.splice(indexToCover, 1);
+      if (item) copy.unshift(item);
+      return copy;
+    });
+  };
+
+  const handleToggleFeature = (feat: string) => {
+    setOnboardFeatures(prev =>
+      prev.includes(feat) ? prev.filter(f => f !== feat) : [...prev, feat]
+    );
+  };
+
+  const handleAddCustomFeature = () => {
+    const val = customFeatureInput.trim();
+    if (!val) return;
+    if (!onboardFeatures.includes(val)) {
+      setOnboardFeatures(prev => [...prev, val]);
+    }
+    setCustomFeatureInput('');
+  };
 
   // Block form state
   const [blockStart, setBlockStart] = useState('');
@@ -143,31 +369,40 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     try {
       const reg = onboardReg.toUpperCase().replace(/\s/g, '');
       const oneYear = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
+      const permitExp = onboardPermitExpiry ? new Date(`${onboardPermitExpiry}T00:00:00.000Z`).toISOString() : oneYear;
+      const insExp = onboardInsuranceExpiry ? new Date(`${onboardInsuranceExpiry}T00:00:00.000Z`).toISOString() : oneYear;
+      const fitExp = onboardFitnessExpiry ? new Date(`${onboardFitnessExpiry}T00:00:00.000Z`).toISOString() : oneYear;
+
+      const vehicleImages = onboardImages.length > 0 ? onboardImages : [
+        'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'
+      ];
+
       await api.createRentalFleetVehicle(user, {
-        fleetNumber: `VMF-${Math.floor(100 + Math.random() * 899)}`,
+        fleetNumber: onboardFleetNumber.trim() || `VMF-${Math.floor(100 + Math.random() * 899)}`,
         registrationNumber: reg,
         vin: onboardVin.toUpperCase().replace(/\s/g, '') || `VIN-RENTAL-${Date.now()}`,
-        make: onboardMake,
-        model: onboardModel,
-        variant: onboardVariant || undefined,
+        make: onboardMake.trim(),
+        model: onboardModel.trim(),
+        variant: onboardVariant.trim() || undefined,
         year: Number(onboardYear),
-        hubId: onboardHubId || branches[0]?.id || '',
+        hubId: onboardHubId || hubs[0]?.id || branches[0]?.id || '',
         transmission: onboardTransmission,
         fuelType: onboardFuel,
-        seats: Number(onboardSeats),
-        color: onboardColor,
+        seats: Number(onboardSeats) || 5,
+        color: onboardColor.trim() || 'Polar White',
         baseDailyRatePaise: onboardDailyRateRupees * 100,
-        baseHourlyRatePaise: Math.round(onboardDailyRateRupees * 100 / 10),
+        baseHourlyRatePaise: (onboardHourlyRateRupees || Math.round(onboardDailyRateRupees / 10)) * 100,
         securityDepositPaise: onboardDepositRupees * 100,
         includedKmPerDay: Number(onboardIncludedKm) || 250,
         includedDailyKm: Number(onboardIncludedKm) || 250,
         extraKmRatePaise: onboardExtraKmRateRupees * 100,
-        commercialPermitNumber: `KA-COMM-${reg.slice(-4) || 'RENTAL'}`,
-        commercialPermitExpiry: oneYear,
-        insurancePolicyNumber: `POL-VM-${reg.slice(-4) || 'RENTAL'}`,
-        insuranceExpiry: oneYear,
-        fitnessCertExpiry: oneYear,
-        images: ['https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'],
+        commercialPermitNumber: onboardPermitNumber.trim() || `KA-COMM-${reg.slice(-4) || 'RENTAL'}`,
+        commercialPermitExpiry: permitExp,
+        insurancePolicyNumber: onboardInsurancePolicy.trim() || `POL-VM-${reg.slice(-4) || 'RENTAL'}`,
+        insuranceExpiry: insExp,
+        fitnessCertExpiry: fitExp,
+        images: vehicleImages,
+        features: onboardFeatures,
       });
       onSuccess(`Successfully onboarded ${onboardMake} ${onboardModel} (${reg}) to rental fleet.`);
       setOnboardModalOpen(false);
@@ -523,8 +758,48 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         <div><span className="code-pill">{veh.registrationNumber}</span></div>
                       </td>
                       <td>
-                        <div><strong>{veh.make} {veh.model}</strong> {veh.variant || ''}</div>
-                        <small style={{ color: 'var(--muted)' }}>Year {veh.year} · {veh.color}</small>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                          {veh.images && veh.images.length > 0 ? (
+                            <img
+                              src={veh.images[0]}
+                              alt={`${veh.make} ${veh.model}`}
+                              style={{
+                                width: '52px',
+                                height: '38px',
+                                objectFit: 'cover',
+                                borderRadius: '4px',
+                                border: '1px solid var(--border)',
+                                flexShrink: 0,
+                              }}
+                              onError={e => {
+                                (e.currentTarget as HTMLImageElement).style.display = 'none';
+                              }}
+                            />
+                          ) : (
+                            <div
+                              style={{
+                                width: '52px',
+                                height: '38px',
+                                borderRadius: '4px',
+                                background: 'rgba(255, 255, 255, 0.05)',
+                                border: '1px solid var(--border)',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '1rem',
+                                flexShrink: 0,
+                              }}
+                            >
+                              🚗
+                            </div>
+                          )}
+                          <div>
+                            <div><strong>{veh.make} {veh.model}</strong> {veh.variant || ''}</div>
+                            <small style={{ color: 'var(--muted)' }}>
+                              Year {veh.year} · {veh.color} {veh.images && veh.images.length > 1 ? `· 📷 ${veh.images.length} photos` : ''}
+                            </small>
+                          </div>
+                        </div>
                       </td>
                       <td>
                         <div><strong>{veh.hub?.name || 'Local Hub'}</strong></div>
@@ -760,197 +1035,720 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         </div>
       )}
 
-      {/* MODAL: ONBOARD FLEET CAR */}
+      {/* MODAL: ONBOARD FLEET CAR (RESPONSIVE SCROLL VIEW & VEHICLE INFO / IMAGES / COMPLIANCE) */}
       {onboardModalOpen && (
-        <div className="modal-overlay" style={{ zIndex: 1000 }}>
-          <div className="modal-dialog" style={{ maxWidth: '650px', width: '95%' }}>
-            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div className="modal-overlay" style={{ zIndex: 1000, padding: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div
+            className="modal-dialog"
+            style={{
+              maxWidth: '880px',
+              width: '100%',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              borderRadius: '12px',
+              overflow: 'hidden',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.12)',
+              background: 'var(--surface, #0f172a)',
+            }}
+          >
+            {/* FIXED STICKY HEADER */}
+            <div
+              className="modal-header"
+              style={{
+                flexShrink: 0,
+                padding: '1.25rem 1.5rem',
+                borderBottom: '1px solid var(--border)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(15, 23, 42, 0.95)',
+                backdropFilter: 'blur(8px)',
+              }}
+            >
               <div>
-                <span className="eyebrow">FLEET ENROLLMENT</span>
-                <h3 style={{ margin: 0 }}>Onboard New Self-Drive Rental Vehicle</h3>
+                <span className="eyebrow" style={{ color: 'var(--accent, #f59e0b)', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  FLEET ENROLLMENT & SPECIFICATIONS
+                </span>
+                <h3 style={{ margin: '4px 0 0 0', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text, #f8fafc)' }}>
+                  Onboard New Self-Drive Rental Vehicle
+                </h3>
               </div>
-              <button type="button" className="icon-button" onClick={() => setOnboardModalOpen(false)}>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setOnboardModalOpen(false)}
+                title="Close"
+                style={{ width: '32px', height: '32px', borderRadius: '6px' }}
+              >
                 <IconCross />
               </button>
             </div>
-            <form onSubmit={handleOnboardSubmit}>
-              <div className="modal-body" style={{ padding: '1.25rem' }}>
-                <p style={{ fontSize: '0.875rem', color: 'var(--muted)', marginBottom: '1rem' }}>
-                  Register a legally compliant commercial self-drive vehicle into the V MOTIV rental fleet.
-                </p>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Registration Number *</label>
-                    <input
-                      type="text"
-                      className="input font-mono"
-                      required
-                      placeholder="e.g. KA01MK1234"
-                      value={onboardReg}
-                      onChange={e => setOnboardReg(e.target.value)}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
+
+            {/* FORM CONTAINER WITH INTERNAL SCROLLING BODY */}
+            <form onSubmit={handleOnboardSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div
+                className="modal-body custom-scrollbar"
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: '1.5rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1.75rem',
+                }}
+              >
+                {/* PRESET SHORTCUTS BAR */}
+                <div
+                  style={{
+                    background: 'rgba(255, 255, 255, 0.03)',
+                    border: '1px solid var(--border)',
+                    borderRadius: '8px',
+                    padding: '0.875rem 1rem',
+                  }}
+                >
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      ⚡ Quick Fill Popular Model Presets
+                    </span>
+                    <span style={{ fontSize: '0.6875rem', color: 'var(--muted)' }}>
+                      Click to auto-populate vehicle specifications & high-res photos
+                    </span>
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>VIN / Chassis Number</label>
-                    <input
-                      type="text"
-                      className="input font-mono"
-                      placeholder="Optional or leave blank"
-                      value={onboardVin}
-                      onChange={e => setOnboardVin(e.target.value)}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                    {Object.keys(MODEL_PRESETS).map(presetKey => (
+                      <button
+                        key={presetKey}
+                        type="button"
+                        onClick={() => applyCarPreset(presetKey)}
+                        style={{
+                          fontSize: '0.75rem',
+                          fontWeight: 600,
+                          padding: '0.35rem 0.75rem',
+                          borderRadius: '6px',
+                          background: onboardModel.toLowerCase() === MODEL_PRESETS[presetKey]!.model.toLowerCase() ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255, 255, 255, 0.06)',
+                          color: onboardModel.toLowerCase() === MODEL_PRESETS[presetKey]!.model.toLowerCase() ? 'var(--accent, #f59e0b)' : 'var(--text, #e2e8f0)',
+                          border: onboardModel.toLowerCase() === MODEL_PRESETS[presetKey]!.model.toLowerCase() ? '1px solid var(--accent, #f59e0b)' : '1px solid rgba(255, 255, 255, 0.1)',
+                          cursor: 'pointer',
+                          transition: 'all 0.15s ease',
+                        }}
+                      >
+                        🚗 {presetKey}
+                      </button>
+                    ))}
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Make *</label>
-                    <input
-                      type="text"
-                      className="input"
-                      required
-                      value={onboardMake}
-                      onChange={e => setOnboardMake(e.target.value)}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
+                </div>
+
+                {/* SECTION 1: VEHICLE IDENTITY & CORE ATTRIBUTES */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, #f59e0b)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      1. Vehicle Basics & Registration
+                    </span>
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Model *</label>
-                    <input
-                      type="text"
-                      className="input"
-                      required
-                      value={onboardModel}
-                      onChange={e => setOnboardModel(e.target.value)}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.875rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Registration Number *</label>
+                      <input
+                        type="text"
+                        className="input font-mono"
+                        required
+                        placeholder="e.g. KA01MK1234"
+                        value={onboardReg}
+                        onChange={e => setOnboardReg(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fleet Number / Unit Code</label>
+                      <input
+                        type="text"
+                        className="input font-mono"
+                        placeholder="e.g. VMF-005 (auto if blank)"
+                        value={onboardFleetNumber}
+                        onChange={e => setOnboardFleetNumber(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>VIN / Chassis Number</label>
+                      <input
+                        type="text"
+                        className="input font-mono"
+                        placeholder="Optional or leave blank"
+                        value={onboardVin}
+                        onChange={e => setOnboardVin(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Make / Manufacturer *</label>
+                      <input
+                        type="text"
+                        className="input"
+                        required
+                        placeholder="e.g. Hyundai, Tata, Toyota"
+                        value={onboardMake}
+                        onChange={e => setOnboardMake(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Model *</label>
+                      <input
+                        type="text"
+                        className="input"
+                        required
+                        placeholder="e.g. Creta, Nexon EV, Innova"
+                        value={onboardModel}
+                        onChange={e => setOnboardModel(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Variant & Trim</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="e.g. SX(O) AT / Empowered"
+                        value={onboardVariant}
+                        onChange={e => setOnboardVariant(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Manufacturing Year *</label>
+                      <input
+                        type="number"
+                        className="input"
+                        required
+                        min={2015}
+                        max={new Date().getFullYear() + 1}
+                        value={onboardYear}
+                        onChange={e => setOnboardYear(Number(e.target.value))}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Exterior Color *</label>
+                      <input
+                        type="text"
+                        className="input"
+                        required
+                        placeholder="e.g. Polar White, Daytona Grey"
+                        value={onboardColor}
+                        onChange={e => setOnboardColor(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Assigned Operating Hub *</label>
+                      <select
+                        className="select"
+                        required
+                        value={onboardHubId}
+                        onChange={e => setOnboardHubId(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      >
+                        {(hubs.length > 0 ? hubs : branches).map(b => (
+                          <option key={b.id} value={b.id}>{b.name} ({b.city})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Transmission *</label>
+                      <select
+                        className="select"
+                        value={onboardTransmission}
+                        onChange={e => setOnboardTransmission(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      >
+                        <option value="AUTOMATIC">Automatic (AT / IVT / AMT)</option>
+                        <option value="MANUAL">Manual (MT)</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fuel / Powertrain *</label>
+                      <select
+                        className="select"
+                        value={onboardFuel}
+                        onChange={e => setOnboardFuel(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      >
+                        <option value="PETROL">Petrol</option>
+                        <option value="DIESEL">Diesel</option>
+                        <option value="EV">Electric (EV)</option>
+                        <option value="HYBRID">Hybrid</option>
+                        <option value="CNG">CNG</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Seating Capacity *</label>
+                      <input
+                        type="number"
+                        className="input"
+                        min={2}
+                        max={9}
+                        value={onboardSeats}
+                        onChange={e => setOnboardSeats(Number(e.target.value))}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Current Odometer (km)</label>
+                      <input
+                        type="number"
+                        className="input"
+                        min={0}
+                        value={onboardOdometerKm}
+                        onChange={e => setOnboardOdometerKm(Number(e.target.value))}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Variant</label>
-                    <input
-                      type="text"
-                      className="input"
-                      value={onboardVariant}
-                      onChange={e => setOnboardVariant(e.target.value)}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
+                </div>
+
+                {/* SECTION 2: RENTAL PRICING & KM PACKAGES */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, #f59e0b)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      2. Rental Rates & Kilometre Packages
+                    </span>
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Manufacturing Year *</label>
-                    <input
-                      type="number"
-                      className="input"
-                      required
-                      value={onboardYear}
-                      onChange={e => setOnboardYear(Number(e.target.value))}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.875rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Daily Base Rate (₹) *</label>
+                      <input
+                        type="number"
+                        className="input"
+                        required
+                        min={500}
+                        value={onboardDailyRateRupees}
+                        onChange={e => {
+                          const val = Number(e.target.value);
+                          setOnboardDailyRateRupees(val);
+                          setOnboardHourlyRateRupees(Math.round(val / 10));
+                        }}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Hourly Rate (₹/hr)</label>
+                      <input
+                        type="number"
+                        className="input"
+                        min={50}
+                        value={onboardHourlyRateRupees}
+                        onChange={e => setOnboardHourlyRateRupees(Number(e.target.value))}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Refundable Security Deposit (₹) *</label>
+                      <input
+                        type="number"
+                        className="input"
+                        required
+                        min={0}
+                        value={onboardDepositRupees}
+                        onChange={e => setOnboardDepositRupees(Number(e.target.value))}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Included Daily Km *</label>
+                      <input
+                        type="number"
+                        className="input"
+                        required
+                        min={50}
+                        value={onboardIncludedKm}
+                        onChange={e => setOnboardIncludedKm(Number(e.target.value))}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Extra Km Rate (₹/km) *</label>
+                      <input
+                        type="number"
+                        className="input"
+                        required
+                        min={1}
+                        value={onboardExtraKmRateRupees}
+                        onChange={e => setOnboardExtraKmRateRupees(Number(e.target.value))}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Assigned Operating Hub *</label>
-                    <select
-                      className="select"
-                      required
-                      value={onboardHubId}
-                      onChange={e => setOnboardHubId(e.target.value)}
-                      style={{ width: '100%', marginTop: '4px' }}
+                </div>
+
+                {/* SECTION 3: VEHICLE IMAGES & PHOTO GALLERY */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, #f59e0b)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        3. Vehicle Photos & Visuals
+                      </span>
+                      <span className="badge badge-info" style={{ fontSize: '0.6875rem' }}>
+                        {onboardImages.length} Photo{onboardImages.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                      First image serves as the main fleet thumbnail
+                    </span>
+                  </div>
+
+                  {/* Upload Controls */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', marginBottom: '1rem' }}>
+                    <input
+                      type="file"
+                      id="onboard-photo-file-input"
+                      accept="image/*"
+                      multiple
+                      style={{ display: 'none' }}
+                      onChange={handleImageUpload}
+                    />
+                    <label
+                      htmlFor="onboard-photo-file-input"
+                      className="btn-secondary button secondary"
+                      style={{
+                        cursor: imageUploading ? 'wait' : 'pointer',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '6px',
+                        fontSize: '0.8125rem',
+                        padding: '0.45rem 0.9rem',
+                      }}
                     >
-                      {(hubs.length > 0 ? hubs : branches).map(b => (
-                        <option key={b.id} value={b.id}>{b.name} ({b.city})</option>
+                      {imageUploading ? '⏳ Uploading Photos…' : '📁 Upload Photos from Computer'}
+                    </label>
+
+                    <div style={{ display: 'flex', gap: '0.5rem', flex: 1, minWidth: '260px' }}>
+                      <input
+                        type="url"
+                        className="input"
+                        placeholder="Or paste external image URL (https://...)"
+                        value={imageUrlInput}
+                        onChange={e => setImageUrlInput(e.target.value)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') {
+                            e.preventDefault();
+                            handleAddImageUrl();
+                          }
+                        }}
+                        style={{ flex: 1, fontSize: '0.8125rem' }}
+                      />
+                      <button
+                        type="button"
+                        className="btn-secondary button secondary"
+                        onClick={handleAddImageUrl}
+                        style={{ fontSize: '0.8125rem', whiteSpace: 'nowrap' }}
+                      >
+                        + Add URL
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Image Thumbnails Gallery */}
+                  {onboardImages.length === 0 ? (
+                    <div
+                      style={{
+                        padding: '1.5rem',
+                        textAlign: 'center',
+                        background: 'rgba(255, 255, 255, 0.02)',
+                        border: '1px dashed var(--border)',
+                        borderRadius: '8px',
+                        color: 'var(--muted)',
+                        fontSize: '0.8125rem',
+                      }}
+                    >
+                      No vehicle photos added yet. Upload images above or click one of the quick model presets!
+                    </div>
+                  ) : (
+                    <div
+                      style={{
+                        display: 'grid',
+                        gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
+                        gap: '0.75rem',
+                        background: 'rgba(0, 0, 0, 0.2)',
+                        padding: '0.75rem',
+                        borderRadius: '8px',
+                        border: '1px solid var(--border)',
+                      }}
+                    >
+                      {onboardImages.map((imgUrl, idx) => (
+                        <div
+                          key={idx}
+                          style={{
+                            position: 'relative',
+                            borderRadius: '6px',
+                            overflow: 'hidden',
+                            border: idx === 0 ? '2px solid var(--accent, #f59e0b)' : '1px solid var(--border)',
+                            background: '#000',
+                            aspectRatio: '4/3',
+                            display: 'flex',
+                            flexDirection: 'column',
+                          }}
+                        >
+                          <img
+                            src={imgUrl}
+                            alt={`Vehicle ${idx + 1}`}
+                            style={{
+                              width: '100%',
+                              height: '100%',
+                              objectFit: 'cover',
+                            }}
+                            onError={e => {
+                              (e.currentTarget as HTMLImageElement).src = 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=600&q=80';
+                            }}
+                          />
+                          {idx === 0 ? (
+                            <span
+                              style={{
+                                position: 'absolute',
+                                top: '4px',
+                                left: '4px',
+                                background: 'var(--accent, #f59e0b)',
+                                color: '#000',
+                                fontSize: '0.625rem',
+                                fontWeight: 800,
+                                padding: '1px 5px',
+                                borderRadius: '3px',
+                                textTransform: 'uppercase',
+                              }}
+                            >
+                              ★ Cover
+                            </span>
+                          ) : (
+                            <button
+                              type="button"
+                              onClick={() => handleSetCoverImage(idx)}
+                              title="Make this photo the primary cover image"
+                              style={{
+                                position: 'absolute',
+                                top: '4px',
+                                left: '4px',
+                                background: 'rgba(0, 0, 0, 0.65)',
+                                color: '#f8fafc',
+                                border: 'none',
+                                fontSize: '0.625rem',
+                                padding: '1px 5px',
+                                borderRadius: '3px',
+                                cursor: 'pointer',
+                              }}
+                            >
+                              Set Cover
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveImage(idx)}
+                            title="Remove this photo"
+                            style={{
+                              position: 'absolute',
+                              top: '4px',
+                              right: '4px',
+                              background: 'rgba(239, 68, 68, 0.85)',
+                              color: '#ffffff',
+                              border: 'none',
+                              width: '20px',
+                              height: '20px',
+                              borderRadius: '50%',
+                              display: 'flex',
+                              alignItems: 'center',
+                              justifyContent: 'center',
+                              cursor: 'pointer',
+                              fontSize: '0.625rem',
+                              fontWeight: 800,
+                            }}
+                          >
+                            ✕
+                          </button>
+                        </div>
                       ))}
-                    </select>
+                    </div>
+                  )}
+                </div>
+
+                {/* SECTION 4: VEHICLE FEATURES & AMENITIES */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.5rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, #f59e0b)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                        4. Vehicle Features & Amenities
+                      </span>
+                      <span className="badge badge-info" style={{ fontSize: '0.6875rem' }}>
+                        {onboardFeatures.length} Selected
+                      </span>
+                    </div>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                      Click tags to toggle on/off
+                    </span>
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Transmission *</label>
-                    <select
-                      className="select"
-                      value={onboardTransmission}
-                      onChange={e => setOnboardTransmission(e.target.value)}
-                      style={{ width: '100%', marginTop: '4px' }}
+
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginBottom: '0.875rem' }}>
+                    {POPULAR_FEATURES.map(feat => {
+                      const isSelected = onboardFeatures.includes(feat);
+                      return (
+                        <button
+                          key={feat}
+                          type="button"
+                          onClick={() => handleToggleFeature(feat)}
+                          style={{
+                            fontSize: '0.75rem',
+                            fontWeight: 600,
+                            padding: '0.35rem 0.75rem',
+                            borderRadius: '999px',
+                            background: isSelected ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255, 255, 255, 0.05)',
+                            color: isSelected ? 'var(--accent, #f59e0b)' : 'var(--muted)',
+                            border: isSelected ? '1px solid var(--accent, #f59e0b)' : '1px solid rgba(255, 255, 255, 0.1)',
+                            cursor: 'pointer',
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: '4px',
+                            transition: 'all 0.15s ease',
+                          }}
+                        >
+                          {isSelected ? '✓ ' : '+ '}
+                          {feat}
+                        </button>
+                      );
+                    })}
+                  </div>
+
+                  {/* Add Custom Feature */}
+                  <div style={{ display: 'flex', gap: '0.5rem', maxWidth: '420px' }}>
+                    <input
+                      type="text"
+                      className="input"
+                      placeholder="Add custom feature tag (e.g. 360 Camera, Ventilated Seats)"
+                      value={customFeatureInput}
+                      onChange={e => setCustomFeatureInput(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          handleAddCustomFeature();
+                        }
+                      }}
+                      style={{ flex: 1, fontSize: '0.8125rem' }}
+                    />
+                    <button
+                      type="button"
+                      className="btn-secondary button secondary"
+                      onClick={handleAddCustomFeature}
+                      style={{ fontSize: '0.8125rem' }}
                     >
-                      <option value="AUTOMATIC">Automatic</option>
-                      <option value="MANUAL">Manual</option>
-                    </select>
+                      + Add
+                    </button>
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fuel Type *</label>
-                    <select
-                      className="select"
-                      value={onboardFuel}
-                      onChange={e => setOnboardFuel(e.target.value)}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    >
-                      <option value="PETROL">Petrol</option>
-                      <option value="DIESEL">Diesel</option>
-                      <option value="EV">Electric (EV)</option>
-                      <option value="HYBRID">Hybrid</option>
-                      <option value="CNG">CNG</option>
-                    </select>
+                </div>
+
+                {/* SECTION 5: LEGAL & COMMERCIAL COMPLIANCE */}
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, #f59e0b)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      5. Commercial Compliance & Regulatory Documents
+                    </span>
                   </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Seats *</label>
-                    <input
-                      type="number"
-                      className="input"
-                      min={2}
-                      max={9}
-                      value={onboardSeats}
-                      onChange={e => setOnboardSeats(Number(e.target.value))}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Daily Base Rate (₹) *</label>
-                    <input
-                      type="number"
-                      className="input"
-                      required
-                      min={500}
-                      value={onboardDailyRateRupees}
-                      onChange={e => setOnboardDailyRateRupees(Number(e.target.value))}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Refundable Security Deposit (₹) *</label>
-                    <input
-                      type="number"
-                      className="input"
-                      required
-                      min={0}
-                      value={onboardDepositRupees}
-                      onChange={e => setOnboardDepositRupees(Number(e.target.value))}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Included Daily Km *</label>
-                    <input
-                      type="number"
-                      className="input"
-                      required
-                      value={onboardIncludedKm}
-                      onChange={e => setOnboardIncludedKm(Number(e.target.value))}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
-                  </div>
-                  <div>
-                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Extra Km Rate (₹/km) *</label>
-                    <input
-                      type="number"
-                      className="input"
-                      required
-                      value={onboardExtraKmRateRupees}
-                      onChange={e => setOnboardExtraKmRateRupees(Number(e.target.value))}
-                      style={{ width: '100%', marginTop: '4px' }}
-                    />
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.875rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Commercial Permit Number</label>
+                      <input
+                        type="text"
+                        className="input font-mono"
+                        placeholder="e.g. COMM-KA01MK1234"
+                        value={onboardPermitNumber}
+                        onChange={e => setOnboardPermitNumber(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Commercial Permit Expiry</label>
+                      <input
+                        type="date"
+                        className="input"
+                        value={onboardPermitExpiry}
+                        onChange={e => setOnboardPermitExpiry(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Insurance Policy Number</label>
+                      <input
+                        type="text"
+                        className="input font-mono"
+                        placeholder="e.g. POL-VM-1234"
+                        value={onboardInsurancePolicy}
+                        onChange={e => setOnboardInsurancePolicy(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Insurance Expiry Date</label>
+                      <input
+                        type="date"
+                        className="input"
+                        value={onboardInsuranceExpiry}
+                        onChange={e => setOnboardInsuranceExpiry(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fitness Certificate Expiry</label>
+                      <input
+                        type="date"
+                        className="input"
+                        value={onboardFitnessExpiry}
+                        onChange={e => setOnboardFitnessExpiry(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
-              <div className="modal-footer" style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                <button type="button" className="btn-secondary button secondary" onClick={() => setOnboardModalOpen(false)}>Cancel</button>
-                <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
-                  {actionBusy ? 'Onboarding…' : 'Enroll into Fleet'}
-                </button>
+
+              {/* FIXED STICKY MODAL FOOTER */}
+              <div
+                className="modal-footer"
+                style={{
+                  flexShrink: 0,
+                  padding: '1rem 1.5rem',
+                  borderTop: '1px solid var(--border)',
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  background: 'rgba(15, 23, 42, 0.95)',
+                  backdropFilter: 'blur(8px)',
+                }}
+              >
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', color: 'var(--muted)' }}>
+                  <span style={{ color: 'var(--text, #fff)', fontWeight: 600 }}>
+                    {onboardMake} {onboardModel}
+                  </span>
+                  <span>•</span>
+                  <span>{onboardReg || 'New Vehicle'}</span>
+                  <span>•</span>
+                  <span style={{ color: 'var(--accent, #f59e0b)', fontWeight: 700 }}>
+                    ₹{onboardDailyRateRupees.toLocaleString('en-IN')}/day
+                  </span>
+                </div>
+                <div style={{ display: 'flex', gap: '0.75rem' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary button secondary"
+                    onClick={() => setOnboardModalOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-primary btn-gold button primary"
+                    disabled={actionBusy || imageUploading}
+                    style={{ minWidth: '160px' }}
+                  >
+                    {actionBusy ? 'Enrolling Vehicle…' : '✓ Enroll into Fleet'}
+                  </button>
+                </div>
               </div>
             </form>
           </div>
