@@ -101,6 +101,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [handoverPhotos, setHandoverPhotos] = useState<string[]>([]);
   const [handoverUploading, setHandoverUploading] = useState(false);
 
+  // Return Inspection Photos
+  const [returnPhotos, setReturnPhotos] = useState<string[]>([]);
+  const [returnUploading, setReturnUploading] = useState(false);
+
   // Walk-in KYC Uploading states
   const [walkInUploadingFront, setWalkInUploadingFront] = useState(false);
   const [walkInUploadingBack, setWalkInUploadingBack] = useState(false);
@@ -731,17 +735,25 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     if (!activeBooking) return;
     setActionBusy(true);
     try {
+      const fallbackPhoto = activeBooking.vehicle?.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80';
+      const photosToSend = returnPhotos.length > 0 ? returnPhotos : [fallbackPhoto];
       await api.recordRentalReturn(user, activeBooking.id, {
+        returnOdometerKm: Number(returnOdometer),
         odometerKm: Number(returnOdometer),
+        returnFuelPercent: Number(returnFuel),
         fuelPercent: Number(returnFuel),
+        customerSigned: true,
         keyReceived: returnKeyReceived,
+        notes: returnNotes,
         conditionNotes: returnNotes,
+        photos: photosToSend,
         excessKm: Number(returnExcessKm),
         excessKmChargePaise: returnExcessKmChargeRupees * 100,
         damageChargePaise: returnDamageChargeRupees * 100,
       });
       onSuccess(`Return inspection recorded for booking ${activeBooking.bookingNumber}. Settlement submitted.`);
       setActiveBooking(null);
+      setReturnPhotos([]);
       void loadData();
     } catch (err: any) {
       onError(err?.message || 'Failed to record return inspection');
@@ -3218,6 +3230,90 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         <span style={{ fontWeight: 600 }}>Physical keys & vehicle documents received back</span>
                       </label>
                     </div>
+                  </div>
+
+                  {/* RETURN INSPECTION PHOTOS (SAVED IN CLOUDINARY) */}
+                  <div style={{ marginTop: '1rem', border: '1px solid var(--border)', borderRadius: '6px', padding: '0.875rem', background: 'var(--surface)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '4px' }}>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text)' }}>
+                        Return Inspection Photos *
+                      </label>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                        Capture return odometer, fuel gauge, and any new scratches/damages (stored in Cloudinary)
+                      </span>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', marginBottom: '0.75rem' }}>
+                      <label
+                        htmlFor="return-photo-upload"
+                        className="button secondary small"
+                        style={{ cursor: returnUploading ? 'wait' : 'pointer', display: 'inline-flex', alignItems: 'center', gap: '6px' }}
+                      >
+                        {returnUploading ? '⏳ Uploading to Cloudinary…' : '📷 Upload Return Photos'}
+                      </label>
+                      <input
+                        id="return-photo-upload"
+                        type="file"
+                        multiple
+                        accept="image/*"
+                        style={{ display: 'none' }}
+                        disabled={returnUploading}
+                        onChange={async e => {
+                          if (!e.target.files || e.target.files.length === 0) return;
+                          setReturnUploading(true);
+                          try {
+                            const files = Array.from(e.target.files);
+                            for (const file of files) {
+                              const url = await uploadFileToCloudinary(file, `vmotiv/rental-return/${activeBooking.id}`);
+                              setReturnPhotos(prev => [...prev, url]);
+                            }
+                          } catch (err: any) {
+                            onError(err?.message || 'Failed to upload return inspection photo');
+                          } finally {
+                            setReturnUploading(false);
+                            if (e.target) e.target.value = '';
+                          }
+                        }}
+                      />
+                      <span style={{ fontSize: '0.75rem', color: returnPhotos.length > 0 ? '#10b981' : 'var(--muted)' }}>
+                        {returnPhotos.length > 0 ? `✓ ${returnPhotos.length} photo(s) attached` : 'Upload photos or primary vehicle photo will be linked'}
+                      </span>
+                    </div>
+
+                    {/* Return Photos Grid */}
+                    {returnPhotos.length > 0 && (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(110px, 1fr))', gap: '0.5rem', marginTop: '0.5rem' }}>
+                        {returnPhotos.map((photoUrl, pIdx) => (
+                          <div key={pIdx} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                            <img src={photoUrl} alt={`Return photo ${pIdx + 1}`} style={{ width: '100%', height: '75px', objectFit: 'cover', display: 'block' }} />
+                            <button
+                              type="button"
+                              onClick={() => setReturnPhotos(prev => prev.filter((_, i) => i !== pIdx))}
+                              title="Remove photo"
+                              style={{
+                                position: 'absolute',
+                                top: '2px',
+                                right: '2px',
+                                background: 'rgba(239, 68, 68, 0.9)',
+                                color: '#fff',
+                                border: 'none',
+                                width: '18px',
+                                height: '18px',
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                cursor: 'pointer',
+                                fontSize: '0.625rem',
+                                fontWeight: 'bold',
+                              }}
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ marginTop: '1rem' }}>

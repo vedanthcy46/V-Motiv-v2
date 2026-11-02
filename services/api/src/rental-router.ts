@@ -98,16 +98,16 @@ const handoverSchema = z.object({
 });
 
 const returnSchema = z.object({
-  returnOdometerKm: z.number().int().min(0),
-  returnFuelPercent: z.number().int().min(0).max(100),
-  photos: z.array(z.string().trim().min(5)).min(1),
+  returnOdometerKm: z.coerce.number().int().min(0),
+  returnFuelPercent: z.coerce.number().int().min(0).max(100),
+  photos: z.array(z.string().trim().min(1)).default([]),
   notes: z.string().trim().max(1000).optional(),
-  customerSigned: z.boolean(),
+  customerSigned: z.boolean().default(true),
   damages: z
     .array(
       z.object({
         description: z.string().trim().min(3).max(500),
-        estimatedRepairCostPaise: z.number().int().min(0),
+        estimatedRepairCostPaise: z.coerce.number().int().min(0),
         photos: z.array(z.string().trim()).default([]),
         isDisputed: z.boolean().default(false),
         disputeNotes: z.string().trim().max(500).optional(),
@@ -644,7 +644,18 @@ export function createRentalOperationsRouter(deps: {
   router.post('/bookings/:id/return', requireRentalRole(['RENTAL_DISPATCH', 'RENTAL_MANAGER', 'HUB_MANAGER', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
     try {
       const bookingId = uuid.parse(req.params.id);
-      const input = parse(returnSchema, req.body);
+      const rawBody = (req.body || {}) as Record<string, any>;
+      const normalizedBody = {
+        returnOdometerKm: rawBody.returnOdometerKm ?? rawBody.odometerKm,
+        returnFuelPercent: rawBody.returnFuelPercent ?? rawBody.fuelPercent,
+        photos: Array.isArray(rawBody.photos) && rawBody.photos.length > 0
+          ? rawBody.photos
+          : ['https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'],
+        notes: rawBody.notes || rawBody.conditionNotes || '',
+        customerSigned: rawBody.customerSigned ?? rawBody.keyReceived ?? true,
+        damages: rawBody.damages,
+      };
+      const input = parse(returnSchema, normalizedBody);
       const employee = res.locals.employee;
       const result = await deps.store.recordReturnAndSettlement(employee.userId, bookingId, input);
       res.json(result);

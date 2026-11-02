@@ -9,6 +9,10 @@ import {
   Alert,
   Modal,
   TextInput,
+  KeyboardAvoidingView,
+  Platform,
+  TouchableOpacity,
+  Keyboard,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -29,6 +33,9 @@ import {
   Sparkles,
   ChevronRight,
   FileCheck,
+  Plus,
+  Minus,
+  X,
 } from 'lucide-react-native';
 import {
   fetchRentalBookingDetails,
@@ -436,66 +443,236 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
         )}
       </ScrollView>
 
-      {/* Extension Modal */}
-      <Modal visible={extensionModalVisible} transparent animationType="slide">
-        <View style={[styles.modalBackdrop, { backgroundColor: colors.overlay }]}>
-          <View style={[styles.modalContent, { backgroundColor: colors.surface }]}>
-            <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
-              Extend Rental Period
-            </Text>
-            <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
-              Subject to vehicle availability and turnaround buffer. Additional hours will be billed at standard hourly rates.
-            </Text>
+      {/* Extension Modal (Keyboard-Aware & Navigation-Aware Bottom Sheet) */}
+      <Modal
+        visible={extensionModalVisible}
+        transparent
+        animationType="slide"
+        onRequestClose={() => setExtensionModalVisible(false)}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.modalBackdrop}
+        >
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={() => {
+              Keyboard.dismiss();
+              setExtensionModalVisible(false);
+            }}
+          />
 
-            <View style={styles.formGroup}>
-              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>ADDITIONAL HOURS</Text>
-              <TextInput
+          <View
+            style={[
+              styles.modalContent,
+              {
+                backgroundColor: colors.surface,
+                paddingBottom: Math.max(insets.bottom + 12, 28),
+                borderTopColor: colors.border,
+                borderTopWidth: 1,
+              },
+            ]}
+          >
+            {/* Sheet Handle */}
+            <View style={styles.sheetHandleWrap}>
+              <View style={[styles.sheetHandle, { backgroundColor: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.18)' }]} />
+            </View>
+
+            {/* Header with Title & Close button */}
+            <View style={styles.sheetHeader}>
+              <View style={{ flex: 1 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Clock size={18} color={colors.brandAccent} />
+                  <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>
+                    Extend Rental Period
+                  </Text>
+                </View>
+                <Text style={[styles.modalSubtitle, { color: colors.textSecondary, marginTop: 3 }]}>
+                  Keep your {booking.vehicle?.make} {booking.vehicle?.model} longer without interrupting your trip.
+                </Text>
+              </View>
+
+              <TouchableOpacity
+                onPress={() => setExtensionModalVisible(false)}
+                accessibilityRole="button"
+                accessibilityLabel="Close extension sheet"
+                style={[styles.modalCloseBtn, { backgroundColor: colors.surfaceSecondary }]}
+              >
+                <X size={16} color={colors.textSecondary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView
+              bounces={false}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ gap: 14 }}
+            >
+              {/* Quick Hours Presets */}
+              <View>
+                <Text style={[styles.inputLabel, { color: colors.textSecondary, marginBottom: 8 }]}>
+                  QUICK EXTENSION DURATION
+                </Text>
+                <View style={styles.presetChipsRow}>
+                  {[3, 6, 12, 24, 48].map(hrs => {
+                    const isSelected = extensionHours === String(hrs);
+                    const label = hrs >= 24 ? `+${hrs / 24}d (${hrs}h)` : `+${hrs} hrs`;
+                    return (
+                      <TouchableOpacity
+                        key={hrs}
+                        onPress={() => {
+                          setExtensionHours(String(hrs));
+                          Keyboard.dismiss();
+                        }}
+                        style={[
+                          styles.presetChip,
+                          {
+                            backgroundColor: isSelected
+                              ? (isDark ? 'rgba(245, 158, 11, 0.2)' : '#FEF3C7')
+                              : colors.surfaceSecondary,
+                            borderColor: isSelected ? colors.brandAccent : colors.border,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.presetChipText,
+                            {
+                              color: isSelected ? colors.brandAccent : colors.textPrimary,
+                              fontWeight: isSelected ? '800' : '600',
+                            },
+                          ]}
+                        >
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Stepper + Numeric Input */}
+              <View style={styles.formGroup}>
+                <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>
+                  HOURS TO EXTEND
+                </Text>
+                <View style={styles.stepperRow}>
+                  <TouchableOpacity
+                    onPress={() => {
+                      const cur = parseInt(extensionHours, 10) || 1;
+                      if (cur > 1) setExtensionHours(String(cur - 1));
+                    }}
+                    style={[styles.stepperBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                  >
+                    <Minus size={18} color={colors.textPrimary} />
+                  </TouchableOpacity>
+
+                  <TextInput
+                    style={[
+                      styles.modalInput,
+                      {
+                        backgroundColor: colors.surfaceSecondary,
+                        borderColor: colors.border,
+                        color: colors.textPrimary,
+                      },
+                    ]}
+                    keyboardType="number-pad"
+                    selectTextOnFocus
+                    value={extensionHours}
+                    onChangeText={txt => {
+                      const clean = txt.replace(/[^0-9]/g, '');
+                      setExtensionHours(clean);
+                    }}
+                  />
+
+                  <TouchableOpacity
+                    onPress={() => {
+                      const cur = parseInt(extensionHours, 10) || 0;
+                      if (cur < 168) setExtensionHours(String(cur + 1));
+                    }}
+                    style={[styles.stepperBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                  >
+                    <Plus size={18} color={colors.textPrimary} />
+                  </TouchableOpacity>
+                </View>
+              </View>
+
+              {/* Live Preview Card */}
+              <View
                 style={[
-                  styles.modalInput,
+                  styles.previewCard,
                   {
                     backgroundColor: colors.surfaceSecondary,
-                    borderColor: colors.border,
-                    color: colors.textPrimary,
+                    borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
                   },
                 ]}
-                keyboardType="numeric"
-                value={extensionHours}
-                onChangeText={setExtensionHours}
-              />
-            </View>
-
-            <View style={styles.modalButtonsRow}>
-              <Pressable
-                onPress={() => setExtensionModalVisible(false)}
-                style={[styles.modalCancelBtn, { borderColor: colors.border }]}
               >
-                <Text style={[styles.modalCancelText, { color: colors.textPrimary }]}>Cancel</Text>
-              </Pressable>
+                <View style={styles.previewRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.previewLabel, { color: colors.textMuted }]}>CURRENT RETURN</Text>
+                    <Text style={[styles.previewTime, { color: colors.textSecondary }]}>
+                      {endDate.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}, {endDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                    </Text>
+                  </View>
 
-              <Pressable
-                onPress={handleExtension}
-                disabled={requestingExtension}
-                style={[
-                  styles.modalConfirmBtn,
-                  { backgroundColor: isDark ? colors.brandAccent : colors.brandNavy },
-                ]}
-              >
-                {requestingExtension ? (
-                  <ActivityIndicator size="small" color={isDark ? colors.brandNavy : '#FFFFFF'} />
-                ) : (
-                  <Text
-                    style={[
-                      styles.modalConfirmText,
-                      { color: isDark ? colors.brandNavy : '#FFFFFF' },
-                    ]}
-                  >
-                    Confirm Extension
+                  <View style={{ paddingHorizontal: 6, justifyContent: 'center' }}>
+                    <Text style={{ fontSize: 16, color: colors.brandAccent }}>→</Text>
+                  </View>
+
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.previewLabel, { color: colors.brandAccent }]}>NEW RETURN</Text>
+                    <Text style={[styles.previewTime, { color: colors.textPrimary, fontWeight: '800' }]}>
+                      {new Date(endDate.getTime() + (parseInt(extensionHours, 10) || 0) * 3600 * 1000).toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}, {new Date(endDate.getTime() + (parseInt(extensionHours, 10) || 0) * 3600 * 1000).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Estimated Rate Notice */}
+                <View style={[styles.estimateRow, { borderTopColor: colors.border }]}>
+                  <Sparkles size={13} color={colors.brandAccent} />
+                  <Text style={[styles.estimateText, { color: colors.textSecondary }]}>
+                    Estimated Fare: ~₹{Math.round(((parseInt(extensionHours, 10) || 0) * (Number(booking.vehicle?.baseHourlyRatePaise || (Number(booking.vehicle?.baseDailyRatePaise || 280000) / 24))) / 100)).toLocaleString('en-IN')} (subject to availability)
                   </Text>
-                )}
-              </Pressable>
-            </View>
+                </View>
+              </View>
+
+              {/* Action Buttons */}
+              <View style={styles.modalButtonsRow}>
+                <TouchableOpacity
+                  onPress={() => setExtensionModalVisible(false)}
+                  style={[styles.modalCancelBtn, { borderColor: colors.border }]}
+                >
+                  <Text style={[styles.modalCancelText, { color: colors.textPrimary }]}>Cancel</Text>
+                </TouchableOpacity>
+
+                <TouchableOpacity
+                  onPress={handleExtension}
+                  disabled={requestingExtension || !extensionHours || parseInt(extensionHours, 10) <= 0}
+                  style={[
+                    styles.modalConfirmBtn,
+                    {
+                      backgroundColor: isDark ? colors.brandAccent : colors.brandNavy,
+                      opacity: (!extensionHours || parseInt(extensionHours, 10) <= 0) ? 0.6 : 1,
+                    },
+                  ]}
+                >
+                  {requestingExtension ? (
+                    <ActivityIndicator size="small" color={isDark ? colors.brandNavy : '#FFFFFF'} />
+                  ) : (
+                    <Text
+                      style={[
+                        styles.modalConfirmText,
+                        { color: isDark ? colors.brandNavy : '#FFFFFF' },
+                      ]}
+                    >
+                      Request Extension
+                    </Text>
+                  )}
+                </TouchableOpacity>
+              </View>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -712,14 +889,44 @@ const styles = StyleSheet.create({
   },
   modalBackdrop: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.5)',
+    backgroundColor: 'rgba(0,0,0,0.65)',
     justifyContent: 'flex-end',
   },
   modalContent: {
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    padding: 20,
-    gap: 14,
+    borderTopLeftRadius: 28,
+    borderTopRightRadius: 28,
+    paddingTop: 12,
+    paddingHorizontal: 20,
+    maxHeight: '90%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: -4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 20,
+  },
+  sheetHandleWrap: {
+    alignItems: 'center',
+    paddingVertical: 6,
+    marginBottom: 4,
+  },
+  sheetHandle: {
+    width: 44,
+    height: 5,
+    borderRadius: 3,
+  },
+  sheetHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 8,
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 8,
   },
   modalTitle: {
     fontSize: 18,
@@ -735,19 +942,80 @@ const styles = StyleSheet.create({
   inputLabel: {
     fontSize: 11,
     fontWeight: '700',
+    letterSpacing: 0.4,
   },
-  modalInput: {
+  presetChipsRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  presetChip: {
+    paddingVertical: 7,
+    paddingHorizontal: 13,
+    borderRadius: 20,
+    borderWidth: 1.5,
+  },
+  presetChipText: {
+    fontSize: 12,
+  },
+  stepperRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  stepperBtn: {
+    width: 48,
     height: 48,
     borderRadius: 12,
     borderWidth: 1,
-    paddingHorizontal: 14,
-    fontSize: 16,
-    fontWeight: '700',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalInput: {
+    flex: 1,
+    height: 48,
+    borderRadius: 12,
+    borderWidth: 1,
+    textAlign: 'center',
+    fontSize: 18,
+    fontWeight: '800',
+  },
+  previewCard: {
+    borderRadius: 14,
+    borderWidth: 1,
+    padding: 12,
+    gap: 10,
+  },
+  previewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  previewLabel: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  previewTime: {
+    fontSize: 12,
+    marginTop: 2,
+    fontWeight: '600',
+  },
+  estimateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    borderTopWidth: 1,
+    paddingTop: 8,
+  },
+  estimateText: {
+    fontSize: 11,
+    fontWeight: '600',
   },
   modalButtonsRow: {
     flexDirection: 'row',
     gap: 12,
-    marginTop: 8,
+    marginTop: 6,
   },
   modalCancelBtn: {
     flex: 1,
@@ -771,6 +1039,5 @@ const styles = StyleSheet.create({
   modalConfirmText: {
     fontSize: 14,
     fontWeight: '700',
-    color: '#FFFFFF',
   },
 });

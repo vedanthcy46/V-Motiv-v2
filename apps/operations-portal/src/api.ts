@@ -421,16 +421,27 @@ export const api = {
   }) =>
     call<unknown>(u, `/operations/rentals/bookings/${bookingId}/handover`, { method: 'POST', body: JSON.stringify(body) }),
   recordRentalReturn: (u: User, bookingId: string, body: {
-    odometerKm: number;
-    fuelPercent: number;
-    keyReceived: boolean;
+    odometerKm?: number;
+    returnOdometerKm?: number;
+    fuelPercent?: number;
+    returnFuelPercent?: number;
+    keyReceived?: boolean;
+    customerSigned?: boolean;
     conditionNotes?: string;
+    notes?: string;
     photos?: string[];
     excessKm?: number;
     excessKmChargePaise?: string | number;
     damageChargePaise?: string | number;
     fuelRefillChargePaise?: string | number;
     lateReturnChargePaise?: string | number;
+    damages?: Array<{
+      description: string;
+      estimatedRepairCostPaise: number;
+      photos?: string[];
+      isDisputed?: boolean;
+      disputeNotes?: string;
+    }>;
   }) => call<unknown>(u, `/operations/rentals/bookings/${bookingId}/return`, { method: 'POST', body: JSON.stringify(body) }),
   approveRentalExtension: (u: User, extensionId: string, body: { approved: boolean; reason?: string }) =>
     call<unknown>(u, `/operations/rentals/extensions/${extensionId}/approve`, { method: 'POST', body: JSON.stringify(body) }),
