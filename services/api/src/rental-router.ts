@@ -69,6 +69,26 @@ const kycReviewSchema = z.object({
   rejectionReason: z.string().trim().max(500).optional(),
 });
 
+const walkinRentalBookingSchema = z.object({
+  vehicleId: uuid,
+  customerName: z.string().trim().min(2).max(100),
+  customerPhone: z.string().trim().min(10).max(15),
+  customerEmail: z.string().trim().email(),
+  startTime: z.coerce.date(),
+  endTime: z.coerce.date(),
+  licenseNumber: z.string().trim().min(5).max(30),
+  licenseExpiry: z.coerce.date(),
+  drivingExperienceYears: z.number().int().min(1).max(60).default(3),
+  licenseFrontUrl: z.string().trim().min(5),
+  licenseBackUrl: z.string().trim().min(5),
+  paymentMethod: z.enum(['CASH', 'POS_CARD', 'UPI', 'NEFT', 'COUNTER']).default('UPI'),
+  transactionReference: z.string().trim().max(100).optional(),
+  startOdometerKm: z.number().int().min(0).optional(),
+  fuelPercent: z.number().int().min(1).max(100).default(100),
+  notes: z.string().trim().max(1000).optional(),
+  immediateHandover: z.boolean().default(false),
+});
+
 const handoverSchema = z.object({
   odometerKm: z.number().int().min(0),
   fuelPercent: z.number().int().min(0).max(100),
@@ -514,6 +534,28 @@ export function createRentalOperationsRouter(deps: {
     }
   });
 
+  // Delete fleet vehicle
+  router.delete('/fleet/:id', requireRentalRole(['RENTAL_MANAGER', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
+    try {
+      const vehicleId = uuid.parse(req.params.id);
+      res.json(await deps.store.deleteFleetVehicle(vehicleId));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Create walk-in / on-road booking at offline hub
+  router.post('/walkin-booking', requireRentalRole(['RENTAL_MANAGER', 'RENTAL_DISPATCH', 'HUB_MANAGER', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
+    try {
+      const input = parse(walkinRentalBookingSchema, req.body);
+      const employee = res.locals.employee;
+      const booking = await deps.store.createWalkInBooking(employee.userId, input);
+      res.status(201).json(booking);
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // Bookings list for operations
   router.get('/bookings', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
     try {
@@ -537,13 +579,38 @@ export function createRentalOperationsRouter(deps: {
     }
   });
 
-  // Driver KYC review
+  // Driver KYC review (Accepts either decision: 'APPROVE' | 'REJECT' or status: 'VERIFIED' | 'REJECTED')
   router.post('/bookings/:id/kyc/review', requireRentalRole(['RENTAL_MANAGER', 'RENTAL_DISPATCH', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
     try {
       const bookingId = uuid.parse(req.params.id);
-      const input = parse(kycReviewSchema, req.body);
+      const raw = req.body || {};
+      let dec = raw.decision || raw.status;
+      if (dec === 'VERIFIED') dec = 'APPROVE';
+      if (dec === 'REJECTED') dec = 'REJECT';
+      const normalizedBody = {
+        decision: dec,
+        rejectionReason: raw.rejectionReason,
+      };
+      const input = parse(kycReviewSchema, normalizedBody);
       const employee = res.locals.employee;
       const result = await deps.store.reviewDriverKyc(employee.userId, bookingId, input.decision, input.rejectionReason);
+      res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Upload or update physical driver KYC documents at hub
+  router.post('/bookings/:id/kyc/documents', requireRentalRole(['RENTAL_MANAGER', 'RENTAL_DISPATCH', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
+    try {
+      const bookingId = uuid.parse(req.params.id);
+      const input = parse(driverKycSchema, req.body);
+      const employee = res.locals.employee;
+      const result = await deps.store.updateDriverKycDocuments(employee.userId, bookingId, {
+        ...input,
+        licenseExpiry: new Date(input.licenseExpiry),
+        dateOfBirth: new Date(input.dateOfBirth),
+      });
       res.json(result);
     } catch (e) {
       next(e);

@@ -54,12 +54,8 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
   const [licenseExpiry, setLicenseExpiry] = useState('2032-12-31');
   const [dob, setDob] = useState('1998-05-15');
   const [experienceYears, setExperienceYears] = useState('5');
-  const [driverLicenseFront, setDriverLicenseFront] = useState<string>(
-    'https://images.unsplash.com/photo-1544717305-2782549b5136?auto=format&fit=crop&w=800&q=80'
-  );
-  const [driverLicenseBack, setDriverLicenseBack] = useState<string>(
-    'https://images.unsplash.com/photo-1586769852044-692d6e3703f0?auto=format&fit=crop&w=800&q=80'
-  );
+  const [driverLicenseFront, setDriverLicenseFront] = useState<string>('');
+  const [driverLicenseBack, setDriverLicenseBack] = useState<string>('');
 
   // Payment method selection
   const [paymentMethod, setPaymentMethod] = useState<'UPI' | 'CARD' | 'NETBANKING' | 'DEMO'>('UPI');
@@ -102,22 +98,53 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
   const totalRupees = baseFareRupees + taxRupees + depositRupees;
 
   const handlePickLicensePhoto = async (type: 'front' | 'back') => {
-    try {
-      const result = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ['images'],
-        allowsEditing: true,
-        quality: 0.8,
-      });
-      if (!result.canceled && result.assets && result.assets[0]?.uri) {
-        if (type === 'front') {
-          setDriverLicenseFront(result.assets[0].uri);
-        } else {
-          setDriverLicenseBack(result.assets[0].uri);
-        }
-      }
-    } catch {
-      Alert.alert('Photo Selection', 'Photo picker closed or unavailable.');
-    }
+    Alert.alert(
+      `Upload License ${type === 'front' ? 'Front' : 'Back'} Photo`,
+      'Choose how you want to provide your physical driving license document:',
+      [
+        {
+          text: 'Take Photo with Camera',
+          onPress: async () => {
+            try {
+              const { status } = await ImagePicker.requestCameraPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Permission Denied', 'Camera permission is required to capture your driving license.');
+                return;
+              }
+              const result = await ImagePicker.launchCameraAsync({
+                allowsEditing: true,
+                quality: 0.85,
+              });
+              if (!result.canceled && result.assets && result.assets[0]?.uri) {
+                if (type === 'front') setDriverLicenseFront(result.assets[0].uri);
+                else setDriverLicenseBack(result.assets[0].uri);
+              }
+            } catch {
+              Alert.alert('Camera Error', 'Could not access device camera.');
+            }
+          },
+        },
+        {
+          text: 'Choose from Photo Library',
+          onPress: async () => {
+            try {
+              const result = await ImagePicker.launchImageLibraryAsync({
+                mediaTypes: ['images'],
+                allowsEditing: true,
+                quality: 0.85,
+              });
+              if (!result.canceled && result.assets && result.assets[0]?.uri) {
+                if (type === 'front') setDriverLicenseFront(result.assets[0].uri);
+                else setDriverLicenseBack(result.assets[0].uri);
+              }
+            } catch {
+              Alert.alert('Gallery Error', 'Photo picker closed or unavailable.');
+            }
+          },
+        },
+        { text: 'Cancel', style: 'cancel' },
+      ]
+    );
   };
 
   const handleCheckoutAndPay = async () => {
@@ -127,6 +154,13 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
     }
     if (!licenseNumber.trim() || licenseNumber.trim().length < 5) {
       Alert.alert('Driver License Required', 'Please enter a valid driving license number for identity verification.');
+      return;
+    }
+    if (!driverLicenseFront || !driverLicenseBack) {
+      Alert.alert(
+        'License Document Required',
+        'Physical driving license documents are legally mandatory for self-drive commercial rental insurance. Please upload clear photos of both the Front and Back of your driving license.'
+      );
       return;
     }
     if (!holdId) {
@@ -409,31 +443,68 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
           </View>
 
           {/* License Photo Attachments */}
-          <View style={{ marginTop: 6 }}>
-            <Text style={[styles.inputLabel, { color: colors.textSecondary, marginBottom: 8 }]}>LICENSE PHOTO ATTACHMENT</Text>
+          <View style={{ marginTop: 8 }}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>PHYSICAL DRIVING LICENSE DOCUMENTS *</Text>
+              <Text style={{ fontSize: 10, fontWeight: '700', color: (!driverLicenseFront || !driverLicenseBack) ? '#ef4444' : '#10b981' }}>
+                {(!driverLicenseFront || !driverLicenseBack) ? 'Mandatory for Legal Compliance *' : '✓ Documents Attached'}
+              </Text>
+            </View>
             <View style={{ flexDirection: 'row', gap: 10 }}>
               <Pressable
                 onPress={() => handlePickLicensePhoto('front')}
-                style={[styles.licensePhotoBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                style={[
+                  styles.licensePhotoBox,
+                  {
+                    backgroundColor: colors.surfaceSecondary,
+                    borderColor: driverLicenseFront ? '#10b981' : '#ef4444',
+                    borderWidth: driverLicenseFront ? 1.5 : 1,
+                    borderStyle: driverLicenseFront ? 'solid' : 'dashed',
+                  },
+                ]}
               >
                 {driverLicenseFront ? (
-                  <Image source={{ uri: driverLicenseFront }} style={styles.licenseThumbnail} resizeMode="cover" />
+                  <>
+                    <Image source={{ uri: driverLicenseFront }} style={styles.licenseThumbnail} resizeMode="cover" />
+                    <View style={{ position: 'absolute', bottom: 4, left: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4, paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 9, fontWeight: '800', color: '#10b981', textAlign: 'center' }}>✓ Front Uploaded</Text>
+                    </View>
+                  </>
                 ) : (
-                  <Camera size={20} color={colors.textMuted} />
+                  <>
+                    <Camera size={22} color="#ef4444" />
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textPrimary, marginTop: 4 }}>Front Photo *</Text>
+                    <Text style={{ fontSize: 9, color: '#ef4444', fontWeight: '600' }}>Tap to upload</Text>
+                  </>
                 )}
-                <Text style={{ fontSize: 10, fontWeight: '700', color: colors.brandAccent, marginTop: 4 }}>Front Photo ✓</Text>
               </Pressable>
 
               <Pressable
                 onPress={() => handlePickLicensePhoto('back')}
-                style={[styles.licensePhotoBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+                style={[
+                  styles.licensePhotoBox,
+                  {
+                    backgroundColor: colors.surfaceSecondary,
+                    borderColor: driverLicenseBack ? '#10b981' : '#ef4444',
+                    borderWidth: driverLicenseBack ? 1.5 : 1,
+                    borderStyle: driverLicenseBack ? 'solid' : 'dashed',
+                  },
+                ]}
               >
                 {driverLicenseBack ? (
-                  <Image source={{ uri: driverLicenseBack }} style={styles.licenseThumbnail} resizeMode="cover" />
+                  <>
+                    <Image source={{ uri: driverLicenseBack }} style={styles.licenseThumbnail} resizeMode="cover" />
+                    <View style={{ position: 'absolute', bottom: 4, left: 4, right: 4, backgroundColor: 'rgba(0,0,0,0.65)', borderRadius: 4, paddingVertical: 2 }}>
+                      <Text style={{ fontSize: 9, fontWeight: '800', color: '#10b981', textAlign: 'center' }}>✓ Back Uploaded</Text>
+                    </View>
+                  </>
                 ) : (
-                  <Camera size={20} color={colors.textMuted} />
+                  <>
+                    <Camera size={22} color="#ef4444" />
+                    <Text style={{ fontSize: 11, fontWeight: '800', color: colors.textPrimary, marginTop: 4 }}>Back Photo *</Text>
+                    <Text style={{ fontSize: 9, color: '#ef4444', fontWeight: '600' }}>Tap to upload</Text>
+                  </>
                 )}
-                <Text style={{ fontSize: 10, fontWeight: '700', color: colors.brandAccent, marginTop: 4 }}>Back Photo ✓</Text>
               </Pressable>
             </View>
           </View>

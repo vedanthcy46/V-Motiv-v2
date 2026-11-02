@@ -402,8 +402,14 @@ export const api = {
   },
   rentalBookingDetails: (u: User, id: string) =>
     call<RentalBookingItem>(u, `/operations/rentals/bookings/${id}`),
-  reviewRentalKyc: (u: User, bookingId: string, body: { status: 'VERIFIED' | 'REJECTED'; rejectionReason?: string }) =>
+  reviewRentalKyc: (u: User, bookingId: string, body: { decision?: 'APPROVE' | 'REJECT'; status?: 'VERIFIED' | 'REJECTED'; rejectionReason?: string }) =>
     call<unknown>(u, `/operations/rentals/bookings/${bookingId}/kyc/review`, { method: 'POST', body: JSON.stringify(body) }),
+  updateRentalKycDocuments: (u: User, bookingId: string, body: Record<string, any>) =>
+    call<unknown>(u, `/operations/rentals/bookings/${bookingId}/kyc/documents`, { method: 'POST', body: JSON.stringify(body) }),
+  deleteRentalVehicle: (u: User, vehicleId: string) =>
+    call<{ deleted: boolean; archived: boolean; vehicleId: string }>(u, `/operations/rentals/fleet/${vehicleId}`, { method: 'DELETE' }),
+  createWalkInRentalBooking: (u: User, body: Record<string, any>) =>
+    call<RentalBookingItem>(u, '/operations/rentals/walkin-booking', { method: 'POST', body: JSON.stringify(body) }),
   recordRentalHandover: (u: User, bookingId: string, body: { odometerKm: number; fuelPercent: number; keyReleased: boolean; conditionNotes?: string; photos?: string[] }) =>
     call<unknown>(u, `/operations/rentals/bookings/${bookingId}/handover`, { method: 'POST', body: JSON.stringify(body) }),
   recordRentalReturn: (u: User, bookingId: string, body: {

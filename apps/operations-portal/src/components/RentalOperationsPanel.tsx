@@ -47,6 +47,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   onError,
   onSuccess,
 }) => {
+  const oneYearFromNow = () => new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
   const [subTab, setSubTab] = useState<'fleet' | 'bookings'>('fleet');
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<RentalOperationsSummary | null>(null);
@@ -59,12 +61,39 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
   // Modals
   const [onboardModalOpen, setOnboardModalOpen] = useState(false);
+  const [walkInModalOpen, setWalkInModalOpen] = useState(false);
   const [blockModalVehicle, setBlockModalVehicle] = useState<RentalFleetItem | null>(null);
   const [historyModalVehicle, setHistoryModalVehicle] = useState<RentalFleetItem | null>(null);
   const [expandedVehicleId, setExpandedVehicleId] = useState<string | null>(null);
   const [activeBooking, setActiveBooking] = useState<RentalBookingItem | null>(null);
   const [bookingDrawerTab, setBookingDrawerTab] = useState<'overview' | 'kyc' | 'handover' | 'return' | 'extension'>('overview');
   const [actionBusy, setActionBusy] = useState(false);
+
+  // Walk-In / Offline Hub Booking Form State
+  const [walkInVehicleId, setWalkInVehicleId] = useState('');
+  const [walkInCustomerName, setWalkInCustomerName] = useState('');
+  const [walkInCustomerPhone, setWalkInCustomerPhone] = useState('');
+  const [walkInCustomerEmail, setWalkInCustomerEmail] = useState('');
+  const [walkInStartDate, setWalkInStartDate] = useState(new Date().toISOString().slice(0, 10));
+  const [walkInStartTime, setWalkInStartTime] = useState('10:00');
+  const [walkInDays, setWalkInDays] = useState(2);
+  const [walkInLicenseNumber, setWalkInLicenseNumber] = useState('');
+  const [walkInLicenseExpiry, setWalkInLicenseExpiry] = useState(oneYearFromNow());
+  const [walkInExperienceYears, setWalkInExperienceYears] = useState(5);
+  const [walkInLicenseFrontUrl, setWalkInLicenseFrontUrl] = useState('');
+  const [walkInLicenseBackUrl, setWalkInLicenseBackUrl] = useState('');
+  const [walkInPaymentMethod, setWalkInPaymentMethod] = useState('UPI');
+  const [walkInPaymentTxRef, setWalkInPaymentTxRef] = useState('');
+  const [walkInImmediateHandover, setWalkInImmediateHandover] = useState(true);
+  const [walkInStartOdo, setWalkInStartOdo] = useState<number>(0);
+  const [walkInFuelPercent, setWalkInFuelPercent] = useState<number>(100);
+  const [walkInNotes, setWalkInNotes] = useState('');
+
+  // Hub KYC Upload State
+  const [hubKycLicenseNumber, setHubKycLicenseNumber] = useState('');
+  const [hubKycExpiry, setHubKycExpiry] = useState(oneYearFromNow());
+  const [hubKycFrontUrl, setHubKycFrontUrl] = useState('');
+  const [hubKycBackUrl, setHubKycBackUrl] = useState('');
 
   // Onboard form state
   const [onboardReg, setOnboardReg] = useState('');
@@ -87,7 +116,6 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [onboardOdometerKm, setOnboardOdometerKm] = useState<number>(12000);
 
   // Documentation / Compliance state
-  const oneYearFromNow = () => new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
   const [onboardPermitNumber, setOnboardPermitNumber] = useState('');
   const [onboardPermitExpiry, setOnboardPermitExpiry] = useState(oneYearFromNow());
   const [onboardInsurancePolicy, setOnboardInsurancePolicy] = useState('');
@@ -505,9 +533,17 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       onError('Please provide a specific rejection reason for the customer.');
       return;
     }
+    if (decision === 'VERIFIED') {
+      const ver = activeBooking.driverVerification;
+      if (!ver || !ver.licenseFrontUrl || !ver.licenseBackUrl) {
+        onError('Physical driving license documents (front & back) are mandatory before KYC approval.');
+        return;
+      }
+    }
     setActionBusy(true);
     try {
       await api.reviewRentalKyc(user, activeBooking.id, {
+        decision: decision === 'VERIFIED' ? 'APPROVE' : 'REJECT',
         status: decision,
         rejectionReason: decision === 'REJECTED' ? kycRejectionReason : undefined,
       });
@@ -516,6 +552,105 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       void loadData();
     } catch (err: any) {
       onError(err?.message || 'Failed to update driver KYC review');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // Handle Hub KYC Upload / Document Update
+  const handleHubKycUploadSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!activeBooking) return;
+    if (!hubKycFrontUrl.trim() || !hubKycBackUrl.trim()) {
+      onError('Both front and back photos of the physical license are required.');
+      return;
+    }
+    setActionBusy(true);
+    try {
+      await api.updateRentalKycDocuments(user, activeBooking.id, {
+        licenseNumber: hubKycLicenseNumber.trim().toUpperCase(),
+        licenseExpiry: new Date(hubKycExpiry).toISOString(),
+        dateOfBirth: new Date('1990-01-01').toISOString(),
+        drivingExperienceYears: 5,
+        licenseFrontUrl: hubKycFrontUrl.trim(),
+        licenseBackUrl: hubKycBackUrl.trim(),
+      });
+      onSuccess(`Driving license documents attached for booking ${activeBooking.bookingNumber}.`);
+      const updated = await api.rentalBookingDetails(user, activeBooking.id);
+      setActiveBooking(updated);
+      void loadData();
+    } catch (err: any) {
+      onError(err?.message || 'Failed to attach driving license documents');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // Handle Delete Fleet Vehicle
+  const handleDeleteVehicle = async (veh: RentalFleetItem) => {
+    if (!confirm(`Are you sure you want to permanently delete or retire ${veh.make} ${veh.model} (${veh.registrationNumber}) from the rental fleet?`)) return;
+    setActionBusy(true);
+    try {
+      const res = await api.deleteRentalVehicle(user, veh.id);
+      onSuccess(res.archived ? `${veh.make} ${veh.model} was safely retired.` : `${veh.make} ${veh.model} has been deleted.`);
+      if (historyModalVehicle?.id === veh.id) setHistoryModalVehicle(null);
+      void loadData();
+    } catch (err: any) {
+      onError(err?.message || 'Failed to delete vehicle');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  // Handle Walk-In / Offline Hub Rental Booking Submit
+  const handleWalkInSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!walkInVehicleId) {
+      onError('Please select an available fleet vehicle.');
+      return;
+    }
+    if (!walkInLicenseFrontUrl.trim() || !walkInLicenseBackUrl.trim()) {
+      onError('Driving license front and back documents are mandatory.');
+      return;
+    }
+    setActionBusy(true);
+    try {
+      const startDateTime = new Date(`${walkInStartDate}T${walkInStartTime}:00`);
+      const endDateTime = new Date(startDateTime.getTime() + walkInDays * 24 * 3600 * 1000);
+
+      const booking = await api.createWalkInRentalBooking(user, {
+        vehicleId: walkInVehicleId,
+        customerName: walkInCustomerName.trim(),
+        customerPhone: walkInCustomerPhone.trim(),
+        customerEmail: walkInCustomerEmail.trim(),
+        startTime: startDateTime.toISOString(),
+        endTime: endDateTime.toISOString(),
+        licenseNumber: walkInLicenseNumber.toUpperCase().trim(),
+        licenseExpiry: new Date(walkInLicenseExpiry).toISOString(),
+        drivingExperienceYears: Number(walkInExperienceYears) || 3,
+        licenseFrontUrl: walkInLicenseFrontUrl.trim(),
+        licenseBackUrl: walkInLicenseBackUrl.trim(),
+        paymentMethod: walkInPaymentMethod,
+        transactionReference: walkInPaymentTxRef.trim() || `COUNTER-${Date.now()}`,
+        startOdometerKm: Number(walkInStartOdo) || undefined,
+        fuelPercent: Number(walkInFuelPercent) || 100,
+        notes: walkInNotes,
+        immediateHandover: walkInImmediateHandover,
+      });
+
+      onSuccess(`On-Road Rental Booking #${booking.bookingNumber} created successfully! ${walkInImmediateHandover ? 'Vehicle is now ON TRIP.' : 'Ready for pickup.'}`);
+      setWalkInModalOpen(false);
+      // Reset form
+      setWalkInCustomerName('');
+      setWalkInCustomerPhone('');
+      setWalkInCustomerEmail('');
+      setWalkInLicenseNumber('');
+      setWalkInLicenseFrontUrl('');
+      setWalkInLicenseBackUrl('');
+      setWalkInPaymentTxRef('');
+      void loadData();
+    } catch (err: any) {
+      onError(err?.message || 'Failed to create walk-in booking');
     } finally {
       setActionBusy(false);
     }
@@ -634,9 +769,21 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
             Self-drive rental fleet management, driver KYC approval, strict handover inspection, and return settlement.
           </p>
         </div>
-        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center', flexWrap: 'wrap' }}>
           <button type="button" className="btn-secondary button secondary" onClick={() => void loadData()} disabled={loading}>
             <IconRefresh /> Refresh
+          </button>
+          <button
+            type="button"
+            className="button secondary"
+            style={{ background: '#059669', color: '#ffffff', borderColor: '#059669', fontWeight: 700 }}
+            onClick={() => {
+              const avail = fleet.find(v => v.status === 'AVAILABLE');
+              if (avail) setWalkInVehicleId(avail.id);
+              setWalkInModalOpen(true);
+            }}
+          >
+            ⚡ + Book Offline Rental Car
           </button>
           <button type="button" className="btn-primary btn-gold button primary" onClick={() => setOnboardModalOpen(true)}>
             + Onboard Fleet Car
@@ -927,6 +1074,16 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           >
                             + Buffer
                           </button>
+
+                          <button
+                            type="button"
+                            className="btn-danger btn-sm button danger small"
+                            disabled={actionBusy}
+                            onClick={() => void handleDeleteVehicle(veh)}
+                            title="Delete or retire car from rental fleet"
+                          >
+                            🗑 Delete
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1031,6 +1188,318 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 )}
               </tbody>
             </table>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: WALK-IN / ON-ROAD RENTAL BOOKING AT OFFLINE HUB */}
+      {walkInModalOpen && (
+        <div className="modal-overlay" style={{ zIndex: 1000, padding: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <div
+            className="modal-dialog"
+            style={{
+              maxWidth: '860px',
+              width: '100%',
+              maxHeight: '92vh',
+              display: 'flex',
+              flexDirection: 'column',
+              background: 'var(--surface, #0f172a)',
+              borderRadius: '12px',
+              border: '1px solid var(--border)',
+              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.75)',
+              overflow: 'hidden',
+            }}
+          >
+            {/* MODAL HEADER */}
+            <div
+              style={{
+                padding: '1.25rem 1.5rem',
+                borderBottom: '1px solid var(--border)',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+                background: 'rgba(15, 23, 42, 0.95)',
+              }}
+            >
+              <div>
+                <span className="eyebrow" style={{ color: '#10b981', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                  ⚡ OFFLINE HUB WALK-IN RENTAL
+                </span>
+                <h3 style={{ margin: '4px 0 0 0', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text, #f8fafc)' }}>
+                  Create On-Road Rental Booking
+                </h3>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setWalkInModalOpen(false)}
+                title="Close"
+                style={{ width: '32px', height: '32px', borderRadius: '6px' }}
+              >
+                <IconCross />
+              </button>
+            </div>
+
+            {/* FORM BODY WITH SCROLL */}
+            <form onSubmit={handleWalkInSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div
+                className="modal-body custom-scrollbar"
+                style={{
+                  flex: 1,
+                  overflowY: 'auto',
+                  padding: '1.5rem',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '1.5rem',
+                }}
+              >
+                {/* 1. SELECT FLEET VEHICLE */}
+                <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px' }}>
+                  <label style={{ fontSize: '0.8125rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--accent)', display: 'block', marginBottom: '0.5rem' }}>
+                    1. Select Available Fleet Vehicle *
+                  </label>
+                  <select
+                    className="select"
+                    required
+                    value={walkInVehicleId}
+                    onChange={e => {
+                      setWalkInVehicleId(e.target.value);
+                      const veh = fleet.find(v => v.id === e.target.value);
+                      if (veh) setWalkInStartOdo(veh.odometerKm || 0);
+                    }}
+                    style={{ width: '100%', fontSize: '0.95rem', fontWeight: 600 }}
+                  >
+                    <option value="">-- Choose an Available Fleet Car --</option>
+                    {fleet
+                      .filter(v => v.status === 'AVAILABLE')
+                      .map(v => (
+                        <option key={v.id} value={v.id}>
+                          {v.make} {v.model} ({v.registrationNumber}) — {formatRupees(v.baseDailyRatePaise)}/day [{v.hub?.city || 'Local Hub'}]
+                        </option>
+                      ))}
+                  </select>
+                </div>
+
+                {/* 2. CUSTOMER IDENTITY */}
+                <div>
+                  <div style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '0.75rem' }}>
+                    2. Customer Identity (Counter Walk-In)
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Full Name *</label>
+                      <input type="text" className="input" required value={walkInCustomerName} onChange={e => setWalkInCustomerName(e.target.value)} placeholder="e.g. Rahul Sharma" style={{ width: '100%', marginTop: '3px' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Mobile Phone *</label>
+                      <input type="tel" className="input" required value={walkInCustomerPhone} onChange={e => setWalkInCustomerPhone(e.target.value)} placeholder="+91 9876543210" style={{ width: '100%', marginTop: '3px' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Email Address *</label>
+                      <input type="email" className="input" required value={walkInCustomerEmail} onChange={e => setWalkInCustomerEmail(e.target.value)} placeholder="customer@example.com" style={{ width: '100%', marginTop: '3px' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. MANDATORY DRIVER LICENSE & PHOTO UPLOAD */}
+                <div style={{ border: '1px solid rgba(245, 158, 11, 0.3)', padding: '1rem', borderRadius: '8px', background: 'rgba(245, 158, 11, 0.03)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent)', textTransform: 'uppercase' }}>
+                      3. Driver License KYC & Mandatory Documents *
+                    </span>
+                    <span style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 700 }}>
+                      Legally Required for On-Road Insurance
+                    </span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Driving License Number *</label>
+                      <input type="text" className="input" required value={walkInLicenseNumber} onChange={e => setWalkInLicenseNumber(e.target.value)} placeholder="e.g. KA0120220045892" style={{ width: '100%', marginTop: '3px' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Expiry Date *</label>
+                      <input type="date" className="input" required value={walkInLicenseExpiry} onChange={e => setWalkInLicenseExpiry(e.target.value)} style={{ width: '100%', marginTop: '3px' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Driving Experience (Years) *</label>
+                      <input type="number" className="input" min={1} max={50} required value={walkInExperienceYears} onChange={e => setWalkInExperienceYears(Number(e.target.value))} style={{ width: '100%', marginTop: '3px' }} />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600, color: walkInLicenseFrontUrl ? '#10b981' : 'var(--text)' }}>
+                        License Front Photo URL * {walkInLicenseFrontUrl && '✓'}
+                      </label>
+                      <input
+                        type="text"
+                        className="input"
+                        required
+                        placeholder="https://... photo link or upload"
+                        value={walkInLicenseFrontUrl}
+                        onChange={e => setWalkInLicenseFrontUrl(e.target.value)}
+                        style={{ width: '100%', marginTop: '3px', borderColor: walkInLicenseFrontUrl ? '#10b981' : undefined }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600, color: walkInLicenseBackUrl ? '#10b981' : 'var(--text)' }}>
+                        License Back Photo URL * {walkInLicenseBackUrl && '✓'}
+                      </label>
+                      <input
+                        type="text"
+                        className="input"
+                        required
+                        placeholder="https://... photo link or upload"
+                        value={walkInLicenseBackUrl}
+                        onChange={e => setWalkInLicenseBackUrl(e.target.value)}
+                        style={{ width: '100%', marginTop: '3px', borderColor: walkInLicenseBackUrl ? '#10b981' : undefined }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. RENTAL DURATION & SCHEDULE */}
+                <div>
+                  <div style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '0.75rem' }}>
+                    4. Rental Duration & Schedule
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Pickup Date *</label>
+                      <input type="date" className="input" required value={walkInStartDate} onChange={e => setWalkInStartDate(e.target.value)} style={{ width: '100%', marginTop: '3px' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Pickup Time *</label>
+                      <input type="time" className="input" required value={walkInStartTime} onChange={e => setWalkInStartTime(e.target.value)} style={{ width: '100%', marginTop: '3px' }} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Rental Duration (Days) *</label>
+                      <div style={{ display: 'flex', gap: '4px', marginTop: '3px' }}>
+                        {[1, 2, 3, 5, 7, 10, 14].map(d => (
+                          <button
+                            key={d}
+                            type="button"
+                            onClick={() => setWalkInDays(d)}
+                            style={{
+                              padding: '0.35rem 0.6rem',
+                              fontSize: '0.75rem',
+                              fontWeight: 700,
+                              borderRadius: '4px',
+                              background: walkInDays === d ? 'var(--accent)' : 'var(--surface-secondary)',
+                              color: walkInDays === d ? '#061a38' : 'var(--text)',
+                              border: '1px solid var(--border)',
+                              cursor: 'pointer',
+                            }}
+                          >
+                            {d}d
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 5. PRICING & COUNTER PAYMENT */}
+                <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <div style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent)', textTransform: 'uppercase', marginBottom: '0.75rem' }}>
+                    5. Price Calculation & Offline Payment
+                  </div>
+                  {(() => {
+                    const selVeh = fleet.find(v => v.id === walkInVehicleId);
+                    const daily = selVeh ? Number(BigInt(selVeh.baseDailyRatePaise) / 100n) : 0;
+                    const dep = selVeh ? Number(BigInt(selVeh.securityDepositPaise) / 100n) : 0;
+                    const base = daily * walkInDays;
+                    const tax = Math.round(base * 0.18);
+                    const total = base + tax + dep;
+                    return (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1rem', background: 'var(--surface)', padding: '0.75rem', borderRadius: '6px' }}>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>DAILY RATE</div>
+                          <div style={{ fontWeight: 700 }}>₹{daily.toLocaleString('en-IN')}/day</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>BASE ({walkInDays} DAYS)</div>
+                          <div style={{ fontWeight: 700 }}>₹{base.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>GST (18%)</div>
+                          <div style={{ fontWeight: 700 }}>₹{tax.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>SECURITY DEPOSIT</div>
+                          <div style={{ fontWeight: 700 }}>₹{dep.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--accent)' }}>TOTAL PAYABLE</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--accent)' }}>₹{total.toLocaleString('en-IN')}</div>
+                        </div>
+                      </div>
+                    );
+                  })()}
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Payment Method at Counter *</label>
+                      <select className="select" value={walkInPaymentMethod} onChange={e => setWalkInPaymentMethod(e.target.value)} style={{ width: '100%', marginTop: '3px' }}>
+                        <option value="UPI">UPI / QR Code</option>
+                        <option value="POS_CARD">POS Card Terminal</option>
+                        <option value="CASH">Cash Counter</option>
+                        <option value="NEFT">NEFT / Bank Transfer</option>
+                        <option value="COUNTER">Counter Slip</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Transaction / Receipt Reference #</label>
+                      <input type="text" className="input" placeholder="e.g. UPI-UTR-20261102 or POS Slip #" value={walkInPaymentTxRef} onChange={e => setWalkInPaymentTxRef(e.target.value)} style={{ width: '100%', marginTop: '3px' }} />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 6. ON-ROAD IMMEDIATE HANDOVER */}
+                <div style={{ border: '1px solid #10b981', padding: '1rem', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.05)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', fontWeight: 700, fontSize: '0.9rem', color: '#10b981' }}>
+                    <input
+                      type="checkbox"
+                      checked={walkInImmediateHandover}
+                      onChange={e => setWalkInImmediateHandover(e.target.checked)}
+                      style={{ width: '18px', height: '18px' }}
+                    />
+                    <span>🚗 Immediate On-Road Departure: Release keys and set Trip Active right now</span>
+                  </label>
+                  {walkInImmediateHandover && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Current Odometer (km)</label>
+                        <input type="number" className="input" value={walkInStartOdo} onChange={e => setWalkInStartOdo(Number(e.target.value))} style={{ width: '100%', marginTop: '3px' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Fuel Level (%)</label>
+                        <input type="number" className="input" min={10} max={100} value={walkInFuelPercent} onChange={e => setWalkInFuelPercent(Number(e.target.value))} style={{ width: '100%', marginTop: '3px' }} />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* FOOTER */}
+              <div
+                style={{
+                  padding: '1rem 1.5rem',
+                  borderTop: '1px solid var(--border)',
+                  display: 'flex',
+                  justifyContent: 'flex-end',
+                  gap: '0.75rem',
+                  background: 'rgba(15, 23, 42, 0.95)',
+                }}
+              >
+                <button type="button" className="btn-secondary button secondary" onClick={() => setWalkInModalOpen(false)}>
+                  Cancel
+                </button>
+                <button type="submit" className="button primary" style={{ background: '#059669', color: '#fff', borderColor: '#059669', fontWeight: 700 }} disabled={actionBusy}>
+                  {actionBusy ? 'Processing Booking…' : '⚡ Confirm On-Road Rental Booking'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
@@ -2019,7 +2488,15 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               )}
             </div>
 
-            <div className="modal-footer" style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
+            <div className="modal-footer" style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <button
+                type="button"
+                className="btn-danger button danger small"
+                disabled={actionBusy}
+                onClick={() => void handleDeleteVehicle(historyModalVehicle)}
+              >
+                🗑 Delete / Retire Fleet Vehicle
+              </button>
               <button type="button" className="btn-secondary button secondary" onClick={() => setHistoryModalVehicle(null)}>
                 Close
               </button>
@@ -2101,7 +2578,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               {bookingDrawerTab === 'kyc' && (
                 <div>
                   <p style={{ fontSize: '0.875rem', color: 'var(--muted)', marginBottom: '1rem' }}>
-                    Verify primary driver government driving license before releasing vehicle keys. Strict KYC is enforced by legal insurance regulations.
+                    Verify primary driver government driving license before releasing vehicle keys. Strict KYC is enforced by legal insurance regulations. Both front and back physical license documents are mandatory.
                   </p>
 
                   {activeBooking.driverVerification ? (
@@ -2113,11 +2590,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </div>
                         <div>
                           <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>VALIDITY EXPIRY</span>
-                          <div><strong>{activeBooking.driverVerification.licenseExpiry}</strong></div>
+                          <div><strong>{activeBooking.driverVerification.licenseExpiry ? new Date(activeBooking.driverVerification.licenseExpiry).toLocaleDateString() : '—'}</strong></div>
                         </div>
                         <div>
                           <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>DATE OF BIRTH</span>
-                          <div><strong>{activeBooking.driverVerification.dateOfBirth}</strong></div>
+                          <div><strong>{activeBooking.driverVerification.dateOfBirth ? new Date(activeBooking.driverVerification.dateOfBirth).toLocaleDateString() : '—'}</strong></div>
                         </div>
                         <div>
                           <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>DRIVING EXPERIENCE</span>
@@ -2125,17 +2602,31 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </div>
                       </div>
 
-                      <div style={{ display: 'flex', gap: '1rem', marginBottom: '1rem' }}>
-                        {activeBooking.driverVerification.licenseFrontUrl && (
-                          <a href={activeBooking.driverVerification.licenseFrontUrl} target="_blank" rel="noreferrer" className="button secondary small">
-                            View License Front ↗
-                          </a>
-                        )}
-                        {activeBooking.driverVerification.licenseBackUrl && (
-                          <a href={activeBooking.driverVerification.licenseBackUrl} target="_blank" rel="noreferrer" className="button secondary small">
-                            View License Back ↗
-                          </a>
-                        )}
+                      {/* Document Previews */}
+                      <div style={{ marginBottom: '1rem' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)', display: 'block', marginBottom: '6px', fontWeight: 600 }}>MANDATORY LICENSE DOCUMENTS</span>
+                        <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                          {activeBooking.driverVerification.licenseFrontUrl ? (
+                            <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
+                              <img src={activeBooking.driverVerification.licenseFrontUrl} alt="License Front" style={{ width: '150px', height: '95px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
+                              <a href={activeBooking.driverVerification.licenseFrontUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '4px', display: 'inline-block' }}>View Full Front ↗</a>
+                            </div>
+                          ) : (
+                            <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                              ⚠️ Front document missing
+                            </div>
+                          )}
+                          {activeBooking.driverVerification.licenseBackUrl ? (
+                            <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
+                              <img src={activeBooking.driverVerification.licenseBackUrl} alt="License Back" style={{ width: '150px', height: '95px', objectFit: 'cover', borderRadius: '4px', display: 'block' }} />
+                              <a href={activeBooking.driverVerification.licenseBackUrl} target="_blank" rel="noreferrer" style={{ fontSize: '0.75rem', color: 'var(--accent)', marginTop: '4px', display: 'inline-block' }}>View Full Back ↗</a>
+                            </div>
+                          ) : (
+                            <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                              ⚠️ Back document missing
+                            </div>
+                          )}
+                        </div>
                       </div>
 
                       <div style={{ borderTop: '1px solid var(--border)', paddingTop: '1rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -2160,7 +2651,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           <button
                             type="button"
                             className="btn-primary btn-gold button primary small"
-                            disabled={actionBusy || activeBooking.kycStatus === 'VERIFIED'}
+                            disabled={actionBusy || activeBooking.kycStatus === 'VERIFIED' || !activeBooking.driverVerification.licenseFrontUrl || !activeBooking.driverVerification.licenseBackUrl}
                             onClick={() => void handleKycReview('VERIFIED')}
                           >
                             {actionBusy ? 'Verifying…' : 'Approve Driver KYC ✓'}
@@ -2169,10 +2660,78 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       </div>
                     </div>
                   ) : (
-                    <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '6px', color: 'var(--muted)' }}>
-                      Customer has not yet submitted driving license KYC for this booking.
+                    <div style={{ padding: '1.25rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '6px', color: 'var(--muted)', marginBottom: '1.25rem' }}>
+                      Customer has not yet submitted driving license KYC online. Please inspect the original card and attach documents below.
                     </div>
                   )}
+
+                  {/* Hub Staff Physical License Document Upload Form */}
+                  <div style={{ marginTop: '1.25rem', border: '1px solid var(--border)', borderRadius: '6px', padding: '1rem', background: 'var(--surface)' }}>
+                    <h4 style={{ margin: '0 0 0.4rem 0', fontSize: '0.95rem' }}>
+                      {activeBooking.driverVerification ? 'Update Physical License Documents at Hub' : 'Attach Customer Physical License at Hub'}
+                    </h4>
+                    <p style={{ fontSize: '0.8rem', color: 'var(--muted)', margin: '0 0 1rem 0' }}>
+                      Inspect the original physical card at the counter and attach clear front and back photo URLs.
+                    </p>
+                    <form onSubmit={handleHubKycUploadSubmit}>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '0.75rem' }}>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Number *</label>
+                          <input
+                            type="text"
+                            className="input"
+                            required
+                            placeholder="e.g. KA0120220045892"
+                            value={hubKycLicenseNumber}
+                            onChange={e => setHubKycLicenseNumber(e.target.value)}
+                            style={{ width: '100%', marginTop: '3px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Validity Expiry *</label>
+                          <input
+                            type="date"
+                            className="input"
+                            required
+                            value={hubKycExpiry}
+                            onChange={e => setHubKycExpiry(e.target.value)}
+                            style={{ width: '100%', marginTop: '3px' }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Front Document / Photo URL *</label>
+                          <input
+                            type="text"
+                            className="input"
+                            required
+                            placeholder="https://... or image link"
+                            value={hubKycFrontUrl}
+                            onChange={e => setHubKycFrontUrl(e.target.value)}
+                            style={{ width: '100%', marginTop: '3px' }}
+                          />
+                        </div>
+                        <div>
+                          <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>License Back Document / Photo URL *</label>
+                          <input
+                            type="text"
+                            className="input"
+                            required
+                            placeholder="https://... or image link"
+                            value={hubKycBackUrl}
+                            onChange={e => setHubKycBackUrl(e.target.value)}
+                            style={{ width: '100%', marginTop: '3px' }}
+                          />
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.5rem' }}>
+                        <button type="submit" className="button primary small" disabled={actionBusy}>
+                          {actionBusy ? 'Saving Documents…' : 'Attach License Documents'}
+                        </button>
+                      </div>
+                    </form>
+                  </div>
                 </div>
               )}
 

@@ -746,6 +746,7 @@ export class PrismaRentalStore {
 
   /**
    * Operations Driver KYC Verification / Approval.
+   * Strictly enforces that driver license front and back documents must be uploaded.
    */
   async reviewDriverKyc(
     employeeId: string,
@@ -759,7 +760,13 @@ export class PrismaRentalStore {
         include: { booking: true },
       });
       if (!verification) {
-        throw new HttpError(404, 'DRIVER_VERIFICATION_RECORD_NOT_FOUND');
+        throw new HttpError(400, 'DRIVER_LICENSE_DOCUMENTS_REQUIRED_BEFORE_APPROVAL');
+      }
+
+      if (decision === 'APPROVE') {
+        if (!verification.licenseFrontUrl || !verification.licenseBackUrl) {
+          throw new HttpError(400, 'MANDATORY_LICENSE_DOCUMENTS_MISSING');
+        }
       }
 
       const status = decision === 'APPROVE' ? RentalDriverKycStatus.VERIFIED : RentalDriverKycStatus.REJECTED;
@@ -789,6 +796,74 @@ export class PrismaRentalStore {
       });
 
       return updatedVerification;
+    });
+  }
+
+  /**
+   * Operations: Hub staff upload or update physical driving license documents.
+   */
+  async updateDriverKycDocuments(
+    employeeId: string,
+    bookingId: string,
+    input: {
+      licenseNumber: string;
+      licenseExpiry: Date;
+      licenseCategory?: string;
+      dateOfBirth?: Date;
+      drivingExperienceYears?: number;
+      licenseFrontUrl: string;
+      licenseBackUrl: string;
+    }
+  ) {
+    if (!input.licenseFrontUrl || !input.licenseBackUrl) {
+      throw new HttpError(400, 'MANDATORY_LICENSE_DOCUMENTS_MISSING');
+    }
+
+    return await this.db.$transaction(async tx => {
+      const booking = await tx.rentalBooking.findUnique({ where: { id: bookingId } });
+      if (!booking) throw new HttpError(404, 'BOOKING_NOT_FOUND');
+
+      const verification = await tx.rentalDriverVerification.upsert({
+        where: { bookingId },
+        update: {
+          licenseNumber: input.licenseNumber.toUpperCase().trim(),
+          licenseExpiry: input.licenseExpiry,
+          licenseCategory: input.licenseCategory || 'LMV',
+          dateOfBirth: input.dateOfBirth || new Date('1990-01-01'),
+          drivingExperienceYears: input.drivingExperienceYears || 3,
+          licenseFrontUrl: input.licenseFrontUrl,
+          licenseBackUrl: input.licenseBackUrl,
+          status: RentalDriverKycStatus.PENDING_REVIEW,
+        },
+        create: {
+          bookingId,
+          customerId: booking.customerId,
+          licenseNumber: input.licenseNumber.toUpperCase().trim(),
+          licenseExpiry: input.licenseExpiry,
+          licenseCategory: input.licenseCategory || 'LMV',
+          dateOfBirth: input.dateOfBirth || new Date('1990-01-01'),
+          drivingExperienceYears: input.drivingExperienceYears || 3,
+          licenseFrontUrl: input.licenseFrontUrl,
+          licenseBackUrl: input.licenseBackUrl,
+          status: RentalDriverKycStatus.PENDING_REVIEW,
+        },
+      });
+
+      await tx.rentalBooking.update({
+        where: { id: bookingId },
+        data: { kycStatus: RentalDriverKycStatus.PENDING_REVIEW },
+      });
+
+      await tx.rentalAuditEvent.create({
+        data: {
+          bookingId,
+          eventType: 'RENTAL_KYC_DOCUMENTS_UPDATED',
+          actorId: employeeId,
+          metadata: { licenseNumber: input.licenseNumber },
+        },
+      });
+
+      return verification;
     });
   }
 
@@ -1821,5 +1896,272 @@ export class PrismaRentalStore {
       pendingKycCount,
       pendingDamageReviewCount,
     };
+  }
+
+  /**
+   * Operations: Delete a rental fleet vehicle.
+   * If vehicle has active or upcoming bookings, blocks deletion to preserve customer contract.
+   * Otherwise cleanly purges associated blocks, holds, and removes the vehicle.
+   */
+  async deleteFleetVehicle(vehicleId: string) {
+    return await this.db.$transaction(async tx => {
+      const vehicle = await tx.rentalFleetVehicle.findUnique({
+        where: { id: vehicleId },
+        include: {
+          bookings: {
+            where: {
+              status: { in: [RentalBookingStatus.CONFIRMED, RentalBookingStatus.TRIP_ACTIVE] },
+            },
+          },
+        },
+      });
+
+      if (!vehicle) {
+        throw new HttpError(404, 'VEHICLE_NOT_FOUND');
+      }
+
+      if (vehicle.bookings.length > 0) {
+        throw new HttpError(400, 'CANNOT_DELETE_VEHICLE_WITH_ACTIVE_BOOKINGS');
+      }
+
+      // Delete blocks and holds
+      await tx.rentalVehicleBlock.deleteMany({ where: { vehicleId } });
+      await tx.rentalBookingHold.deleteMany({ where: { vehicleId } });
+
+      // If it has historical completed or cancelled bookings, archive/soft-delete
+      const allBookingsCount = await tx.rentalBooking.count({ where: { vehicleId } });
+      if (allBookingsCount > 0) {
+        await tx.rentalFleetVehicle.update({
+          where: { id: vehicleId },
+          data: {
+            status: RentalVehicleStatus.RETIRED,
+            isEligibleForRental: false,
+          },
+        });
+        return { deleted: true, archived: true, vehicleId };
+      }
+
+      await tx.rentalFleetVehicle.delete({ where: { id: vehicleId } });
+      return { deleted: true, archived: false, vehicleId };
+    });
+  }
+
+  /**
+   * Operations: Create Walk-In / Offline Hub Rental Booking.
+   * Books a vehicle on the spot at an offline hub for an on-road rental.
+   * Enforces mandatory driving license document upload, counter payment, and immediate handover option.
+   */
+  async createWalkInBooking(
+    employeeId: string,
+    input: {
+      vehicleId: string;
+      customerName: string;
+      customerPhone: string;
+      customerEmail: string;
+      startTime: Date;
+      endTime: Date;
+      licenseNumber: string;
+      licenseExpiry: Date;
+      drivingExperienceYears?: number;
+      licenseFrontUrl: string;
+      licenseBackUrl: string;
+      paymentMethod: string;
+      transactionReference?: string;
+      startOdometerKm?: number;
+      fuelPercent?: number;
+      notes?: string;
+      immediateHandover?: boolean;
+    }
+  ) {
+    if (!input.licenseFrontUrl || !input.licenseBackUrl) {
+      throw new HttpError(400, 'MANDATORY_LICENSE_DOCUMENTS_MISSING');
+    }
+    if (input.endTime.getTime() <= input.startTime.getTime()) {
+      throw new HttpError(400, 'END_TIME_MUST_BE_AFTER_START_TIME');
+    }
+
+    const vehicle = await this.db.rentalFleetVehicle.findUnique({
+      where: { id: input.vehicleId },
+      include: { hub: true },
+    });
+    if (!vehicle) {
+      throw new HttpError(404, 'VEHICLE_NOT_FOUND');
+    }
+    if (vehicle.status !== RentalVehicleStatus.AVAILABLE) {
+      throw new HttpError(409, `VEHICLE_NOT_AVAILABLE_FOR_RENTAL (Status: ${vehicle.status})`);
+    }
+
+    // Find or create customer
+    let customer = await this.db.user.findFirst({
+      where: {
+        OR: [
+          { email: input.customerEmail.toLowerCase().trim() },
+          { phone: input.customerPhone.trim() },
+        ],
+      },
+    });
+
+    if (!customer) {
+      customer = await this.db.user.create({
+        data: {
+          firebaseUid: `walkin_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+          email: input.customerEmail.toLowerCase().trim(),
+          phone: input.customerPhone.trim(),
+          displayName: input.customerName.trim(),
+        },
+      });
+    }
+
+    // Calculate quote
+    const durationMs = input.endTime.getTime() - input.startTime.getTime();
+    const days = Math.max(1, Math.ceil(durationMs / (24 * 3600 * 1000)));
+    const baseDailyRatePaise = BigInt(vehicle.baseDailyRatePaise);
+    const baseFarePaise = baseDailyRatePaise * BigInt(days);
+    const taxPaise = (baseFarePaise * 18n) / 100n;
+    const securityDepositPaise = BigInt(vehicle.securityDepositPaise);
+    const totalPayablePaise = baseFarePaise + taxPaise + securityDepositPaise;
+    const includedKm = vehicle.includedKmPerDay * days;
+    const extraKmRatePaise = BigInt(vehicle.extraKmRatePaise);
+
+    return await this.db.$transaction(async tx => {
+      const count = await tx.rentalBooking.count();
+      const bookingNumber = `VMR-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+
+      const bookingStatus = input.immediateHandover
+        ? RentalBookingStatus.TRIP_ACTIVE
+        : RentalBookingStatus.CONFIRMED;
+
+      const booking = await tx.rentalBooking.create({
+        data: {
+          bookingNumber,
+          customerId: customer.id,
+          vehicleId: vehicle.id,
+          pickupHubId: vehicle.hubId,
+          returnHubId: vehicle.hubId,
+          startTime: input.startTime,
+          endTime: input.endTime,
+          status: bookingStatus,
+          kycStatus: RentalDriverKycStatus.VERIFIED,
+          pricingSnapshot: {
+            days,
+            baseFarePaise: baseFarePaise.toString(),
+            taxPaise: taxPaise.toString(),
+            securityDepositPaise: securityDepositPaise.toString(),
+            totalPayablePaise: totalPayablePaise.toString(),
+            includedKm,
+            extraKmRatePaise: extraKmRatePaise.toString(),
+            source: 'OFFLINE_HUB_WALKIN',
+          },
+          baseFarePaise,
+          taxPaise,
+          securityDepositPaise,
+          totalPayablePaise,
+          includedKm,
+          extraKmRatePaise,
+          customerNotes: input.notes ? `[Offline Hub Walk-in] ${input.notes}` : '[Offline Hub Walk-in]',
+        },
+      });
+
+      // Agreement record
+      await tx.rentalAgreementAcceptance.create({
+        data: {
+          bookingId: booking.id,
+          customerId: customer.id,
+          termsVersion: 'VMR-HUB-OFFLINE-V2026.1',
+          ipAddress: 'HUB-OFFLINE-TERMINAL',
+          userAgent: 'Operations Portal Staff Walk-In',
+        },
+      });
+
+      // Driver KYC Verification Record (Verified by staff in person)
+      await tx.rentalDriverVerification.create({
+        data: {
+          bookingId: booking.id,
+          customerId: customer.id,
+          licenseNumber: input.licenseNumber.toUpperCase().trim(),
+          licenseExpiry: input.licenseExpiry,
+          licenseCategory: 'LMV',
+          dateOfBirth: new Date('1990-01-01'),
+          drivingExperienceYears: input.drivingExperienceYears || 3,
+          licenseFrontUrl: input.licenseFrontUrl,
+          licenseBackUrl: input.licenseBackUrl,
+          status: RentalDriverKycStatus.VERIFIED,
+          verifiedById: employeeId,
+          verifiedAt: new Date(),
+        },
+      });
+
+      // Counter Payment Record
+      await tx.rentalPaymentRecord.create({
+        data: {
+          bookingId: booking.id,
+          type: RentalPaymentType.RENTAL_PREPAYMENT,
+          amountPaise: totalPayablePaise,
+          status: RentalPaymentStatus.VERIFIED,
+          paymentGateway: input.paymentMethod || 'OFFLINE_COUNTER',
+          gatewayPaymentId: input.transactionReference || `OFFLINE-COUNTER-${Date.now()}`,
+          verifiedAt: new Date(),
+        },
+      });
+
+      // If immediate handover, release keys and set trip active!
+      if (input.immediateHandover) {
+        await tx.rentalTrip.upsert({
+          where: { bookingId: booking.id },
+          create: {
+            bookingId: booking.id,
+            pickupTime: new Date(),
+            pickupOdometerKm: input.startOdometerKm ?? vehicle.odometerKm,
+            pickupFuelPercent: input.fuelPercent ?? 100,
+            pickupStaffId: employeeId,
+            pickupCustomerSigned: true,
+            pickupNotes: input.notes || 'Verified on-road rental at hub counter - keys handed over.',
+          },
+          update: {
+            pickupTime: new Date(),
+            pickupOdometerKm: input.startOdometerKm ?? vehicle.odometerKm,
+            pickupFuelPercent: input.fuelPercent ?? 100,
+            pickupStaffId: employeeId,
+            pickupCustomerSigned: true,
+            pickupNotes: input.notes || 'Verified on-road rental at hub counter - keys handed over.',
+          },
+        });
+
+        await tx.rentalFleetVehicle.update({
+          where: { id: vehicle.id },
+          data: {
+            status: RentalVehicleStatus.ON_TRIP,
+            odometerKm: input.startOdometerKm ?? vehicle.odometerKm,
+            fuelLevelPercent: input.fuelPercent ?? 100,
+          },
+        });
+      }
+
+      await tx.rentalAuditEvent.create({
+        data: {
+          bookingId: booking.id,
+          vehicleId: vehicle.id,
+          eventType: 'RENTAL_OFFLINE_WALKIN_BOOKED',
+          actorId: employeeId,
+          metadata: {
+            bookingNumber,
+            customerName: input.customerName,
+            immediateHandover: Boolean(input.immediateHandover),
+            totalPayablePaise: totalPayablePaise.toString(),
+          },
+        },
+      });
+
+      return await tx.rentalBooking.findUnique({
+        where: { id: booking.id },
+        include: {
+          customer: { select: { id: true, displayName: true, email: true, phone: true } },
+          vehicle: { include: { hub: true } },
+          driverVerification: true,
+          trip: true,
+          payments: true,
+        },
+      });
+    });
   }
 }

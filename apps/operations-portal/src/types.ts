@@ -494,6 +494,7 @@ export type RentalFleetItem = {
   transmission: string;
   fuelType: string;
   color: string;
+  odometerKm?: number;
   images?: string[];
   features?: string[];
   commercialPermitNumber?: string | null;
