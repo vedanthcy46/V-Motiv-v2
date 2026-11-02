@@ -1343,12 +1343,14 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                     const outstanding = Number(b.outstandingBalancePaise || 0);
                     const verifiedPaid = Number(b.verifiedPaidPaise || 0);
                     const isOverdue = !!b.balanceDueAt && new Date(b.balanceDueAt).getTime() < Date.now() && outstanding > 0;
-                    const isPickupReady = b.pickupReadiness ? b.pickupReadiness.isReady : (
-                      (b.status === 'CONFIRMED' || b.status === 'TRIP_ACTIVE' || b.status === 'RETURN_INSPECTED' || b.status === 'SETTLED') &&
-                      outstanding === 0 &&
-                      b.kycStatus === 'VERIFIED'
-                    );
-                    const reasons = b.pickupReadiness?.reasons || [];
+                    const isPickupReady = b.pickupReadiness
+                      ? ((b.pickupReadiness as any).isReady ?? (b.pickupReadiness as any).eligible ?? false)
+                      : (
+                        (b.status === 'CONFIRMED' || b.status === 'TRIP_ACTIVE' || b.status === 'RETURN_INSPECTED' || b.status === 'SETTLED') &&
+                        outstanding === 0 &&
+                        b.kycStatus === 'VERIFIED'
+                      );
+                    const reasons: string[] = b.pickupReadiness?.reasons || (b.pickupReadiness as any)?.blockers || [];
 
                     return (
                       <tr key={b.id}>
@@ -3024,65 +3026,70 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                   {/* AUTHORITATIVE PICKUP READINESS GATE CHECKLIST */}
                   {(() => {
-                    const readiness = activePaymentSummary?.pickupReadiness || activeBooking.pickupReadiness || {
-                      isReady: (Number(activeBooking.outstandingBalancePaise || 0) === 0 && activeBooking.kycStatus === 'VERIFIED'),
-                      reasons: [
-                        ...(Number(activeBooking.outstandingBalancePaise || 0) > 0 ? [`Rental balance of ${formatRupees(activeBooking.outstandingBalancePaise)} is unpaid`] : []),
-                        ...(activeBooking.kycStatus !== 'VERIFIED' ? ['Primary driver KYC is unverified'] : []),
-                      ],
-                      checklist: {
-                        bookingConfirmed: activeBooking.status !== 'CANCELLED',
-                        rentalPaymentComplete: Number(activeBooking.outstandingBalancePaise || 0) === 0,
-                        driverEligible: activeBooking.kycStatus === 'VERIFIED',
-                        vehicleReady: true,
-                      },
+                    const rawReadiness = (activePaymentSummary?.pickupReadiness || activeBooking.pickupReadiness) as any;
+                    const defaultReasons: string[] = [
+                      ...(Number(activeBooking.outstandingBalancePaise || 0) > 0 ? [`Rental balance of ${formatRupees(activeBooking.outstandingBalancePaise)} is unpaid`] : []),
+                      ...(activeBooking.kycStatus !== 'VERIFIED' ? ['Primary driver KYC is unverified'] : []),
+                    ];
+
+                    const isReady: boolean = rawReadiness
+                      ? (rawReadiness.isReady ?? rawReadiness.eligible ?? false)
+                      : (Number(activeBooking.outstandingBalancePaise || 0) === 0 && activeBooking.kycStatus === 'VERIFIED');
+
+                    const reasons: string[] = (rawReadiness?.reasons || rawReadiness?.blockers || defaultReasons) as string[];
+
+                    const checklist = rawReadiness?.checklist || {
+                      bookingConfirmed: activeBooking.status !== 'CANCELLED',
+                      rentalPaymentComplete: Number(activeBooking.outstandingBalancePaise || 0) === 0,
+                      driverEligible: activeBooking.kycStatus === 'VERIFIED',
+                      vehicleReady: true,
                     };
 
                     return (
                       <div
                         style={{
-                          background: readiness.isReady ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-                          border: `1px solid ${readiness.isReady ? '#10b981' : '#ef4444'}`,
+                          background: isReady ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
+                          border: `1px solid ${isReady ? '#10b981' : '#ef4444'}`,
                           borderRadius: '8px',
                           padding: '1rem',
                           marginBottom: '1.25rem',
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '6px' }}>
-                          <span style={{ fontWeight: 800, fontSize: '0.875rem', color: readiness.isReady ? '#10b981' : '#ef4444' }}>
+                          <span style={{ fontWeight: 800, fontSize: '0.875rem', color: isReady ? '#10b981' : '#ef4444' }}>
                             🛡️ AUTHORITATIVE PICKUP READINESS GATE
                           </span>
-                          <span className={`badge ${readiness.isReady ? 'badge-success' : 'badge-danger'}`} style={{ fontWeight: 800 }}>
-                            {readiness.isReady ? '✓ APPROVED FOR HANDOVER' : '⊘ HANDOVER BLOCKED'}
+                          <span className={`badge ${isReady ? 'badge-success' : 'badge-danger'}`} style={{ fontWeight: 800 }}>
+                            {isReady ? '✓ APPROVED FOR HANDOVER' : '⊘ HANDOVER BLOCKED'}
                           </span>
                         </div>
 
-                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginBottom: readiness.reasons.length > 0 ? '0.75rem' : '0' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginBottom: reasons.length > 0 ? '0.75rem' : '0' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
-                            <span>{readiness.checklist.bookingConfirmed ? '✅' : '❌'}</span>
-                            <span style={{ color: readiness.checklist.bookingConfirmed ? 'var(--text)' : '#ef4444' }}>Booking Confirmed</span>
+                            <span>{checklist.bookingConfirmed ? '✅' : '❌'}</span>
+                            <span style={{ color: checklist.bookingConfirmed ? 'var(--text)' : '#ef4444' }}>Booking Confirmed</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
-                            <span>{readiness.checklist.rentalPaymentComplete ? '✅' : '❌'}</span>
-                            <span style={{ color: readiness.checklist.rentalPaymentComplete ? 'var(--text)' : '#ef4444' }}>Rental Charges Paid in Full</span>
+                            <span>{checklist.rentalPaymentComplete ? '✅' : '❌'}</span>
+                            <span style={{ color: checklist.rentalPaymentComplete ? 'var(--text)' : '#ef4444' }}>Rental Charges Paid in Full</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
-                            <span>{readiness.checklist.driverEligible ? '✅' : '❌'}</span>
-                            <span style={{ color: readiness.checklist.driverEligible ? 'var(--text)' : '#ef4444' }}>Driver KYC Approved</span>
+                            <span>{checklist.driverEligible ? '✅' : '❌'}</span>
+                            <span style={{ color: checklist.driverEligible ? 'var(--text)' : '#ef4444' }}>Driver KYC Approved</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
-                            <span>{readiness.checklist.vehicleReady ? '✅' : '❌'}</span>
-                            <span style={{ color: readiness.checklist.vehicleReady ? 'var(--text)' : '#ef4444' }}>Vehicle Prepared & Assigned</span>
+                            <span>{checklist.vehicleReady ? '✅' : '❌'}</span>
+                            <span style={{ color: checklist.vehicleReady ? 'var(--text)' : '#ef4444' }}>Vehicle Prepared & Assigned</span>
                           </div>
                         </div>
 
-                        {!readiness.isReady && readiness.reasons.length > 0 && (
+                        {!isReady && reasons.length > 0 && (
                           <div style={{ background: 'var(--surface)', padding: '0.6rem 0.8rem', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
                             <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>
                               Handover Blocking Reasons:
                             </span>
                             <ul style={{ margin: '0', paddingLeft: '1.2rem', fontSize: '0.78rem', color: 'var(--text)' }}>
-                              {readiness.reasons.map((r, i) => (
+                              {reasons.map((r, i) => (
                                 <li key={i}>{r}</li>
                               ))}
                             </ul>

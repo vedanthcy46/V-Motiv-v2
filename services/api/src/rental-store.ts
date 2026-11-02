@@ -2663,9 +2663,26 @@ export class PrismaRentalStore {
 
     const eligible = blockers.length === 0;
 
+    const reasons = blockers.map(b => {
+      switch (b) {
+        case 'RENTAL_BALANCE_PENDING':
+          return 'Rental charges balance is unpaid. Full payment required prior to handover.';
+        case 'BOOKING_NOT_CONFIRMED':
+          return 'Booking is not confirmed.';
+        case 'KYC_NOT_VERIFIED':
+          return 'Primary driver KYC identity is not verified.';
+        case 'VEHICLE_NOT_READY':
+          return 'Vehicle is not in available or assigned state.';
+        default:
+          return b;
+      }
+    });
+
     return {
       eligible,
+      isReady: eligible,
       blockers,
+      reasons,
       checklist,
     };
   }

@@ -79,6 +79,10 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const [walkInImmediateIntake, setWalkInImmediateIntake] = useState(true);
   const [walkInIntakeNotes, setWalkInIntakeNotes] = useState('');
   const [walkInIntakeFuel, setWalkInIntakeFuel] = useState<number>(50);
+  const [walkInCollectPayment, setWalkInCollectPayment] = useState(false);
+  const [walkInAdvancePayment, setWalkInAdvancePayment] = useState<number>(0);
+  const [walkInPaymentMethod, setWalkInPaymentMethod] = useState<'UPI' | 'POS_CARD' | 'CASH' | 'BANK_TRANSFER'>('UPI');
+  const [walkInTxRef, setWalkInTxRef] = useState('');
 
   // Action form states
   const [actionBusy, setActionBusy] = useState(false);
@@ -436,9 +440,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         intakeOdometerKm: Number(walkInOdometer) || undefined,
         intakeFuelPercent: Number(walkInIntakeFuel) || 50,
         intakeNotes: walkInIntakeNotes.trim() || undefined,
+        advancePaymentAmountRupees: walkInCollectPayment && walkInAdvancePayment > 0 ? Number(walkInAdvancePayment) : undefined,
+        paymentMethod: walkInCollectPayment && walkInAdvancePayment > 0 ? walkInPaymentMethod : undefined,
+        transactionReference: walkInCollectPayment && walkInAdvancePayment > 0 ? (walkInTxRef.trim() || `COUNTER-${Date.now()}`) : undefined,
       });
 
-      onSuccess(`Walk-in service job ${job.requestNumber} created successfully.`);
+      onSuccess(`Walk-in service job ${job.requestNumber} created successfully.${walkInCollectPayment && walkInAdvancePayment > 0 ? ` Advance of ₹${walkInAdvancePayment.toLocaleString('en-IN')} recorded.` : ''}`);
       setWalkInModalOpen(false);
 
       // Reset
@@ -450,6 +457,9 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
       setWalkInRegNumber('');
       setWalkInSymptoms('');
       setWalkInIntakeNotes('');
+      setWalkInCollectPayment(false);
+      setWalkInAdvancePayment(0);
+      setWalkInTxRef('');
       void loadQueue();
     } catch (err: any) {
       onError(err?.message || 'Failed to create walk-in service booking');
@@ -480,7 +490,10 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   }, [actionTab, activeBalanceDueRupees]);
 
   const isJobCancelled = activeJob?.status === 'CANCELLED';
-  const isJobConcluded = (activeJob?.status === 'COMPLETED' || activeJob?.status === 'DELIVERED') && activeBalanceDueRupees === 0;
+  const hasApprovedEstimate = !!activeJob?.estimates?.some(e => e.status === 'APPROVED');
+  const isJobConcluded = (activeJob?.status === 'COMPLETED' || activeJob?.status === 'DELIVERED') &&
+    hasApprovedEstimate &&
+    activeBalanceDueRupees === 0;
 
   const statusBadgeClass = (status: ServiceJobStatus) => {
     switch (status) {
@@ -689,26 +702,33 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
                       {job.fulfillmentType === 'DOORSTEP_PICKUP' ? '🚚 Pickup & Return' : '🏢 Hub Drop'}
                     </div>
-                    {(job.customerSymptoms || job.customerNotes) && (
-                      <div
-                        style={{
-                          fontSize: '0.72rem',
-                          color: 'var(--accent)',
-                          marginTop: '3px',
-                          maxWidth: '220px',
-                          overflow: 'hidden',
-                          textOverflow: 'ellipsis',
-                          whiteSpace: 'nowrap',
-                          background: 'rgba(247, 181, 3, 0.1)',
-                          padding: '2px 6px',
-                          borderRadius: '4px',
-                          border: '1px solid rgba(247, 181, 3, 0.25)',
-                        }}
-                        title={job.customerSymptoms || job.customerNotes || ''}
-                      >
-                        Req: <strong>{job.customerSymptoms || job.customerNotes}</strong>
-                      </div>
-                    )}
+                    {(() => {
+                      const qaReq = typeof job.questionAnswers === 'object' && job.questionAnswers !== null
+                        ? ((job.questionAnswers as any).requirements || (job.questionAnswers as any).symptoms)
+                        : undefined;
+                      const reqText = job.customerSymptoms || job.customerNotes || qaReq;
+                      if (!reqText) return null;
+                      return (
+                        <div
+                          style={{
+                            fontSize: '0.72rem',
+                            color: 'var(--accent)',
+                            marginTop: '3px',
+                            maxWidth: '220px',
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                            background: 'rgba(247, 181, 3, 0.1)',
+                            padding: '2px 6px',
+                            borderRadius: '4px',
+                            border: '1px solid rgba(247, 181, 3, 0.25)',
+                          }}
+                          title={String(reqText)}
+                        >
+                          Req: <strong>{String(reqText)}</strong>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td style={{ padding: '0.75rem 1rem' }}>
                     <div>{job.scheduledDate}</div>
@@ -834,13 +854,23 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 borderLeft: '4px solid #ec4899',
                 borderRadius: '6px',
               }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f472b6', fontWeight: 800, fontSize: '0.9rem' }}>
                     <span>💳</span> PAYMENT PENDING — ACTION REQUIRED
                   </div>
-                  <span className="badge badge-warning" style={{ fontWeight: 800 }}>
-                    Due: ₹{activeBalanceDueRupees.toLocaleString('en-IN')}
-                  </span>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span className="badge badge-warning" style={{ fontWeight: 800 }}>
+                      Due: ₹{activeBalanceDueRupees.toLocaleString('en-IN')}
+                    </span>
+                    <button
+                      type="button"
+                      className="btn-primary btn-sm button primary small"
+                      onClick={() => setActionTab('payment')}
+                      style={{ background: '#ec4899', borderColor: '#ec4899', color: '#fff', fontWeight: 700, padding: '0.3rem 0.75rem' }}
+                    >
+                      👉 Collect / Record Payment
+                    </button>
+                  </div>
                 </div>
                 <p style={{ margin: '4px 0 0', fontSize: '0.825rem', color: '#fbcfe8' }}>
                   Customer payment must be collected at the counter or verified before concluding final settlement. Use Tab 6 (Billing & Payment) to record.
@@ -1050,6 +1080,66 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     </div>
                   </div>
 
+                  {/* 5. TRANSACTION RECORDS & PAYMENT HISTORY */}
+                  <div style={{ marginBottom: '1.25rem', padding: '1rem', background: 'var(--surface-secondary)', borderRadius: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '8px' }}>
+                      <strong style={{ fontSize: '0.875rem', textTransform: 'uppercase', color: 'var(--accent)' }}>
+                        Transaction Records & Payment History ({(activeJob.payments || []).length})
+                      </strong>
+                      <button
+                        type="button"
+                        className="btn-primary btn-sm button primary small"
+                        onClick={() => setActionTab('payment')}
+                        style={{ fontSize: '0.75rem', padding: '0.35rem 0.75rem', fontWeight: 700 }}
+                      >
+                        + Record / Settle Payment
+                      </button>
+                    </div>
+
+                    {!(activeJob.payments && activeJob.payments.length > 0) ? (
+                      <div style={{ padding: '1rem', textAlign: 'center', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '4px', color: 'var(--muted)', fontSize: '0.8125rem' }}>
+                        No payment transactions recorded for this service request yet.
+                      </div>
+                    ) : (
+                      <div style={{ background: 'var(--surface)', borderRadius: '6px', overflow: 'hidden' }}>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+                          <thead>
+                            <tr style={{ background: 'rgba(255, 255, 255, 0.04)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                              <th style={{ padding: '0.5rem 0.75rem' }}>DATE</th>
+                              <th style={{ padding: '0.5rem 0.75rem' }}>TYPE</th>
+                              <th style={{ padding: '0.5rem 0.75rem' }}>AMOUNT</th>
+                              <th style={{ padding: '0.5rem 0.75rem' }}>METHOD</th>
+                              <th style={{ padding: '0.5rem 0.75rem' }}>TXN REF / ID</th>
+                              <th style={{ padding: '0.5rem 0.75rem' }}>STATUS</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {activeJob.payments.map((p, idx) => (
+                              <tr key={p.id || idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                                <td style={{ padding: '0.5rem 0.75rem' }}>{formatDate(p.createdAt)}</td>
+                                <td style={{ padding: '0.5rem 0.75rem' }}><span className="code-pill">{p.type}</span></td>
+                                <td style={{ padding: '0.5rem 0.75rem', fontWeight: 800, color: 'var(--text)' }}>
+                                  ₹{Math.round(Number(p.amountPaise) / 100).toLocaleString('en-IN')}
+                                </td>
+                                <td style={{ padding: '0.5rem 0.75rem' }}>{p.paymentGateway || 'COUNTER'}</td>
+                                <td style={{ padding: '0.5rem 0.75rem' }}>
+                                  <span style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                    {p.gatewayPaymentId || p.gatewayOrderId || '—'}
+                                  </span>
+                                </td>
+                                <td style={{ padding: '0.5rem 0.75rem' }}>
+                                  <span className={`badge ${p.status === 'PAID_VERIFIED' ? 'badge-success' : p.status === 'FAILED' ? 'badge-danger' : 'badge-warning'}`}>
+                                    {p.status}
+                                  </span>
+                                </td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </div>
+
                   {/* Cancel Job Action */}
                   {!isJobCancelled && !isJobConcluded && (
                     <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
@@ -1251,7 +1341,36 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
                     <h4 style={{ margin: 0, color: '#ef4444' }}>Estimate Creation Locked — Job Cancelled</h4>
                   </div>
-                ) : activeJob.estimates?.[0] ? (
+                ) : (
+                  <div>
+                    {/* CUSTOMER REQUIREMENTS & REPORTED COMPLAINTS (SHOWN BEFORE/DURING ESTIMATE) */}
+                    <div style={{
+                      background: 'rgba(247, 181, 3, 0.08)',
+                      border: '1px solid rgba(247, 181, 3, 0.35)',
+                      borderLeft: '4px solid var(--accent)',
+                      padding: '0.85rem 1rem',
+                      borderRadius: '8px',
+                      marginBottom: '1.25rem',
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.35rem' }}>
+                        <span style={{ fontSize: '0.78rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent)' }}>
+                          Customer Requirements & Reported Complaints
+                        </span>
+                        <span className="badge badge-info" style={{ fontWeight: 700, textTransform: 'uppercase', fontSize: '0.7rem' }}>
+                          {activeJob.categoryKey?.replace(/-/g, ' ')}
+                        </span>
+                      </div>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 600, color: 'var(--text)' }}>
+                        {activeJob.customerSymptoms || activeJob.customerNotes || (activeJob.questionAnswers as any)?.requirements || (activeJob.questionAnswers as any)?.symptoms || 'Walk-in service customer intake.'}
+                      </div>
+                      {activeJob.emergencySafetyFlag && (
+                        <div style={{ marginTop: '0.4rem', color: '#ef4444', fontSize: '0.8rem', fontWeight: 700 }}>
+                          ⚠️ Critical Safety Warning: {activeJob.safetyNotes || 'Emergency safety flag reported.'}
+                        </div>
+                      )}
+                    </div>
+
+                    {activeJob.estimates?.[0] ? (
                   <div style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                       <div>
@@ -1396,8 +1515,10 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       </button>
                     </div>
                   </form>
-                )
-              )}
+                )}
+                    </div>
+                  )
+                )}
 
               {/* TAB 5: QUALITY CONTROL */}
               {actionTab === 'qc' && (
@@ -1549,7 +1670,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     </div>
 
                     {/* RECORD NEW PAYMENT FORM */}
-                    {activeBalanceDueRupees > 0 || !(activeJob.payments && activeJob.payments.length > 0) ? (
+                    {!isJobConcluded ? (
                       <form onSubmit={handlePaymentSubmit} style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px solid rgba(247, 181, 3, 0.25)' }}>
                         <h4 style={{ margin: '0 0 0.5rem', color: 'var(--accent)' }}>Record Payment Transaction</h4>
                         <p style={{ fontSize: '0.875rem', color: 'var(--muted)', margin: '0 0 1rem' }}>
@@ -1644,9 +1765,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     </p>
 
                     {(() => {
-                      const hasEstimates = activeJob.estimates && activeJob.estimates.length > 0;
                       const hasApprovedEstimate = activeJob.estimates?.some(e => e.status === 'APPROVED');
-                      const isEstimatePending = hasEstimates && !hasApprovedEstimate;
+                      const isEstimatePending = !hasApprovedEstimate;
                       const isBalancePending = activeBalanceDueRupees > 0;
                       const isBlocked = isEstimatePending || isBalancePending;
 
@@ -1659,7 +1779,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                               </div>
                               <div style={{ fontSize: '0.825rem', marginTop: '4px', color: 'var(--text)' }}>
                                 {isEstimatePending
-                                  ? 'Customer has not yet approved the service estimate. Customer approval is required before vehicle release.'
+                                  ? 'Customer has not yet approved the service estimate. An approved service estimate is required before vehicle release.'
                                   : `Outstanding balance of ₹${activeBalanceDueRupees.toLocaleString('en-IN')} must be collected and verified in Tab 6 (Billing & Ledger) prior to vehicle departure.`}
                               </div>
                             </div>
@@ -1978,6 +2098,64 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           placeholder="e.g. Scratches on left fender, spare tire and jack present"
                           value={walkInIntakeNotes}
                           onChange={e => setWalkInIntakeNotes(e.target.value)}
+                          style={{ width: '100%', marginTop: '3px' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+                {/* 6. COUNTER ADVANCE PAYMENT / DEPOSIT (OPTIONAL - SAME AS WALK-IN RENTAL) */}
+                <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 700 }}>
+                    <input
+                      type="checkbox"
+                      checked={walkInCollectPayment}
+                      onChange={e => setWalkInCollectPayment(e.target.checked)}
+                    />
+                    <span style={{ color: 'var(--accent)' }}>💳 Collect Counter Advance Payment / Deposit Now</span>
+                  </label>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)', display: 'block', marginLeft: '24px', marginTop: '2px' }}>
+                    Record upfront walk-in deposit or booking charge collected via UPI QR, card POS machine, or cash at workshop desk.
+                  </span>
+
+                  {walkInCollectPayment && (
+                    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)', display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '1rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Deposit Amount (₹) *</label>
+                        <input
+                          type="number"
+                          className="input"
+                          min={1}
+                          required={walkInCollectPayment}
+                          placeholder="e.g. 1000"
+                          value={walkInAdvancePayment || ''}
+                          onChange={e => setWalkInAdvancePayment(Number(e.target.value))}
+                          style={{ width: '100%', marginTop: '3px' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Payment Method *</label>
+                        <select
+                          className="select"
+                          value={walkInPaymentMethod}
+                          onChange={e => setWalkInPaymentMethod(e.target.value as any)}
+                          style={{ width: '100%', marginTop: '3px' }}
+                        >
+                          <option value="UPI">UPI / QR Code</option>
+                          <option value="POS_CARD">Card Terminal (POS)</option>
+                          <option value="CASH">Cash Counter</option>
+                          <option value="BANK_TRANSFER">Bank Transfer / IMPS</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Reference / Txn ID</label>
+                        <input
+                          type="text"
+                          className="input"
+                          placeholder="e.g. UPI-9846-928"
+                          value={walkInTxRef}
+                          onChange={e => setWalkInTxRef(e.target.value)}
                           style={{ width: '100%', marginTop: '3px' }}
                         />
                       </div>

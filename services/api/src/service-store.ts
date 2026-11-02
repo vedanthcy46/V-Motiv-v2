@@ -24,6 +24,27 @@ import { HttpError } from './errors.js';
 import type { Identity } from './auth.js';
 import type { NotificationService } from './notification/index.js';
 
+export function safeParseJson<T = any>(val: any, fallback: T): T {
+  if (val === null || val === undefined) return fallback;
+  if (typeof val === 'object') return val as T;
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      if (typeof parsed === 'string') {
+        try {
+          return JSON.parse(parsed) as T;
+        } catch {
+          return parsed as unknown as T;
+        }
+      }
+      return parsed as T;
+    } catch {
+      return fallback;
+    }
+  }
+  return fallback;
+}
+
 export interface CreateVehicleInput {
   make: string;
   model: string;
@@ -1278,12 +1299,12 @@ export class PrismaServiceStore {
       status: r.status,
       fulfillmentType: r.fulfillmentType,
       customerSymptoms: r.customerSymptoms,
-      questionAnswers: JSON.parse(r.questionAnswers as string),
-      mediaUrls: r.mediaUrls ? JSON.parse(r.mediaUrls as string) : [],
+      questionAnswers: safeParseJson(r.questionAnswers, {}),
+      mediaUrls: safeParseJson(r.mediaUrls, []),
       scheduledDate: r.scheduledDate,
       scheduledTimeSlot: r.scheduledTimeSlot,
-      pickupAddress: r.pickupAddress ? JSON.parse(r.pickupAddress as string) : null,
-      returnAddress: r.returnAddress ? JSON.parse(r.returnAddress as string) : null,
+      pickupAddress: safeParseJson(r.pickupAddress, null),
+      returnAddress: safeParseJson(r.returnAddress, null),
       emergencySafetyFlag: r.emergencySafetyFlag,
       safetyNotes: r.safetyNotes,
       estimatedCompletionDate: r.estimatedCompletionDate?.toISOString() || null,
@@ -1561,6 +1582,9 @@ export class PrismaServiceStore {
       intakeOdometerKm?: number;
       intakeFuelPercent?: number;
       intakeNotes?: string;
+      advancePaymentAmountRupees?: number;
+      paymentMethod?: string;
+      transactionReference?: string;
     }
   ) {
     const hub = await this.db.serviceHub.findUnique({ where: { id: input.hubId } });
@@ -1676,7 +1700,36 @@ export class PrismaServiceStore {
         });
       }
 
-      // 6. History Event
+      // 6. Optional Walk-In Counter Advance Payment / Deposit
+      if (input.advancePaymentAmountRupees && input.advancePaymentAmountRupees > 0) {
+        const amountPaise = BigInt(Math.round(input.advancePaymentAmountRupees * 100));
+        await tx.servicePaymentRecord.create({
+          data: {
+            serviceRequestId: sr.id,
+            amountPaise,
+            type: 'ADVANCE' as any,
+            status: ServicePaymentStatus.PAID_VERIFIED,
+            paymentGateway: input.paymentMethod || 'COUNTER',
+            gatewayPaymentId: input.transactionReference?.trim() || `WALKIN-${Date.now()}`,
+            verifiedByFinanceId: actorId,
+            verifiedAt: new Date(),
+          },
+        });
+
+        await tx.serviceHistoryEvent.create({
+          data: {
+            serviceRequestId: sr.id,
+            fromStatus: initialStatus,
+            toStatus: initialStatus,
+            title: 'Walk-In Advance Payment Collected',
+            description: `Counter payment of ₹${input.advancePaymentAmountRupees.toLocaleString('en-IN')} collected via ${input.paymentMethod || 'COUNTER'} (Ref: ${input.transactionReference || 'WALKIN'}).`,
+            actorRole: 'SERVICE_ADVISOR',
+            actorId,
+          },
+        });
+      }
+
+      // 7. History Event
       await tx.serviceHistoryEvent.create({
         data: {
           serviceRequestId: sr.id,
@@ -1685,7 +1738,7 @@ export class PrismaServiceStore {
           title: 'Walk-In Service Booking Registered',
           description: `Offline customer ${input.customerName} registered at ${hub.name} workshop desk.${
             input.immediateIntake ? ' Immediate vehicle intake inspection recorded.' : ''
-          }`,
+          }${input.advancePaymentAmountRupees && input.advancePaymentAmountRupees > 0 ? ` Advance of ₹${input.advancePaymentAmountRupees.toLocaleString('en-IN')} collected.` : ''}`,
           actorRole: 'SERVICE_ADVISOR',
           actorId,
         },
@@ -1897,7 +1950,6 @@ export class PrismaServiceStore {
         requestNumber: r.requestNumber,
         categoryKey: r.categoryKey,
         customerSymptoms: r.customerSymptoms,
-        customerNotes: r.customerNotes,
         status: r.status,
         fulfillmentType: r.fulfillmentType,
         scheduledDate: r.scheduledDate,
@@ -1910,6 +1962,8 @@ export class PrismaServiceStore {
         assignedAdvisorId: r.assignedAdvisorId,
         assignedTechnicianId: r.assignedTechnicianId,
         assignedPickupDriverId: r.assignedPickupDriverId,
+        questionAnswers: safeParseJson(r.questionAnswers, {}),
+        mediaUrls: safeParseJson(r.mediaUrls, []),
         activeEstimate: r.estimates[0]
           ? {
               id: r.estimates[0].id,
@@ -1961,10 +2015,10 @@ export class PrismaServiceStore {
 
     return {
       ...r,
-      questionAnswers: JSON.parse(r.questionAnswers as string),
-      mediaUrls: r.mediaUrls ? JSON.parse(r.mediaUrls as string) : [],
-      pickupAddress: r.pickupAddress ? JSON.parse(r.pickupAddress as string) : null,
-      returnAddress: r.returnAddress ? JSON.parse(r.returnAddress as string) : null,
+      questionAnswers: safeParseJson(r.questionAnswers, {}),
+      mediaUrls: safeParseJson(r.mediaUrls, []),
+      pickupAddress: safeParseJson(r.pickupAddress, null),
+      returnAddress: safeParseJson(r.returnAddress, null),
       estimates: r.estimates.map(e => ({
         ...e,
         subtotalPaise: e.subtotalPaise.toString(),
@@ -2487,21 +2541,21 @@ export class PrismaServiceStore {
         orderBy: { version: 'desc' },
       });
 
-      // Strict Gate 1: If an estimate was issued, it MUST be approved by the customer before vehicle release
-      if (latestEstimate && !approvedEstimate) {
+      // Strict Gate 1: An estimate MUST be created and approved by the customer before vehicle release
+      if (!approvedEstimate) {
         throw new HttpError(400, 'ESTIMATE_NOT_APPROVED: Vehicle cannot be handed over before customer approves the service estimate.');
       }
 
-      // Strict Gate 2: Customer payment must be verified (PAID_VERIFIED only, not PENDING)
+      // Strict Gate 2: Customer payment must be verified in full (PAID_VERIFIED only, not PENDING)
       const verifiedPayments = await tx.servicePaymentRecord.findMany({
         where: { serviceRequestId: sr.id, status: ServicePaymentStatus.PAID_VERIFIED },
       });
       const totalPaid = verifiedPayments.reduce((acc, p) => acc + p.amountPaise, 0n);
-      const isPaid = approvedEstimate ? totalPaid >= approvedEstimate.totalAmountPaise : totalPaid > 0n;
+      const isPaid = totalPaid >= approvedEstimate.totalAmountPaise;
 
-      // For in-hub customer pickup, balance must be paid in full prior to release
-      if (sr.fulfillmentType === ServiceFulfillmentType.SELF_DROP_AT_HUB && approvedEstimate && !isPaid) {
-        const balRupees = Math.round(Number(approvedEstimate.totalAmountPaise - totalPaid) / 100);
+      // Balance must be paid in full prior to release
+      if (!isPaid) {
+        const balRupees = Math.max(0, Math.round(Number(approvedEstimate.totalAmountPaise - totalPaid) / 100));
         throw new HttpError(403, `SERVICE_BALANCE_PENDING_CANNOT_HANDOVER_VEHICLE: Outstanding balance of ₹${balRupees.toLocaleString('en-IN')} must be collected and verified before vehicle release.`);
       }
 

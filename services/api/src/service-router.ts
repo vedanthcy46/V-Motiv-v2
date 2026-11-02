@@ -175,6 +175,9 @@ const walkInServiceSchema = z.object({
   intakeOdometerKm: z.coerce.number().int().min(0).max(2_000_000).optional(),
   intakeFuelPercent: z.coerce.number().int().min(0).max(100).optional(),
   intakeNotes: z.string().trim().max(1000).optional(),
+  advancePaymentAmountRupees: z.coerce.number().min(0).max(10_000_000).optional(),
+  paymentMethod: z.string().trim().max(50).optional(),
+  transactionReference: z.string().trim().max(100).optional(),
 }).strict();
 
 const paymentVerifySchema = z.object({

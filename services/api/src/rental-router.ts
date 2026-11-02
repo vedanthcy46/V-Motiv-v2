@@ -658,8 +658,8 @@ export function createRentalOperationsRouter(deps: {
     }
   });
 
-  // Payment Dashboard summary widgets for operations
-  router.get('/payment-dashboard', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
+  // Payment Dashboard summary widgets for operations (support both /dashboard/payments and /payment-dashboard)
+  router.get(['/dashboard/payments', '/payment-dashboard'], requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
     try {
       const branchId = typeof req.query.branchId === 'string' ? req.query.branchId : undefined;
       const dashboard = await deps.store.getOperationsPaymentDashboard(branchId);
