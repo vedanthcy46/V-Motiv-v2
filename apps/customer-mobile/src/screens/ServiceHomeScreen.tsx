@@ -178,7 +178,10 @@ export function ServiceHomeScreen() {
   const loadData = useCallback(async () => {
     try {
       const [vList, cList, hList] = await Promise.all([
-        fetchCustomerVehicles(),
+        fetchCustomerVehicles().catch(err => {
+          console.warn('[SERVICE_HOME_VEHICLES_WARN]', err?.message || err);
+          return [];
+        }),
         fetchServiceCategories(),
         fetchServiceHubs(),
       ]);

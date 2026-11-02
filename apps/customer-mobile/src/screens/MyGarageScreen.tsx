@@ -177,7 +177,12 @@ export function MyGarageScreen() {
       void loadConnectDataForVehicles(list);
     } catch (err: any) {
       console.warn('[GARAGE_FETCH_ERROR]', err?.message || err);
-      setLoadError('We could not refresh your Garage. Your saved cars have not been removed. Please retry in a moment.');
+      if (err?.code === 'USER_NOT_FOUND' || err?.message === 'USER_NOT_FOUND' || err?.code === 'RESOURCE_NOT_FOUND') {
+        setVehicles([]);
+        setLoadError(null);
+      } else {
+        setLoadError('We could not refresh your Garage. Your saved cars have not been removed. Please retry in a moment.');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);

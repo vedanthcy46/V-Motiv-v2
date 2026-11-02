@@ -231,7 +231,7 @@ export function createServiceCustomerRouter(deps: {
     try {
       const identity = res.locals.identity as Identity;
       const input = parse(vehicleCreateSchema, req.body);
-      const vehicle = await deps.store.createCustomerVehicle(identity.uid, input);
+      const vehicle = await deps.store.createCustomerVehicle(identity.uid, input, identity);
       res.status(201).json(vehicle);
     } catch (e) {
       next(e);

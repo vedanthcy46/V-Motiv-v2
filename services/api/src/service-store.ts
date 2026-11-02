@@ -21,6 +21,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { HttpError } from './errors.js';
+import type { Identity } from './auth.js';
 import type { NotificationService } from './notification/index.js';
 
 export interface CreateVehicleInput {
@@ -619,6 +620,8 @@ function formatCustomerVehicleRecord(v: any, activeServiceRequest?: any) {
 }
 
 export class PrismaServiceStore {
+  private seedPromise: Promise<void> | null = null;
+  private isSeeded = false;
   constructor(
     private readonly db: PrismaClient,
     private readonly notifications?: NotificationService
@@ -628,75 +631,106 @@ export class PrismaServiceStore {
   // SEED & METADATA
   // -------------------------------------------------------------
   async ensureSeedData(): Promise<void> {
-    // 1. Seed Templates
-    for (const cat of DEFAULT_SERVICE_CATEGORIES) {
-      await this.db.serviceIssueTemplate.upsert({
-        where: { categoryKey: cat.categoryKey },
-        update: {
-          title: cat.title,
-          description: cat.description,
-          icon: cat.icon,
-          fixedPackageAvailable: cat.fixedPackageAvailable,
-          packagePricePaise: cat.packagePricePaise ?? null,
-          packageFeatures: cat.packageFeatures ? JSON.stringify(cat.packageFeatures) : Prisma.JsonNull,
-          questionsJson: JSON.stringify(cat.questions),
-          isActive: true,
-        },
-        create: {
-          categoryKey: cat.categoryKey,
-          version: 1,
-          title: cat.title,
-          description: cat.description,
-          icon: cat.icon,
-          fixedPackageAvailable: cat.fixedPackageAvailable,
-          packagePricePaise: cat.packagePricePaise ?? null,
-          packageFeatures: cat.packageFeatures ? JSON.stringify(cat.packageFeatures) : Prisma.JsonNull,
-          questionsJson: JSON.stringify(cat.questions),
-          isActive: true,
-        },
-      });
-    }
+    if (this.isSeeded) return;
+    if (this.seedPromise) return this.seedPromise;
 
-    // 2. Seed Hubs
-    for (const hub of DEFAULT_SERVICE_HUBS) {
-      const existingBranch = await this.db.branch.findFirst({
-        where: { city: { equals: hub.city, mode: 'insensitive' } },
-      });
-      await this.db.serviceHub.upsert({
-        where: { code: hub.code },
-        update: {
-          name: hub.name,
-          city: hub.city,
-          address: hub.address,
-          latitude: hub.latitude,
-          longitude: hub.longitude,
-          operatingHours: hub.operatingHours,
-          phone: hub.phone,
-          capacityPerSlot: hub.capacityPerSlot,
-          pickupRadiusKm: hub.pickupRadiusKm,
-          pickupFeePaise: hub.pickupFeePaise,
-          diagnosticFeePaise: hub.diagnosticFeePaise,
-          branchId: existingBranch?.id ?? null,
-          isActive: true,
-        },
-        create: {
-          code: hub.code,
-          name: hub.name,
-          city: hub.city,
-          address: hub.address,
-          latitude: hub.latitude,
-          longitude: hub.longitude,
-          operatingHours: hub.operatingHours,
-          phone: hub.phone,
-          capacityPerSlot: hub.capacityPerSlot,
-          pickupRadiusKm: hub.pickupRadiusKm,
-          pickupFeePaise: hub.pickupFeePaise,
-          diagnosticFeePaise: hub.diagnosticFeePaise,
-          branchId: existingBranch?.id ?? null,
-          isActive: true,
-        },
-      });
-    }
+    this.seedPromise = (async () => {
+      try {
+        const [templateCount, hubCount] = await Promise.all([
+          this.db.serviceIssueTemplate.count({ where: { isActive: true } }),
+          this.db.serviceHub.count({ where: { isActive: true } }),
+        ]);
+
+        if (templateCount >= DEFAULT_SERVICE_CATEGORIES.length && hubCount >= DEFAULT_SERVICE_HUBS.length) {
+          this.isSeeded = true;
+          return;
+        }
+
+        // 1. Seed Templates
+        for (const cat of DEFAULT_SERVICE_CATEGORIES) {
+          try {
+            await this.db.serviceIssueTemplate.upsert({
+              where: { categoryKey: cat.categoryKey },
+              update: {
+                title: cat.title,
+                description: cat.description,
+                icon: cat.icon,
+                fixedPackageAvailable: cat.fixedPackageAvailable,
+                packagePricePaise: cat.packagePricePaise ?? null,
+                packageFeatures: cat.packageFeatures ? JSON.stringify(cat.packageFeatures) : Prisma.JsonNull,
+                questionsJson: JSON.stringify(cat.questions),
+                isActive: true,
+              },
+              create: {
+                categoryKey: cat.categoryKey,
+                version: 1,
+                title: cat.title,
+                description: cat.description,
+                icon: cat.icon,
+                fixedPackageAvailable: cat.fixedPackageAvailable,
+                packagePricePaise: cat.packagePricePaise ?? null,
+                packageFeatures: cat.packageFeatures ? JSON.stringify(cat.packageFeatures) : Prisma.JsonNull,
+                questionsJson: JSON.stringify(cat.questions),
+                isActive: true,
+              },
+            });
+          } catch (err: any) {
+            if (err?.code !== 'P2002') throw err;
+          }
+        }
+
+        // 2. Seed Hubs
+        for (const hub of DEFAULT_SERVICE_HUBS) {
+          try {
+            const existingBranch = await this.db.branch.findFirst({
+              where: { city: { equals: hub.city, mode: 'insensitive' } },
+            });
+            await this.db.serviceHub.upsert({
+              where: { code: hub.code },
+              update: {
+                name: hub.name,
+                city: hub.city,
+                address: hub.address,
+                latitude: hub.latitude,
+                longitude: hub.longitude,
+                operatingHours: hub.operatingHours,
+                phone: hub.phone,
+                capacityPerSlot: hub.capacityPerSlot,
+                pickupRadiusKm: hub.pickupRadiusKm,
+                pickupFeePaise: hub.pickupFeePaise,
+                diagnosticFeePaise: hub.diagnosticFeePaise,
+                branchId: existingBranch?.id ?? null,
+                isActive: true,
+              },
+              create: {
+                code: hub.code,
+                name: hub.name,
+                city: hub.city,
+                address: hub.address,
+                latitude: hub.latitude,
+                longitude: hub.longitude,
+                operatingHours: hub.operatingHours,
+                phone: hub.phone,
+                capacityPerSlot: hub.capacityPerSlot,
+                pickupRadiusKm: hub.pickupRadiusKm,
+                pickupFeePaise: hub.pickupFeePaise,
+                diagnosticFeePaise: hub.diagnosticFeePaise,
+                branchId: existingBranch?.id ?? null,
+                isActive: true,
+              },
+            });
+          } catch (err: any) {
+            if (err?.code !== 'P2002') throw err;
+          }
+        }
+
+        this.isSeeded = true;
+      } finally {
+        this.seedPromise = null;
+      }
+    })();
+
+    return this.seedPromise;
   }
 
   async getIssueCategories() {
@@ -801,7 +835,9 @@ export class PrismaServiceStore {
   // -------------------------------------------------------------
   async listCustomerVehicles(firebaseUid: string) {
     const user = await this.db.user.findUnique({ where: { firebaseUid } });
-    if (!user) throw new HttpError(404, 'USER_NOT_FOUND');
+    if (!user) {
+      return [];
+    }
 
     const vehicles = await this.db.customerVehicle.findMany({
       where: { userId: user.id, isArchived: false },
@@ -887,9 +923,21 @@ export class PrismaServiceStore {
     };
   }
 
-  async createCustomerVehicle(firebaseUid: string, input: CreateVehicleInput) {
-    const user = await this.db.user.findUnique({ where: { firebaseUid } });
-    if (!user) throw new HttpError(404, 'USER_NOT_FOUND');
+  async createCustomerVehicle(firebaseUid: string, input: CreateVehicleInput, identity?: Identity) {
+    let user = await this.db.user.findUnique({ where: { firebaseUid } });
+    if (!user) {
+      if (identity?.email) {
+        user = await this.db.user.create({
+          data: {
+            firebaseUid,
+            email: identity.email.toLowerCase().trim(),
+            displayName: identity.name?.trim() || null,
+          },
+        });
+      } else {
+        throw new HttpError(404, 'USER_NOT_FOUND');
+      }
+    }
 
     const existingCount = await this.db.customerVehicle.count({
       where: { userId: user.id, isArchived: false },

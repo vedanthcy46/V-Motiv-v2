@@ -85,9 +85,33 @@ export async function api<T>(path: string, init: RequestInit = {}, forceRefresh 
     }
     if (response.status === 401 && token && !refresh) return request(true);
     if (response.status === 204) return undefined as T;
-    const body = await response.json().catch(() => { throw new ApiError(response.status, 'INVALID_API_RESPONSE'); }) as { code?: string };
-    if (!response.ok) throw new ApiError(response.status, body.code ?? 'REQUEST_FAILED');
-    return body as T;
+    const rawText = await response.text().catch(() => '');
+    let body: any = undefined;
+    if (rawText) {
+      try {
+        body = JSON.parse(rawText);
+      } catch {
+        // Response payload is not JSON (e.g. gateway error HTML or plain text)
+      }
+    }
+    if (!response.ok) {
+      const code =
+        body?.code ||
+        (response.status === 502 || response.status === 503 || response.status === 504
+          ? 'SERVICE_UNAVAILABLE'
+          : response.status === 404
+          ? 'RESOURCE_NOT_FOUND'
+          : response.status === 401
+          ? 'AUTHENTICATION_REQUIRED'
+          : response.status === 409
+          ? 'RESOURCE_CONFLICT'
+          : 'REQUEST_FAILED');
+      throw new ApiError(response.status, code);
+    }
+    if (body === undefined && rawText.trim()) {
+      throw new ApiError(response.status, 'INVALID_API_RESPONSE');
+    }
+    return (body ?? null) as T;
   };
   try {
     // Include token acquisition, one authorized retry, and response parsing.
