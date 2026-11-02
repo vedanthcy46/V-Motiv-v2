@@ -26,7 +26,9 @@ import {
   CheckCircle2,
   ShieldCheck,
   KeyRound,
+  Menu,
 } from 'lucide-react-native';
+import { useSidebar } from '../components/AppSidebar';
 import { BrandLogo } from '../components/BrandLogo';
 import { NotificationsModal } from '../components/NotificationsModal';
 import { CustomerButton } from '../components/customer-ui';
@@ -52,6 +54,7 @@ const SECONDARY_SERVICES = [
 
 export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
   const { state, profile } = useAuth();
+  const { openSidebar } = useSidebar();
   const { theme, isDark } = useAppTheme();
   const c = theme.colors;
 
@@ -138,7 +141,17 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
       >
         {/* ── Top bar ── */}
         <View style={[styles.topBar, { backgroundColor: c.surface, borderColor: c.border }]}>
-          <BrandLogo size={28} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Open navigation menu"
+              onPress={openSidebar}
+              style={({ pressed }) => [{ padding: 4, marginLeft: -4, borderRadius: 8 }, pressed && { opacity: 0.6 }]}
+            >
+              <Menu size={22} color={isDark ? '#F7B503' : c.textPrimary} />
+            </Pressable>
+            <BrandLogo size={28} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
+          </View>
           <Pressable
             accessibilityRole="button"
             accessibilityLabel={`Notifications${unread > 0 ? `, ${unread} unread` : ''}`}
