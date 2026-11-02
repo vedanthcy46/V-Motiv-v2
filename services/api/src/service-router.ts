@@ -155,6 +155,28 @@ const paymentInitiateSchema = z.object({
   gatewayPaymentId: z.string().trim().max(100).optional(),
 }).strict();
 
+const walkInServiceSchema = z.object({
+  hubId: uuid,
+  customerName: z.string().trim().min(2).max(100),
+  customerPhone: z.string().trim().min(7).max(25),
+  customerEmail: z.string().trim().email().optional().or(z.literal('')),
+  vehicleMake: z.string().trim().min(1).max(80),
+  vehicleModel: z.string().trim().min(1).max(80),
+  vehicleYear: z.coerce.number().int().min(1980).max(new Date().getFullYear() + 1),
+  fuelType: z.string().trim().default('PETROL'),
+  transmission: z.string().trim().default('MANUAL'),
+  registrationNumber: z.string().trim().max(30).optional(),
+  odometerKm: z.coerce.number().int().min(0).max(2_000_000).optional(),
+  categoryKey: z.string().trim().min(1).max(100),
+  customerSymptoms: z.string().trim().max(2000).optional(),
+  scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  scheduledTimeSlot: z.string().trim().max(50).optional(),
+  immediateIntake: z.boolean().default(true),
+  intakeOdometerKm: z.coerce.number().int().min(0).max(2_000_000).optional(),
+  intakeFuelPercent: z.coerce.number().int().min(0).max(100).optional(),
+  intakeNotes: z.string().trim().max(1000).optional(),
+}).strict();
+
 const paymentVerifySchema = z.object({
   verified: z.boolean(),
   notes: z.string().trim().max(500).optional(),
@@ -434,6 +456,21 @@ export function createServiceOperationsRouter(deps: {
     }
   });
 
+  // 1b. Walk-In / Offline Service Booking
+  router.post('/walk-in', requireServiceRole(['SERVICE_ADVISOR', 'HUB_MANAGER', 'SERVICE_MANAGER', 'ADMIN']), async (req, res, next) => {
+    try {
+      const employee = res.locals.employee;
+      const input = parse(walkInServiceSchema, req.body);
+      const job = await deps.store.createWalkInServiceJob(employee.userId, {
+        ...input,
+        customerEmail: input.customerEmail || undefined,
+      });
+      res.status(201).json(job);
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // 2. Job Details
   router.get('/jobs/:id', requireServiceRole(ALL_SERVICE_STAFF), async (req, res, next) => {
     try {
@@ -568,6 +605,23 @@ export function createServiceOperationsRouter(deps: {
     }
   });
 
+
+
+  // 7b. In-Person Staff Estimate Approval
+  router.post('/jobs/:id/estimates/:estimateId/approve', requireServiceRole(['SERVICE_ADVISOR', 'HUB_MANAGER', 'SERVICE_MANAGER', 'ADMIN']), async (req, res, next) => {
+    try {
+      const employee = res.locals.employee;
+      const input = z.object({
+        decision: z.enum(['APPROVE', 'DECLINE']).default('APPROVE'),
+        notes: z.string().trim().max(500).optional(),
+        channel: z.string().trim().max(100).optional(),
+      }).parse(req.body || {});
+      res.json(await deps.store.approveServiceEstimateByStaff(employee.userId, uuid.parse(req.params.id), uuid.parse(req.params.estimateId), input));
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // 8. Work Order Creation
   router.post('/jobs/:id/work-order', requireServiceRole(['SERVICE_ADVISOR', 'HUB_MANAGER', 'SERVICE_MANAGER', 'ADMIN']), async (req, res, next) => {
     try {
@@ -663,7 +717,10 @@ export function createServiceOperationsRouter(deps: {
         gatewayPaymentId: raw.gatewayPaymentId ? String(raw.gatewayPaymentId) : (raw.transactionReference ? String(raw.transactionReference) : `OFFLINE-${Date.now()}`),
       };
       const input = parse(paymentInitiateSchema, normalizedBody);
-      res.status(201).json(await deps.store.recordPayment(employee.userId, uuid.parse(req.params.id), input));
+      res.status(201).json(await deps.store.recordPayment(employee.userId, uuid.parse(req.params.id), {
+        ...input,
+        autoVerify: Boolean(raw.autoVerify ?? true),
+      }));
     } catch (e) {
       next(e);
     }

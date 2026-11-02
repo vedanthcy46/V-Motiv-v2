@@ -2,7 +2,7 @@ import React, { useState, useEffect, type FC, type FormEvent } from 'react';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
 import type { Branch, ServiceJobItem, ServiceJobStatus } from '../types';
-import { IconCheck, IconCross, IconRefresh, IconSearch, IconService } from '../icons';
+import { IconCross, IconRefresh, IconSearch, IconService } from '../icons';
 
 function formatRupees(paise?: string | number | null): string {
   if (paise === undefined || paise === null || paise === '') return '—';
@@ -54,7 +54,31 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const [selectedHubId, setSelectedHubId] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeJob, setActiveJob] = useState<ServiceJobItem | null>(null);
-  const [actionTab, setActionTab] = useState<'details' | 'schedule' | 'dispatch' | 'custody' | 'estimate' | 'qc' | 'return' | 'payment'>('details');
+  const [loadingDetails, setLoadingDetails] = useState(false);
+  const [actionTab, setActionTab] = useState<'details' | 'schedule' | 'dispatch' | 'custody' | 'estimate' | 'qc' | 'payment' | 'return'>('details');
+
+  // Categories
+  const [categories, setCategories] = useState<Array<{ categoryKey: string; title: string; description: string; icon: string }>>([]);
+
+  // Walk-in modal state
+  const [walkInModalOpen, setWalkInModalOpen] = useState(false);
+  const [walkInSubmitting, setWalkInSubmitting] = useState(false);
+  const [walkInHubId, setWalkInHubId] = useState('');
+  const [walkInCustomerName, setWalkInCustomerName] = useState('');
+  const [walkInCustomerPhone, setWalkInCustomerPhone] = useState('');
+  const [walkInCustomerEmail, setWalkInCustomerEmail] = useState('');
+  const [walkInVehicleMake, setWalkInVehicleMake] = useState('');
+  const [walkInVehicleModel, setWalkInVehicleModel] = useState('');
+  const [walkInVehicleYear, setWalkInVehicleYear] = useState(new Date().getFullYear());
+  const [walkInFuelType, setWalkInFuelType] = useState('PETROL');
+  const [walkInTransmission, setWalkInTransmission] = useState('MANUAL');
+  const [walkInRegNumber, setWalkInRegNumber] = useState('');
+  const [walkInOdometer, setWalkInOdometer] = useState<number>(0);
+  const [walkInCategoryKey, setWalkInCategoryKey] = useState('periodic-maintenance');
+  const [walkInSymptoms, setWalkInSymptoms] = useState('');
+  const [walkInImmediateIntake, setWalkInImmediateIntake] = useState(true);
+  const [walkInIntakeNotes, setWalkInIntakeNotes] = useState('');
+  const [walkInIntakeFuel, setWalkInIntakeFuel] = useState<number>(50);
 
   // Action form states
   const [actionBusy, setActionBusy] = useState(false);
@@ -82,37 +106,32 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const [qcPassed, setQcPassed] = useState(true);
   const [qcNotes, setQcNotes] = useState('All 24 safety checkpoints and fluids checked. Road test verified.');
 
-  // Return
-  const [returnOdometer, setReturnOdometer] = useState<number>(0);
-  const [returnNotes, setReturnNotes] = useState('Vehicle delivered to customer with invoice and warranty booklet.');
-
   // Payment
   const [paymentAmountRupees, setPaymentAmountRupees] = useState<number>(0);
   const [paymentMethod, setPaymentMethod] = useState('UPI');
   const [paymentTxRef, setPaymentTxRef] = useState('');
+  const [paymentAutoVerify, setPaymentAutoVerify] = useState(true);
+
+  // Return
+  const [returnOdometer, setReturnOdometer] = useState<number>(0);
+  const [returnNotes, setReturnNotes] = useState('Vehicle delivered to customer with invoice and warranty booklet.');
 
   // Cancellation state
   const [cancelPromptOpen, setCancelPromptOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
   const [cancelling, setCancelling] = useState(false);
 
-  const handleCancelServiceJob = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!activeJob || !user || !cancelReason.trim()) return;
-    try {
-      setCancelling(true);
-      await api.serviceCancelJob(user, activeJob.id, { reason: cancelReason.trim() });
-      onSuccess(`Service Job ${activeJob.requestNumber} cancelled successfully.`);
-      setCancelPromptOpen(false);
-      setCancelReason('');
-      setActiveJob(prev => prev ? { ...prev, status: 'CANCELLED', cancellationReason: cancelReason.trim(), cancelledAt: new Date().toISOString() } : null);
-      void loadQueue();
-    } catch (err: any) {
-      onError(err?.message || 'Failed to cancel service job');
-    } finally {
-      setCancelling(false);
-    }
-  };
+  // Load categories
+  useEffect(() => {
+    let active = true;
+    void api.serviceCategories(user).then(res => {
+      if (active && Array.isArray(res) && res.length > 0) {
+        setCategories(res);
+        if (!walkInCategoryKey) setWalkInCategoryKey(res[0].categoryKey);
+      }
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [user]);
 
   const loadQueue = async () => {
     setLoading(true);
@@ -140,32 +159,70 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     void loadQueue();
   };
 
-  const openJobModal = (job: ServiceJobItem) => {
+  const openJobModal = async (job: ServiceJobItem) => {
     setActiveJob(job);
     setActionTab('details');
-    setIntakeOdometer(job.vehicle?.year ? 45000 : 0);
-    setReturnOdometer(job.vehicle?.year ? 45010 : 0);
-    const est = job.estimates?.[0];
-    if (est) {
-      setPaymentAmountRupees(Number(BigInt(est.totalAmountPaise || '0') / 100n));
+    setLoadingDetails(true);
+
+    if (job.vehicle && typeof (job.vehicle as any).odometerKm === 'number') {
+      setIntakeOdometer((job.vehicle as any).odometerKm);
+      setReturnOdometer((job.vehicle as any).odometerKm);
+    }
+
+    try {
+      const full = await api.serviceJobDetails(user, job.id);
+      setActiveJob(full);
+      if (full.vehicle?.odometerKm) {
+        setIntakeOdometer(full.vehicle.odometerKm);
+        setReturnOdometer(full.vehicle.odometerKm);
+      }
+    } catch (err) {
+      console.warn('Failed to load full job details', err);
+    } finally {
+      setLoadingDetails(false);
     }
   };
 
-  // Actions
+  const refreshActiveJob = async (jobId: string) => {
+    try {
+      const full = await api.serviceJobDetails(user, jobId);
+      setActiveJob(full);
+    } catch (e) {
+      console.warn('Failed to refresh job', e);
+    }
+    void loadQueue();
+  };
+
+  const handleCancelServiceJob = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!activeJob || !user || !cancelReason.trim()) return;
+    try {
+      setCancelling(true);
+      await api.serviceCancelJob(user, activeJob.id, { reason: cancelReason.trim() });
+      onSuccess(`Service Job ${activeJob.requestNumber} cancelled successfully.`);
+      setCancelPromptOpen(false);
+      setCancelReason('');
+      await refreshActiveJob(activeJob.id);
+    } catch (err: any) {
+      onError(err?.message || 'Failed to cancel service job');
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   const handleScheduleSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!activeJob) return;
     setActionBusy(true);
     try {
       await api.scheduleServiceJob(user, activeJob.id, {
-        scheduledDate: scheduleDate || new Date().toISOString().split('T')[0],
-        scheduledTimeSlot: scheduleSlot,
+        scheduledDate: scheduleDate || activeJob.scheduledDate,
+        scheduledTimeSlot: scheduleSlot || activeJob.scheduledTimeSlot,
       });
-      onSuccess(`Job ${activeJob.requestNumber} scheduled for ${scheduleDate || 'today'} (${scheduleSlot})`);
-      setActiveJob(null);
-      void loadQueue();
+      onSuccess(`Appointment for ${activeJob.requestNumber} updated successfully.`);
+      await refreshActiveJob(activeJob.id);
     } catch (err: any) {
-      onError(err?.message || 'Failed to schedule appointment');
+      onError(err?.message || 'Failed to update schedule');
     } finally {
       setActionBusy(false);
     }
@@ -181,8 +238,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         type: dispatchType,
       });
       onSuccess(`Driver assigned and dispatched for ${dispatchType.toLowerCase()} of ${activeJob.requestNumber}`);
-      setActiveJob(null);
-      void loadQueue();
+      await refreshActiveJob(activeJob.id);
     } catch (err: any) {
       onError(err?.message || 'Failed to dispatch pickup/delivery driver');
     } finally {
@@ -203,8 +259,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         handoverByPerson: activeJob.customer?.displayName || 'Customer Handover',
       });
       onSuccess(`Custody confirmed for ${activeJob.requestNumber}. Vehicle intake documented.`);
-      setActiveJob(null);
-      void loadQueue();
+      await refreshActiveJob(activeJob.id);
     } catch (err: any) {
       onError(err?.message || 'Failed to record vehicle custody');
     } finally {
@@ -218,29 +273,55 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     setActionBusy(true);
     try {
       const items = estimateLines.map(line => {
-        let cat = (line.itemType || 'PARTS').toUpperCase();
-        if (cat === 'PART') cat = 'PARTS';
-        if (cat === 'CONSUMABLE') cat = 'CONSUMABLES';
+        const qty = Math.max(1, line.quantity || 1);
+        const unitPaise = Math.round((line.unitRateRupees || 0) * 100);
         return {
-          category: cat,
-          itemType: cat,
-          description: line.description,
-          quantity: line.quantity,
-          unitPricePaise: line.unitRateRupees * 100,
-          unitRatePaise: line.unitRateRupees * 100,
+          category: line.itemType,
+          description: line.description.trim(),
+          quantity: qty,
+          unitPricePaise: unitPaise,
+          totalPricePaise: qty * unitPaise,
           isMandatory: true,
         };
       });
+
+      const subtotalPaise = items.reduce((acc, it) => acc + it.totalPricePaise, 0);
+      const cgstPaise = Math.round(subtotalPaise * 0.09);
+      const sgstPaise = Math.round(subtotalPaise * 0.09);
+      const totalAmountPaise = subtotalPaise + cgstPaise + sgstPaise;
+
       await api.createServiceEstimate(user, activeJob.id, {
         items,
-        notes: estimateNotes || 'Approved V MOTIV OEM parts & labour rates.',
-        customerNotes: estimateNotes || 'Approved V MOTIV OEM parts & labour rates.',
+        subtotalPaise,
+        cgstPaise,
+        sgstPaise,
+        totalAmountPaise,
+        customerNotes: estimateNotes || 'Approved OEM genuine replacement parts and standard workshop labor.',
+        validDays: 7,
       });
-      onSuccess(`Itemized estimate submitted for customer approval on ${activeJob.requestNumber}`);
-      setActiveJob(null);
-      void loadQueue();
+
+      onSuccess(`Estimate created and sent to customer for ${activeJob.requestNumber}.`);
+      await refreshActiveJob(activeJob.id);
     } catch (err: any) {
       onError(err?.message || 'Failed to create service estimate');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleApproveEstimateInPerson = async (estimateId: string) => {
+    if (!activeJob) return;
+    setActionBusy(true);
+    try {
+      await api.approveServiceEstimateByStaff(user, activeJob.id, estimateId, {
+        decision: 'APPROVE',
+        notes: 'Estimate approved in-person by customer at workshop service counter.',
+        channel: 'WORKSHOP_COUNTER',
+      });
+      onSuccess(`Estimate approved on behalf of customer. Work authorization granted for ${activeJob.requestNumber}.`);
+      await refreshActiveJob(activeJob.id);
+    } catch (err: any) {
+      onError(err?.message || 'Failed to approve estimate');
     } finally {
       setActionBusy(false);
     }
@@ -252,49 +333,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     setActionBusy(true);
     try {
       await api.recordServiceQc(user, activeJob.id, {
-        result: qcPassed ? 'PASS' : 'REWORK_REQUIRED',
-        isPassed: qcPassed,
-        notes: qcNotes,
-        checklistNotes: qcNotes,
-        reworkReason: qcPassed ? undefined : (qcNotes || 'Rework required by technician before release'),
-        checklistResults: {
-          'safety_checkpoints': true,
-          'fluids_and_filters': true,
-          'road_test_verified': true,
-        },
+        result: qcPassed ? 'PASSED' : 'REWORK_REQUIRED',
+        roadTestNotes: qcNotes,
+        technicianNotes: qcNotes,
       });
-      onSuccess(`Quality Control ${qcPassed ? 'PASSED' : 'FLAGGED REWORK'} for ${activeJob.requestNumber}`);
-      setActiveJob(null);
-      void loadQueue();
+      onSuccess(`QC ${qcPassed ? 'PASSED' : 'REWORK MARKED'} for ${activeJob.requestNumber}`);
+      await refreshActiveJob(activeJob.id);
     } catch (err: any) {
       onError(err?.message || 'Failed to record QC decision');
-    } finally {
-      setActionBusy(false);
-    }
-  };
-
-  const handleReturnSubmit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!activeJob) return;
-    setActionBusy(true);
-    try {
-      await api.recordServiceReturn(user, activeJob.id, {
-        type: 'CHECK_OUT',
-        odometerKm: Number(returnOdometer),
-        returnOdometerKm: Number(returnOdometer),
-        fuelChargeLevel: '50%',
-        fuelPercent: 50,
-        preExistingDamageNotes: returnNotes || 'Vehicle delivered with invoice and warranty booklet.',
-        returnNotes: returnNotes || 'Vehicle delivered with invoice and warranty booklet.',
-        handoverByPerson: activeJob.customer?.displayName || 'Customer Pickup / Delivery',
-        customerAcknowledged: true,
-        customerSigned: true,
-      });
-      onSuccess(`Vehicle for ${activeJob.requestNumber} delivered and closed successfully.`);
-      setActiveJob(null);
-      void loadQueue();
-    } catch (err: any) {
-      onError(err?.message || 'Failed to release vehicle return');
     } finally {
       setActionBusy(false);
     }
@@ -317,10 +363,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         transactionReference: paymentTxRef || `OFFLINE-${Date.now()}`,
         gatewayPaymentId: paymentTxRef || `OFFLINE-${Date.now()}`,
         notes: 'Collected at workshop delivery counter.',
+        autoVerify: paymentAutoVerify,
       });
-      onSuccess(`Payment of ₹${paymentAmountRupees.toLocaleString('en-IN')} recorded for Finance verification.`);
-      setActiveJob(null);
-      void loadQueue();
+      onSuccess(`Payment of ₹${paymentAmountRupees.toLocaleString('en-IN')} recorded successfully for ${activeJob.requestNumber}.`);
+      setPaymentAmountRupees(0);
+      setPaymentTxRef('');
+      await refreshActiveJob(activeJob.id);
     } catch (err: any) {
       onError(err?.message || 'Failed to record payment');
     } finally {
@@ -328,20 +376,136 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     }
   };
 
+  const handleReturnSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!activeJob) return;
+    setActionBusy(true);
+    try {
+      await api.recordServiceReturn(user, activeJob.id, {
+        type: 'CHECK_OUT',
+        odometerKm: Number(returnOdometer),
+        returnOdometerKm: Number(returnOdometer),
+        fuelChargeLevel: '50%',
+        fuelPercent: 50,
+        preExistingDamageNotes: returnNotes || 'Vehicle delivered with invoice and warranty booklet.',
+        returnNotes: returnNotes || 'Vehicle delivered with invoice and warranty booklet.',
+        handoverByPerson: activeJob.customer?.displayName || 'Customer Pickup / Delivery',
+        customerAcknowledged: true,
+        customerSigned: true,
+      });
+      onSuccess(`Vehicle for ${activeJob.requestNumber} released and handover recorded successfully.`);
+      await refreshActiveJob(activeJob.id);
+    } catch (err: any) {
+      onError(err?.message || 'Failed to release vehicle return');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const handleWalkInSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!walkInHubId) {
+      onError('Please select a service hub');
+      return;
+    }
+    if (!walkInCustomerName.trim() || !walkInCustomerPhone.trim()) {
+      onError('Customer name and phone number are required');
+      return;
+    }
+    if (!walkInVehicleMake.trim() || !walkInVehicleModel.trim()) {
+      onError('Vehicle make and model are required');
+      return;
+    }
+    setWalkInSubmitting(true);
+    try {
+      const job = await api.createWalkInServiceJob(user, {
+        hubId: walkInHubId,
+        customerName: walkInCustomerName.trim(),
+        customerPhone: walkInCustomerPhone.trim(),
+        customerEmail: walkInCustomerEmail.trim() || undefined,
+        vehicleMake: walkInVehicleMake.trim(),
+        vehicleModel: walkInVehicleModel.trim(),
+        vehicleYear: Number(walkInVehicleYear) || new Date().getFullYear(),
+        fuelType: walkInFuelType,
+        transmission: walkInTransmission,
+        registrationNumber: walkInRegNumber.trim() || undefined,
+        odometerKm: Number(walkInOdometer) || undefined,
+        categoryKey: walkInCategoryKey,
+        customerSymptoms: walkInSymptoms.trim() || undefined,
+        immediateIntake: walkInImmediateIntake,
+        intakeOdometerKm: Number(walkInOdometer) || undefined,
+        intakeFuelPercent: Number(walkInIntakeFuel) || 50,
+        intakeNotes: walkInIntakeNotes.trim() || undefined,
+      });
+
+      onSuccess(`Walk-in service job ${job.requestNumber} created successfully.`);
+      setWalkInModalOpen(false);
+
+      // Reset
+      setWalkInCustomerName('');
+      setWalkInCustomerPhone('');
+      setWalkInCustomerEmail('');
+      setWalkInVehicleMake('');
+      setWalkInVehicleModel('');
+      setWalkInRegNumber('');
+      setWalkInSymptoms('');
+      setWalkInIntakeNotes('');
+      void loadQueue();
+    } catch (err: any) {
+      onError(err?.message || 'Failed to create walk-in service booking');
+    } finally {
+      setWalkInSubmitting(false);
+    }
+  };
+
+  // Calculations for active job financials
+  const activeEstimateTotalRupees = activeJob?.estimates?.[0]
+    ? Math.round(Number(activeJob.estimates[0].totalAmountPaise) / 100)
+    : 0;
+
+  const activeTotalPaidRupees = (activeJob?.payments || []).reduce((acc, p) => {
+    if (p.status === 'PAID_VERIFIED' || p.status === 'PENDING') {
+      return acc + Math.round(Number(p.amountPaise) / 100);
+    }
+    return acc;
+  }, 0);
+
+  const activeBalanceDueRupees = Math.max(0, activeEstimateTotalRupees - activeTotalPaidRupees);
+
+  // Auto-fill default payment amount when opening payment tab
+  useEffect(() => {
+    if (actionTab === 'payment' && activeBalanceDueRupees > 0 && paymentAmountRupees === 0) {
+      setPaymentAmountRupees(activeBalanceDueRupees);
+    }
+  }, [actionTab, activeBalanceDueRupees]);
+
+  const isJobCancelled = activeJob?.status === 'CANCELLED';
+  const isJobConcluded = (activeJob?.status === 'COMPLETED' || activeJob?.status === 'DELIVERED') && activeBalanceDueRupees === 0;
+
   const statusBadgeClass = (status: ServiceJobStatus) => {
     switch (status) {
-      case 'DELIVERED':
       case 'COMPLETED':
+      case 'DELIVERED':
+      case 'PAID':
+      case 'QC_PASSED':
+      case 'ESTIMATE_APPROVED':
         return 'badge-success';
-      case 'READY_FOR_DELIVERY':
-      case 'QC_PENDING':
-        return 'badge-info';
-      case 'IN_PROGRESS':
-      case 'ESTIMATE_PENDING':
-      case 'DIAGNOSIS_PENDING':
-        return 'badge-warning';
       case 'CANCELLED':
+      case 'ESTIMATE_REJECTED':
+      case 'QC_REWORK_REQUIRED':
         return 'badge-danger';
+      case 'PAYMENT_PENDING':
+      case 'ESTIMATE_PENDING_APPROVAL':
+      case 'QC_PENDING':
+      case 'WORK_IN_PROGRESS':
+      case 'PARTS_ORDERED':
+      case 'DIAGNOSIS_IN_PROGRESS':
+        return 'badge-warning';
+      case 'CHECKED_IN':
+      case 'ARRIVED_AT_HUB':
+      case 'IN_TRANSIT_TO_HUB':
+      case 'PICKUP_DISPATCHED':
+      case 'APPOINTMENT_SCHEDULED':
       case 'SUBMITTED':
       case 'REQUESTED':
       case 'AWAITING_DISPATCH':
@@ -354,18 +518,33 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   return (
     <div className="tab-pane active">
       {/* Top Header */}
-      <div className="panel-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem' }}>
+      <div className="panel-heading" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap', gap: '0.75rem' }}>
         <div>
-          <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <h2 style={{ display: 'flex', alignItems: 'center', gap: '8px', margin: 0 }}>
             <IconService /> Car Service & Workshop Operations
           </h2>
-          <p style={{ color: 'var(--muted)', fontSize: '0.875rem', marginTop: '4px' }}>
-            Real-time workshop bookings, technician job cards, diagnostic estimates, QC sign-offs, and vehicle release.
+          <p style={{ color: 'var(--muted)', fontSize: '0.875rem', margin: '4px 0 0' }}>
+            Real-time workshop bookings, walk-in counter jobs, diagnostic estimates, QC sign-offs, billing and vehicle handover.
           </p>
         </div>
-        <button type="button" className="btn-secondary button secondary" onClick={() => void loadQueue()} disabled={loading}>
-          <IconRefresh /> Refresh
-        </button>
+        <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn-primary btn-gold button primary"
+            onClick={() => {
+              if (branches.length > 0 && !walkInHubId) {
+                setWalkInHubId(branches[0].id);
+              }
+              setWalkInModalOpen(true);
+            }}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
+          >
+            <span>+</span> Walk-in Service Booking
+          </button>
+          <button type="button" className="btn-secondary button secondary" onClick={() => void loadQueue()} disabled={loading}>
+            <IconRefresh /> Refresh
+          </button>
+        </div>
       </div>
 
       {/* Summary KPI Cards */}
@@ -376,37 +555,37 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         </div>
         <div className="card-kpi" style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
           <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>In Workshop</span>
-          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: 'var(--accent)' }}>
-            {jobs.filter(j => ['VEHICLE_RECEIVED', 'DIAGNOSIS_PENDING', 'IN_PROGRESS'].includes(j.status)).length}
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: '#38bdf8' }}>
+            {jobs.filter(j => ['CHECKED_IN', 'DIAGNOSIS_IN_PROGRESS', 'WORK_IN_PROGRESS', 'QC_PENDING'].includes(j.status)).length}
           </div>
         </div>
         <div className="card-kpi" style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Estimates Pending</span>
-          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: 'var(--warning, #f59e0b)' }}>
-            {jobs.filter(j => j.status === 'ESTIMATE_PENDING').length}
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Pending Approval</span>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: '#f59e0b' }}>
+            {jobs.filter(j => j.status === 'ESTIMATE_PENDING_APPROVAL').length}
           </div>
         </div>
         <div className="card-kpi" style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
-          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Delivery Ready</span>
-          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: 'var(--success, #10b981)' }}>
-            {jobs.filter(j => j.status === 'READY_FOR_DELIVERY').length}
+          <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Payment Pending</span>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: '#ec4899' }}>
+            {jobs.filter(j => j.status === 'PAYMENT_PENDING').length}
           </div>
         </div>
       </div>
 
       {/* Filter and Search Bar */}
-      <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'center', marginBottom: '1rem' }}>
-        <form onSubmit={handleSearch} style={{ display: 'flex', gap: '0.5rem', flex: 1, minWidth: '260px' }}>
-          <div style={{ position: 'relative', flex: 1 }}>
+      <div className="filter-card" style={{ display: 'flex', gap: '1rem', alignItems: 'center', marginBottom: '1.25rem', flexWrap: 'wrap' }}>
+        <form onSubmit={handleSearch} style={{ display: 'flex', flex: '1', minWidth: '260px', gap: '0.5rem' }}>
+          <div style={{ position: 'relative', width: '100%' }}>
             <input
               type="text"
-              className="input"
-              placeholder="Search by job #, customer, car model, registration..."
+              className="input search-input"
+              placeholder="Search request #, customer, reg plate, phone…"
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
-              style={{ width: '100%', paddingLeft: '2rem' }}
+              style={{ width: '100%', paddingLeft: '2.25rem' }}
             />
-            <span style={{ position: 'absolute', left: '0.6rem', top: '50%', transform: 'translateY(-50%)', color: 'var(--muted)' }}>
+            <span style={{ position: 'absolute', left: '0.75rem', top: '50%', transform: 'translateY(-50%)', opacity: 0.5 }}>
               <IconSearch />
             </span>
           </div>
@@ -427,126 +606,152 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
       </div>
 
       {/* Status Filter Tabs */}
-      <div className="filter-chips-bar">
+      <div className="filter-chips-bar" style={{ display: 'flex', gap: '0.5rem', overflowX: 'auto', paddingBottom: '0.5rem', marginBottom: '1rem' }}>
         {[
-          'ALL',
-          'REQUESTED',
-          'AWAITING_DISPATCH',
-          'VEHICLE_RECEIVED',
-          'DIAGNOSIS_PENDING',
-          'ESTIMATE_PENDING',
-          'IN_PROGRESS',
-          'QC_PENDING',
-          'READY_FOR_DELIVERY',
-          'DELIVERED',
-          'CANCELLED',
-        ].map(status => (
+          { key: 'ALL', label: 'All Jobs' },
+          { key: 'APPOINTMENT_SCHEDULED', label: 'Scheduled' },
+          { key: 'CHECKED_IN', label: 'In Workshop' },
+          { key: 'ESTIMATE_PENDING_APPROVAL', label: 'Estimate Pending' },
+          { key: 'WORK_IN_PROGRESS', label: 'Work In Progress' },
+          { key: 'QC_PENDING', label: 'QC' },
+          { key: 'PAYMENT_PENDING', label: 'Payment Pending' },
+          { key: 'PAID', label: 'Paid' },
+          { key: 'DELIVERED', label: 'Delivered / Closed' },
+          { key: 'CANCELLED', label: 'Cancelled' },
+        ].map(tab => (
           <button
-            key={status}
+            key={tab.key}
             type="button"
-            className={`filter-chip ${statusFilter === status ? 'active' : ''}`}
-            onClick={() => setStatusFilter(status)}
+            className={`filter-chip ${statusFilter === tab.key ? 'active' : ''}`}
+            onClick={() => setStatusFilter(tab.key)}
+            style={{
+              padding: '0.35rem 0.75rem',
+              borderRadius: '20px',
+              fontSize: '0.8125rem',
+              fontWeight: statusFilter === tab.key ? 700 : 500,
+              border: statusFilter === tab.key ? '1px solid var(--accent)' : '1px solid var(--border)',
+              background: statusFilter === tab.key ? 'rgba(247, 181, 3, 0.15)' : 'var(--surface)',
+              color: statusFilter === tab.key ? 'var(--accent)' : 'var(--muted)',
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
           >
-            {status.replace(/_/g, ' ').toLowerCase()}
+            {tab.label}
           </button>
         ))}
       </div>
 
-      {/* Table of Jobs */}
-      <div className="table-responsive" style={{ background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)' }}>
-        <table>
-          <thead>
-            <tr>
-              <th>Job # & Date</th>
-              <th>Customer</th>
-              <th>Vehicle</th>
-              <th>Category & Fulfillment</th>
-              <th>Scheduled Slot</th>
-              <th>Estimate</th>
-              <th>Status</th>
-              <th style={{ textAlign: 'right' }}>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr>
-                <td colSpan={8} style={{ textAlign: 'center', padding: '2rem', color: 'var(--muted)' }}>Loading service queue…</td>
+      {/* Main Jobs Queue Table */}
+      <div className="card-table-wrapper" style={{ background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)', overflow: 'hidden' }}>
+        {loading ? (
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+            <p>Loading workshop queue…</p>
+          </div>
+        ) : jobs.length === 0 ? (
+          <div style={{ padding: '3rem', textAlign: 'center', color: 'var(--muted)' }}>
+            <p>No service jobs found matching your filters.</p>
+          </div>
+        ) : (
+          <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+            <thead>
+              <tr style={{ background: 'var(--surface-secondary)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                <th style={{ padding: '0.75rem 1rem' }}>JOB # & DATE</th>
+                <th style={{ padding: '0.75rem 1rem' }}>CUSTOMER</th>
+                <th style={{ padding: '0.75rem 1rem' }}>VEHICLE</th>
+                <th style={{ padding: '0.75rem 1rem' }}>CATEGORY & FULFILLMENT</th>
+                <th style={{ padding: '0.75rem 1rem' }}>SCHEDULED SLOT</th>
+                <th style={{ padding: '0.75rem 1rem' }}>ESTIMATE</th>
+                <th style={{ padding: '0.75rem 1rem' }}>STATUS</th>
+                <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>ACTIONS</th>
               </tr>
-            ) : jobs.length === 0 ? (
-              <tr>
-                <td colSpan={8} style={{ textAlign: 'center', padding: '2.5rem', color: 'var(--muted)' }}>
-                  No service jobs matching current filters.
-                </td>
-              </tr>
-            ) : (
-              jobs.map(job => (
-                <tr key={job.id}>
-                  <td>
-                    <strong>{job.requestNumber}</strong>
+            </thead>
+            <tbody>
+              {jobs.map(job => (
+                <tr key={job.id} style={{ borderBottom: '1px solid var(--border)' }}>
+                  <td style={{ padding: '0.75rem 1rem' }}>
+                    <div style={{ fontWeight: 700, color: 'var(--text)' }}>{job.requestNumber}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{formatDate(job.createdAt)}</div>
                   </td>
-                  <td>
-                    <div><strong>{job.customer?.displayName || 'Customer'}</strong></div>
+                  <td style={{ padding: '0.75rem 1rem' }}>
+                    <div style={{ fontWeight: 600 }}>{job.customer?.displayName || 'Walk-In Customer'}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{job.customer?.phone || job.customer?.email || '—'}</div>
                   </td>
-                  <td>
-                    <div><strong>{job.vehicle?.make} {job.vehicle?.model} ({job.vehicle?.year || '—'})</strong></div>
-                    <span className="code-pill" style={{ fontSize: '0.75rem' }}>{job.vehicle?.registrationNumber || 'No Plate'}</span>
-                  </td>
-                  <td>
-                    <span style={{ fontWeight: 600, color: 'var(--accent)' }}>
-                      {job.categoryKey.replace(/_/g, ' ')}
-                    </span>
-                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                      {job.fulfillmentType === 'DOORSTEP_PICKUP' ? '🚗 Doorstep Pickup' : '🏢 Hub Drop'}
+                  <td style={{ padding: '0.75rem 1rem' }}>
+                    <div style={{ fontWeight: 600 }}>{job.vehicle ? `${job.vehicle.make} ${job.vehicle.model} (${job.vehicle.year})` : '—'}</div>
+                    <div style={{ fontSize: '0.75rem' }}>
+                      <span className="code-pill">{job.vehicle?.registrationNumber || 'No Plate'}</span>
                     </div>
                   </td>
-                  <td>
+                  <td style={{ padding: '0.75rem 1rem' }}>
+                    <div style={{ fontWeight: 600, textTransform: 'uppercase', fontSize: '0.8125rem' }}>
+                      {job.categoryKey?.replace(/-/g, ' ')}
+                    </div>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                      {job.fulfillmentType === 'DOORSTEP_PICKUP' ? '🚚 Pickup & Return' : '🏢 Hub Drop'}
+                    </div>
+                  </td>
+                  <td style={{ padding: '0.75rem 1rem' }}>
                     <div>{job.scheduledDate}</div>
-                    <small style={{ color: 'var(--muted)' }}>{job.scheduledTimeSlot}</small>
+                    <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{job.scheduledTimeSlot}</div>
                   </td>
-                  <td className="money">
-                    {formatRupees(job.estimates?.[0]?.totalAmountPaise)}
+                  <td style={{ padding: '0.75rem 1rem' }}>
+                    {job.estimates?.[0] ? (
+                      <span style={{ fontWeight: 700, color: 'var(--accent)' }}>
+                        {formatRupees(job.estimates[0].totalAmountPaise)}
+                      </span>
+                    ) : (
+                      <span style={{ color: 'var(--muted)' }}>—</span>
+                    )}
                   </td>
-                  <td>
-                    <span className={`badge ${statusBadgeClass(job.status)}`}>
+                  <td style={{ padding: '0.75rem 1rem' }}>
+                    <span className={`badge ${statusBadgeClass(job.status)}`} style={{ fontWeight: 700 }}>
                       {job.status.replace(/_/g, ' ')}
                     </span>
                   </td>
-                  <td style={{ textAlign: 'right' }}>
+                  <td style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>
                     <button
                       type="button"
-                      className="btn-primary btn-gold btn-sm button primary small"
-                      onClick={() => openJobModal(job)}
+                      className="btn-sm btn-primary button primary small"
+                      onClick={() => void openJobModal(job)}
                     >
                       Manage Job
                     </button>
                   </td>
                 </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              ))}
+            </tbody>
+          </table>
+        )}
       </div>
 
-      {/* Service Job Drawer Modal */}
+      {/* MANAGE JOB MODAL */}
       {activeJob && (
-        <div className="modal-overlay" style={{ zIndex: 1000 }}>
-          <div className="modal-dialog" style={{ maxWidth: '850px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
+        <div className="modal-overlay" style={{ zIndex: 1050 }}>
+          <div className="modal-dialog" style={{ maxWidth: '980px', width: '95%', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
             <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <span className="eyebrow">JOB MANAGEMENT</span>
-                <h3 style={{ margin: 0 }}>
-                  {activeJob.requestNumber} — {activeJob.vehicle?.make} {activeJob.vehicle?.model}
+                <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>Job #{activeJob.requestNumber}</span>
+                  <span className={`badge ${statusBadgeClass(activeJob.status)}`}>
+                    {activeJob.status.replace(/_/g, ' ')}
+                  </span>
                 </h3>
+                <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                  Created {formatDate(activeJob.createdAt)} · Hub: {activeJob.hub?.name || 'Local Workshop'}
+                </span>
               </div>
-              <button type="button" className="icon-button" onClick={() => setActiveJob(null)}>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setActiveJob(null)}
+                style={{ width: '32px', height: '32px', borderRadius: '6px' }}
+              >
                 <IconCross />
               </button>
             </div>
 
-            {/* Status Banner for Cancelled or Completed Jobs */}
-            {activeJob.status === 'CANCELLED' && (
+            {/* Cancelled Alert Banner */}
+            {isJobCancelled && (
               <div style={{
                 margin: '0.85rem 1.25rem 0',
                 padding: '0.85rem 1rem',
@@ -557,22 +762,21 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', fontWeight: 800, fontSize: '0.9rem' }}>
-                    <span>⛔</span> JOB CANCELLED — WORKFLOW LOCKED
+                    <span>✕</span> SERVICE JOB CANCELLED
                   </div>
-                  <span className="badge badge-danger" style={{ fontWeight: 800 }}>CANCELLED</span>
+                  <span className="badge badge-danger" style={{ fontWeight: 800 }}>LOCKED</span>
                 </div>
                 <p style={{ margin: '4px 0 0', fontSize: '0.825rem', color: '#fca5a5' }}>
-                  This service job was cancelled. All subsequent appointments, technician dispatches, parts estimations, and release steps are permanently locked.
+                  This booking was cancelled.
                   {activeJob.cancellationReason && (
-                    <span style={{ display: 'block', marginTop: '4px', fontStyle: 'italic', color: '#f87171' }}>
-                      Reason: "{activeJob.cancellationReason}"
-                    </span>
+                    <span> Reason: <strong>{activeJob.cancellationReason}</strong></span>
                   )}
                 </p>
               </div>
             )}
 
-            {(activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') && (
+            {/* Concluded & Settled Banner */}
+            {isJobConcluded && (
               <div style={{
                 margin: '0.85rem 1.25rem 0',
                 padding: '0.85rem 1rem',
@@ -583,49 +787,161 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 800, fontSize: '0.9rem' }}>
-                    <span>✅</span> SERVICE COMPLETED & VEHICLE DELIVERED
+                    <span>✅</span> SERVICE COMPLETED, PAID & VEHICLE DELIVERED
                   </div>
-                  <span className="badge badge-success" style={{ fontWeight: 800 }}>
-                    {activeJob.status === 'COMPLETED' ? 'COMPLETED' : 'DELIVERED'}
-                  </span>
+                  <span className="badge badge-success" style={{ fontWeight: 800 }}>COMPLETED</span>
                 </div>
                 <p style={{ margin: '4px 0 0', fontSize: '0.825rem', color: '#6ee7b7' }}>
-                  Vehicle has been successfully released and customer handover is concluded. Workflow steps are locked in read-only audit mode.
+                  Vehicle has been successfully handed over to the customer and all payments are fully settled.
                 </p>
               </div>
             )}
 
-            {/* Sub-Action Tabs */}
-            <div className="stepper-nav">
+            {/* Payment Pending Alert Banner */}
+            {activeJob.status === 'PAYMENT_PENDING' && (
+              <div style={{
+                margin: '0.85rem 1.25rem 0',
+                padding: '0.85rem 1rem',
+                backgroundColor: 'rgba(236, 72, 153, 0.12)',
+                border: '1px solid rgba(236, 72, 153, 0.35)',
+                borderLeft: '4px solid #ec4899',
+                borderRadius: '6px',
+              }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f472b6', fontWeight: 800, fontSize: '0.9rem' }}>
+                    <span>💳</span> PAYMENT PENDING — ACTION REQUIRED
+                  </div>
+                  <span className="badge badge-warning" style={{ fontWeight: 800 }}>
+                    Due: ₹{activeBalanceDueRupees.toLocaleString('en-IN')}
+                  </span>
+                </div>
+                <p style={{ margin: '4px 0 0', fontSize: '0.825rem', color: '#fbcfe8' }}>
+                  Customer payment must be collected at the counter or verified before concluding final settlement. Use Tab 6 (Billing & Payment) to record.
+                </p>
+              </div>
+            )}
+
+            {/* Stepper Nav Tabs */}
+            <div className="stepper-nav" style={{ display: 'flex', gap: '4px', overflowX: 'auto', borderBottom: '1px solid var(--border)', padding: '0.5rem 1.25rem 0', background: 'var(--surface-secondary)' }}>
               {[
-                { id: 'details', label: 'Overview' },
-                { id: 'schedule', label: (activeJob.status === 'CANCELLED' || activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? '🔒 Schedule' : '1. Schedule' },
-                { id: 'dispatch', label: (activeJob.status === 'CANCELLED' || activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? '🔒 Dispatch' : '2. Dispatch' },
-                { id: 'custody', label: (activeJob.status === 'CANCELLED' || activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? '🔒 Intake' : '3. Intake & Custody' },
-                { id: 'estimate', label: (activeJob.status === 'CANCELLED' || activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? '🔒 Estimate' : '4. Estimate & Parts' },
-                { id: 'qc', label: (activeJob.status === 'CANCELLED' || activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? '🔒 QC' : '5. Quality Control' },
-                { id: 'return', label: (activeJob.status === 'CANCELLED' || activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? '🔒 Release' : '6. Release & Return' },
-                { id: 'payment', label: (activeJob.status === 'CANCELLED' || activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? '🔒 Payment' : '7. Payment' },
+                { id: 'details', label: 'Overview & Requirements' },
+                { id: 'schedule', label: isJobCancelled ? '🔒 Schedule' : '1. Schedule' },
+                { id: 'dispatch', label: isJobCancelled ? '🔒 Dispatch' : '2. Dispatch' },
+                { id: 'custody', label: isJobCancelled ? '🔒 Intake' : '3. Intake & Custody' },
+                { id: 'estimate', label: isJobCancelled ? '🔒 Estimate' : '4. Estimate & Approval' },
+                { id: 'qc', label: isJobCancelled ? '🔒 QC' : '5. Quality Control' },
+                { id: 'payment', label: isJobCancelled ? '🔒 Payment' : '6. Billing & Payment' },
+                { id: 'return', label: isJobCancelled ? '🔒 Handover' : '7. Release & Handover' },
               ].map(tab => (
                 <button
                   key={tab.id}
                   type="button"
                   className={`stepper-tab ${actionTab === tab.id ? 'active' : ''}`}
                   onClick={() => setActionTab(tab.id as any)}
+                  style={{
+                    padding: '0.6rem 0.9rem',
+                    border: 'none',
+                    borderBottom: actionTab === tab.id ? '2px solid var(--accent)' : '2px solid transparent',
+                    background: 'transparent',
+                    color: actionTab === tab.id ? 'var(--accent)' : 'var(--muted)',
+                    fontWeight: actionTab === tab.id ? 700 : 500,
+                    fontSize: '0.8125rem',
+                    cursor: 'pointer',
+                    whiteSpace: 'nowrap',
+                  }}
                 >
                   {tab.label}
                 </button>
               ))}
             </div>
 
-            <div className="modal-body" style={{ padding: '1.25rem' }}>
-              {/* TAB 1: DETAILS */}
+            {/* Modal Body */}
+            <div className="modal-body custom-scrollbar" style={{ padding: '1.25rem', overflowY: 'auto', flex: 1 }}>
+              {loadingDetails && (
+                <div style={{ padding: '0.5rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.8rem', background: 'var(--surface-secondary)', borderRadius: '4px', marginBottom: '0.75rem' }}>
+                  Refreshing full job details…
+                </div>
+              )}
+
+              {/* TAB: OVERVIEW */}
               {actionTab === 'details' && (
                 <div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+                  {/* 1. CUSTOMER REQUIREMENTS & REPORTED ISSUES (PROMINENT AT TOP) */}
+                  <div style={{
+                    background: 'rgba(247, 181, 3, 0.08)',
+                    border: '1px solid rgba(247, 181, 3, 0.35)',
+                    borderLeft: '4px solid var(--accent)',
+                    padding: '1rem',
+                    borderRadius: '8px',
+                    marginBottom: '1.25rem',
+                  }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <div style={{ fontSize: '0.8125rem', fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent)' }}>
+                        Customer Requirements & Diagnostic Complaints
+                      </div>
+                      <span className="badge badge-info" style={{ fontWeight: 700, textTransform: 'uppercase' }}>
+                        {activeJob.categoryKey?.replace(/-/g, ' ')}
+                      </span>
+                    </div>
+
+                    <div style={{ fontSize: '0.95rem', fontWeight: 600, color: 'var(--text)', marginBottom: '0.5rem', whiteSpace: 'pre-wrap' }}>
+                      {activeJob.customerSymptoms || activeJob.customerNotes || 'No specific customer symptoms recorded.'}
+                    </div>
+
+                    {/* Safety alert if flag is active */}
+                    {activeJob.emergencySafetyFlag && (
+                      <div style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', borderRadius: '4px', color: '#ef4444' }}>
+                        <strong>⚠️ Critical Safety Warning Logged:</strong> {activeJob.safetyNotes || 'Emergency safety flag reported.'}
+                      </div>
+                    )}
+
+                    {/* Diagnostic Questionnaire Answers */}
+                    {activeJob.questionAnswers && typeof activeJob.questionAnswers === 'object' && Object.keys(activeJob.questionAnswers).length > 0 && (
+                      <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed rgba(247, 181, 3, 0.25)' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.35rem' }}>
+                          Diagnostic Questionnaire Responses:
+                        </span>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.5rem' }}>
+                          {Object.entries(activeJob.questionAnswers).map(([k, v]) => (
+                            <div key={k} style={{ background: 'var(--surface)', padding: '0.4rem 0.6rem', borderRadius: '4px', fontSize: '0.8125rem' }}>
+                              <span style={{ color: 'var(--muted)', fontSize: '0.75rem', display: 'block' }}>
+                                {k.replace(/_/g, ' ').toUpperCase()}:
+                              </span>
+                              <strong>{String(v)}</strong>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Customer Photos / Uploaded Media */}
+                    {Array.isArray(activeJob.mediaUrls) && activeJob.mediaUrls.length > 0 && (
+                      <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed rgba(247, 181, 3, 0.25)' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.35rem' }}>
+                          Customer Attachments / Photos ({activeJob.mediaUrls.length}):
+                        </span>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          {activeJob.mediaUrls.map((url, idx) => (
+                            <a
+                              key={idx}
+                              href={url}
+                              target="_blank"
+                              rel="noreferrer"
+                              style={{ display: 'block', border: '1px solid var(--border)', borderRadius: '4px', overflow: 'hidden' }}
+                            >
+                              <img src={url} alt={`Photo ${idx + 1}`} style={{ width: '60px', height: '60px', objectFit: 'cover' }} />
+                            </a>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* 2. SPECIFICATION CARDS */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginBottom: '1.25rem' }}>
                     <div style={{ background: 'var(--surface-secondary)', padding: '0.75rem', borderRadius: '6px' }}>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>CUSTOMER DETAILS</span>
-                      <div><strong>{activeJob.customer?.displayName || 'Customer'}</strong></div>
+                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>CUSTOMER CONTACT</span>
+                      <div><strong>{activeJob.customer?.displayName || 'Walk-In Customer'}</strong></div>
                       <div>Phone: {activeJob.customer?.phone || '—'}</div>
                       <div>Email: {activeJob.customer?.email || '—'}</div>
                     </div>
@@ -633,13 +949,13 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>VEHICLE SPECIFICATIONS</span>
                       <div><strong>{activeJob.vehicle?.make} {activeJob.vehicle?.model} {activeJob.vehicle?.variant || ''}</strong></div>
                       <div>Year: {activeJob.vehicle?.year || '—'} · Fuel: {activeJob.vehicle?.fuelType || 'Petrol'}</div>
-                      <div>Reg Plate: <span className="code-pill">{activeJob.vehicle?.registrationNumber || '—'}</span></div>
+                      <div>Reg Plate: <span className="code-pill">{activeJob.vehicle?.registrationNumber || 'No Plate'}</span></div>
                     </div>
                     <div style={{ background: 'var(--surface-secondary)', padding: '0.75rem', borderRadius: '6px' }}>
                       <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>LOGISTICS & HUB</span>
                       <div><strong>{activeJob.hub?.name || 'Local Hub'} ({activeJob.hub?.city})</strong></div>
-                      <div>Fulfillment: {activeJob.fulfillmentType === 'DOORSTEP_PICKUP' ? 'Doorstep Pickup' : 'Self Drop'}</div>
-                      {activeJob.pickupAddress && <div style={{ fontSize: '0.8rem' }}>Pickup: {activeJob.pickupAddress}</div>}
+                      <div>Fulfillment: {activeJob.fulfillmentType === 'DOORSTEP_PICKUP' ? 'Doorstep Pickup' : 'Self Drop at Hub'}</div>
+                      {activeJob.pickupAddress && <div style={{ fontSize: '0.8rem' }}>Pickup: {String(activeJob.pickupAddress)}</div>}
                     </div>
                     <div style={{ background: 'var(--surface-secondary)', padding: '0.75rem', borderRadius: '6px' }}>
                       <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>CURRENT STATUS</span>
@@ -649,18 +965,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         </span>
                       </div>
                       <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px' }}>
-                        Created: {new Date(activeJob.createdAt).toLocaleDateString('en-IN')}
+                        Created: {formatDate(activeJob.createdAt)}
                       </div>
                     </div>
                   </div>
 
-                  {activeJob.customerNotes && (
-                    <div style={{ marginBottom: '1.25rem', padding: '0.75rem', background: 'rgba(247, 181, 3, 0.1)', borderRadius: '6px', borderLeft: '3px solid var(--accent)' }}>
-                      <strong>Customer Symptoms & Complaints:</strong>
-                      <p style={{ margin: '4px 0 0 0', fontSize: '0.875rem' }}>{activeJob.customerNotes}</p>
-                    </div>
-                  )}
-
+                  {/* 3. CUSTODY INTAKE DETAILS */}
                   {activeJob.custodyRecord && (
                     <div style={{ marginBottom: '1.25rem', padding: '0.75rem', background: 'var(--surface-secondary)', borderRadius: '6px' }}>
                       <strong>Recorded Vehicle Intake Custody:</strong>
@@ -675,22 +985,46 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     </div>
                   )}
 
-                  {activeJob.estimates?.[0] && (
-                    <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'var(--surface-secondary)', borderRadius: '6px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <strong>Service Estimate #{activeJob.estimates[0].id.slice(0, 8)}</strong>
+                  {/* 4. FINANCIAL & PAYMENT SUMMARY */}
+                  <div style={{ marginBottom: '1.25rem', padding: '1rem', background: 'var(--surface-secondary)', borderRadius: '6px' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                      <strong style={{ fontSize: '0.875rem', textTransform: 'uppercase', color: 'var(--accent)' }}>Billing & Payment Summary</strong>
+                      {activeJob.estimates?.[0] && (
                         <span className={`badge ${activeJob.estimates[0].status === 'APPROVED' ? 'badge-success' : 'badge-warning'}`}>
-                          {activeJob.estimates[0].status}
+                          Estimate: {activeJob.estimates[0].status}
                         </span>
+                      )}
+                    </div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem' }}>
+                      <div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Approved Estimate</span>
+                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text)' }}>
+                          ₹{activeEstimateTotalRupees.toLocaleString('en-IN')}
+                        </div>
                       </div>
-                      <div style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--accent)', marginTop: '4px' }}>
-                        {formatRupees(activeJob.estimates[0].totalAmountPaise)}
+                      <div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Total Paid</span>
+                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#10b981' }}>
+                          ₹{activeTotalPaidRupees.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Balance Due</span>
+                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: activeBalanceDueRupees > 0 ? '#ef4444' : 'var(--muted)' }}>
+                          ₹{activeBalanceDueRupees.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Transactions</span>
+                        <div style={{ fontSize: '1.15rem', fontWeight: 800 }}>
+                          {(activeJob.payments || []).length}
+                        </div>
                       </div>
                     </div>
-                  )}
+                  </div>
 
-                  {/* Cancel Job Action for Active Jobs */}
-                  {activeJob.status !== 'CANCELLED' && activeJob.status !== 'DELIVERED' && activeJob.status !== 'COMPLETED' && (
+                  {/* Cancel Job Action */}
+                  {!isJobCancelled && !isJobConcluded && (
                     <div style={{ marginTop: '1.5rem', paddingTop: '1rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end' }}>
                       <button
                         type="button"
@@ -705,36 +1039,17 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 </div>
               )}
 
-              {/* TAB 2: SCHEDULE */}
+              {/* TAB 1: SCHEDULE */}
               {actionTab === 'schedule' && (
-                activeJob.status === 'CANCELLED' ? (
-                  <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px dashed rgba(239, 68, 68, 0.4)' }}>
+                isJobCancelled ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: '0 0 0.5rem', color: '#ef4444' }}>Appointment Scheduling Locked — Job Cancelled</h4>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.875rem', maxWidth: '440px', margin: '0 auto' }}>
-                      This service job has been cancelled. Rescheduling or advisor assignments are disabled.
-                    </p>
-                  </div>
-                ) : (activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? (
-                  <div style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 700, marginBottom: '0.75rem' }}>
-                      <span>✓</span> Service Appointment Completed
-                    </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                      <div>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Scheduled Date</span>
-                        <div><strong>{activeJob.scheduledDate}</strong></div>
-                      </div>
-                      <div>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Scheduled Slot</span>
-                        <div><strong>{activeJob.scheduledTimeSlot}</strong></div>
-                      </div>
-                    </div>
+                    <h4 style={{ margin: 0, color: '#ef4444' }}>Appointment Locked — Job Cancelled</h4>
                   </div>
                 ) : (
                   <form onSubmit={handleScheduleSubmit}>
                     <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                      Confirm or reschedule workshop slot and assign an authorized Service Advisor to this job.
+                      Re-assign service advisor or reschedule the workshop appointment slot.
                     </p>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
                       <div>
@@ -743,7 +1058,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           type="date"
                           className="input"
                           required
-                          defaultValue={activeJob.scheduledDate || new Date().toISOString().split('T')[0]}
+                          value={scheduleDate || activeJob.scheduledDate}
                           onChange={e => setScheduleDate(e.target.value)}
                           style={{ width: '100%', marginTop: '4px' }}
                         />
@@ -752,71 +1067,57 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Time Slot *</label>
                         <select
                           className="select"
-                          value={scheduleSlot}
+                          value={scheduleSlot || activeJob.scheduledTimeSlot}
                           onChange={e => setScheduleSlot(e.target.value)}
                           style={{ width: '100%', marginTop: '4px' }}
                         >
-                          <option value="09:00 - 11:00">09:00 - 11:00 AM</option>
-                          <option value="11:00 - 13:00">11:00 AM - 01:00 PM</option>
-                          <option value="14:00 - 16:00">02:00 - 04:00 PM</option>
-                          <option value="16:00 - 18:00">04:00 - 06:00 PM</option>
+                          <option value="10:00 - 12:00">10:00 - 12:00</option>
+                          <option value="12:00 - 14:00">12:00 - 14:00</option>
+                          <option value="15:00 - 17:00">15:00 - 17:00</option>
                         </select>
                       </div>
                     </div>
                     <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Cancel</button>
+                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Close</button>
                       <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
-                        {actionBusy ? 'Scheduling…' : 'Confirm Appointment Slot'}
+                        {actionBusy ? 'Saving…' : 'Update Appointment'}
                       </button>
                     </div>
                   </form>
                 )
               )}
 
-              {/* TAB 3: DISPATCH */}
+              {/* TAB 2: DISPATCH */}
               {actionTab === 'dispatch' && (
-                activeJob.status === 'CANCELLED' ? (
-                  <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px dashed rgba(239, 68, 68, 0.4)' }}>
+                isJobCancelled ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: '0 0 0.5rem', color: '#ef4444' }}>Driver Dispatch Locked — Job Cancelled</h4>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.875rem', maxWidth: '440px', margin: '0 auto' }}>
-                      This service job has been cancelled. Driver dispatch is disabled.
-                    </p>
-                  </div>
-                ) : (activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? (
-                  <div style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 700, marginBottom: '0.75rem' }}>
-                      <span>✓</span> Dispatch & Fulfillment Concluded
-                    </div>
-                    <div>
-                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Fulfillment Type</span>
-                      <div><strong>{activeJob.fulfillmentType === 'DOORSTEP_PICKUP' ? 'Doorstep Collection & Delivery' : 'Self Drop at Hub'}</strong></div>
-                    </div>
+                    <h4 style={{ margin: 0, color: '#ef4444' }}>Dispatch Locked — Job Cancelled</h4>
                   </div>
                 ) : (
                   <form onSubmit={handleDispatchSubmit}>
                     <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                      Dispatch a verified field driver for doorstep vehicle collection or return delivery.
+                      Assign a workshop pickup or return delivery driver to retrieve or drop the vehicle.
                     </p>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
                       <div>
-                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Dispatch Type *</label>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Dispatch Movement Type *</label>
                         <select
                           className="select"
                           value={dispatchType}
                           onChange={e => setDispatchType(e.target.value as any)}
                           style={{ width: '100%', marginTop: '4px' }}
                         >
-                          <option value="PICKUP">Doorstep Pickup</option>
-                          <option value="RETURN">Return Delivery</option>
+                          <option value="PICKUP">Doorstep Pickup (Intake to Hub)</option>
+                          <option value="RETURN">Return Delivery (Hub to Customer)</option>
                         </select>
                       </div>
                       <div>
-                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Assigned Driver Employee ID *</label>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Driver ID / Staff Name</label>
                         <input
                           type="text"
                           className="input"
-                          placeholder="e.g. driver-emp-01 or leave blank for self"
+                          placeholder="e.g. Suresh Kumar"
                           value={dispatchDriverId}
                           onChange={e => setDispatchDriverId(e.target.value)}
                           style={{ width: '100%', marginTop: '4px' }}
@@ -824,55 +1125,46 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       </div>
                     </div>
                     <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Cancel</button>
+                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Close</button>
                       <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
-                        {actionBusy ? 'Dispatching…' : 'Dispatch Driver'}
+                        {actionBusy ? 'Dispatching…' : 'Confirm Driver Dispatch'}
                       </button>
                     </div>
                   </form>
                 )
               )}
 
-              {/* TAB 4: CUSTODY INTAKE */}
+              {/* TAB 3: INTAKE & CUSTODY */}
               {actionTab === 'custody' && (
-                activeJob.status === 'CANCELLED' ? (
-                  <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px dashed rgba(239, 68, 68, 0.4)' }}>
+                isJobCancelled ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: '0 0 0.5rem', color: '#ef4444' }}>Custody Check-In Locked — Job Cancelled</h4>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.875rem', maxWidth: '440px', margin: '0 auto' }}>
-                      This service booking was cancelled. Custody check-in cannot be executed.
-                    </p>
+                    <h4 style={{ margin: 0, color: '#ef4444' }}>Intake Locked — Job Cancelled</h4>
                   </div>
-                ) : (activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED' || activeJob.custodyRecord) ? (
+                ) : activeJob.custodyRecord ? (
                   <div style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 700, marginBottom: '0.75rem' }}>
-                      <span>✓</span> Intake Custody Record Finalized
+                      <span>✓</span> Vehicle Custody Intake Recorded
                     </div>
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
-                      <div>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Intake Odometer</span>
-                        <div><strong>{activeJob.custodyRecord?.odometerKm ?? intakeOdometer} km</strong></div>
-                      </div>
-                      <div>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Fuel / Battery Level</span>
-                        <div><strong>{activeJob.custodyRecord?.fuelPercent ?? intakeFuel}%</strong></div>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.875rem' }}>
+                      <div><strong>Odometer:</strong> {activeJob.custodyRecord.odometerKm} km</div>
+                      <div><strong>Fuel Level:</strong> {activeJob.custodyRecord.fuelPercent}%</div>
+                      <div style={{ gridColumn: 'span 2' }}>
+                        <strong>Condition & Damage Notes:</strong>
+                        <p style={{ margin: '4px 0 0', color: 'var(--muted)' }}>
+                          {activeJob.custodyRecord.exteriorNotes || 'Visual inspection complete. No major dents observed.'}
+                        </p>
                       </div>
                     </div>
-                    {activeJob.custodyRecord?.exteriorNotes && (
-                      <div style={{ marginTop: '0.75rem' }}>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Condition Notes</span>
-                        <div>{activeJob.custodyRecord.exteriorNotes}</div>
-                      </div>
-                    )}
                   </div>
                 ) : (
                   <form onSubmit={handleCustodySubmit}>
                     <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                      Formal legal custody handover. Record exact odometer reading, fuel percentage, and initial exterior damage report.
+                      Record vehicle physical custody check-in, current odometer reading, fuel level, and pre-existing scratches.
                     </p>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
                       <div>
-                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Intake Odometer (km) *</label>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Odometer Reading (km) *</label>
                         <input
                           type="number"
                           className="input"
@@ -883,7 +1175,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         />
                       </div>
                       <div>
-                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fuel / Battery Level (%) *</label>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fuel Tank Level (%) *</label>
                         <input
                           type="number"
                           className="input"
@@ -897,225 +1189,216 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       </div>
                     </div>
                     <div style={{ marginTop: '1rem' }}>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Exterior Condition & Existing Scratches / Dents</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Pre-existing Damage / Inspection Notes</label>
                       <textarea
                         className="input"
                         rows={3}
-                        placeholder="Note existing scratches, windshield chips, tyre tread condition..."
                         value={intakeNotes}
                         onChange={e => setIntakeNotes(e.target.value)}
+                        placeholder="e.g. Minor scratch on rear bumper, spare tire present, toolkit checked."
                         style={{ width: '100%', marginTop: '4px' }}
                       />
                     </div>
                     <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Cancel</button>
+                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Close</button>
                       <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
-                        {actionBusy ? 'Recording Intake…' : 'Confirm Custody Intake'}
+                        {actionBusy ? 'Saving…' : 'Confirm Custody Check-In'}
                       </button>
                     </div>
                   </form>
                 )
               )}
 
-              {/* TAB 5: ESTIMATE */}
+              {/* TAB 4: ESTIMATE & APPROVAL */}
               {actionTab === 'estimate' && (
-                activeJob.status === 'CANCELLED' ? (
-                  <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px dashed rgba(239, 68, 68, 0.4)' }}>
+                isJobCancelled ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: '0 0 0.5rem', color: '#ef4444' }}>Estimate Creation Locked — Job Cancelled</h4>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.875rem', maxWidth: '440px', margin: '0 auto' }}>
-                      This service job has been cancelled. Additional estimates cannot be submitted.
-                    </p>
+                    <h4 style={{ margin: 0, color: '#ef4444' }}>Estimate Creation Locked — Job Cancelled</h4>
                   </div>
-                ) : (activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? (
+                ) : activeJob.estimates?.[0] ? (
                   <div style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem' }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 700 }}>
-                        <span>✓</span> Service Estimate Finalized & Billed
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 700, fontSize: '1rem' }}>
+                          <span>Estimate #{activeJob.estimates[0].id.slice(0, 8)}</span>
+                          <span className={`badge ${activeJob.estimates[0].status === 'APPROVED' ? 'badge-success' : 'badge-warning'}`}>
+                            {activeJob.estimates[0].status}
+                          </span>
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: '2px' }}>
+                          Total: <strong style={{ color: 'var(--accent)', fontSize: '1.1rem' }}>{formatRupees(activeJob.estimates[0].totalAmountPaise)}</strong>
+                        </div>
                       </div>
-                      {activeJob.estimates?.[0] && (
-                        <span className={`badge ${activeJob.estimates[0].status === 'APPROVED' ? 'badge-success' : 'badge-warning'}`}>
-                          {activeJob.estimates[0].status}
-                        </span>
+
+                      {/* IN-PERSON / STAFF APPROVAL BUTTON */}
+                      {activeJob.estimates[0].status !== 'APPROVED' && (
+                        <button
+                          type="button"
+                          className="btn-primary btn-gold button primary"
+                          disabled={actionBusy}
+                          onClick={() => handleApproveEstimateInPerson(activeJob.estimates![0].id)}
+                          style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
+                        >
+                          <span>✓</span> Approve Estimate (In-Person / Phone)
+                        </button>
                       )}
                     </div>
-                    {activeJob.estimates?.[0] && (
-                      <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--accent)', marginTop: '4px' }}>
-                        {formatRupees(activeJob.estimates[0].totalAmountPaise)}
+
+                    {/* Estimate Line Items */}
+                    {Array.isArray((activeJob.estimates[0] as any).items) && (activeJob.estimates[0] as any).items.length > 0 && (
+                      <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                        <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Itemized Breakdown:</span>
+                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem', marginTop: '0.5rem' }}>
+                          <thead>
+                            <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', color: 'var(--muted)' }}>
+                              <th style={{ padding: '4px 8px' }}>TYPE</th>
+                              <th style={{ padding: '4px 8px' }}>DESCRIPTION</th>
+                              <th style={{ padding: '4px 8px', textAlign: 'center' }}>QTY</th>
+                              <th style={{ padding: '4px 8px', textAlign: 'right' }}>RATE</th>
+                              <th style={{ padding: '4px 8px', textAlign: 'right' }}>TOTAL</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {((activeJob.estimates[0] as any).items || []).map((item: any, idx: number) => (
+                              <tr key={idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                                <td style={{ padding: '6px 8px' }}><span className="code-pill">{item.category || item.itemType}</span></td>
+                                <td style={{ padding: '6px 8px' }}>{item.description}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center' }}>{item.quantity}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'right' }}>{formatRupees(item.unitPricePaise || item.unitRatePaise)}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700 }}>{formatRupees(item.totalPricePaise || item.lineTotalPaise)}</td>
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
                       </div>
                     )}
                   </div>
                 ) : (
                   <form onSubmit={handleEstimateSubmit}>
                     <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                      Itemized estimate creation. Every line requires an explicit description, unit rate, and quantity. Customer approval is required before execution.
+                      Prepare itemized diagnostic estimate with required replacement spares and labor charges for customer approval.
                     </p>
 
                     <div style={{ marginTop: '1rem' }}>
-                      <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 140px 38px', gap: '0.5rem', fontWeight: 600, fontSize: '0.75rem', color: 'var(--muted)', marginBottom: '4px' }}>
-                        <span>TYPE</span>
-                        <span>DESCRIPTION</span>
-                        <span>QTY</span>
-                        <span>RATE (₹)</span>
-                        <span></span>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--accent)' }}>Itemized Lines</label>
+                        <button
+                          type="button"
+                          className="btn-sm btn-secondary button secondary small"
+                          onClick={() => setEstimateLines(prev => [...prev, { itemType: 'PART', description: '', quantity: 1, unitRateRupees: 500 }])}
+                        >
+                          + Add Line
+                        </button>
                       </div>
+
                       {estimateLines.map((line, idx) => (
-                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '120px 1fr 80px 140px 38px', gap: '0.5rem', marginBottom: '6px', alignItems: 'center' }}>
+                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '120px 2fr 80px 120px 36px', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
                           <select
                             className="select"
                             value={line.itemType}
                             onChange={e => {
-                              const copy = [...estimateLines];
-                              copy[idx]!.itemType = e.target.value;
-                              setEstimateLines(copy);
+                              const val = e.target.value;
+                              setEstimateLines(prev => prev.map((l, i) => i === idx ? { ...l, itemType: val } : l));
                             }}
                           >
-                            <option value="LABOUR">Labour</option>
-                            <option value="PART">Part</option>
-                            <option value="CONSUMABLE">Consumable</option>
+                            <option value="LABOUR">LABOUR</option>
+                            <option value="PART">PART</option>
+                            <option value="CONSUMABLE">CONSUMABLE</option>
                           </select>
                           <input
                             type="text"
                             className="input"
-                            placeholder="Item description *"
+                            placeholder="Description"
+                            required
                             value={line.description}
                             onChange={e => {
-                              const copy = [...estimateLines];
-                              copy[idx]!.description = e.target.value;
-                              setEstimateLines(copy);
+                              const val = e.target.value;
+                              setEstimateLines(prev => prev.map((l, i) => i === idx ? { ...l, description: val } : l));
                             }}
                           />
                           <input
                             type="number"
                             className="input"
                             min={1}
+                            required
                             value={line.quantity}
                             onChange={e => {
-                              const copy = [...estimateLines];
-                              copy[idx]!.quantity = Number(e.target.value);
-                              setEstimateLines(copy);
+                              const val = Number(e.target.value);
+                              setEstimateLines(prev => prev.map((l, i) => i === idx ? { ...l, quantity: val } : l));
                             }}
                           />
                           <input
                             type="number"
                             className="input"
                             min={0}
+                            required
+                            placeholder="₹ Rate"
                             value={line.unitRateRupees}
                             onChange={e => {
-                              const copy = [...estimateLines];
-                              copy[idx]!.unitRateRupees = Number(e.target.value);
-                              setEstimateLines(copy);
+                              const val = Number(e.target.value);
+                              setEstimateLines(prev => prev.map((l, i) => i === idx ? { ...l, unitRateRupees: val } : l));
                             }}
                           />
-                          <button
-                            type="button"
-                            className="btn-danger btn-sm button danger small"
-                            title="Delete line item"
-                            onClick={() => {
-                              if (estimateLines.length <= 1) {
-                                setEstimateLines([{ itemType: 'LABOUR', description: '', quantity: 1, unitRateRupees: 0 }]);
-                              } else {
-                                setEstimateLines(estimateLines.filter((_, i) => i !== idx));
-                              }
-                            }}
-                            style={{
-                              padding: '0.35rem 0.5rem',
-                              height: '36px',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              borderRadius: '4px',
-                              color: '#ef4444',
-                              background: 'rgba(239, 68, 68, 0.12)',
-                              border: '1px solid rgba(239, 68, 68, 0.3)',
-                              cursor: 'pointer',
-                              fontSize: '0.9rem',
-                              fontWeight: 'bold',
-                            }}
-                          >
-                            ✕
-                          </button>
+                          {estimateLines.length > 1 && (
+                            <button
+                              type="button"
+                              className="icon-button"
+                              onClick={() => setEstimateLines(prev => prev.filter((_, i) => i !== idx))}
+                              style={{ color: '#ef4444' }}
+                            >
+                              ✕
+                            </button>
+                          )}
                         </div>
                       ))}
-                      <button
-                        type="button"
-                        className="btn-secondary btn-sm button secondary small"
-                        style={{ marginTop: '6px' }}
-                        onClick={() => setEstimateLines([...estimateLines, { itemType: 'PART', description: '', quantity: 1, unitRateRupees: 500 }])}
-                      >
-                        + Add Estimate Item
-                      </button>
-                    </div>
-
-                    {/* Summary calculation */}
-                    <div style={{ marginTop: '1.25rem', padding: '0.75rem', background: 'var(--surface-secondary)', borderRadius: '6px', textAlign: 'right' }}>
-                      <div style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                        Subtotal: ₹{estimateLines.reduce((acc, l) => acc + (l.quantity * l.unitRateRupees), 0).toLocaleString('en-IN')}
-                      </div>
-                      <div style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                        Estimated GST (18%): ₹{Math.round(estimateLines.reduce((acc, l) => acc + (l.quantity * l.unitRateRupees), 0) * 0.18).toLocaleString('en-IN')}
-                      </div>
-                      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--accent)', marginTop: '4px' }}>
-                        Grand Total: ₹{Math.round(estimateLines.reduce((acc, l) => acc + (l.quantity * l.unitRateRupees), 0) * 1.18).toLocaleString('en-IN')}
-                      </div>
                     </div>
 
                     <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Cancel</button>
+                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Close</button>
                       <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
-                        {actionBusy ? 'Submitting…' : 'Submit Itemized Estimate for Approval'}
+                        {actionBusy ? 'Creating…' : 'Issue Estimate to Customer'}
                       </button>
                     </div>
                   </form>
                 )
               )}
 
-              {/* TAB 6: QC */}
+              {/* TAB 5: QUALITY CONTROL */}
               {actionTab === 'qc' && (
-                activeJob.status === 'CANCELLED' ? (
-                  <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px dashed rgba(239, 68, 68, 0.4)' }}>
+                isJobCancelled ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: '0 0 0.5rem', color: '#ef4444' }}>Quality Control Locked — Job Cancelled</h4>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.875rem', maxWidth: '440px', margin: '0 auto' }}>
-                      This service job has been cancelled. Quality control inspection is disabled.
-                    </p>
-                  </div>
-                ) : (activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? (
-                  <div style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 700, marginBottom: '0.75rem' }}>
-                      <span>✓</span> Quality Control Passed
-                    </div>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-                      Multi-point safety inspection and road test were verified and approved prior to vehicle delivery.
-                    </p>
+                    <h4 style={{ margin: 0, color: '#ef4444' }}>QC Locked — Job Cancelled</h4>
                   </div>
                 ) : (
                   <form onSubmit={handleQcSubmit}>
                     <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                      Independent Quality Control sign-off before vehicle release. Technician work orders must be validated.
+                      Conduct multi-point quality control road test and sign off before vehicle release.
                     </p>
-                    <div style={{ marginTop: '1rem', display: 'flex', gap: '1rem' }}>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                    <div style={{ marginTop: '1rem', display: 'flex', gap: '1.5rem', alignItems: 'center' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
                         <input
                           type="radio"
                           name="qcDecision"
                           checked={qcPassed}
                           onChange={() => setQcPassed(true)}
                         />
-                        <span style={{ fontWeight: 600, color: 'var(--success)' }}>PASS — Ready for Delivery</span>
+                        <span style={{ color: '#10b981' }}>✓ Quality Control PASSED</span>
                       </label>
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer' }}>
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
                         <input
                           type="radio"
                           name="qcDecision"
                           checked={!qcPassed}
                           onChange={() => setQcPassed(false)}
                         />
-                        <span style={{ fontWeight: 600, color: 'var(--danger)' }}>REWORK REQUIRED — Reject to Technician</span>
+                        <span style={{ color: '#ef4444' }}>✕ Rework Required</span>
                       </label>
                     </div>
+
                     <div style={{ marginTop: '1rem' }}>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>QC Inspection Notes *</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>QC Inspector Notes & Road Test Findings</label>
                       <textarea
                         className="input"
                         rows={3}
@@ -1125,53 +1408,222 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         style={{ width: '100%', marginTop: '4px' }}
                       />
                     </div>
+
                     <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Cancel</button>
+                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Close</button>
                       <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
-                        {actionBusy ? 'Saving…' : 'Record QC Decision'}
+                        {actionBusy ? 'Saving…' : 'Sign Off Quality Control'}
                       </button>
                     </div>
                   </form>
                 )
               )}
 
-              {/* TAB 7: RETURN */}
-              {actionTab === 'return' && (
-                activeJob.status === 'CANCELLED' ? (
-                  <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px dashed rgba(239, 68, 68, 0.4)' }}>
+              {/* TAB 6: BILLING & PAYMENT (ALWAYS ACCESSIBLE WITH HISTORY) */}
+              {actionTab === 'payment' && (
+                isJobCancelled ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: '0 0 0.5rem', color: '#ef4444' }}>Vehicle Release Locked — Job Cancelled</h4>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.875rem', maxWidth: '440px', margin: '0 auto' }}>
-                      This service booking was cancelled. Delivery handover is disabled.
-                    </p>
+                    <h4 style={{ margin: 0, color: '#ef4444' }}>Payment Processing Locked — Job Cancelled</h4>
                   </div>
-                ) : (activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? (
-                  <div style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 700, marginBottom: '0.75rem' }}>
-                      <span>✓</span> Vehicle Handover Concluded
+                ) : (
+                  <div>
+                    {/* FINANCIAL SUMMARY CARDS */}
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                      <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700 }}>Approved Estimate</span>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--text)', marginTop: '2px' }}>
+                          ₹{activeEstimateTotalRupees.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700 }}>Total Collected</span>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#10b981', marginTop: '2px' }}>
+                          ₹{activeTotalPaidRupees.toLocaleString('en-IN')}
+                        </div>
+                      </div>
+                      <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px' }}>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700 }}>Balance Due</span>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: activeBalanceDueRupees > 0 ? '#ef4444' : '#10b981', marginTop: '2px' }}>
+                          ₹{activeBalanceDueRupees.toLocaleString('en-IN')}
+                        </div>
+                      </div>
                     </div>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.85rem' }}>
-                      Vehicle has been released and customer custody acknowledgment has been recorded.
-                    </p>
+
+                    {/* TRANSACTION RECORDS HISTORY TABLE */}
+                    <div style={{ marginBottom: '1.5rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
+                        <h4 style={{ margin: 0, fontSize: '0.9rem', textTransform: 'uppercase', color: 'var(--accent)', letterSpacing: '0.05em' }}>
+                          Transaction Records & Payment History
+                        </h4>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                          {(activeJob.payments || []).length} Recorded Transaction(s)
+                        </span>
+                      </div>
+
+                      {!(activeJob.payments && activeJob.payments.length > 0) ? (
+                        <div style={{ padding: '1.5rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '6px', color: 'var(--muted)', fontSize: '0.875rem' }}>
+                          No payment transactions recorded for this service request yet.
+                        </div>
+                      ) : (
+                        <div style={{ background: 'var(--surface-secondary)', borderRadius: '6px', overflow: 'hidden' }}>
+                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+                            <thead>
+                              <tr style={{ background: 'rgba(255, 255, 255, 0.04)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                                <th style={{ padding: '0.6rem 0.75rem' }}>DATE & TIME</th>
+                                <th style={{ padding: '0.6rem 0.75rem' }}>TYPE</th>
+                                <th style={{ padding: '0.6rem 0.75rem' }}>AMOUNT</th>
+                                <th style={{ padding: '0.6rem 0.75rem' }}>METHOD / GATEWAY</th>
+                                <th style={{ padding: '0.6rem 0.75rem' }}>REF / TRANSACTION ID</th>
+                                <th style={{ padding: '0.6rem 0.75rem' }}>STATUS</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {activeJob.payments.map((p, idx) => (
+                                <tr key={p.id || idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                                  <td style={{ padding: '0.6rem 0.75rem' }}>{formatDate(p.createdAt)}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem' }}><span className="code-pill">{p.type}</span></td>
+                                  <td style={{ padding: '0.6rem 0.75rem', fontWeight: 800, color: 'var(--text)' }}>
+                                    ₹{Math.round(Number(p.amountPaise) / 100).toLocaleString('en-IN')}
+                                  </td>
+                                  <td style={{ padding: '0.6rem 0.75rem' }}>{p.paymentGateway || 'COUNTER'}</td>
+                                  <td style={{ padding: '0.6rem 0.75rem' }}>
+                                    <span style={{ fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                      {p.gatewayPaymentId || p.gatewayOrderId || '—'}
+                                    </span>
+                                  </td>
+                                  <td style={{ padding: '0.6rem 0.75rem' }}>
+                                    <span className={`badge ${p.status === 'PAID_VERIFIED' ? 'badge-success' : p.status === 'FAILED' ? 'badge-danger' : 'badge-warning'}`}>
+                                      {p.status}
+                                    </span>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* RECORD NEW PAYMENT FORM */}
+                    {activeBalanceDueRupees > 0 || !(activeJob.payments && activeJob.payments.length > 0) ? (
+                      <form onSubmit={handlePaymentSubmit} style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px solid rgba(247, 181, 3, 0.25)' }}>
+                        <h4 style={{ margin: '0 0 0.5rem', color: 'var(--accent)' }}>Record Payment Transaction</h4>
+                        <p style={{ fontSize: '0.875rem', color: 'var(--muted)', margin: '0 0 1rem' }}>
+                          Record counter customer payment received via UPI QR, card terminal POS, cash, or bank transfer.
+                        </p>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                          <div>
+                            <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Amount Received (₹) *</label>
+                            <input
+                              type="number"
+                              className="input"
+                              required
+                              value={paymentAmountRupees}
+                              onChange={e => setPaymentAmountRupees(Number(e.target.value))}
+                              style={{ width: '100%', marginTop: '4px' }}
+                            />
+                          </div>
+                          <div>
+                            <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Payment Method *</label>
+                            <select
+                              className="select"
+                              value={paymentMethod}
+                              onChange={e => setPaymentMethod(e.target.value)}
+                              style={{ width: '100%', marginTop: '4px' }}
+                            >
+                              <option value="UPI">UPI / QR Code</option>
+                              <option value="POS_CARD">POS Card Terminal</option>
+                              <option value="CASH">Cash Counter</option>
+                              <option value="NEFT">NEFT / RTGS Transfer</option>
+                            </select>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: '1rem', marginTop: '1rem', alignItems: 'center' }}>
+                          <div>
+                            <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>UTR / Bank Reference / POS Slip #</label>
+                            <input
+                              type="text"
+                              className="input"
+                              placeholder="e.g. UPI-UTR-20261102 or POS Slip #1234"
+                              value={paymentTxRef}
+                              onChange={e => setPaymentTxRef(e.target.value)}
+                              style={{ width: '100%', marginTop: '4px' }}
+                            />
+                          </div>
+                          <div style={{ paddingTop: '1.25rem' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 600 }}>
+                              <input
+                                type="checkbox"
+                                checked={paymentAutoVerify}
+                                onChange={e => setPaymentAutoVerify(e.target.checked)}
+                              />
+                              <span>Verify Immediately at Counter</span>
+                            </label>
+                          </div>
+                        </div>
+
+                        <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                          <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
+                            {actionBusy ? 'Recording…' : 'Record Service Payment'}
+                          </button>
+                        </div>
+                      </form>
+                    ) : (
+                      <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10b981', borderRadius: '8px', color: '#10b981', fontWeight: 600, textAlign: 'center' }}>
+                        ✓ Total invoice amount is fully settled. No balance remaining.
+                      </div>
+                    )}
+                  </div>
+                )
+              )}
+
+              {/* TAB 7: RELEASE & HANDOVER */}
+              {actionTab === 'return' && (
+                isJobCancelled ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
+                    <h4 style={{ margin: 0, color: '#ef4444' }}>Vehicle Release Locked — Job Cancelled</h4>
                   </div>
                 ) : (
                   <form onSubmit={handleReturnSubmit}>
                     <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                      Complete delivery release. Document final odometer reading and customer handover acknowledgment.
+                      Complete final vehicle departure check-out, record release odometer, and document customer handover.
                     </p>
-                    <div style={{ marginTop: '1rem' }}>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Release Odometer (km) *</label>
-                      <input
-                        type="number"
-                        className="input"
-                        required
-                        value={returnOdometer}
-                        onChange={e => setReturnOdometer(Number(e.target.value))}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
+
+                    {activeBalanceDueRupees > 0 && (
+                      <div style={{ padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.12)', borderLeft: '3px solid #ef4444', borderRadius: '4px', marginBottom: '1rem', color: '#ef4444', fontSize: '0.875rem' }}>
+                        <strong>⚠️ Notice:</strong> There is an outstanding balance of <strong>₹{activeBalanceDueRupees.toLocaleString('en-IN')}</strong> on this job. Please ensure payment is collected at the counter.
+                      </div>
+                    )}
+
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Departure Odometer (km) *</label>
+                        <input
+                          type="number"
+                          className="input"
+                          required
+                          value={returnOdometer}
+                          onChange={e => setReturnOdometer(Number(e.target.value))}
+                          style={{ width: '100%', marginTop: '4px' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Handover Recipient</label>
+                        <input
+                          type="text"
+                          className="input"
+                          readOnly
+                          value={activeJob.customer?.displayName || 'Customer Pickup / Delivery'}
+                          style={{ width: '100%', marginTop: '4px', opacity: 0.8 }}
+                        />
+                      </div>
                     </div>
+
                     <div style={{ marginTop: '1rem' }}>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Handover Notes</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Handover & Departure Notes</label>
                       <textarea
                         className="input"
                         rows={3}
@@ -1180,95 +1632,11 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         style={{ width: '100%', marginTop: '4px' }}
                       />
                     </div>
-                    <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Cancel</button>
-                      <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
-                        {actionBusy ? 'Confirming Delivery…' : 'Confirm Vehicle Handover'}
-                      </button>
-                    </div>
-                  </form>
-                )
-              )}
 
-              {/* TAB 8: PAYMENT */}
-              {actionTab === 'payment' && (
-                activeJob.status === 'CANCELLED' ? (
-                  <div style={{ padding: '2.5rem 1.5rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px dashed rgba(239, 68, 68, 0.4)' }}>
-                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: '0 0 0.5rem', color: '#ef4444' }}>Payment Processing Locked — Job Cancelled</h4>
-                    <p style={{ color: 'var(--muted)', fontSize: '0.875rem', maxWidth: '440px', margin: '0 auto' }}>
-                      This service booking was cancelled. Counter payment processing is disabled.
-                    </p>
-                  </div>
-                ) : (activeJob.status === 'DELIVERED' || activeJob.status === 'COMPLETED') ? (
-                  <div style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 700, marginBottom: '0.75rem' }}>
-                      <span>✓</span> Billing & Payment Finalized
-                    </div>
-                    {activeJob.estimates?.[0] && (
-                      <div style={{ marginTop: '0.5rem' }}>
-                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Total Amount</span>
-                        <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--accent)' }}>
-                          {formatRupees(activeJob.estimates[0].totalAmountPaise)}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                ) : (
-                  <form onSubmit={handlePaymentSubmit}>
-                    <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                      Record offline customer payment at the service counter. Finance officers will verify transaction against bank feeds.
-                    </p>
-                    {activeJob.estimates?.[0] && (
-                      <div style={{ padding: '0.75rem', background: 'var(--surface-secondary)', borderRadius: '6px', marginTop: '0.75rem', borderLeft: '3px solid var(--accent)' }}>
-                        <div style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Approved Estimate Total</div>
-                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--accent)', marginTop: '2px' }}>
-                          {formatRupees(activeJob.estimates[0].totalAmountPaise)}
-                        </div>
-                      </div>
-                    )}
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
-                      <div>
-                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Amount Received (₹) *</label>
-                        <input
-                          type="number"
-                          className="input"
-                          required
-                          value={paymentAmountRupees}
-                          onChange={e => setPaymentAmountRupees(Number(e.target.value))}
-                          style={{ width: '100%', marginTop: '4px' }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Payment Method *</label>
-                        <select
-                          className="select"
-                          value={paymentMethod}
-                          onChange={e => setPaymentMethod(e.target.value)}
-                          style={{ width: '100%', marginTop: '4px' }}
-                        >
-                          <option value="UPI">UPI / QR Code</option>
-                          <option value="POS_CARD">POS Card Terminal</option>
-                          <option value="NEFT">NEFT / RTGS Transfer</option>
-                          <option value="CASH">Cash Counter</option>
-                        </select>
-                      </div>
-                    </div>
-                    <div style={{ marginTop: '1rem' }}>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>UTR / Bank Reference / Receipt #</label>
-                      <input
-                        type="text"
-                        className="input"
-                        placeholder="e.g. UPI-UTR-2026110199 or POS slip #"
-                        value={paymentTxRef}
-                        onChange={e => setPaymentTxRef(e.target.value)}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
-                    </div>
                     <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Cancel</button>
+                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Close</button>
                       <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
-                        {actionBusy ? 'Recording…' : 'Record Service Payment'}
+                        {actionBusy ? 'Releasing…' : 'Release Vehicle & Conclude Handover'}
                       </button>
                     </div>
                   </form>
@@ -1279,7 +1647,292 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         </div>
       )}
 
-      {/* Cancel Service Job Confirmation Modal */}
+      {/* WALK-IN SERVICE BOOKING MODAL */}
+      {walkInModalOpen && (
+        <div className="modal-overlay" style={{ zIndex: 1100 }}>
+          <div className="modal-dialog" style={{ maxWidth: '780px', width: '95%', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
+            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>+</span> Offline Walk-In Service Booking
+                </h3>
+                <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                  Register a customer and vehicle arriving in-person at the workshop counter
+                </span>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setWalkInModalOpen(false)}
+                style={{ width: '32px', height: '32px', borderRadius: '6px' }}
+              >
+                <IconCross />
+              </button>
+            </div>
+
+            <form onSubmit={handleWalkInSubmit} style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0, overflow: 'hidden' }}>
+              <div className="modal-body custom-scrollbar" style={{ padding: '1.25rem', overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                
+                {/* 1. WORKSHOP HUB */}
+                <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px' }}>
+                  <label style={{ fontSize: '0.8125rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--accent)', display: 'block', marginBottom: '0.5rem' }}>
+                    1. Workshop Location & Service Category *
+                  </label>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Select Service Hub *</label>
+                      <select
+                        className="select"
+                        required
+                        value={walkInHubId}
+                        onChange={e => setWalkInHubId(e.target.value)}
+                        style={{ width: '100%', marginTop: '3px' }}
+                      >
+                        <option value="">-- Choose Workshop Hub --</option>
+                        {branches.map(b => (
+                          <option key={b.id} value={b.id}>{b.name} ({b.city})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Service Category *</label>
+                      <select
+                        className="select"
+                        required
+                        value={walkInCategoryKey}
+                        onChange={e => setWalkInCategoryKey(e.target.value)}
+                        style={{ width: '100%', marginTop: '3px' }}
+                      >
+                        {categories.length > 0 ? (
+                          categories.map(cat => (
+                            <option key={cat.categoryKey} value={cat.categoryKey}>
+                              {cat.title}
+                            </option>
+                          ))
+                        ) : (
+                          <>
+                            <option value="periodic-maintenance">Periodic Maintenance</option>
+                            <option value="general-repairs">General Repairs</option>
+                            <option value="ac-service">AC Service & Cooling</option>
+                            <option value="brake-system">Brake System Overhaul</option>
+                            <option value="engine-diagnostics">Engine Diagnostics & Tuning</option>
+                          </>
+                        )}
+                      </select>
+                    </div>
+                  </div>
+                </div>
+
+                {/* 2. CUSTOMER IDENTITY */}
+                <div>
+                  <div style={{ fontSize: '0.8125rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--accent)', marginBottom: '0.5rem' }}>
+                    2. Customer Contact Details *
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Customer Name *</label>
+                      <input
+                        type="text"
+                        className="input"
+                        required
+                        placeholder="e.g. Ramesh Kumar"
+                        value={walkInCustomerName}
+                        onChange={e => setWalkInCustomerName(e.target.value)}
+                        style={{ width: '100%', marginTop: '3px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Mobile Number (+91) *</label>
+                      <input
+                        type="tel"
+                        className="input"
+                        required
+                        placeholder="+91 9876543210"
+                        value={walkInCustomerPhone}
+                        onChange={e => setWalkInCustomerPhone(e.target.value)}
+                        style={{ width: '100%', marginTop: '3px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Email Address (Optional)</label>
+                      <input
+                        type="email"
+                        className="input"
+                        placeholder="customer@example.com"
+                        value={walkInCustomerEmail}
+                        onChange={e => setWalkInCustomerEmail(e.target.value)}
+                        style={{ width: '100%', marginTop: '3px' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 3. VEHICLE SPECIFICATIONS */}
+                <div>
+                  <div style={{ fontSize: '0.8125rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--accent)', marginBottom: '0.5rem' }}>
+                    3. Vehicle Specifications *
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Make *</label>
+                      <input
+                        type="text"
+                        className="input"
+                        required
+                        placeholder="e.g. Hyundai, Honda"
+                        value={walkInVehicleMake}
+                        onChange={e => setWalkInVehicleMake(e.target.value)}
+                        style={{ width: '100%', marginTop: '3px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Model *</label>
+                      <input
+                        type="text"
+                        className="input"
+                        required
+                        placeholder="e.g. Creta, City"
+                        value={walkInVehicleModel}
+                        onChange={e => setWalkInVehicleModel(e.target.value)}
+                        style={{ width: '100%', marginTop: '3px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Model Year *</label>
+                      <input
+                        type="number"
+                        className="input"
+                        required
+                        min={1990}
+                        max={new Date().getFullYear() + 1}
+                        value={walkInVehicleYear}
+                        onChange={e => setWalkInVehicleYear(Number(e.target.value))}
+                        style={{ width: '100%', marginTop: '3px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Fuel Type</label>
+                      <select
+                        className="select"
+                        value={walkInFuelType}
+                        onChange={e => setWalkInFuelType(e.target.value)}
+                        style={{ width: '100%', marginTop: '3px' }}
+                      >
+                        <option value="PETROL">Petrol</option>
+                        <option value="DIESEL">Diesel</option>
+                        <option value="CNG">CNG</option>
+                        <option value="ELECTRIC">Electric</option>
+                        <option value="HYBRID">Hybrid</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Registration Number</label>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="e.g. KA01AB1234"
+                        value={walkInRegNumber}
+                        onChange={e => setWalkInRegNumber(e.target.value.toUpperCase())}
+                        style={{ width: '100%', marginTop: '3px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Current Odometer (km)</label>
+                      <input
+                        type="number"
+                        className="input"
+                        min={0}
+                        value={walkInOdometer}
+                        onChange={e => setWalkInOdometer(Number(e.target.value))}
+                        style={{ width: '100%', marginTop: '3px' }}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* 4. CUSTOMER REQUIREMENTS & SYMPTOMS */}
+                <div>
+                  <div style={{ fontSize: '0.8125rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--accent)', marginBottom: '0.5rem' }}>
+                    4. Customer Requirements & Reported Complaints
+                  </div>
+                  <textarea
+                    className="input"
+                    rows={3}
+                    placeholder="Specific complaints reported by walk-in customer (e.g. AC blowing warm air, brake squeal, engine oil change, vibration at high speed)"
+                    value={walkInSymptoms}
+                    onChange={e => setWalkInSymptoms(e.target.value)}
+                    style={{ width: '100%', marginTop: '3px' }}
+                  />
+                </div>
+
+                {/* 5. IMMEDIATE INTAKE CHECK-IN OPTION */}
+                <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 700 }}>
+                    <input
+                      type="checkbox"
+                      checked={walkInImmediateIntake}
+                      onChange={e => setWalkInImmediateIntake(e.target.checked)}
+                    />
+                    <span style={{ color: 'var(--accent)' }}>Immediate Workshop Intake & Check-In</span>
+                  </label>
+                  <span style={{ fontSize: '0.75rem', color: 'var(--muted)', display: 'block', marginLeft: '24px', marginTop: '2px' }}>
+                    Customer is handing over the car now. Moves status directly to Checked In / In Workshop.
+                  </span>
+
+                  {walkInImmediateIntake && (
+                    <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid var(--border)', display: 'grid', gridTemplateColumns: '1fr 2fr', gap: '1rem' }}>
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Fuel Level (%)</label>
+                        <input
+                          type="number"
+                          className="input"
+                          min={0}
+                          max={100}
+                          value={walkInIntakeFuel}
+                          onChange={e => setWalkInIntakeFuel(Number(e.target.value))}
+                          style={{ width: '100%', marginTop: '3px' }}
+                        />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Intake Condition / Exterior Notes</label>
+                        <input
+                          type="text"
+                          className="input"
+                          placeholder="e.g. Scratches on left fender, spare tire and jack present"
+                          value={walkInIntakeNotes}
+                          onChange={e => setWalkInIntakeNotes(e.target.value)}
+                          style={{ width: '100%', marginTop: '3px' }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+
+              </div>
+
+              <div className="modal-footer" style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', background: 'var(--surface-secondary)' }}>
+                <button
+                  type="button"
+                  className="btn-secondary button secondary"
+                  onClick={() => setWalkInModalOpen(false)}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="btn-primary btn-gold button primary"
+                  disabled={walkInSubmitting}
+                  style={{ fontWeight: 700 }}
+                >
+                  {walkInSubmitting ? 'Registering Booking…' : 'Create Walk-In Job & Check In'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* CANCEL CONFIRMATION MODAL */}
       {cancelPromptOpen && activeJob && (
         <div className="modal-overlay" style={{ zIndex: 1100 }}>
           <div className="modal-dialog" style={{ maxWidth: '450px', width: '90%' }}>
@@ -1298,20 +1951,20 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Cancellation Reason *</label>
                 <textarea
                   className="input"
-                  rows={3}
                   required
-                  placeholder="e.g. Customer requested cancellation / parts unavailable..."
+                  rows={3}
                   value={cancelReason}
                   onChange={e => setCancelReason(e.target.value)}
+                  placeholder="e.g. Customer cancelled due to travel / parts unavailable"
                   style={{ width: '100%', marginTop: '4px' }}
                 />
               </div>
-              <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+              <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
                 <button type="button" className="btn-secondary button secondary" onClick={() => setCancelPromptOpen(false)}>
-                  Close
+                  Go Back
                 </button>
                 <button type="submit" className="btn-danger button danger" disabled={cancelling || !cancelReason.trim()}>
-                  {cancelling ? 'Cancelling…' : 'Confirm Cancellation'}
+                  {cancelling ? 'Cancelling…' : 'Confirm Cancel Job'}
                 </button>
               </div>
             </form>

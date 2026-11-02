@@ -339,6 +339,14 @@ export const api = {
     call<unknown>(u, `/operations/service/jobs/${id}/payments`, { method: 'POST', body: JSON.stringify(body) }),
   serviceCancelJob: (u: User, id: string, body: { reason: string }) =>
     call<unknown>(u, `/operations/service/jobs/${id}/cancel`, { method: 'POST', body: JSON.stringify(body) }),
+  createWalkInServiceJob: (u: User, body: Record<string, any>) =>
+    call<ServiceJobItem>(u, '/operations/service/walk-in', { method: 'POST', body: JSON.stringify(body) }),
+  approveServiceEstimateByStaff: (u: User, id: string, estimateId: string, body?: { decision?: 'APPROVE' | 'DECLINE'; notes?: string; channel?: string }) =>
+    call<unknown>(u, `/operations/service/jobs/${id}/estimates/${estimateId}/approve`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  serviceCategories: (u: User) =>
+    call<Array<{ categoryKey: string; title: string; description: string; icon: string }>>(u, '/service/categories'),
+  serviceHubs: (u: User) =>
+    call<Array<{ id: string; name: string; city: string; address?: string | null; code: string; isActive: boolean }>>(u, '/service/hubs'),
 
   // --- Car Rental Operations ---
   rentalHubs: (u: User) =>

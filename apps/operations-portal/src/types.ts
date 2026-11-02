@@ -380,18 +380,36 @@ export type AcquisitionOfferItem = {
 };
 
 export type ServiceJobStatus =
+  | 'DRAFT'
   | 'SUBMITTED'
+  | 'APPOINTMENT_SCHEDULED'
+  | 'PICKUP_DISPATCHED'
+  | 'IN_TRANSIT_TO_HUB'
+  | 'ARRIVED_AT_HUB'
+  | 'CHECKED_IN'
+  | 'DIAGNOSIS_IN_PROGRESS'
+  | 'ESTIMATE_PENDING_APPROVAL'
+  | 'ESTIMATE_APPROVED'
+  | 'ESTIMATE_REJECTED'
+  | 'PARTS_ORDERED'
+  | 'WORK_IN_PROGRESS'
+  | 'QC_PENDING'
+  | 'QC_PASSED'
+  | 'QC_REWORK_REQUIRED'
+  | 'INVOICE_GENERATED'
+  | 'PAYMENT_PENDING'
+  | 'PAID'
+  | 'RETURN_DISPATCHED'
+  | 'READY_FOR_COLLECTION'
+  | 'COMPLETED'
+  | 'CANCELLED'
   | 'REQUESTED'
   | 'AWAITING_DISPATCH'
   | 'VEHICLE_RECEIVED'
   | 'DIAGNOSIS_PENDING'
   | 'ESTIMATE_PENDING'
-  | 'IN_PROGRESS'
-  | 'QC_PENDING'
   | 'READY_FOR_DELIVERY'
-  | 'DELIVERED'
-  | 'COMPLETED'
-  | 'CANCELLED';
+  | 'DELIVERED';
 
 export type ServiceJobItem = {
   id: string;
@@ -403,6 +421,11 @@ export type ServiceJobItem = {
   fulfillmentType: 'DOORSTEP_PICKUP' | 'HUB_DROP';
   pickupAddress?: string | null;
   customerNotes?: string | null;
+  customerSymptoms?: string | null;
+  questionAnswers?: Record<string, any> | null;
+  mediaUrls?: string[];
+  emergencySafetyFlag?: boolean;
+  safetyNotes?: string | null;
   cancellationReason?: string | null;
   cancelledAt?: string | null;
   createdAt: string;
@@ -420,6 +443,7 @@ export type ServiceJobItem = {
     year: number;
     registrationNumber?: string | null;
     fuelType?: string | null;
+    odometerKm?: number | null;
   } | null;
   hub?: {
     id: string;
@@ -464,6 +488,27 @@ export type ServiceJobItem = {
     status: 'PENDING' | 'PAID_VERIFIED' | 'REFUNDED';
     paymentMethod: string;
   } | null;
+  payments?: Array<{
+    id: string;
+    type: string;
+    amountPaise: string | number;
+    status: 'PENDING' | 'PAID_VERIFIED' | 'FAILED';
+    paymentGateway?: string | null;
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
+    verifiedByFinanceId?: string | null;
+    verifiedAt?: string | null;
+    createdAt: string;
+  }>;
+  historyEvents?: Array<{
+    id: string;
+    fromStatus?: string | null;
+    toStatus: string;
+    title: string;
+    description: string;
+    actorRole?: string | null;
+    createdAt: string;
+  }>;
 };
 
 export type ServiceQueueResponse = {

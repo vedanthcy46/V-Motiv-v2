@@ -1538,6 +1538,213 @@ export class PrismaServiceStore {
   }
 
   // -------------------------------------------------------------
+
+  async createWalkInServiceJob(
+    actorId: string,
+    input: {
+      hubId: string;
+      customerName: string;
+      customerPhone: string;
+      customerEmail?: string;
+      vehicleMake: string;
+      vehicleModel: string;
+      vehicleYear: number;
+      fuelType?: string;
+      transmission?: string;
+      registrationNumber?: string;
+      odometerKm?: number;
+      categoryKey: string;
+      customerSymptoms?: string;
+      scheduledDate?: string;
+      scheduledTimeSlot?: string;
+      immediateIntake?: boolean;
+      intakeOdometerKm?: number;
+      intakeFuelPercent?: number;
+      intakeNotes?: string;
+    }
+  ) {
+    const hub = await this.db.serviceHub.findUnique({ where: { id: input.hubId } });
+    if (!hub || !hub.isActive) throw new HttpError(404, 'HUB_NOT_FOUND');
+
+    await this.ensureSeedData();
+    let template = await this.db.serviceIssueTemplate.findUnique({
+      where: { categoryKey: input.categoryKey },
+    });
+    if (!template) {
+      template = await this.db.serviceIssueTemplate.findFirst({ where: { isActive: true } });
+    }
+    if (!template) throw new HttpError(404, 'CATEGORY_NOT_FOUND');
+
+    return this.db.$transaction(async tx => {
+      // 1. Find or create Customer User
+      let customer = await tx.user.findFirst({
+        where: {
+          OR: [
+            { phone: input.customerPhone.trim() },
+            ...(input.customerEmail ? [{ email: input.customerEmail.toLowerCase().trim() }] : []),
+          ],
+        },
+      });
+
+      if (!customer) {
+        const email =
+          input.customerEmail?.toLowerCase().trim() ||
+          `walkin_${Date.now()}_${Math.random().toString(36).substring(2, 6)}@service.vmotiv.in`;
+        customer = await tx.user.create({
+          data: {
+            firebaseUid: `walkin_service_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
+            email,
+            phone: input.customerPhone.trim(),
+            displayName: input.customerName.trim(),
+          },
+        });
+      }
+
+      // 2. Find or create Vehicle
+      let vehicle = await tx.customerVehicle.findFirst({
+        where: {
+          userId: customer.id,
+          ...(input.registrationNumber
+            ? { registrationNumber: input.registrationNumber.trim().toUpperCase() }
+            : { make: input.vehicleMake.trim(), model: input.vehicleModel.trim() }),
+          isArchived: false,
+        },
+      });
+
+      if (!vehicle) {
+        vehicle = await tx.customerVehicle.create({
+          data: {
+            userId: customer.id,
+            make: input.vehicleMake.trim(),
+            model: input.vehicleModel.trim(),
+            year: input.vehicleYear || new Date().getFullYear(),
+            fuelType: (input.fuelType || 'PETROL').toUpperCase(),
+            transmission: (input.transmission || 'MANUAL').toUpperCase(),
+            registrationNumber: input.registrationNumber?.trim().toUpperCase() || null,
+            odometerKm: input.odometerKm || input.intakeOdometerKm || 0,
+            declaredOwnership: 'OWNER',
+          },
+        });
+      }
+
+      // 3. Generate Request Number
+      const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+      const randomHex = Math.floor(1000 + Math.random() * 9000).toString();
+      const requestNumber = `SR-${dateStr}-${randomHex}`;
+
+      const scheduledDate = input.scheduledDate || new Date().toISOString().slice(0, 10);
+      const scheduledTimeSlot = input.scheduledTimeSlot || '10:00-12:00';
+      const initialStatus = input.immediateIntake
+        ? ServiceRequestStatus.CHECKED_IN
+        : ServiceRequestStatus.APPOINTMENT_SCHEDULED;
+
+      // 4. Create Service Request
+      const sr = await tx.serviceRequest.create({
+        data: {
+          requestNumber,
+          customerId: customer.id,
+          vehicleId: vehicle.id,
+          hubId: hub.id,
+          categoryKey: template.categoryKey,
+          templateVersion: template.version,
+          customerSymptoms: input.customerSymptoms?.trim() || 'Walk-in service booking at workshop counter',
+          questionAnswers: JSON.stringify({
+            bookingChannel: 'WALK_IN_OFFLINE',
+            requirements: input.customerSymptoms?.trim() || 'Walk-in customer intake at workshop desk',
+          }),
+          fulfillmentType: ServiceFulfillmentType.SELF_DROP_AT_HUB,
+          status: initialStatus,
+          scheduledDate,
+          scheduledTimeSlot,
+        },
+      });
+
+      // 5. If immediate intake, create intake custody record
+      if (input.immediateIntake) {
+        await tx.serviceCustodyRecord.create({
+          data: {
+            serviceRequestId: sr.id,
+            type: 'CHECK_IN',
+            odometerKm: input.intakeOdometerKm || input.odometerKm || vehicle.odometerKm || 0,
+            fuelChargeLevel: `${input.intakeFuelPercent || 50}%`,
+            keyCount: 1,
+            preExistingDamageNotes: input.intakeNotes?.trim() || 'Walk-in intake inspected at service desk',
+            custodyOfficerId: actorId,
+            handoverByPerson: input.customerName.trim(),
+            customerAcknowledged: true,
+          },
+        });
+      }
+
+      // 6. History Event
+      await tx.serviceHistoryEvent.create({
+        data: {
+          serviceRequestId: sr.id,
+          fromStatus: null,
+          toStatus: initialStatus,
+          title: 'Walk-In Service Booking Registered',
+          description: `Offline customer ${input.customerName} registered at ${hub.name} workshop desk.${
+            input.immediateIntake ? ' Immediate vehicle intake inspection recorded.' : ''
+          }`,
+          actorRole: 'SERVICE_ADVISOR',
+          actorId,
+        },
+      });
+
+      return sr;
+    });
+  }
+
+  async approveServiceEstimateByStaff(
+    actorId: string,
+    requestId: string,
+    estimateId: string,
+    input: { decision: 'APPROVE' | 'DECLINE'; notes?: string; channel?: string }
+  ) {
+    const estimate = await this.db.serviceEstimate.findUnique({
+      where: { id: estimateId },
+      include: { serviceRequest: true },
+    });
+    if (!estimate || estimate.serviceRequestId !== requestId) {
+      throw new HttpError(404, 'ESTIMATE_NOT_FOUND');
+    }
+
+    const nextEstimateStatus = input.decision === 'APPROVE' ? ServiceEstimateStatus.APPROVED : ServiceEstimateStatus.DECLINED;
+    const nextRequestStatus = input.decision === 'APPROVE' ? ServiceRequestStatus.ESTIMATE_APPROVED : ServiceRequestStatus.ESTIMATE_REJECTED;
+
+    return this.db.$transaction(async tx => {
+      await tx.serviceEstimate.update({
+        where: { id: estimateId },
+        data: {
+          status: nextEstimateStatus,
+          respondedAt: new Date(),
+          responseNotes: input.notes?.trim() || `Approved in-person by customer via ${input.channel || 'workshop desk'}`,
+        },
+      });
+
+      await tx.serviceRequest.update({
+        where: { id: requestId },
+        data: { status: nextRequestStatus },
+      });
+
+      await tx.serviceHistoryEvent.create({
+        data: {
+          serviceRequestId: requestId,
+          fromStatus: estimate.serviceRequest.status,
+          toStatus: nextRequestStatus,
+          title: input.decision === 'APPROVE' ? 'Estimate Approved (In-Person / Phone)' : 'Estimate Declined by Customer',
+          description: input.decision === 'APPROVE'
+            ? `Estimate v${estimate.version} totaling ₹${(Number(estimate.totalAmountPaise) / 100).toLocaleString('en-IN')} approved by customer via ${input.channel || 'workshop counter'}.`
+            : `Estimate v${estimate.version} declined. Notes: ${input.notes || 'None'}.`,
+          actorRole: 'SERVICE_ADVISOR',
+          actorId,
+        },
+      });
+
+      return { success: true, status: nextRequestStatus };
+    });
+  }
+
   async cancelOperationsServiceJob(employeeUserId: string, requestId: string, reason: string) {
     const sr = await this.db.serviceRequest.findUnique({
       where: { id: requestId },
@@ -2250,9 +2457,24 @@ export class PrismaServiceStore {
         },
       });
 
-      const nextStatus = sr.fulfillmentType === ServiceFulfillmentType.PICKUP_AND_RETURN
-        ? ServiceRequestStatus.RETURN_DISPATCHED
-        : ServiceRequestStatus.COMPLETED;
+      // Check if all approved estimates are paid
+      const approvedEstimate = await tx.serviceEstimate.findFirst({
+        where: { serviceRequestId: sr.id, status: ServiceEstimateStatus.APPROVED },
+      });
+      const verifiedPayments = await tx.servicePaymentRecord.findMany({
+        where: { serviceRequestId: sr.id, status: { in: [ServicePaymentStatus.PAID_VERIFIED, ServicePaymentStatus.PENDING] } },
+      });
+      const totalPaid = verifiedPayments.reduce((acc, p) => acc + p.amountPaise, 0n);
+      const isPaid = !approvedEstimate || (totalPaid > 0n && totalPaid >= approvedEstimate.totalAmountPaise);
+
+      let nextStatus: ServiceRequestStatus;
+      if (sr.fulfillmentType === ServiceFulfillmentType.PICKUP_AND_RETURN) {
+        nextStatus = ServiceRequestStatus.RETURN_DISPATCHED;
+      } else if (isPaid) {
+        nextStatus = ServiceRequestStatus.COMPLETED;
+      } else {
+        nextStatus = ServiceRequestStatus.PAYMENT_PENDING;
+      }
 
       await tx.serviceRequest.update({
         where: { id: requestId },
@@ -2302,27 +2524,43 @@ export class PrismaServiceStore {
       paymentGateway?: string;
       gatewayOrderId?: string;
       gatewayPaymentId?: string;
+      autoVerify?: boolean;
     }
   ) {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
 
     return this.db.$transaction(async tx => {
+      const isAutoVerify = Boolean(input.autoVerify);
+      const paymentStatus = isAutoVerify ? ServicePaymentStatus.PAID_VERIFIED : ServicePaymentStatus.PENDING;
+
       const payment = await tx.servicePaymentRecord.create({
         data: {
           serviceRequestId: requestId,
           type: input.type,
           amountPaise: BigInt(input.amountPaise),
-          status: ServicePaymentStatus.PENDING,
+          status: paymentStatus,
           paymentGateway: input.paymentGateway || 'RAZORPAY',
           gatewayOrderId: input.gatewayOrderId,
           gatewayPaymentId: input.gatewayPaymentId,
+          verifiedByFinanceId: isAutoVerify ? actorId : null,
+          verifiedAt: isAutoVerify ? new Date() : null,
         },
       });
 
+      // Check if checkout return custody has already been recorded
+      const hasCheckout = await tx.serviceCustodyRecord.findFirst({
+        where: { serviceRequestId: requestId, type: 'CHECK_OUT' },
+      });
+
+      let nextRequestStatus: ServiceRequestStatus = isAutoVerify ? ServiceRequestStatus.PAID : ServiceRequestStatus.PAYMENT_PENDING;
+      if (isAutoVerify && hasCheckout) {
+        nextRequestStatus = ServiceRequestStatus.COMPLETED;
+      }
+
       await tx.serviceRequest.update({
         where: { id: requestId },
-        data: { status: ServiceRequestStatus.PAYMENT_PENDING },
+        data: { status: nextRequestStatus },
       });
 
       await tx.serviceHistoryEvent.create({
