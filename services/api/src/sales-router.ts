@@ -265,7 +265,13 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   // Inspection requests & outcomes
   router.get('/inspection-requests', async (req, res) => res.json(await deps.store.inspectionRequests(res.locals.salesActor, inspectionRequestQuery.parse(req.query))));
   router.post('/seller-leads/:id/inspection-requests', async (req, res) => res.status(201).json(await deps.store.requestInspection(res.locals.salesActor, uuid.parse(req.params.id), inspectionInput.parse(req.body))));
-  router.patch('/seller-leads/:id/inspection-schedule', async (req, res) => res.json(await deps.store.updateInspectionSchedule(res.locals.salesActor, uuid.parse(req.params.id), inspectionScheduleInput.parse(req.body))));
+  router.patch('/seller-leads/:id/inspection-schedule', async (req, res) => {
+    const input = inspectionScheduleInput.parse(req.body);
+    res.json(await deps.store.updateInspectionSchedule(res.locals.salesActor, uuid.parse(req.params.id), {
+      ...input,
+      inspectionDate: input.inspectionDate!,
+    }));
+  });
   router.patch('/seller-leads/:id/vehicle-details', async (req, res) => res.json(await deps.store.updateVehicleDetails(res.locals.salesActor, uuid.parse(req.params.id), vehicleDetailsInput.parse(req.body))));
   router.get('/seller-leads/:id/inspection-summary', async (req, res) => res.json(await deps.store.inspectionSummary(res.locals.salesActor, uuid.parse(req.params.id))));
 

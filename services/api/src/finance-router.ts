@@ -442,7 +442,10 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
         await deps.store.recordBuyerObligationPayment(
           res.locals.financeActor,
           uuid.parse(req.params.id),
-          input
+          {
+            ...input,
+            amountPaise: input.amountPaise!,
+          }
         )
       );
     } catch (error) {

@@ -1146,7 +1146,7 @@ export class PrismaFinanceStore {
     actor: FinanceActor,
     obligationId: string,
     input: {
-      amountPaise: string | number;
+      amountPaise?: string | number;
       paymentMode?: string;
       bankReference?: string;
       companyBankAccountId?: string;
@@ -1154,6 +1154,9 @@ export class PrismaFinanceStore {
     }
   ) {
     requirePermission(actor, 'finance.receipt.record');
+    if (input.amountPaise === undefined || input.amountPaise === null || input.amountPaise === '') {
+      throw new HttpError(400, 'PAYMENT_AMOUNT_REQUIRED');
+    }
     const paymentPaise = BigInt(input.amountPaise);
     if (paymentPaise <= 0n) throw new HttpError(400, 'PAYMENT_AMOUNT_MUST_BE_POSITIVE');
 
