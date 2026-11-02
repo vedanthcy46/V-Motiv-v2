@@ -337,6 +337,8 @@ export const api = {
     call<unknown>(u, `/operations/service/jobs/${id}/return`, { method: 'POST', body: JSON.stringify(body) }),
   recordServicePayment: (u: User, id: string, body: Record<string, any>) =>
     call<unknown>(u, `/operations/service/jobs/${id}/payments`, { method: 'POST', body: JSON.stringify(body) }),
+  serviceCancelJob: (u: User, id: string, body: { reason: string }) =>
+    call<unknown>(u, `/operations/service/jobs/${id}/cancel`, { method: 'POST', body: JSON.stringify(body) }),
 
   // --- Car Rental Operations ---
   rentalHubs: (u: User) =>

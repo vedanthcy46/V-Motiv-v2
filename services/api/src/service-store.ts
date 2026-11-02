@@ -1490,6 +1490,101 @@ export class PrismaServiceStore {
   }
 
   // -------------------------------------------------------------
+  async cancelOperationsServiceJob(employeeUserId: string, requestId: string, reason: string) {
+    const sr = await this.db.serviceRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        customer: { select: { id: true, email: true, displayName: true } },
+        vehicle: true,
+      },
+    });
+    if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    if (sr.status === ServiceRequestStatus.CANCELLED) {
+      throw new HttpError(400, 'SERVICE_REQUEST_ALREADY_CANCELLED');
+    }
+    if (sr.status === ServiceRequestStatus.COMPLETED) {
+      throw new HttpError(400, 'CANNOT_CANCEL_COMPLETED_SERVICE_REQUEST');
+    }
+
+    return this.db.$transaction(async tx => {
+      // Release slot count if applicable
+      const slot = await tx.serviceSlotCapacity.findUnique({
+        where: {
+          hubId_slotDate_slotTime: {
+            hubId: sr.hubId,
+            slotDate: sr.scheduledDate,
+            slotTime: sr.scheduledTimeSlot,
+          },
+        },
+      });
+      if (slot && slot.bookedCount > 0) {
+        await tx.serviceSlotCapacity.update({
+          where: { id: slot.id },
+          data: { bookedCount: { decrement: 1 } },
+        });
+      }
+
+      const updated = await tx.serviceRequest.update({
+        where: { id: requestId },
+        data: {
+          status: ServiceRequestStatus.CANCELLED,
+          cancellationReason: reason.trim(),
+          cancelledAt: new Date(),
+        },
+        include: {
+          customer: { select: { id: true, displayName: true, email: true, phone: true } },
+          vehicle: true,
+          hub: true,
+          estimates: true,
+        },
+      });
+
+      await tx.serviceHistoryEvent.create({
+        data: {
+          serviceRequestId: sr.id,
+          fromStatus: sr.status,
+          toStatus: ServiceRequestStatus.CANCELLED,
+          title: 'Service Request Cancelled by Operations',
+          description: `Cancelled by staff. Reason: ${reason.trim()}`,
+          actorRole: 'SERVICE_MANAGER',
+          actorId: employeeUserId,
+        },
+      });
+
+      // Send email to customer
+      if (sr.customer?.email) {
+        const vehicleTitle = `${sr.vehicle.year} ${sr.vehicle.make} ${sr.vehicle.model}`.trim();
+        await tx.emailOutbox.create({
+          data: {
+            userId: sr.customerId,
+            recipient: sr.customer.email,
+            templateVersion: 'service-cancelled-v1',
+            eventKey: `service-cancelled/${sr.id}`,
+            subject: `Service Request Cancelled [${sr.requestNumber}] · ${vehicleTitle}`,
+            text: `Your workshop service booking has been cancelled.\n\nBooking: ${sr.requestNumber}\nVehicle: ${vehicleTitle}\nReason: ${reason.trim()}\n\nIf you have any questions or wish to reschedule your service, please visit the V MOTIV mobile app or email support@vmotiv.in.`,
+          },
+        });
+      }
+
+      if (this.notifications) {
+        void this.notifications.dispatchDomainEvent({
+          type: 'SERVICE_CANCELLED',
+          actorId: employeeUserId,
+          referenceId: sr.id,
+          entityType: 'ServiceRequest',
+          title: 'Service Request Cancelled',
+          body: `Service job ${sr.requestNumber} for ${sr.vehicle.make} ${sr.vehicle.model} was cancelled.`,
+          category: 'SERVICE',
+          recipientUserIds: [sr.customerId],
+          recipientRoles: ['SERVICE_ADVISOR', 'HUB_MANAGER', 'SERVICE_MANAGER'],
+          deepLink: `vmotiv://service-requests/${sr.id}`,
+        });
+      }
+
+      return updated;
+    });
+  }
+
   // OPERATIONS SERVICE HUB (ops.vmotiv.in/service)
   // -------------------------------------------------------------
   async getOperationsQueue(filters: {

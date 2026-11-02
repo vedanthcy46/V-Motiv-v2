@@ -390,6 +390,7 @@ export type ServiceJobStatus =
   | 'QC_PENDING'
   | 'READY_FOR_DELIVERY'
   | 'DELIVERED'
+  | 'COMPLETED'
   | 'CANCELLED';
 
 export type ServiceJobItem = {
@@ -402,6 +403,8 @@ export type ServiceJobItem = {
   fulfillmentType: 'DOORSTEP_PICKUP' | 'HUB_DROP';
   pickupAddress?: string | null;
   customerNotes?: string | null;
+  cancellationReason?: string | null;
+  cancelledAt?: string | null;
   createdAt: string;
   customer?: {
     id: string;

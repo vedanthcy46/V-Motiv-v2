@@ -680,5 +680,19 @@ export function createServiceOperationsRouter(deps: {
     }
   });
 
+  // 14. Operations Job Cancellation
+  router.post('/jobs/:id/cancel', requireServiceRole(['SERVICE_ADVISOR', 'HUB_MANAGER', 'SERVICE_MANAGER', 'ADMIN', 'OPERATIONS_MANAGER', 'SUPER_ADMIN']), async (req, res, next) => {
+    try {
+      const employee = res.locals.employee;
+      const input = z.object({
+        reason: z.string().trim().min(3).max(500),
+      }).parse(req.body);
+
+      res.json(await deps.store.cancelOperationsServiceJob(employee.userId, uuid.parse(req.params.id), input.reason));
+    } catch (e) {
+      next(e);
+    }
+  });
+
   return router;
 }

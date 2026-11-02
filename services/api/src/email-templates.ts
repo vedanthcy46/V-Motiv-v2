@@ -16,11 +16,12 @@ export type EmailTemplateData = {
   recipient: string;
   webOrigin?: string;
   headerLogoUrl?: string;
-  footerLockupUrl?: string;
+  footerLockupUrl?: string; // Retained for backwards compatibility
 };
 
+// Official single V MOTIV header logo
 export const BRAND_HEADER_LOGO_URL = 'https://iili.io/neuRn49.png';
-export const BRAND_FOOTER_LOCKUP_URL = 'https://iili.io/neuRrZl.png';
+export const BRAND_FOOTER_LOCKUP_URL = 'https://iili.io/neuRrZl.png'; // Retained for backwards compatibility
 
 export function renderEmailHtml(event: EmailTemplateData): string {
   const {
@@ -30,41 +31,111 @@ export function renderEmailHtml(event: EmailTemplateData): string {
     recipient,
     webOrigin = 'https://vmotiv.in',
     headerLogoUrl = BRAND_HEADER_LOGO_URL,
-    footerLockupUrl = BRAND_FOOTER_LOCKUP_URL,
   } = event;
 
   let badgeText = 'NOTIFICATION';
   let badgeColor = '#F7B503';
   let ctaTitle = 'Open V MOTIV App';
   let ctaUrl = webOrigin;
-  let bannerSubtitle = '100% Verified Pre-Owned Automotive Experience';
+  let bannerSubtitle = 'V MOTIV Automotive Mobility Ecosystem';
+
+  let assuranceTitle = 'V MOTIV Promise:';
+  let assuranceBody = 'Complete transparency, verified standards, and total accountability across all automotive services.';
 
   if (templateVersion === 'purchase-enquiry-v1') {
     badgeText = 'ENQUIRY RECORDED';
     ctaTitle = 'View in Activity';
     ctaUrl = `${webOrigin}/account`;
     bannerSubtitle = 'Vehicle Purchase Enquiry Confirmation';
+    assuranceTitle = '180-Point Certification:';
+    assuranceBody = 'Every V MOTIV pre-owned vehicle undergoes our strict 180-point mechanical, structural, and electrical certification. No surprises. No rollbacks.';
   } else if (templateVersion === 'test-drive-requested-v1') {
     badgeText = 'TEST DRIVE REQUEST';
     ctaTitle = 'Manage Appointment';
     ctaUrl = `${webOrigin}/account`;
     bannerSubtitle = 'Test Drive Schedule Request';
+    assuranceTitle = 'Doorstep & Hub Drives:';
+    assuranceBody = 'All test drive vehicles are sanitised, inspected, and accompanied by certified automotive specialists.';
   } else if (templateVersion === 'selling-requested-v1') {
     badgeText = 'SELLING REQUEST';
     ctaTitle = 'Track Valuation';
     ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = '180-Point Doorstep Valuation Request';
+    bannerSubtitle = 'Doorstep Valuation & Inspection Request';
+    assuranceTitle = 'Guaranteed Purchase:';
+    assuranceBody = 'Transparent fair-market pricing, free 180-point inspection, instant bank transfer, and free RC transfer.';
   } else if (templateVersion === 'offer-accepted-v1') {
     badgeText = 'OFFER ACCEPTED';
     badgeColor = '#10B981';
     ctaTitle = 'View Offer Details';
     ctaUrl = `${webOrigin}/account`;
     bannerSubtitle = 'Direct Purchase Agreement Confirmation';
+  } else if (templateVersion === 'offer-declined-v1') {
+    badgeText = 'OFFER DECLINED';
+    badgeColor = '#94A3B8';
+    ctaTitle = 'View in Activity';
+    ctaUrl = `${webOrigin}/account`;
+    bannerSubtitle = 'Acquisition Offer Update';
+  } else if (templateVersion === 'rental-booking-confirmed-v1') {
+    badgeText = 'RENTAL CONFIRMED';
+    badgeColor = '#10B981';
+    ctaTitle = 'View Rental Booking';
+    ctaUrl = `${webOrigin}/account`;
+    bannerSubtitle = 'Self-Drive Fleet Booking Confirmed';
+    assuranceTitle = 'V MOTIV Rental Assurance:';
+    assuranceBody = 'Sanitized, GPS-enabled fleet with comprehensive vehicle insurance, transparent fuel policy, and 24/7 Roadside Assistance hotline (1800-866-848).';
+  } else if (templateVersion === 'rental-kyc-reviewed-v1') {
+    badgeText = 'RENTAL KYC';
+    badgeColor = '#3B82F6';
+    ctaTitle = 'View Verification';
+    ctaUrl = `${webOrigin}/account`;
+    bannerSubtitle = 'Driver KYC Document Review Update';
+    assuranceTitle = 'Safe Driving Compliance:';
+    assuranceBody = 'Strict identity verification ensures road safety and fleet security for all drivers across our network.';
+  } else if (templateVersion === 'rental-trip-started-v1') {
+    badgeText = 'TRIP ACTIVE';
+    badgeColor = '#F7B503';
+    ctaTitle = 'View Active Trip';
+    ctaUrl = `${webOrigin}/account`;
+    bannerSubtitle = 'Vehicle Handover Completed · Have a Safe Drive';
+    assuranceTitle = '24/7 Roadside Assistance:';
+    assuranceBody = 'In case of breakdown, puncture, or towing emergency, call our immediate response helpline at 1800-866-848.';
+  } else if (templateVersion === 'rental-trip-returned-v1') {
+    badgeText = 'TRIP CONCLUDED';
+    badgeColor = '#10B981';
+    ctaTitle = 'View Settlement & Refund';
+    ctaUrl = `${webOrigin}/account`;
+    bannerSubtitle = 'Vehicle Return & Deposit Settlement Summary';
+    assuranceTitle = 'Deposit Refund Guarantee:';
+    assuranceBody = 'Security deposit refunds are automatically processed to your original payment method within 3 to 5 business days.';
+  } else if (templateVersion === 'rental-booking-cancelled-v1') {
+    badgeText = 'RENTAL CANCELLED';
+    badgeColor = '#EF4444';
+    ctaTitle = 'View Booking Status';
+    ctaUrl = `${webOrigin}/account`;
+    bannerSubtitle = 'Rental Booking Cancellation & Refund';
+    assuranceTitle = 'Cancellation Policy:';
+    assuranceBody = 'Eligible refunds are processed directly per our transparent cancellation terms without hidden deductions.';
+  } else if (templateVersion === 'service-request-submitted-v1') {
+    badgeText = 'SERVICE CONFIRMED';
+    badgeColor = '#10B981';
+    ctaTitle = 'Track Service Job';
+    ctaUrl = `${webOrigin}/account`;
+    bannerSubtitle = 'Workshop Service Booking Scheduled';
+    assuranceTitle = 'V MOTIV Workshop Guarantee:';
+    assuranceBody = 'Certified technicians, genuine OEM/OES spares, itemized estimate approvals, and multi-point quality control.';
+  } else if (templateVersion === 'service-cancelled-v1') {
+    badgeText = 'SERVICE CANCELLED';
+    badgeColor = '#EF4444';
+    ctaTitle = 'View Service Details';
+    ctaUrl = `${webOrigin}/account`;
+    bannerSubtitle = 'Workshop Service Request Cancelled';
   } else if (templateVersion === 'support-case-v1') {
     badgeText = 'SUPPORT TICKET';
     ctaTitle = 'View Support Case';
     ctaUrl = `${webOrigin}/support`;
     bannerSubtitle = 'Customer Support Request Received';
+    assuranceTitle = 'Dedicated Customer Support:';
+    assuranceBody = 'Our customer care team tracks every ticket with end-to-end accountability. Direct response within 24 hours.';
   } else if (templateVersion === 'support-reply-v1') {
     badgeText = 'CASE UPDATE';
     badgeColor = '#F7B503';
@@ -76,7 +147,7 @@ export function renderEmailHtml(event: EmailTemplateData): string {
     badgeColor = '#10B981';
     ctaTitle = 'Browse Verified Cars';
     ctaUrl = `${webOrigin}`;
-    bannerSubtitle = 'Welcome to Total Certainty in Pre-Owned Cars';
+    bannerSubtitle = 'Welcome to Total Certainty in Automotive Mobility';
   } else if (templateVersion === 'retail-quotation-v1') {
     badgeText = 'OFFICIAL QUOTATION';
     badgeColor = '#2563EB';
@@ -89,6 +160,8 @@ export function renderEmailHtml(event: EmailTemplateData): string {
     const invitationUrl = text.match(/https?:\/\/[^\s]+\/accept-invitation\?token=[A-Za-z0-9_%.-]+/)?.[0];
     ctaUrl = invitationUrl || webOrigin;
     bannerSubtitle = 'Secure Employee Onboarding';
+    assuranceTitle = 'Secure Workspace Access:';
+    assuranceBody = 'This invitation is protected with time-limited single-use authentication tokens and multi-factor authorization.';
   } else if (templateVersion === 'inspection-assigned-v1') {
     badgeText = 'INSPECTION ASSIGNED';
     badgeColor = '#F7B503';
@@ -147,7 +220,7 @@ export function renderEmailHtml(event: EmailTemplateData): string {
       }
 
       const renderedLines = lines.map((l) => {
-        if (/^[A-Za-z0-9\s]+:$/.test(l.trim())) {
+        if (/^[A-Za-z0-9\s#\-\[\]\(\)]+:$/.test(l.trim())) {
           return `<strong style="display: block; color: #F7B503; margin-top: 14px; margin-bottom: 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(l)}</strong>`;
         }
         if (l.trim().startsWith('•') || l.trim().startsWith('-')) {
@@ -194,16 +267,13 @@ export function renderEmailHtml(event: EmailTemplateData): string {
       .header-padding {
         padding: 20px 16px !important;
       }
-      .footer-lockup-img {
-        max-width: 180px !important;
-      }
     }
   </style>
 </head>
 <body style="background-color: #020B18; margin: 0; padding: 24px 12px;">
   <center>
     <table class="container" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background-color: #061A38; border: 1px solid #1E293B; border-radius: 14px; overflow: hidden; text-align: left;">
-      <!-- ─── HEADER WITH PROPER BRAND LOGO ─── -->
+      <!-- ─── HEADER WITH SINGLE OFFICIAL BRAND LOGO ─── -->
       <tr>
         <td class="header-padding" style="background-color: #020B18; padding: 22px 28px; border-bottom: 1px solid #1E293B;">
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
@@ -212,9 +282,9 @@ export function renderEmailHtml(event: EmailTemplateData): string {
                 <a href="${escapeHtml(webOrigin)}" style="display: block; text-decoration: none;">
                   <img
                     src="${escapeHtml(headerLogoUrl)}"
-                    alt="V MOTIV - Verified Pre-Owned Cars"
-                    width="210"
-                    style="display: block; border: 0; outline: none; text-decoration: none; width: 210px; max-width: 210px; height: auto;"
+                    alt="V MOTIV"
+                    width="180"
+                    style="display: block; border: 0; outline: none; text-decoration: none; width: 180px; max-width: 180px; height: auto;"
                   />
                 </a>
               </td>
@@ -230,11 +300,11 @@ export function renderEmailHtml(event: EmailTemplateData): string {
 
       <!-- Subject & Banner Subtitle -->
       <tr>
-        <td style="padding: 28px 28px 12px 28px; background: linear-gradient(180deg, #092044 0%, #061A38 100%);">
-          <div style="font-size: 12px; font-weight: 700; color: #F7B503; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">
+        <td style="padding: 26px 28px 12px 28px; background: linear-gradient(180deg, #092044 0%, #061A38 100%);">
+          <div style="font-size: 11px; font-weight: 700; color: #F7B503; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">
             ${escapeHtml(bannerSubtitle)}
           </div>
-          <h1 style="margin: 0; font-size: 20px; font-weight: 800; color: #FFFFFF; line-height: 1.4;">
+          <h1 style="margin: 0; font-size: 19px; font-weight: 800; color: #FFFFFF; line-height: 1.4;">
             ${escapeHtml(subject)}
           </h1>
         </td>
@@ -258,35 +328,25 @@ export function renderEmailHtml(event: EmailTemplateData): string {
             </tr>
           </table>
 
-          <!-- 180-Point Inspection Assurance Banner -->
+          <!-- Context-Aware Assurance Banner -->
           <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: rgba(247, 181, 3, 0.05); border: 1px solid rgba(247, 181, 3, 0.2); border-radius: 8px; padding: 12px 16px;">
             <tr>
               <td style="font-size: 12px; color: #94A3B8; line-height: 1.5;">
-                <strong style="color: #F7B503;">V MOTIV Promise:</strong> Every vehicle undergoes our strict 180-point mechanical, structural, and electrical certification. No surprises. No odometer rollbacks. Complete documentation transparency.
+                <strong style="color: #F7B503;">${escapeHtml(assuranceTitle)}</strong> ${escapeHtml(assuranceBody)}
               </td>
             </tr>
           </table>
         </td>
       </tr>
 
-      <!-- ─── BELOW END OF MAIL: LOGO WITH TEXT BRAND NAME IMAGE ─── -->
+      <!-- ─── CLEAN BRAND FOOTER (SINGLE UNIFIED BRAND SIGNATURE - NO CONFUSING SECONDARY LOGOS) ─── -->
       <tr>
-        <td align="center" style="background-color: #031024; padding: 32px 28px; border-top: 1px solid #1E293B; border-bottom: 1px solid #1E293B;">
-          <a href="${escapeHtml(webOrigin)}" style="display: inline-block; text-decoration: none;">
-            <!-- Brand Logo with Text Brand Name Lockup Image -->
-            <img
-              class="footer-lockup-img"
-              src="${escapeHtml(footerLockupUrl)}"
-              alt="V MOTIV - Your Vehicle. Our Accountability."
-              width="210"
-              style="display: block; border: 0; outline: none; margin: 0 auto 14px auto; max-width: 210px; width: 100%; height: auto; border-radius: 6px;"
-            />
-          </a>
+        <td align="center" style="background-color: #031024; padding: 24px 28px; border-top: 1px solid #1E293B; border-bottom: 1px solid #1E293B;">
           <div style="font-size: 12px; font-weight: 800; color: #F7B503; letter-spacing: 1.8px; text-transform: uppercase; margin-bottom: 6px;">
             YOUR VEHICLE. OUR ACCOUNTABILITY.
           </div>
           <div style="font-size: 12px; color: #94A3B8; max-width: 440px; margin: 0 auto; line-height: 1.6;">
-            100% Certified Inspection &middot; Doorstep Valuations &middot; Direct Bank Payouts
+            All-in-One Mobility Ecosystem &middot; Verified Cars &middot; Self-Drive Fleet &middot; Workshop Care
           </div>
         </td>
       </tr>
@@ -298,11 +358,11 @@ export function renderEmailHtml(event: EmailTemplateData): string {
             <tr>
               <td>
                 <div style="color: #94A3B8; font-weight: 600; margin-bottom: 4px;">
-                  V MOTIV Cars Private Limited
+                  V MOTIV Private Limited
                 </div>
                 <div>This automated notification was delivered to <strong>${escapeHtml(recipient)}</strong>.</div>
                 <div style="margin-top: 8px;">
-                  Need assistance? Contact our team at <a href="mailto:support@vmotiv.in" style="color: #F7B503;">support@vmotiv.in</a>
+                  Need assistance? Contact our team at <a href="mailto:support@vmotiv.in" style="color: #F7B503;">support@vmotiv.in</a> or 24/7 helpline <strong>1800-866-848</strong>.
                 </div>
               </td>
             </tr>

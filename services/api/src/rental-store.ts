@@ -657,6 +657,47 @@ export class PrismaRentalStore {
         },
       });
 
+      // Transactional Email & Notification
+      const customer = await tx.user.findUnique({
+        where: { id: customerId },
+        select: { id: true, email: true, displayName: true, phone: true },
+      });
+      if (customer?.email) {
+        const vehicleTitle = `${updatedBooking.vehicle.year} ${updatedBooking.vehicle.make} ${updatedBooking.vehicle.model} ${updatedBooking.vehicle.variant || ''}`.trim();
+        const hubName = updatedBooking.pickupHub?.name || updatedBooking.vehicle.hub?.name || 'Local Hub';
+        const startStr = updatedBooking.startTime.toISOString().replace('T', ' ').slice(0, 16);
+        const endStr = updatedBooking.endTime.toISOString().replace('T', ' ').slice(0, 16);
+        const fareStr = `₹${(Number(updatedBooking.baseFarePaise) / 100).toLocaleString('en-IN')}`;
+        const depStr = `₹${(Number(updatedBooking.securityDepositPaise) / 100).toLocaleString('en-IN')}`;
+        const totalStr = `₹${(Number(updatedBooking.totalPayablePaise) / 100).toLocaleString('en-IN')}`;
+
+        await tx.emailOutbox.create({
+          data: {
+            userId: customer.id,
+            recipient: customer.email,
+            templateVersion: 'rental-booking-confirmed-v1',
+            eventKey: `rental-confirmed/${booking.id}`,
+            subject: `Rental Booking Confirmed [${updatedBooking.bookingNumber}] · ${vehicleTitle}`,
+            text: `Your self-drive rental booking has been confirmed!\n\nBooking Reference: ${updatedBooking.bookingNumber}\nVehicle: ${vehicleTitle} (${updatedBooking.vehicle.registrationNumber || 'Fleet Vehicle'})\nPickup Hub: ${hubName}\n\nSchedule:\n• Pickup Date & Time: ${startStr}\n• Expected Return: ${endStr}\n• Included Allowance: ${updatedBooking.includedKm} km (Extra @ ₹${(Number(updatedBooking.extraKmRatePaise) / 100).toFixed(2)}/km)\n\nPayment Summary:\n• Rental Tariff: ${fareStr}\n• Refundable Security Deposit: ${depStr}\n• Total Paid: ${totalStr}\n\nMandatory Checklist:\n• Upload Driver License in the V MOTIV mobile app under Activity.\n• Original physical driving license required at hub for vehicle collection.\n• 24/7 Roadside Assistance: 1800-866-848.\n\nYou can track and manage this booking in the V MOTIV mobile app under Activity.`,
+          },
+        });
+      }
+
+      if (this.notifications) {
+        void this.notifications.dispatchDomainEvent({
+          type: 'RENTAL_BOOKING_CONFIRMED',
+          actorId: customerId,
+          referenceId: booking.id,
+          entityType: 'RentalBooking',
+          title: 'Rental Booking Confirmed',
+          body: `Your booking ${updatedBooking.bookingNumber} for ${updatedBooking.vehicle.make} ${updatedBooking.vehicle.model} has been confirmed.`,
+          category: 'RENTAL',
+          recipientUserIds: [customerId],
+          recipientRoles: ['RENTAL_MANAGER', 'RENTAL_DISPATCH'],
+          deepLink: `vmotiv://rentals/${booking.id}`,
+        });
+      }
+
       return { booking: updatedBooking, alreadyVerified: false };
     });
   }
@@ -794,6 +835,67 @@ export class PrismaRentalStore {
           metadata: { decision, rejectionReason },
         },
       });
+
+      // Dispatch KYC review transactional email & in-app notification
+      const booking = await tx.rentalBooking.findUnique({
+        where: { id: bookingId },
+        include: {
+          customer: { select: { id: true, email: true, displayName: true } },
+          vehicle: true,
+        },
+      });
+      if (booking?.customer?.email) {
+        const vehicleTitle = `${booking.vehicle.make} ${booking.vehicle.model}`;
+        if (decision === 'APPROVE') {
+          await tx.emailOutbox.create({
+            data: {
+              userId: booking.customerId,
+              recipient: booking.customer.email,
+              templateVersion: 'rental-kyc-reviewed-v1',
+              eventKey: `rental-kyc-approved/${booking.id}`,
+              subject: `Driver KYC Approved [${booking.bookingNumber}] · Cleared for Pickup`,
+              text: `Great news! Your driver license verification for booking ${booking.bookingNumber} (${vehicleTitle}) has been approved.\n\nYou are cleared to collect your vehicle at the scheduled pickup time. Please remember to carry your physical original driving license at the hub.\n\nHub Support Helpline: 1800-866-848.`,
+            },
+          });
+          if (this.notifications) {
+            void this.notifications.dispatchDomainEvent({
+              type: 'RENTAL_BOOKING_CONFIRMED',
+              actorId: employeeId,
+              referenceId: booking.id,
+              entityType: 'RentalBooking',
+              title: 'Driver KYC Approved',
+              body: `Your driver license verification for ${booking.bookingNumber} has been approved. You are ready for pickup.`,
+              category: 'RENTAL',
+              recipientUserIds: [booking.customerId],
+              deepLink: `vmotiv://rentals/${booking.id}`,
+            });
+          }
+        } else {
+          await tx.emailOutbox.create({
+            data: {
+              userId: booking.customerId,
+              recipient: booking.customer.email,
+              templateVersion: 'rental-kyc-reviewed-v1',
+              eventKey: `rental-kyc-rejected/${booking.id}-${Date.now()}`,
+              subject: `Action Required: Driver License Verification [${booking.bookingNumber}]`,
+              text: `Your driver license verification for rental booking ${booking.bookingNumber} (${vehicleTitle}) requires attention.\n\nReason: ${rejectionReason || 'Document details could not be verified'}.\n\nPlease upload clear, uncropped photos of your original valid Driving License in the V MOTIV mobile app under Activity > Rental Details before your scheduled pickup.\n\nNeed assistance? Contact support@vmotiv.in or call 1800-866-848.`,
+            },
+          });
+          if (this.notifications) {
+            void this.notifications.dispatchDomainEvent({
+              type: 'RENTAL_KYC_REQUIRED',
+              actorId: employeeId,
+              referenceId: booking.id,
+              entityType: 'RentalBooking',
+              title: 'Driver KYC Action Required',
+              body: `Your driver license for ${booking.bookingNumber} needs attention: ${rejectionReason || 'Please re-upload license'}.`,
+              category: 'RENTAL',
+              recipientUserIds: [booking.customerId],
+              deepLink: `vmotiv://rentals/${booking.id}`,
+            });
+          }
+        }
+      }
 
       return updatedVerification;
     });
@@ -956,6 +1058,41 @@ export class PrismaRentalStore {
           metadata: { pickupOdometerKm: input.odometerKm, pickupFuelPercent: input.fuelPercent },
         },
       });
+
+      // Dispatch trip started email & notification
+      const customer = await tx.user.findUnique({
+        where: { id: booking.customerId },
+        select: { id: true, email: true, displayName: true },
+      });
+      if (customer?.email) {
+        const vehicleTitle = `${updatedBooking.vehicle.year} ${updatedBooking.vehicle.make} ${updatedBooking.vehicle.model}`.trim();
+        const endStr = updatedBooking.endTime.toISOString().replace('T', ' ').slice(0, 16);
+
+        await tx.emailOutbox.create({
+          data: {
+            userId: customer.id,
+            recipient: customer.email,
+            templateVersion: 'rental-trip-started-v1',
+            eventKey: `rental-trip-started/${booking.id}`,
+            subject: `Rental Trip Started [${updatedBooking.bookingNumber}] · ${vehicleTitle}`,
+            text: `Your rental trip has commenced! Vehicle keys and legal custody have been handed over.\n\nBooking: ${updatedBooking.bookingNumber}\nVehicle: ${vehicleTitle} (${updatedBooking.vehicle.registrationNumber || 'Fleet Vehicle'})\n\nDeparture Inspection Snapshot:\n• Start Odometer: ${input.odometerKm.toLocaleString('en-IN')} km\n• Start Fuel Level: ${input.fuelPercent}%\n• Scheduled Return: ${endStr}\n\nKey Travel Reminders:\n• Drive safely and adhere to highway speed limits.\n• Refuel to matching level prior to hub return to avoid refueling charges.\n• 24/7 Fleet Emergency & Roadside Hotline: 1800-866-848.\n\nYou can view active trip details anytime in the V MOTIV mobile app under Activity.`,
+          },
+        });
+      }
+
+      if (this.notifications) {
+        void this.notifications.dispatchDomainEvent({
+          type: 'RENTAL_TRIP_STARTED',
+          actorId: employeeId,
+          referenceId: booking.id,
+          entityType: 'RentalBooking',
+          title: 'Rental Trip Active',
+          body: `Trip has commenced for ${updatedBooking.bookingNumber} (${updatedBooking.vehicle.make} ${updatedBooking.vehicle.model}) at ${input.odometerKm} km.`,
+          category: 'RENTAL',
+          recipientUserIds: [booking.customerId],
+          deepLink: `vmotiv://rentals/${booking.id}`,
+        });
+      }
 
       return updatedBooking;
     });
@@ -1286,6 +1423,44 @@ export class PrismaRentalStore {
         },
       });
 
+      // Dispatch return and settlement email & notification
+      const customer = await tx.user.findUnique({
+        where: { id: booking.customerId },
+        select: { id: true, email: true, displayName: true },
+      });
+      if (customer?.email) {
+        const vehicleTitle = `${updatedBooking.vehicle.year} ${updatedBooking.vehicle.make} ${updatedBooking.vehicle.model}`.trim();
+        const refundStr = `₹${(Number(depositRefundPaise) / 100).toLocaleString('en-IN')}`;
+        const excessKmStr = `₹${(Number(excessKmChargePaise) / 100).toLocaleString('en-IN')}`;
+        const fuelStr = `₹${(Number(fuelRefillChargePaise) / 100).toLocaleString('en-IN')}`;
+        const damageStr = `₹${(Number(undisputedDamageChargePaise) / 100).toLocaleString('en-IN')}`;
+
+        await tx.emailOutbox.create({
+          data: {
+            userId: customer.id,
+            recipient: customer.email,
+            templateVersion: 'rental-trip-returned-v1',
+            eventKey: `rental-settled/${booking.id}`,
+            subject: `Rental Concluded & Settlement Summary [${booking.bookingNumber}] · ${vehicleTitle}`,
+            text: `Your rental vehicle return inspection has concluded.\n\nBooking: ${booking.bookingNumber}\nVehicle: ${vehicleTitle}\n\nReturn Check-Out Report:\n• Return Odometer: ${input.returnOdometerKm.toLocaleString('en-IN')} km (Driven: ${distanceDriven} km)\n• Return Fuel Level: ${input.returnFuelPercent}%\n\nSettlement Adjustments:\n• Excess Mileage Charges: ${excessKmStr} (${excessKm} extra km)\n• Fuel Refueling Charges: ${fuelStr}\n• Damage Deductions: ${damageStr}\n\nSecurity Deposit Status:\n• Eligible Refund Amount: ${refundStr}\n• Refund Process: Directly initiated to your original payment method (estimated 3 to 5 banking days).\n\nThank you for choosing V MOTIV! You can view full trip logs and invoices in the V MOTIV mobile app under Activity.`,
+          },
+        });
+      }
+
+      if (this.notifications) {
+        void this.notifications.dispatchDomainEvent({
+          type: 'RENTAL_RETURN_RECEIVED',
+          actorId: employeeId,
+          referenceId: booking.id,
+          entityType: 'RentalBooking',
+          title: 'Rental Concluded & Settled',
+          body: `Return recorded for ${booking.bookingNumber}. Security deposit refund of ₹${(Number(depositRefundPaise) / 100).toLocaleString('en-IN')} initiated.`,
+          category: 'RENTAL',
+          recipientUserIds: [booking.customerId],
+          deepLink: `vmotiv://rentals/${booking.id}`,
+        });
+      }
+
       return { booking: updatedBooking, trip: updatedTrip };
     });
   }
@@ -1409,6 +1584,42 @@ export class PrismaRentalStore {
           metadata: { reason, refundPaise: refundPaise.toString() },
         },
       });
+
+      // Dispatch rental cancellation email & notification
+      const customer = await tx.user.findUnique({
+        where: { id: booking.customerId },
+        select: { id: true, email: true, displayName: true },
+      });
+      if (customer?.email) {
+        const vehicleTitle = `${booking.vehicle.make} ${booking.vehicle.model}`;
+        const refundStr = `₹${(Number(refundPaise) / 100).toLocaleString('en-IN')}`;
+
+        await tx.emailOutbox.create({
+          data: {
+            userId: customer.id,
+            recipient: customer.email,
+            templateVersion: 'rental-booking-cancelled-v1',
+            eventKey: `rental-cancelled/${booking.id}`,
+            subject: `Rental Booking Cancelled [${updated.bookingNumber}] · ${vehicleTitle}`,
+            text: `Your self-drive rental booking has been cancelled.\n\nBooking: ${updated.bookingNumber}\nVehicle: ${vehicleTitle}\nCancellation Reason: ${reason}\n\nRefund Summary:\n• Eligible Refund Amount: ${refundStr}\n• Refund Method: Initiated back to your original payment source (3 to 5 business days).\n\nIf you have any questions or would like to rebook another vehicle, please visit the V MOTIV mobile app or email support@vmotiv.in.`,
+          },
+        });
+      }
+
+      if (this.notifications) {
+        void this.notifications.dispatchDomainEvent({
+          type: 'RENTAL_BOOKING_CANCELLED',
+          actorId,
+          referenceId: booking.id,
+          entityType: 'RentalBooking',
+          title: 'Rental Booking Cancelled',
+          body: `Rental booking ${updated.bookingNumber} (${booking.vehicle.make} ${booking.vehicle.model}) was cancelled. Refund of ₹${(Number(refundPaise) / 100).toLocaleString('en-IN')} initiated.`,
+          category: 'RENTAL',
+          recipientUserIds: [booking.customerId],
+          recipientRoles: ['RENTAL_MANAGER', 'RENTAL_DISPATCH'],
+          deepLink: `vmotiv://rentals/${booking.id}`,
+        });
+      }
 
       return { booking: updated, calculatedRefundPaise: refundPaise };
     });
@@ -2151,6 +2362,56 @@ export class PrismaRentalStore {
           },
         },
       });
+
+      // Dispatch walk-in confirmation email & notifications
+      if (customer?.email) {
+        const vehicleTitle = `${vehicle.year} ${vehicle.make} ${vehicle.model} ${vehicle.variant || ''}`.trim();
+        const startStr = input.startTime.toISOString().replace('T', ' ').slice(0, 16);
+        const endStr = input.endTime.toISOString().replace('T', ' ').slice(0, 16);
+        const fareStr = `₹${(Number(baseFarePaise + taxPaise) / 100).toLocaleString('en-IN')}`;
+        const depStr = `₹${(Number(securityDepositPaise) / 100).toLocaleString('en-IN')}`;
+        const totalStr = `₹${(Number(totalPayablePaise) / 100).toLocaleString('en-IN')}`;
+        const hubTitle = vehicle.hub?.name ? `${vehicle.hub.name} (${vehicle.hub.city})` : 'Local Hub';
+
+        await tx.emailOutbox.create({
+          data: {
+            userId: customer.id,
+            recipient: customer.email,
+            templateVersion: 'rental-booking-confirmed-v1',
+            eventKey: `rental-walkin/${booking.id}`,
+            subject: `Rental Booking Confirmed [${bookingNumber}] · ${vehicleTitle}`,
+            text: `Your walk-in on-road rental booking has been registered at the hub!\n\nBooking: ${bookingNumber}\nVehicle: ${vehicleTitle} (${vehicle.registrationNumber || 'Fleet Vehicle'})\nPickup Hub: ${hubTitle}\n\nSchedule:\n• Pickup Time: ${startStr}\n• Expected Return: ${endStr}\n• Included Allowance: ${includedKm} km\n\nPayment Breakdown:\n• Rental Tariff: ${fareStr}\n• Security Deposit: ${depStr}\n• Total Paid at Counter: ${totalStr}\n\nEmergency & Roadside Hotline: 1800-866-848.\n\nYou can view and track this rental in the V MOTIV mobile app under Activity.`,
+          },
+        });
+
+        if (input.immediateHandover) {
+          await tx.emailOutbox.create({
+            data: {
+              userId: customer.id,
+              recipient: customer.email,
+              templateVersion: 'rental-trip-started-v1',
+              eventKey: `rental-walkin-trip/${booking.id}`,
+              subject: `Rental Trip Started [${bookingNumber}] · ${vehicleTitle}`,
+              text: `Your rental keys have been handed over and trip is now active!\n\nBooking: ${bookingNumber}\nVehicle: ${vehicleTitle}\nStart Odometer: ${(input.startOdometerKm ?? vehicle.odometerKm).toLocaleString('en-IN')} km\nStart Fuel: ${input.fuelPercent ?? 100}%\nReturn Scheduled: ${endStr}\n\nEmergency Roadside Helpline: 1800-866-848.\n\nSafe travels with V MOTIV!`,
+            },
+          });
+        }
+      }
+
+      if (this.notifications) {
+        void this.notifications.dispatchDomainEvent({
+          type: 'RENTAL_BOOKING_CONFIRMED',
+          actorId: employeeId,
+          referenceId: booking.id,
+          entityType: 'RentalBooking',
+          title: 'Walk-In Rental Confirmed',
+          body: `Rental ${bookingNumber} for ${vehicle.make} ${vehicle.model} registered at hub.`,
+          category: 'RENTAL',
+          recipientUserIds: [customer.id],
+          recipientRoles: ['RENTAL_MANAGER', 'RENTAL_DISPATCH'],
+          deepLink: `vmotiv://rentals/${booking.id}`,
+        });
+      }
 
       return await tx.rentalBooking.findUnique({
         where: { id: booking.id },
