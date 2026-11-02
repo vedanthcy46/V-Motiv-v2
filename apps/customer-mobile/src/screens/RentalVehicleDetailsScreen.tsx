@@ -28,7 +28,11 @@ import {
   MapPin,
   Calendar,
 } from 'lucide-react-native';
-import { fetchRentalVehicleDetails, type RentalFleetVehicle } from '../services/rental-api';
+import {
+  fetchRentalVehicleDetails,
+  createRentalHold,
+  type RentalFleetVehicle,
+} from '../services/rental-api';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalVehicleDetails'>;
@@ -62,11 +66,45 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
     };
   }, [vehicleId, startTime, endTime]);
 
-  const handleReserve = () => {
-    Alert.alert(
-      'Online booking is not available yet',
-      'Vehicle availability and estimated pricing are shown for planning. Booking will open after live payment and document-upload verification are configured.'
-    );
+  const [reserving, setReserving] = useState(false);
+
+  const handleReserve = async () => {
+    if (!vehicle) return;
+    try {
+      setReserving(true);
+      const hubId = vehicle.hub?.id || vehicle.hubId;
+      if (!hubId) {
+        Alert.alert('Hub Required', 'This rental vehicle has no assigned pickup hub.');
+        return;
+      }
+
+      const st = startTime || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const et = endTime || new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+
+      const hold = await createRentalHold({
+        vehicleId: vehicle.id,
+        hubId,
+        startTime: st,
+        endTime: et,
+      });
+
+      navigation.navigate('RentalCheckout', {
+        holdId: hold.id,
+        holdCode: hold.holdCode,
+        vehicle,
+        quoteSnapshot: hold.quoteSnapshot || vehicle.quote,
+        startTime: st,
+        endTime: et,
+        hubName: vehicle.hub?.name || 'Local Hub',
+      });
+    } catch (e: any) {
+      Alert.alert(
+        'Reservation Unavailable',
+        e?.message || 'Unable to create 15-minute checkout hold on this vehicle. Please choose another date or car.'
+      );
+    } finally {
+      setReserving(false);
+    }
   };
 
   if (loading || !vehicle) {
@@ -329,25 +367,32 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
 
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Online booking availability"
+            accessibilityLabel="Proceed to rental checkout"
             onPress={handleReserve}
+            disabled={reserving}
             style={({ pressed }) => [
               styles.reserveCta,
               {
                 backgroundColor: isDark ? colors.brandAccent : colors.brandNavy,
-                opacity: pressed ? 0.85 : 1,
+                opacity: (pressed || reserving) ? 0.85 : 1,
               },
             ]}
           >
-            <Text
-              style={[
-                styles.reserveCtaText,
-                { color: isDark ? colors.brandNavy : '#FFFFFF' },
-              ]}
-            >
-              Booking coming soon
-            </Text>
-            <ChevronRight size={18} color={isDark ? colors.brandNavy : '#FFFFFF'} />
+            {reserving ? (
+              <ActivityIndicator size="small" color={isDark ? colors.brandNavy : '#FFFFFF'} />
+            ) : (
+              <>
+                <Text
+                  style={[
+                    styles.reserveCtaText,
+                    { color: isDark ? colors.brandNavy : '#FFFFFF' },
+                  ]}
+                >
+                  Reserve & Checkout
+                </Text>
+                <ChevronRight size={18} color={isDark ? colors.brandNavy : '#FFFFFF'} />
+              </>
+            )}
           </Pressable>
         </View>
       </View>

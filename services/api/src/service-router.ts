@@ -148,8 +148,8 @@ const qcRecordSchema = z.object({
 });
 
 const paymentInitiateSchema = z.object({
-  type: z.enum(['DIAGNOSTIC_FEE', 'ADVANCE', 'FINAL_SETTLEMENT']),
-  amountPaise: z.number().int().positive().max(100_000_000),
+  type: z.enum(['DIAGNOSTIC_FEE', 'ADVANCE', 'FINAL_SETTLEMENT']).default('FINAL_SETTLEMENT'),
+  amountPaise: z.union([z.number(), z.string(), z.bigint()]).transform(v => Number(v)).pipe(z.number().int().positive().max(100_000_000)),
   paymentGateway: z.string().trim().max(50).default('RAZORPAY'),
   gatewayOrderId: z.string().trim().max(100).optional(),
   gatewayPaymentId: z.string().trim().max(100).optional(),
@@ -654,7 +654,15 @@ export function createServiceOperationsRouter(deps: {
   router.post('/jobs/:id/payments', requireServiceRole(['SERVICE_ADVISOR', 'FINANCE', 'HUB_MANAGER', 'SERVICE_MANAGER', 'ADMIN']), async (req, res, next) => {
     try {
       const employee = res.locals.employee;
-      const input = parse(paymentInitiateSchema, req.body);
+      const raw = req.body || {};
+      const normalizedBody = {
+        type: raw.type || 'FINAL_SETTLEMENT',
+        amountPaise: raw.amountPaise !== undefined ? Number(raw.amountPaise) : (raw.amount ? Number(raw.amount) * 100 : 0),
+        paymentGateway: String(raw.paymentGateway || raw.paymentMethod || 'OFFLINE_COUNTER').slice(0, 50),
+        gatewayOrderId: raw.gatewayOrderId ? String(raw.gatewayOrderId) : undefined,
+        gatewayPaymentId: raw.gatewayPaymentId ? String(raw.gatewayPaymentId) : (raw.transactionReference ? String(raw.transactionReference) : `OFFLINE-${Date.now()}`),
+      };
+      const input = parse(paymentInitiateSchema, normalizedBody);
       res.status(201).json(await deps.store.recordPayment(employee.userId, uuid.parse(req.params.id), input));
     } catch (e) {
       next(e);

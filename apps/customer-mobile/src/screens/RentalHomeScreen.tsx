@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import {
   View,
   Text,
@@ -7,6 +7,7 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
+  Modal,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -14,17 +15,23 @@ import type { RootStack } from '../navigation/types';
 import { useAppTheme } from '../theme';
 import {
   CalendarDays,
+  Calendar,
   MapPin,
   Clock,
   ShieldCheck,
   Fuel,
   Sparkles,
   ChevronRight,
+  ChevronLeft,
   ArrowRight,
   AlertCircle,
   Car,
   KeyRound,
   RotateCcw,
+  Plus,
+  Minus,
+  Check,
+  X,
 } from 'lucide-react-native';
 import {
   fetchRentalHubs,
@@ -36,6 +43,23 @@ import { BrandLogo } from '../components/BrandLogo';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalHome'>;
 
+const TIME_SLOTS = [
+  '08:00 AM',
+  '09:00 AM',
+  '10:00 AM',
+  '11:00 AM',
+  '12:00 PM',
+  '01:00 PM',
+  '02:00 PM',
+  '03:00 PM',
+  '04:00 PM',
+  '06:00 PM',
+  '08:00 PM',
+  '10:00 PM',
+];
+
+const PRESET_DAYS = [1, 2, 3, 5, 7, 10, 14];
+
 export function RentalHomeScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
@@ -45,7 +69,7 @@ export function RentalHomeScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [activeRentals, setActiveRentals] = useState<RentalBookingDetails[]>([]);
 
-  // Default dates: tomorrow 10:00 AM to day after tomorrow 10:00 AM (48 hours)
+  // Default dates: tomorrow 10:00 AM to 3 days later 10:00 AM (2 days)
   const [startDate, setStartDate] = useState<Date>(() => {
     const d = new Date();
     d.setDate(d.getDate() + 1);
@@ -59,6 +83,13 @@ export function RentalHomeScreen({ navigation }: Props) {
     d.setHours(10, 0, 0, 0);
     return d;
   });
+
+  const [rentalDays, setRentalDays] = useState<number>(2);
+
+  // Date picker modal state
+  const [dateModalVisible, setDateModalVisible] = useState(false);
+  const [activeDateTab, setActiveDateTab] = useState<'pickup' | 'return'>('pickup');
+  const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
 
   useEffect(() => {
     let mounted = true;
@@ -101,18 +132,124 @@ export function RentalHomeScreen({ navigation }: Props) {
 
   const firstActive = activeRentals.length > 0 ? activeRentals[0] : null;
 
-  // Quick preset helper
-  const applyPreset = (daysToAdd: number) => {
-    const newStart = new Date();
-    newStart.setDate(newStart.getDate() + 1);
-    newStart.setHours(10, 0, 0, 0);
-
-    const newEnd = new Date(newStart);
-    newEnd.setDate(newEnd.getDate() + daysToAdd);
-
-    setStartDate(newStart);
+  // Days adjustment stepper & chips
+  const applyDays = (days: number) => {
+    if (days < 1) return;
+    setRentalDays(days);
+    const newEnd = new Date(startDate);
+    newEnd.setDate(newEnd.getDate() + days);
     setEndDate(newEnd);
   };
+
+  const handlePrevMonth = () => {
+    setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() - 1, 1));
+  };
+
+  const handleNextMonth = () => {
+    setCalendarMonth(prev => new Date(prev.getFullYear(), prev.getMonth() + 1, 1));
+  };
+
+  const handleSelectCalendarDay = (day: number) => {
+    const selected = new Date(calendarMonth.getFullYear(), calendarMonth.getMonth(), day);
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    if (selected < now) {
+      Alert.alert('Invalid Date', 'Cannot pick dates in the past.');
+      return;
+    }
+
+    if (activeDateTab === 'pickup') {
+      const newStart = new Date(selected);
+      newStart.setHours(startDate.getHours(), startDate.getMinutes(), 0, 0);
+      setStartDate(newStart);
+
+      // If new start >= end, automatically advance end date by current rental days
+      if (newStart.getTime() >= endDate.getTime()) {
+        const newEnd = new Date(newStart);
+        newEnd.setDate(newEnd.getDate() + Math.max(1, rentalDays));
+        setEndDate(newEnd);
+      } else {
+        const diffDays = Math.max(1, Math.round((endDate.getTime() - newStart.getTime()) / (24 * 3600 * 1000)));
+        setRentalDays(diffDays);
+      }
+      setActiveDateTab('return');
+    } else {
+      const newEnd = new Date(selected);
+      newEnd.setHours(endDate.getHours(), endDate.getMinutes(), 0, 0);
+
+      if (newEnd.getTime() <= startDate.getTime()) {
+        Alert.alert('Invalid Return Date', 'Return date must be after pickup date.');
+        return;
+      }
+      setEndDate(newEnd);
+      const diffDays = Math.max(1, Math.round((newEnd.getTime() - startDate.getTime()) / (24 * 3600 * 1000)));
+      setRentalDays(diffDays);
+    }
+  };
+
+  const handleSelectTime = (timeStr: string) => {
+    // Parse "10:00 AM" -> 10:00, "02:00 PM" -> 14:00
+    const [time, meridian] = timeStr.split(' ');
+    if (!time || !meridian) return;
+    const parts = time.split(':');
+    let h = Number(parts[0]) || 10;
+    const m = Number(parts[1]) || 0;
+    if (meridian === 'PM' && h < 12) h += 12;
+    if (meridian === 'AM' && h === 12) h = 0;
+
+    if (activeDateTab === 'pickup') {
+      const newStart = new Date(startDate);
+      newStart.setHours(h, m, 0, 0);
+      setStartDate(newStart);
+      if (newStart.getTime() >= endDate.getTime()) {
+        const newEnd = new Date(newStart);
+        newEnd.setDate(newEnd.getDate() + Math.max(1, rentalDays));
+        setEndDate(newEnd);
+      }
+    } else {
+      const newEnd = new Date(endDate);
+      newEnd.setHours(h, m, 0, 0);
+      if (newEnd.getTime() <= startDate.getTime()) {
+        Alert.alert('Invalid Time', 'Return time must be after pickup time.');
+        return;
+      }
+      setEndDate(newEnd);
+    }
+  };
+
+  // Calendar matrix calculation
+  const calendarData = useMemo(() => {
+    const year = calendarMonth.getFullYear();
+    const month = calendarMonth.getMonth();
+    const firstDayIndex = new Date(year, month, 1).getDay(); // 0 is Sun
+    const adjustedFirstDay = firstDayIndex === 0 ? 6 : firstDayIndex - 1; // 0 is Mon
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    const cells: Array<{ day: number; isPast: boolean; isPickup: boolean; isReturn: boolean; isInRange: boolean }> = [];
+    for (let i = 1; i <= daysInMonth; i++) {
+      const cellDate = new Date(year, month, i);
+      cellDate.setHours(0, 0, 0, 0);
+
+      const startDay = new Date(startDate);
+      startDay.setHours(0, 0, 0, 0);
+
+      const endDay = new Date(endDate);
+      endDay.setHours(0, 0, 0, 0);
+
+      const isPast = cellDate < today;
+      const isPickup = cellDate.getTime() === startDay.getTime();
+      const isReturn = cellDate.getTime() === endDay.getTime();
+      const isInRange = cellDate > startDay && cellDate < endDay;
+
+      cells.push({ day: i, isPast, isPickup, isReturn, isInRange });
+    }
+
+    return { adjustedFirstDay, cells, monthName: calendarMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) };
+  }, [calendarMonth, startDate, endDate]);
 
   const handleSearch = () => {
     if (!selectedHub) {
@@ -289,52 +426,142 @@ export function RentalHomeScreen({ navigation }: Props) {
           )}
         </View>
 
-        {/* Card: Date & Time Selector */}
+        {/* Card: Date & Duration Selector */}
         <View style={[styles.card, { backgroundColor: colors.surface, borderColor: colors.border }]}>
-          <View style={styles.cardHeader}>
-            <CalendarDays size={18} color={colors.brandAccent} />
-            <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Trip Dates & Time</Text>
-          </View>
-
-          {/* Quick Presets */}
-          <View style={styles.presetsRow}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+              <CalendarDays size={18} color={colors.brandAccent} />
+              <Text style={[styles.cardTitle, { color: colors.textPrimary }]}>Rental Duration & Dates</Text>
+            </View>
             <Pressable
-              onPress={() => applyPreset(1)}
-              style={[styles.presetChip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
+              accessibilityRole="button"
+              accessibilityLabel="Open calendar modal"
+              onPress={() => setDateModalVisible(true)}
+              style={[styles.miniCalendarBtn, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
             >
-              <Text style={[styles.presetChipText, { color: colors.textPrimary }]}>24 Hours</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => applyPreset(2)}
-              style={[styles.presetChip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-            >
-              <Text style={[styles.presetChipText, { color: colors.textPrimary }]}>2 Days</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => applyPreset(3)}
-              style={[styles.presetChip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-            >
-              <Text style={[styles.presetChipText, { color: colors.textPrimary }]}>Weekend</Text>
-            </Pressable>
-            <Pressable
-              onPress={() => applyPreset(7)}
-              style={[styles.presetChip, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}
-            >
-              <Text style={[styles.presetChipText, { color: colors.textPrimary }]}>1 Week</Text>
+              <Calendar size={14} color={colors.brandAccent} />
+              <Text style={[styles.miniCalendarBtnText, { color: colors.brandAccent }]}>Calendar</Text>
             </Pressable>
           </View>
 
-          {/* Date summaries */}
+          {/* Days Stepper Bar */}
+          <View style={[styles.stepperContainer, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Decrease rental days"
+              onPress={() => applyDays(rentalDays - 1)}
+              disabled={rentalDays <= 1}
+              style={[
+                styles.stepperButton,
+                {
+                  backgroundColor: colors.surface,
+                  opacity: rentalDays <= 1 ? 0.4 : 1,
+                },
+              ]}
+            >
+              <Minus size={16} color={colors.textPrimary} />
+            </Pressable>
+
+            <View style={{ alignItems: 'center', flex: 1 }}>
+              <Text style={[styles.stepperTitle, { color: colors.textPrimary }]}>
+                {rentalDays} {rentalDays === 1 ? 'Day' : 'Days'} of Rental
+              </Text>
+              <Text style={[styles.stepperSub, { color: colors.brandAccent }]}>
+                Includes {rentalDays * 250} km package (250 km/day)
+              </Text>
+            </View>
+
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Increase rental days"
+              onPress={() => applyDays(rentalDays + 1)}
+              disabled={rentalDays >= 30}
+              style={[
+                styles.stepperButton,
+                {
+                  backgroundColor: colors.surface,
+                  opacity: rentalDays >= 30 ? 0.4 : 1,
+                },
+              ]}
+            >
+              <Plus size={16} color={colors.textPrimary} />
+            </Pressable>
+          </View>
+
+          {/* Quick Days Chips */}
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.presetsRow}
+          >
+            {PRESET_DAYS.map(d => {
+              const isSelected = rentalDays === d;
+              return (
+                <Pressable
+                  key={d}
+                  accessibilityRole="button"
+                  accessibilityState={{ selected: isSelected }}
+                  onPress={() => applyDays(d)}
+                  style={[
+                    styles.presetChip,
+                    {
+                      backgroundColor: isSelected
+                        ? (isDark ? colors.brandAccent : colors.brandNavy)
+                        : colors.surfaceSecondary,
+                      borderColor: isSelected ? colors.brandAccent : colors.border,
+                      minWidth: 70,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.presetChipText,
+                      {
+                        color: isSelected
+                          ? (isDark ? colors.brandNavy : '#FFFFFF')
+                          : colors.textPrimary,
+                        fontWeight: isSelected ? '700' : '500',
+                      },
+                    ]}
+                  >
+                    {d === 1 ? '24 Hrs' : d === 7 ? '1 Week' : `${d} Days`}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+
+          {/* Interactive Date & Time Blocks (Tap to Open Picker) */}
           <View style={styles.dateIntervalGrid}>
-            <View style={[styles.dateBlock, { backgroundColor: colors.surfaceSecondary }]}>
-              <Text style={[styles.dateBlockLabel, { color: colors.textMuted }]}>PICKUP</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Select pickup date and time"
+              onPress={() => {
+                setActiveDateTab('pickup');
+                setDateModalVisible(true);
+              }}
+              style={({ pressed }) => [
+                styles.dateBlock,
+                {
+                  backgroundColor: colors.surfaceSecondary,
+                  borderColor: activeDateTab === 'pickup' && dateModalVisible ? colors.brandAccent : colors.border,
+                  borderWidth: 1.5,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={[styles.dateBlockLabel, { color: colors.textMuted }]}>PICKUP</Text>
+                <Calendar size={11} color={colors.brandAccent} />
+              </View>
               <Text style={[styles.dateBlockDate, { color: colors.textPrimary }]}>
                 {startDate.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}
               </Text>
               <Text style={[styles.dateBlockTime, { color: colors.brandAccent }]}>
                 {startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
               </Text>
-            </View>
+              <Text style={{ fontSize: 9, color: colors.textMuted, marginTop: 2 }}>Tap to adjust ✎</Text>
+            </Pressable>
 
             <View style={styles.durationBadgeContainer}>
               <View
@@ -352,16 +579,56 @@ export function RentalHomeScreen({ navigation }: Props) {
               </View>
             </View>
 
-            <View style={[styles.dateBlock, { backgroundColor: colors.surfaceSecondary }]}>
-              <Text style={[styles.dateBlockLabel, { color: colors.textMuted }]}>RETURN</Text>
+            <Pressable
+              accessibilityRole="button"
+              accessibilityLabel="Select return date and time"
+              onPress={() => {
+                setActiveDateTab('return');
+                setDateModalVisible(true);
+              }}
+              style={({ pressed }) => [
+                styles.dateBlock,
+                {
+                  backgroundColor: colors.surfaceSecondary,
+                  borderColor: activeDateTab === 'return' && dateModalVisible ? colors.brandAccent : colors.border,
+                  borderWidth: 1.5,
+                  opacity: pressed ? 0.85 : 1,
+                },
+              ]}
+            >
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                <Text style={[styles.dateBlockLabel, { color: colors.textMuted }]}>RETURN</Text>
+                <Calendar size={11} color={colors.brandAccent} />
+              </View>
               <Text style={[styles.dateBlockDate, { color: colors.textPrimary }]}>
                 {endDate.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}
               </Text>
               <Text style={[styles.dateBlockTime, { color: colors.brandAccent }]}>
                 {endDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
               </Text>
-            </View>
+              <Text style={{ fontSize: 9, color: colors.textMuted, marginTop: 2 }}>Tap to adjust ✎</Text>
+            </Pressable>
           </View>
+
+          {/* Quick Date Picker CTA */}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Open calendar and time picker"
+            onPress={() => setDateModalVisible(true)}
+            style={[
+              styles.openPickerBar,
+              {
+                backgroundColor: isDark ? 'rgba(245, 158, 11, 0.12)' : 'rgba(6, 26, 56, 0.06)',
+                borderColor: colors.brandAccent,
+              },
+            ]}
+          >
+            <Calendar size={15} color={colors.brandAccent} />
+            <Text style={[styles.openPickerBarText, { color: colors.textPrimary }]}>
+              Choose Custom Calendar Dates & Hours
+            </Text>
+            <ChevronRight size={16} color={colors.brandAccent} />
+          </Pressable>
         </View>
 
         {/* Transparency & Assurance Pillars */}
@@ -416,11 +683,279 @@ export function RentalHomeScreen({ navigation }: Props) {
           ]}
         >
           <Text style={[styles.ctaButtonText, { color: isDark ? colors.brandNavy : '#FFFFFF' }]}>
-            Search Available Cars
+            Search Available Cars ({durationLabel})
           </Text>
           <ChevronRight size={20} color={isDark ? colors.brandNavy : '#FFFFFF'} />
         </Pressable>
       </View>
+
+      {/* Comprehensive Date & Time Picker Modal */}
+      <Modal
+        visible={dateModalVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setDateModalVisible(false)}
+      >
+        <View style={styles.modalBackdrop}>
+          <View
+            style={[
+              styles.dateModalCard,
+              {
+                backgroundColor: colors.surface,
+                borderColor: colors.border,
+                paddingBottom: Math.max(insets.bottom, 20),
+              },
+            ]}
+          >
+            {/* Modal Header */}
+            <View style={[styles.modalHeader, { borderBottomColor: colors.border }]}>
+              <View>
+                <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Choose Rental Dates & Times</Text>
+                <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
+                  {durationLabel} · {rentalDays * 250} km included
+                </Text>
+              </View>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Close"
+                onPress={() => setDateModalVisible(false)}
+                style={[styles.modalCloseBtn, { backgroundColor: colors.surfaceSecondary }]}
+              >
+                <X size={18} color={colors.textPrimary} />
+              </Pressable>
+            </View>
+
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ padding: 18, gap: 16 }}>
+              {/* Pickup / Return Tab Switcher */}
+              <View style={[styles.modalTabRow, { backgroundColor: colors.surfaceSecondary }]}>
+                <Pressable
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: activeDateTab === 'pickup' }}
+                  onPress={() => setActiveDateTab('pickup')}
+                  style={[
+                    styles.modalTabBtn,
+                    activeDateTab === 'pickup' && {
+                      backgroundColor: isDark ? colors.brandAccent : colors.brandNavy,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.modalTabSub,
+                      { color: activeDateTab === 'pickup' ? (isDark ? colors.brandNavy : '#FFFFFF') : colors.textMuted },
+                    ]}
+                  >
+                    1. PICKUP
+                  </Text>
+                  <Text
+                    style={[
+                      styles.modalTabMain,
+                      { color: activeDateTab === 'pickup' ? (isDark ? colors.brandNavy : '#FFFFFF') : colors.textPrimary },
+                    ]}
+                  >
+                    {startDate.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.modalTabTime,
+                      { color: activeDateTab === 'pickup' ? (isDark ? colors.brandNavy : colors.brandAccent) : colors.brandAccent },
+                    ]}
+                  >
+                    {startDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                  </Text>
+                </Pressable>
+
+                <Pressable
+                  accessibilityRole="tab"
+                  accessibilityState={{ selected: activeDateTab === 'return' }}
+                  onPress={() => setActiveDateTab('return')}
+                  style={[
+                    styles.modalTabBtn,
+                    activeDateTab === 'return' && {
+                      backgroundColor: isDark ? colors.brandAccent : colors.brandNavy,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.modalTabSub,
+                      { color: activeDateTab === 'return' ? (isDark ? colors.brandNavy : '#FFFFFF') : colors.textMuted },
+                    ]}
+                  >
+                    2. RETURN
+                  </Text>
+                  <Text
+                    style={[
+                      styles.modalTabMain,
+                      { color: activeDateTab === 'return' ? (isDark ? colors.brandNavy : '#FFFFFF') : colors.textPrimary },
+                    ]}
+                  >
+                    {endDate.toLocaleDateString('en-IN', { weekday: 'short', month: 'short', day: 'numeric' })}
+                  </Text>
+                  <Text
+                    style={[
+                      styles.modalTabTime,
+                      { color: activeDateTab === 'return' ? (isDark ? colors.brandNavy : colors.brandAccent) : colors.brandAccent },
+                    ]}
+                  >
+                    {endDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                  </Text>
+                </Pressable>
+              </View>
+
+              {/* Month Calendar Navigation */}
+              <View style={[styles.calendarBox, { backgroundColor: colors.surfaceSecondary, borderColor: colors.border }]}>
+                <View style={styles.calendarMonthHeader}>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Previous month"
+                    onPress={handlePrevMonth}
+                    style={[styles.calNavBtn, { backgroundColor: colors.surface }]}
+                  >
+                    <ChevronLeft size={18} color={colors.textPrimary} />
+                  </Pressable>
+                  <Text style={[styles.calMonthTitle, { color: colors.textPrimary }]}>
+                    {calendarData.monthName}
+                  </Text>
+                  <Pressable
+                    accessibilityRole="button"
+                    accessibilityLabel="Next month"
+                    onPress={handleNextMonth}
+                    style={[styles.calNavBtn, { backgroundColor: colors.surface }]}
+                  >
+                    <ChevronRight size={18} color={colors.textPrimary} />
+                  </Pressable>
+                </View>
+
+                {/* Weekday Row */}
+                <View style={styles.weekdayRow}>
+                  {['Mo', 'Tu', 'We', 'Th', 'Fr', 'Sa', 'Su'].map(w => (
+                    <Text key={w} style={[styles.weekdayText, { color: colors.textMuted }]}>
+                      {w}
+                    </Text>
+                  ))}
+                </View>
+
+                {/* Day Grid */}
+                <View style={styles.dayGrid}>
+                  {Array.from({ length: calendarData.adjustedFirstDay }).map((_, idx) => (
+                    <View key={`empty-${idx}`} style={styles.emptyDayCell} />
+                  ))}
+                  {calendarData.cells.map(c => {
+                    return (
+                      <Pressable
+                        key={c.day}
+                        accessibilityRole="button"
+                        disabled={c.isPast}
+                        onPress={() => handleSelectCalendarDay(c.day)}
+                        style={[
+                          styles.dayCell,
+                          c.isInRange && {
+                            backgroundColor: isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(6, 26, 56, 0.1)',
+                          },
+                          (c.isPickup || c.isReturn) && {
+                            backgroundColor: isDark ? colors.brandAccent : colors.brandNavy,
+                            borderRadius: 18,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.dayCellText,
+                            {
+                              color: c.isPast
+                                ? colors.textMuted + '60'
+                                : (c.isPickup || c.isReturn)
+                                ? (isDark ? colors.brandNavy : '#FFFFFF')
+                                : colors.textPrimary,
+                              fontWeight: (c.isPickup || c.isReturn) ? '800' : '500',
+                            },
+                          ]}
+                        >
+                          {c.day}
+                        </Text>
+                        {c.isPickup && (
+                          <Text style={[styles.dayLabelMicro, { color: isDark ? colors.brandNavy : colors.brandAccent }]}>
+                            PICK
+                          </Text>
+                        )}
+                        {c.isReturn && (
+                          <Text style={[styles.dayLabelMicro, { color: isDark ? colors.brandNavy : colors.brandAccent }]}>
+                            RET
+                          </Text>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Time Selector for Active Tab */}
+              <View>
+                <Text style={[styles.timePickerHeading, { color: colors.textSecondary }]}>
+                  {activeDateTab === 'pickup' ? 'SELECT PICKUP TIME' : 'SELECT RETURN TIME'}
+                </Text>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.timeSlotRow}>
+                  {TIME_SLOTS.map(t => {
+                    const activeDate = activeDateTab === 'pickup' ? startDate : endDate;
+                    const activeTimeFormatted = activeDate.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true });
+                    const isSelected = activeTimeFormatted.toLowerCase().replace(/\s/g, '') === t.toLowerCase().replace(/\s/g, '');
+                    return (
+                      <Pressable
+                        key={t}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: isSelected }}
+                        onPress={() => handleSelectTime(t)}
+                        style={[
+                          styles.timeSlotChip,
+                          {
+                            backgroundColor: isSelected
+                              ? (isDark ? colors.brandAccent : colors.brandNavy)
+                              : colors.surfaceSecondary,
+                            borderColor: isSelected ? colors.brandAccent : colors.border,
+                          },
+                        ]}
+                      >
+                        <Text
+                          style={[
+                            styles.timeSlotText,
+                            {
+                              color: isSelected
+                                ? (isDark ? colors.brandNavy : '#FFFFFF')
+                                : colors.textPrimary,
+                              fontWeight: isSelected ? '700' : '500',
+                            },
+                          ]}
+                        >
+                          {t}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+            </ScrollView>
+
+            {/* Modal Bottom Confirm Button */}
+            <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
+              <Pressable
+                accessibilityRole="button"
+                accessibilityLabel="Confirm dates and times"
+                onPress={() => setDateModalVisible(false)}
+                style={[
+                  styles.modalConfirmBtn,
+                  { backgroundColor: isDark ? colors.brandAccent : colors.brandNavy },
+                ]}
+              >
+                <Check size={18} color={isDark ? colors.brandNavy : '#FFFFFF'} />
+                <Text style={[styles.modalConfirmBtnText, { color: isDark ? colors.brandNavy : '#FFFFFF' }]}>
+                  Apply Dates ({durationLabel})
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -677,5 +1212,212 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '700',
     color: '#FFFFFF',
+  },
+  miniCalendarBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    borderWidth: 1,
+  },
+  miniCalendarBtnText: {
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  stepperContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: 10,
+    borderRadius: 14,
+    borderWidth: 1,
+    marginBottom: 12,
+  },
+  stepperButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  stepperTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  stepperSub: {
+    fontSize: 11,
+    fontWeight: '600',
+    marginTop: 2,
+  },
+  openPickerBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    borderWidth: 1,
+    marginTop: 12,
+  },
+  openPickerBarText: {
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.7)',
+    justifyContent: 'flex-end',
+  },
+  dateModalCard: {
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    borderTopWidth: 1,
+    borderLeftWidth: 1,
+    borderRightWidth: 1,
+    maxHeight: '90%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderBottomWidth: 1,
+  },
+  modalTitle: {
+    fontSize: 17,
+    fontWeight: '800',
+  },
+  modalSubtitle: {
+    fontSize: 12,
+    marginTop: 2,
+  },
+  modalCloseBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  modalTabRow: {
+    flexDirection: 'row',
+    borderRadius: 14,
+    padding: 4,
+    gap: 6,
+  },
+  modalTabBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    paddingHorizontal: 8,
+    borderRadius: 10,
+    alignItems: 'center',
+  },
+  modalTabSub: {
+    fontSize: 10,
+    fontWeight: '800',
+    letterSpacing: 0.5,
+  },
+  modalTabMain: {
+    fontSize: 13,
+    fontWeight: '700',
+    marginTop: 2,
+  },
+  modalTabTime: {
+    fontSize: 12,
+    fontWeight: '700',
+    marginTop: 1,
+  },
+  calendarBox: {
+    borderRadius: 16,
+    padding: 14,
+    borderWidth: 1,
+  },
+  calendarMonthHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+  },
+  calNavBtn: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  calMonthTitle: {
+    fontSize: 15,
+    fontWeight: '700',
+  },
+  weekdayRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-around',
+    marginBottom: 8,
+  },
+  weekdayText: {
+    width: 38,
+    textAlign: 'center',
+    fontSize: 11,
+    fontWeight: '700',
+  },
+  dayGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  emptyDayCell: {
+    width: '14.28%',
+    height: 40,
+  },
+  dayCell: {
+    width: '14.28%',
+    height: 42,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dayCellText: {
+    fontSize: 13,
+  },
+  dayLabelMicro: {
+    fontSize: 8,
+    fontWeight: '800',
+    marginTop: -2,
+  },
+  timePickerHeading: {
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.5,
+    marginBottom: 8,
+  },
+  timeSlotRow: {
+    gap: 8,
+    paddingBottom: 4,
+  },
+  timeSlotChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 10,
+    borderWidth: 1,
+  },
+  timeSlotText: {
+    fontSize: 12,
+  },
+  modalFooter: {
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    borderTopWidth: 1,
+  },
+  modalConfirmBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    paddingVertical: 14,
+    borderRadius: 14,
+  },
+  modalConfirmBtnText: {
+    fontSize: 15,
+    fontWeight: '700',
   },
 });

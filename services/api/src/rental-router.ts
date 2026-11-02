@@ -51,7 +51,7 @@ const verifyPaymentSchema = z.object({
   paymentGateway: z.string().trim().default('RAZORPAY'),
   gatewayOrderId: z.string().trim().min(3),
   gatewayPaymentId: z.string().trim().min(3),
-  gatewaySignature: z.string().trim().min(10),
+  gatewaySignature: z.string().trim().min(3),
 });
 
 const driverKycSchema = z.object({

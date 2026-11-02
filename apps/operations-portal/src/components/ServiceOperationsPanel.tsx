@@ -280,12 +280,19 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const handlePaymentSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!activeJob) return;
+    if (!paymentAmountRupees || paymentAmountRupees <= 0) {
+      onError('Please enter a valid payment amount greater than ₹0.');
+      return;
+    }
     setActionBusy(true);
     try {
       await api.recordServicePayment(user, activeJob.id, {
-        amountPaise: paymentAmountRupees * 100,
+        type: 'FINAL_SETTLEMENT',
+        amountPaise: Math.round(paymentAmountRupees * 100),
         paymentMethod,
+        paymentGateway: paymentMethod,
         transactionReference: paymentTxRef || `OFFLINE-${Date.now()}`,
+        gatewayPaymentId: paymentTxRef || `OFFLINE-${Date.now()}`,
         notes: 'Collected at workshop delivery counter.',
       });
       onSuccess(`Payment of ₹${paymentAmountRupees.toLocaleString('en-IN')} recorded for Finance verification.`);
@@ -916,6 +923,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                   <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
                     Record offline customer payment at the service counter. Finance officers will verify transaction against bank feeds.
                   </p>
+                  {activeJob.estimates?.[0] && (
+                    <div style={{ padding: '0.75rem', background: 'var(--surface-secondary)', borderRadius: '6px', marginTop: '0.75rem', borderLeft: '3px solid var(--accent)' }}>
+                      <div style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', letterSpacing: '0.05em' }}>Approved Estimate Total</div>
+                      <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--accent)', marginTop: '2px' }}>
+                        {formatRupees(activeJob.estimates[0].totalAmountPaise)}
+                      </div>
+                    </div>
+                  )}
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
                     <div>
                       <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Amount Received (₹) *</label>

@@ -54,6 +54,11 @@ export type RootStack = {
   RentalCheckout: {
     holdId: string;
     holdCode: string;
+    vehicle?: import('../services/rental-api').RentalFleetVehicle;
+    quoteSnapshot?: import('../services/rental-api').RentalQuote;
+    startTime?: string;
+    endTime?: string;
+    hubName?: string;
   };
   RentalBookingDetails: {
     bookingId: string;
