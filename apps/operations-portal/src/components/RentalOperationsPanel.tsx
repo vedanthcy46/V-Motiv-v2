@@ -1305,6 +1305,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 className="modal-body custom-scrollbar"
                 style={{
                   flex: 1,
+                  minHeight: 0,
                   overflowY: 'auto',
                   padding: '1.5rem',
                   display: 'flex',
@@ -1706,6 +1707,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 className="modal-body custom-scrollbar"
                 style={{
                   flex: 1,
+                  minHeight: 0,
                   overflowY: 'auto',
                   padding: '1.5rem',
                   display: 'flex',
