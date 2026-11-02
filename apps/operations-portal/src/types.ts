@@ -458,6 +458,12 @@ export type ServiceJobItem = {
     id: string;
     displayName?: string | null;
   } | null;
+  activeEstimate?: {
+    id: string;
+    version?: number;
+    status: string;
+    totalAmountPaise: string | number;
+  } | null;
   estimates?: {
     id: string;
     totalAmountPaise: string | number;

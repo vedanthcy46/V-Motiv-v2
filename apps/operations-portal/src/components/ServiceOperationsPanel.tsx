@@ -689,19 +689,46 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
                       {job.fulfillmentType === 'DOORSTEP_PICKUP' ? '🚚 Pickup & Return' : '🏢 Hub Drop'}
                     </div>
+                    {(job.customerSymptoms || job.customerNotes) && (
+                      <div
+                        style={{
+                          fontSize: '0.72rem',
+                          color: 'var(--accent)',
+                          marginTop: '3px',
+                          maxWidth: '220px',
+                          overflow: 'hidden',
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap',
+                          background: 'rgba(247, 181, 3, 0.1)',
+                          padding: '2px 6px',
+                          borderRadius: '4px',
+                          border: '1px solid rgba(247, 181, 3, 0.25)',
+                        }}
+                        title={job.customerSymptoms || job.customerNotes || ''}
+                      >
+                        Req: <strong>{job.customerSymptoms || job.customerNotes}</strong>
+                      </div>
+                    )}
                   </td>
                   <td style={{ padding: '0.75rem 1rem' }}>
                     <div>{job.scheduledDate}</div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>{job.scheduledTimeSlot}</div>
                   </td>
                   <td style={{ padding: '0.75rem 1rem' }}>
-                    {job.estimates?.[0] ? (
-                      <span style={{ fontWeight: 700, color: 'var(--accent)' }}>
-                        {formatRupees(job.estimates[0].totalAmountPaise)}
-                      </span>
-                    ) : (
-                      <span style={{ color: 'var(--muted)' }}>—</span>
-                    )}
+                    {(() => {
+                      const est = job.activeEstimate || job.estimates?.[0];
+                      if (!est) return <span style={{ color: 'var(--muted)' }}>—</span>;
+                      return (
+                        <div>
+                          <div style={{ fontWeight: 700, color: 'var(--accent)' }}>
+                            {formatRupees(est.totalAmountPaise)}
+                          </div>
+                          <div style={{ fontSize: '0.68rem', color: est.status === 'APPROVED' ? '#10b981' : '#f59e0b' }}>
+                            {est.status === 'APPROVED' ? '✓ APPROVED' : est.status.replace(/_/g, ' ')}
+                          </div>
+                        </div>
+                      );
+                    })()}
                   </td>
                   <td style={{ padding: '0.75rem 1rem' }}>
                     <span className={`badge ${statusBadgeClass(job.status)}`} style={{ fontWeight: 700 }}>
@@ -825,13 +852,13 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
             <div className="stepper-nav" style={{ display: 'flex', gap: '4px', overflowX: 'auto', borderBottom: '1px solid var(--border)', padding: '0.5rem 1.25rem 0', background: 'var(--surface-secondary)' }}>
               {[
                 { id: 'details', label: 'Overview & Requirements' },
-                { id: 'schedule', label: isJobCancelled ? '🔒 Schedule' : '1. Schedule' },
-                { id: 'dispatch', label: isJobCancelled ? '🔒 Dispatch' : '2. Dispatch' },
-                { id: 'custody', label: isJobCancelled ? '🔒 Intake' : '3. Intake & Custody' },
-                { id: 'estimate', label: isJobCancelled ? '🔒 Estimate' : '4. Estimate & Approval' },
-                { id: 'qc', label: isJobCancelled ? '🔒 QC' : '5. Quality Control' },
-                { id: 'payment', label: isJobCancelled ? '🔒 Payment' : '6. Billing & Payment' },
-                { id: 'return', label: isJobCancelled ? '🔒 Handover' : '7. Release & Handover' },
+                { id: 'schedule', label: isJobCancelled ? '🔒 Schedule' : (isJobConcluded ? '✓ Schedule' : '1. Schedule') },
+                { id: 'dispatch', label: isJobCancelled ? '🔒 Dispatch' : (isJobConcluded ? '✓ Dispatch' : '2. Dispatch') },
+                { id: 'custody', label: isJobCancelled ? '🔒 Intake' : (isJobConcluded ? '✓ Intake' : '3. Intake & Custody') },
+                { id: 'estimate', label: isJobCancelled ? '🔒 Estimate' : (isJobConcluded ? '✓ Estimate' : '4. Estimate & Approval') },
+                { id: 'qc', label: isJobCancelled ? '🔒 QC' : (isJobConcluded ? '✓ QC' : '5. Quality Control') },
+                { id: 'payment', label: '6. Billing & Ledger' },
+                { id: 'return', label: isJobCancelled ? '🔒 Handover' : (isJobConcluded ? '✓ Handover' : '7. Release & Handover') },
               ].map(tab => (
                 <button
                   key={tab.id}
@@ -1093,6 +1120,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
                     <h4 style={{ margin: 0, color: '#ef4444' }}>Dispatch Locked — Job Cancelled</h4>
+                  </div>
+                ) : isJobConcluded ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>✅</div>
+                    <h4 style={{ margin: 0, color: '#10b981' }}>Dispatch & Logistics Completed</h4>
+                    <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
+                      Fulfillment type: {activeJob.fulfillmentType === 'DOORSTEP_PICKUP' ? 'Doorstep Pickup & Return' : 'Self Drop at Workshop Hub'}.
+                    </p>
                   </div>
                 ) : (
                   <form onSubmit={handleDispatchSubmit}>
@@ -1371,6 +1406,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
                     <h4 style={{ margin: 0, color: '#ef4444' }}>QC Locked — Job Cancelled</h4>
                   </div>
+                ) : isJobConcluded ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>✅</div>
+                    <h4 style={{ margin: 0, color: '#10b981' }}>Quality Control Certified & Passed</h4>
+                    <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
+                      QC road test and multi-point inspection verified before vehicle departure.
+                    </p>
+                  </div>
                 ) : (
                   <form onSubmit={handleQcSubmit}>
                     <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
@@ -1586,59 +1629,93 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
                     <h4 style={{ margin: 0, color: '#ef4444' }}>Vehicle Release Locked — Job Cancelled</h4>
                   </div>
+                ) : isJobConcluded ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>✅</div>
+                    <h4 style={{ margin: 0, color: '#10b981' }}>Vehicle Handover Concluded & Closed</h4>
+                    <p style={{ margin: '8px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
+                      Vehicle has been physically released to customer and all service balances are settled in full.
+                    </p>
+                  </div>
                 ) : (
                   <form onSubmit={handleReturnSubmit}>
                     <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
                       Complete final vehicle departure check-out, record release odometer, and document customer handover.
                     </p>
 
-                    {activeBalanceDueRupees > 0 && (
-                      <div style={{ padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.12)', borderLeft: '3px solid #ef4444', borderRadius: '4px', marginBottom: '1rem', color: '#ef4444', fontSize: '0.875rem' }}>
-                        <strong>⚠️ Notice:</strong> There is an outstanding balance of <strong>₹{activeBalanceDueRupees.toLocaleString('en-IN')}</strong> on this job. Please ensure payment is collected at the counter.
-                      </div>
-                    )}
+                    {(() => {
+                      const hasEstimates = activeJob.estimates && activeJob.estimates.length > 0;
+                      const hasApprovedEstimate = activeJob.estimates?.some(e => e.status === 'APPROVED');
+                      const isEstimatePending = hasEstimates && !hasApprovedEstimate;
+                      const isBalancePending = activeBalanceDueRupees > 0;
+                      const isBlocked = isEstimatePending || isBalancePending;
 
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
-                      <div>
-                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Departure Odometer (km) *</label>
-                        <input
-                          type="number"
-                          className="input"
-                          required
-                          value={returnOdometer}
-                          onChange={e => setReturnOdometer(Number(e.target.value))}
-                          style={{ width: '100%', marginTop: '4px' }}
-                        />
-                      </div>
-                      <div>
-                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Handover Recipient</label>
-                        <input
-                          type="text"
-                          className="input"
-                          readOnly
-                          value={activeJob.customer?.displayName || 'Customer Pickup / Delivery'}
-                          style={{ width: '100%', marginTop: '4px', opacity: 0.8 }}
-                        />
-                      </div>
-                    </div>
+                      return (
+                        <>
+                          {isBlocked && (
+                            <div style={{ padding: '0.85rem 1rem', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid #ef4444', borderRadius: '8px', marginBottom: '1rem', color: '#ef4444' }}>
+                              <div style={{ fontWeight: 800, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                                ⚠️ VEHICLE HANDOVER STRICTLY BLOCKED — ACTION REQUIRED
+                              </div>
+                              <div style={{ fontSize: '0.825rem', marginTop: '4px', color: 'var(--text)' }}>
+                                {isEstimatePending
+                                  ? 'Customer has not yet approved the service estimate. Customer approval is required before vehicle release.'
+                                  : `Outstanding balance of ₹${activeBalanceDueRupees.toLocaleString('en-IN')} must be collected and verified in Tab 6 (Billing & Ledger) prior to vehicle departure.`}
+                              </div>
+                            </div>
+                          )}
 
-                    <div style={{ marginTop: '1rem' }}>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Handover & Departure Notes</label>
-                      <textarea
-                        className="input"
-                        rows={3}
-                        value={returnNotes}
-                        onChange={e => setReturnNotes(e.target.value)}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
-                    </div>
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                            <div>
+                              <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Departure Odometer (km) *</label>
+                              <input
+                                type="number"
+                                className="input"
+                                required
+                                value={returnOdometer}
+                                onChange={e => setReturnOdometer(Number(e.target.value))}
+                                style={{ width: '100%', marginTop: '4px' }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Handover Recipient</label>
+                              <input
+                                type="text"
+                                className="input"
+                                readOnly
+                                value={activeJob.customer?.displayName || 'Customer Pickup / Delivery'}
+                                style={{ width: '100%', marginTop: '4px', opacity: 0.8 }}
+                              />
+                            </div>
+                          </div>
 
-                    <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Close</button>
-                      <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
-                        {actionBusy ? 'Releasing…' : 'Release Vehicle & Conclude Handover'}
-                      </button>
-                    </div>
+                          <div style={{ marginTop: '1rem' }}>
+                            <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Handover & Departure Notes</label>
+                            <textarea
+                              className="input"
+                              rows={3}
+                              value={returnNotes}
+                              onChange={e => setReturnNotes(e.target.value)}
+                              style={{ width: '100%', marginTop: '4px' }}
+                            />
+                          </div>
+
+                          <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                            <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Close</button>
+                            <button
+                              type="submit"
+                              className="btn-primary btn-gold button primary"
+                              disabled={actionBusy || isBlocked}
+                              title={isBlocked ? 'Handover blocked: estimate approval and payment required.' : undefined}
+                            >
+                              {isBlocked
+                                ? (isEstimatePending ? 'Handover Blocked: Estimate Pending' : 'Handover Blocked: Unpaid Balance')
+                                : (actionBusy ? 'Releasing…' : 'Release Vehicle & Conclude Handover')}
+                            </button>
+                          </div>
+                        </>
+                      );
+                    })()}
                   </form>
                 )
               )}

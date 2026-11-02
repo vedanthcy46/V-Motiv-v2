@@ -1880,6 +1880,9 @@ export class PrismaServiceStore {
             orderBy: { version: 'desc' },
             take: 1,
           },
+          payments: {
+            orderBy: { createdAt: 'desc' },
+          },
         },
       }),
     ]);
@@ -1893,6 +1896,8 @@ export class PrismaServiceStore {
         id: r.id,
         requestNumber: r.requestNumber,
         categoryKey: r.categoryKey,
+        customerSymptoms: r.customerSymptoms,
+        customerNotes: r.customerNotes,
         status: r.status,
         fulfillmentType: r.fulfillmentType,
         scheduledDate: r.scheduledDate,
@@ -1913,6 +1918,21 @@ export class PrismaServiceStore {
               totalAmountPaise: r.estimates[0].totalAmountPaise.toString(),
             }
           : null,
+        estimates: r.estimates.map(e => ({
+          id: e.id,
+          version: e.version,
+          status: e.status,
+          totalAmountPaise: e.totalAmountPaise.toString(),
+        })),
+        payments: r.payments.map(p => ({
+          id: p.id,
+          type: p.type,
+          amountPaise: p.amountPaise.toString(),
+          status: p.status,
+          paymentGateway: p.paymentGateway,
+          gatewayPaymentId: p.gatewayPaymentId,
+          createdAt: p.createdAt.toISOString(),
+        })),
         createdAt: r.createdAt.toISOString(),
       })),
     };
@@ -2457,15 +2477,33 @@ export class PrismaServiceStore {
         },
       });
 
-      // Check if all approved estimates are paid
+      // Check customer estimate approval & payment settlement
+      const latestEstimate = await tx.serviceEstimate.findFirst({
+        where: { serviceRequestId: sr.id },
+        orderBy: { version: 'desc' },
+      });
       const approvedEstimate = await tx.serviceEstimate.findFirst({
         where: { serviceRequestId: sr.id, status: ServiceEstimateStatus.APPROVED },
+        orderBy: { version: 'desc' },
       });
+
+      // Strict Gate 1: If an estimate was issued, it MUST be approved by the customer before vehicle release
+      if (latestEstimate && !approvedEstimate) {
+        throw new HttpError(400, 'ESTIMATE_NOT_APPROVED: Vehicle cannot be handed over before customer approves the service estimate.');
+      }
+
+      // Strict Gate 2: Customer payment must be verified (PAID_VERIFIED only, not PENDING)
       const verifiedPayments = await tx.servicePaymentRecord.findMany({
-        where: { serviceRequestId: sr.id, status: { in: [ServicePaymentStatus.PAID_VERIFIED, ServicePaymentStatus.PENDING] } },
+        where: { serviceRequestId: sr.id, status: ServicePaymentStatus.PAID_VERIFIED },
       });
       const totalPaid = verifiedPayments.reduce((acc, p) => acc + p.amountPaise, 0n);
-      const isPaid = !approvedEstimate || (totalPaid > 0n && totalPaid >= approvedEstimate.totalAmountPaise);
+      const isPaid = approvedEstimate ? totalPaid >= approvedEstimate.totalAmountPaise : totalPaid > 0n;
+
+      // For in-hub customer pickup, balance must be paid in full prior to release
+      if (sr.fulfillmentType === ServiceFulfillmentType.SELF_DROP_AT_HUB && approvedEstimate && !isPaid) {
+        const balRupees = Math.round(Number(approvedEstimate.totalAmountPaise - totalPaid) / 100);
+        throw new HttpError(403, `SERVICE_BALANCE_PENDING_CANNOT_HANDOVER_VEHICLE: Outstanding balance of ₹${balRupees.toLocaleString('en-IN')} must be collected and verified before vehicle release.`);
+      }
 
       let nextStatus: ServiceRequestStatus;
       if (sr.fulfillmentType === ServiceFulfillmentType.PICKUP_AND_RETURN) {
@@ -2553,8 +2591,18 @@ export class PrismaServiceStore {
         where: { serviceRequestId: requestId, type: 'CHECK_OUT' },
       });
 
-      let nextRequestStatus: ServiceRequestStatus = isAutoVerify ? ServiceRequestStatus.PAID : ServiceRequestStatus.PAYMENT_PENDING;
-      if (isAutoVerify && hasCheckout) {
+      const approvedEst = await tx.serviceEstimate.findFirst({
+        where: { serviceRequestId: requestId, status: ServiceEstimateStatus.APPROVED },
+        orderBy: { version: 'desc' },
+      });
+      const allVerified = await tx.servicePaymentRecord.findMany({
+        where: { serviceRequestId: requestId, status: ServicePaymentStatus.PAID_VERIFIED },
+      });
+      const totalVerifiedPaise = allVerified.reduce((acc, p) => acc + p.amountPaise, 0n);
+      const isFullySettled = approvedEst ? totalVerifiedPaise >= approvedEst.totalAmountPaise : totalVerifiedPaise > 0n;
+
+      let nextRequestStatus: ServiceRequestStatus = isFullySettled ? ServiceRequestStatus.PAID : ServiceRequestStatus.PAYMENT_PENDING;
+      if (isFullySettled && hasCheckout) {
         nextRequestStatus = ServiceRequestStatus.COMPLETED;
       }
 
