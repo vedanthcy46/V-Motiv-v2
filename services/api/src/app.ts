@@ -18,8 +18,10 @@ if (!('toJSON' in BigInt.prototype)) {
   });
 }
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
+const __filename = typeof import.meta !== 'undefined' && typeof import.meta.url === 'string'
+  ? fileURLToPath(import.meta.url)
+  : '';
+const __dirname = __filename ? path.dirname(__filename) : (typeof process !== 'undefined' && process.cwd ? process.cwd() : '');
 import { rateLimit } from 'express-rate-limit';
 import { authentication, optionalAuthentication, type Identity, type VerifyToken } from './auth.js';
 import type { IdentityStore } from './identity-store.js';
@@ -219,7 +221,16 @@ export function createApp(deps: {
   }));
   app.use(express.json({ limit: '50mb' }));
   app.use(express.urlencoded({ limit: '50mb', extended: true }));
-  app.use('/brand', express.static(path.resolve(__dirname, '../assets/brand')));
+  if (__dirname) {
+    try {
+      const brandPath = path.resolve(__dirname, '../assets/brand');
+      if (fs.existsSync(brandPath)) {
+        app.use('/brand', express.static(brandPath));
+      }
+    } catch {
+      // In edge environments where local assets directory is not mounted, continue cleanly
+    }
+  }
   app.get('/', (_req, res) => res.json({ service: 'vmotiv-api', status: 'ready', version: 'v2' }));
   app.get(['/health', '/health/live', '/api/health/live', '/api/v1/health/live', '/api/v2/health/live'], (_req, res) => res.json({ status: 'alive' }));
   app.get(['/health/ready', '/api/health/ready', '/api/v1/health/ready', '/api/v2/health/ready'], async (_req, res) => {
