@@ -38,7 +38,26 @@ All 6 web portals are Single Page Applications (SPAs) built with Vite and React 
 2. **`_headers` (`dist/_headers`)**:
    Provides security headers (`X-Frame-Options`, `X-Content-Type-Options`) and year-long immutable caching for bundled assets under `/assets/*`.
 
-### Portal Configuration Matrix
+### Web Portal Worker/Pages Assets Configuration (`wrangler.jsonc`)
+
+Each web portal utilizes Cloudflare's unified **Workers Static Assets** with built-in Single Page Application routing:
+
+```jsonc
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "vmotiv-customer-web",
+  "compatibility_date": "2024-11-01",
+  "assets": {
+    "directory": "./dist",
+    "not_found_handling": "single-page-application"
+  }
+}
+```
+
+This configuration enables:
+1. Direct deployment via `npx wrangler deploy` without needing an auxiliary Worker script.
+2. Built-in edge SPA fallback: any subroute (e.g. `/service`, `/rentals`, `/finance/dashboard`) automatically serves `/index.html` with status 200.
+3. Compatibility with both Cloudflare Workers Static Assets (`wrangler deploy`) and Cloudflare Pages (`wrangler pages deploy dist`).
 
 | Portal | Source Directory | Project Name (`wrangler.jsonc`) | Production Domain | Build Command | Output Directory |
 |---|---|---|---|---|---|

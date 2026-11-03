@@ -8,7 +8,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
-    "db:generate": "echo 'Frontend portal does not require Prisma generation'"
+    "db:generate": "echo 'Frontend portal does not require Prisma generation'",
+    "deploy": "wrangler deploy"
   },
   "dependencies": {
     "firebase": "^13.1.0",
