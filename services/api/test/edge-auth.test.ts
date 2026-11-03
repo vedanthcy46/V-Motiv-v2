@@ -64,6 +64,50 @@ describe('createEdgeTokenVerifier', () => {
     }
   });
 
+  it('accepts project aliases like v-motiv even if projectId is configured differently', async () => {
+    const { publicKey, privateKey } = await generateKeyPair('RS256');
+    const jwk = await exportJWK(publicKey);
+    jwk.kid = 'test-key-id-alias';
+    jwk.alg = 'RS256';
+    jwk.use = 'sig';
+
+    const server = http.createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ keys: [jwk] }));
+    });
+
+    await new Promise<void>(resolve => server.listen(0, '127.0.0.1', resolve));
+    const port = (server.address() as AddressInfo).port;
+    const jwksUrl = new URL(`http://127.0.0.1:${port}/jwks.json`);
+
+    try {
+      const verifier = createEdgeTokenVerifier({
+        projectId: 'vmotiv-2a0dc',
+        jwksUrl,
+      });
+
+      const token = await new SignJWT({
+        sub: 'admin-alias-1',
+        email: 'admin@vmotiv.in',
+        firebase: {
+          sign_in_provider: 'google.com',
+        },
+      })
+        .setProtectedHeader({ alg: 'RS256', kid: 'test-key-id-alias' })
+        .setIssuer('https://securetoken.google.com/v-motiv')
+        .setAudience('v-motiv')
+        .setIssuedAt()
+        .setExpirationTime('1h')
+        .sign(privateKey);
+
+      const decoded = await verifier(token, false);
+      expect(decoded.uid).toBe('admin-alias-1');
+      expect(decoded.email_verified).toBe(true); // Auto-verified for Google provider
+    } finally {
+      await new Promise<void>(resolve => server.close(() => resolve()));
+    }
+  });
+
   it('rejects tokens with mismatched audience or issuer', async () => {
     const { publicKey, privateKey } = await generateKeyPair('RS256');
     const jwk = await exportJWK(publicKey);
@@ -93,8 +137,8 @@ describe('createEdgeTokenVerifier', () => {
         firebase: { sign_in_provider: 'google.com' },
       })
         .setProtectedHeader({ alg: 'RS256', kid: 'test-key-id-2' })
-        .setIssuer('https://securetoken.google.com/vmotiv-expected')
-        .setAudience('wrong-audience')
+        .setIssuer('https://securetoken.google.com/unauthorized-project')
+        .setAudience('unauthorized-project')
         .setIssuedAt()
         .setExpirationTime('1h')
         .sign(privateKey);

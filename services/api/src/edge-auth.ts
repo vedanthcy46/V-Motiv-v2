@@ -8,6 +8,7 @@ export const GOOGLE_FIREBASE_JWKS_URL = new URL(
 
 export interface EdgeTokenVerifierOptions {
   projectId: string;
+  allowedProjectIds?: string[];
   jwksUrl?: URL;
   fallbackVerifier?: VerifyToken;
 }
@@ -19,6 +20,17 @@ export interface EdgeTokenVerifierOptions {
  */
 export function createEdgeTokenVerifier(options: EdgeTokenVerifierOptions): VerifyToken {
   const { projectId, jwksUrl = GOOGLE_FIREBASE_JWKS_URL, fallbackVerifier } = options;
+
+  // Accept primary projectId as well as project aliases (e.g. v-motiv, vmotiv-2a0dc)
+  const projectIds = Array.from(new Set([
+    projectId,
+    'v-motiv',
+    'vmotiv-2a0dc',
+    ...(options.allowedProjectIds || []),
+  ].filter(Boolean)));
+
+  const issuers = projectIds.map(id => `https://securetoken.google.com/${id}`);
+
   const jwks = createRemoteJWKSet(jwksUrl, {
     cacheMaxAge: 600_000, // 10 minutes cache
     cooldownDuration: 30_000, // 30 seconds cooldown
@@ -28,8 +40,8 @@ export function createEdgeTokenVerifier(options: EdgeTokenVerifierOptions): Veri
   return async (token: string, revoked = false): Promise<DecodedIdToken> => {
     try {
       const { payload } = await jwtVerify(token, jwks, {
-        issuer: `https://securetoken.google.com/${projectId}`,
-        audience: projectId,
+        issuer: issuers,
+        audience: projectIds,
         algorithms: ['RS256'],
       });
 
@@ -48,12 +60,16 @@ export function createEdgeTokenVerifier(options: EdgeTokenVerifierOptions): Veri
         signInProvider = 'google.com';
       }
 
+      // If user authenticated via Google OAuth, the email is inherently verified by Google
+      const isGoogle = signInProvider === 'google.com' || Boolean(firebaseClaims.identities?.['google.com']);
+      const isEmailVerified = Boolean(payload.email_verified) || isGoogle;
+
       return {
         ...payload,
         uid,
         sub: uid,
-        email: payload.email as string,
-        email_verified: Boolean(payload.email_verified),
+        email: (payload.email as string) || '',
+        email_verified: isEmailVerified,
         name: typeof payload.name === 'string' ? payload.name : undefined,
         picture: typeof payload.picture === 'string' ? payload.picture : undefined,
         iss: payload.iss as string,

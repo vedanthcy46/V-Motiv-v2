@@ -14,7 +14,7 @@
     "INSPECTION_REVIEW_WEB_ORIGIN": "https://review.vmotiv.in",
     "OPERATIONS_WEB_ORIGIN": "https://ops.vmotiv.in",
     "FINANCE_WEB_ORIGIN": "https://finance.vmotiv.in",
-    "FIREBASE_PROJECT_ID": "vmotiv-2a0dc",
+    "FIREBASE_PROJECT_ID": "v-motiv",
     "EMAIL_DELIVERY_ENABLED": "false"
   }
 }
