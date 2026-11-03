@@ -618,6 +618,8 @@ export type RentalBookingItem = {
   endTime: string;
   status: 'PENDING_PAYMENT' | 'CONFIRMED' | 'VEHICLE_COLLECTED' | 'TRIP_ACTIVE' | 'RETURN_INSPECTED' | 'SETTLED' | 'CANCELLED';
   kycStatus: 'PENDING_REVIEW' | 'VERIFIED' | 'REJECTED';
+  cancellationReason?: string | null;
+  cancelledAt?: string | null;
   baseFarePaise?: string | number;
   taxPaise?: string | number;
   paymentPlanSnapshot?: {
@@ -753,25 +755,36 @@ export type RentalPaymentSummary = {
 export type RentalPaymentSchedule = {
   bookingId: string;
   bookingNumber: string;
-  rentalPaymentStatus: string;
+  rentalPaymentStatus?: string;
+  currency?: string;
+  rentalTotalPaise?: string;
+  rentalTotalRupees?: number;
   installments: Array<{
-    type: 'ADVANCE' | 'BALANCE';
-    percentage: number;
+    installmentNumber?: number;
+    type: 'ADVANCE' | 'BALANCE' | 'FULL' | string;
+    title?: string;
+    percentage?: number;
     amountPaise: string;
-    amountRupees: number;
-    status: 'PAID' | 'PENDING' | 'OVERDUE';
-    dueAt: string;
+    amountRupees?: number;
+    status: 'PAID' | 'VERIFIED' | 'PENDING' | 'OVERDUE' | string;
+    dueAt?: string | null;
     paidAt: string | null;
+    gatewayOrderId?: string | null;
+    gatewayPaymentId?: string | null;
   }>;
 };
 
 export type RentalPaymentTransaction = {
   id: string;
   amountPaise: string;
-  amountRupees: number;
+  amountRupees?: number;
   status: string;
-  provider: string;
-  reference: string;
+  provider?: string;
+  paymentGateway?: string;
+  reference?: string;
+  gatewayOrderId?: string | null;
+  gatewayPaymentId?: string | null;
   installmentType: string | null;
   createdAt: string;
+  verifiedAt?: string | null;
 };

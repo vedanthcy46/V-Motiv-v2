@@ -347,8 +347,11 @@ export const api = {
     call<ServiceJobItem>(u, '/operations/service/walk-in', { method: 'POST', body: JSON.stringify(body) }),
   approveServiceEstimateByStaff: (u: User, id: string, estimateId: string, body?: { decision?: 'APPROVE' | 'DECLINE'; notes?: string; channel?: string }) =>
     call<unknown>(u, `/operations/service/jobs/${id}/estimates/${estimateId}/approve`, { method: 'POST', body: JSON.stringify(body || {}) }),
-  serviceCategories: (u: User) =>
-    call<Array<{ categoryKey: string; title: string; description: string; icon: string; fixedPackageAvailable?: boolean; packagePricePaise?: string | null; pricingType?: string; diagnosticFeePaise?: string; packageFeatures?: string[] }>>(u, '/service/categories'),
+  serviceCategories: (u: User, hubId?: string) =>
+    call<Array<{ categoryKey: string; title: string; description: string; icon: string; fixedPackageAvailable?: boolean; packagePricePaise?: string | null; pricingType?: string; diagnosticFeePaise?: string; packageFeatures?: string[]; hubPricing?: Record<string, any> }>>(
+      u,
+      `/service/categories${hubId && hubId !== 'all' ? `?hubId=${encodeURIComponent(hubId)}` : ''}`
+    ),
   serviceHubs: (u: User) =>
     call<Array<{ id: string; name: string; city: string; address?: string | null; code: string; isActive: boolean }>>(u, '/service/hubs'),
   updateServiceCategoryPricing: (u: User, categoryKey: string, body: Record<string, any>) =>
@@ -448,8 +451,33 @@ export const api = {
     }>(u, `/operations/rentals/bookings/${bookingId}/pickup-readiness`),
   rentalPaymentHistory: (u: User, bookingId: string) =>
     call<RentalPaymentTransaction[]>(u, `/operations/rentals/bookings/${bookingId}/payment-history`),
+  recordRentalPayment: (u: User, bookingId: string, body: {
+    installmentType?: 'ADVANCE' | 'BALANCE' | 'FULL' | 'DEPOSIT' | 'ADDITIONAL';
+    type?: 'RENTAL_PREPAYMENT' | 'REFUNDABLE_DEPOSIT' | 'EXTENSION_FEE' | 'ADDITIONAL_CHARGES';
+    amountRupees?: number;
+    amountPaise?: string | number;
+    paymentMethod?: string;
+    reference?: string;
+    notes?: string;
+  }) =>
+    call<{ success: boolean; booking: RentalBookingItem; payment: any }>(
+      u,
+      `/operations/rentals/bookings/${bookingId}/record-payment`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
   rentalBookingDetails: (u: User, id: string) =>
     call<RentalBookingItem>(u, `/operations/rentals/bookings/${id}`),
+  cancelRentalBooking: (u: User, bookingId: string, body: {
+    reason: string;
+    cancellationCategory?: 'KYC_CORRECTION_TIMEOUT' | 'CUSTOMER_REQUESTED' | 'NO_SHOW' | 'OPERATIONS_DISCRETION' | 'VEHICLE_UNAVAILABLE' | 'PAYMENT_FAILED_OR_OVERDUE' | 'OTHER';
+    waiveCancellationFee?: boolean;
+    internalNotes?: string;
+  }) =>
+    call<{ success: boolean; message: string; booking: RentalBookingItem }>(
+      u,
+      `/operations/rentals/bookings/${bookingId}/cancel`,
+      { method: 'POST', body: JSON.stringify(body) }
+    ),
   reviewRentalKyc: (u: User, bookingId: string, body: { decision?: 'APPROVE' | 'REJECT'; status?: 'VERIFIED' | 'REJECTED'; rejectionReason?: string }) =>
     call<unknown>(u, `/operations/rentals/bookings/${bookingId}/kyc/review`, { method: 'POST', body: JSON.stringify(body) }),
   updateRentalKycDocuments: (u: User, bookingId: string, body: Record<string, any>) =>

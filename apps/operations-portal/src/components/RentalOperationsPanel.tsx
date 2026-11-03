@@ -85,6 +85,23 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [activePaymentHistory, setActivePaymentHistory] = useState<RentalPaymentTransaction[]>([]);
   const [loadingPaymentDetails, setLoadingPaymentDetails] = useState(false);
 
+  // Manual / Counter Payment State
+  const [recordPaymentModalOpen, setRecordPaymentModalOpen] = useState(false);
+  const [recordPaymentType, setRecordPaymentType] = useState<'BALANCE' | 'ADVANCE' | 'FULL' | 'DEPOSIT' | 'ADDITIONAL'>('BALANCE');
+  const [recordPaymentAmount, setRecordPaymentAmount] = useState<string>('');
+  const [recordPaymentMethod, setRecordPaymentMethod] = useState<string>('CASH');
+  const [recordPaymentReference, setRecordPaymentReference] = useState<string>('');
+  const [recordPaymentNotes, setRecordPaymentNotes] = useState<string>('');
+  const [recordingPayment, setRecordingPayment] = useState(false);
+
+  // Operations Manual Cancellation State
+  const [cancelModalOpen, setCancelModalOpen] = useState(false);
+  const [cancelCategory, setCancelCategory] = useState<'KYC_CORRECTION_TIMEOUT' | 'CUSTOMER_REQUESTED' | 'NO_SHOW' | 'OPERATIONS_DISCRETION' | 'VEHICLE_UNAVAILABLE' | 'PAYMENT_FAILED_OR_OVERDUE' | 'OTHER'>('CUSTOMER_REQUESTED');
+  const [cancelReason, setCancelReason] = useState<string>('');
+  const [cancelWaiveFee, setCancelWaiveFee] = useState<boolean>(true);
+  const [cancelInternalNotes, setCancelInternalNotes] = useState<string>('');
+  const [cancellingBooking, setCancellingBooking] = useState(false);
+
   // Walk-In / Offline Hub Booking Form State
   const [walkInVehicleId, setWalkInVehicleId] = useState('');
   const [walkInCustomerName, setWalkInCustomerName] = useState('');
@@ -463,10 +480,144 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         setLoadingPaymentDetails(false);
       }
     });
+
     return () => {
       isMounted = false;
     };
   }, [activeBooking?.id]);
+
+  const reloadPaymentDetails = async (bookingId: string) => {
+    setLoadingPaymentDetails(true);
+    try {
+      const [updated, sum, sched, hist] = await Promise.all([
+        api.rentalBookingDetails(user, bookingId).catch(() => null),
+        api.rentalPaymentSummary(user, bookingId).catch(() => null),
+        api.rentalPaymentSchedule(user, bookingId).catch(() => null),
+        api.rentalPaymentHistory(user, bookingId).catch(() => []),
+      ]);
+      if (updated) setActiveBooking(updated);
+      if (sum) setActivePaymentSummary(sum);
+      if (sched) setActivePaymentSchedule(sched);
+      if (hist) setActivePaymentHistory(hist);
+    } finally {
+      setLoadingPaymentDetails(false);
+    }
+  };
+
+  const openRecordPaymentModal = (preferredType?: 'BALANCE' | 'ADVANCE' | 'FULL' | 'DEPOSIT' | 'ADDITIONAL') => {
+    if (!activeBooking) return;
+    const outstanding = Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) / 100;
+    const deposit = Number(activeBooking.securityDepositPaise || 0) / 100;
+
+    let targetType: 'BALANCE' | 'ADVANCE' | 'FULL' | 'DEPOSIT' | 'ADDITIONAL' = preferredType || 'BALANCE';
+    let targetAmount = '';
+
+    if (preferredType) {
+      targetType = preferredType;
+      if (preferredType === 'BALANCE' && outstanding > 0) targetAmount = outstanding.toString();
+      else if (preferredType === 'DEPOSIT') targetAmount = deposit.toString();
+    } else if (outstanding > 0) {
+      targetType = 'BALANCE';
+      targetAmount = outstanding.toString();
+    } else if (activeBooking.depositStatus !== 'HELD_ESCROW' && deposit > 0) {
+      targetType = 'DEPOSIT';
+      targetAmount = deposit.toString();
+    }
+
+    setRecordPaymentType(targetType);
+    setRecordPaymentAmount(targetAmount);
+    setRecordPaymentMethod('CASH');
+    setRecordPaymentReference('');
+    setRecordPaymentNotes('');
+    setRecordPaymentModalOpen(true);
+  };
+
+  const handleRecordPaymentSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!activeBooking || !user) return;
+    const amt = parseFloat(recordPaymentAmount);
+    if (isNaN(amt) || amt <= 0) {
+      onError('Please enter a valid payment amount greater than zero.');
+      return;
+    }
+    try {
+      setRecordingPayment(true);
+      await api.recordRentalPayment(user, activeBooking.id, {
+        installmentType: recordPaymentType,
+        amountRupees: amt,
+        paymentMethod: recordPaymentMethod,
+        reference: recordPaymentReference.trim() || undefined,
+        notes: recordPaymentNotes.trim() || undefined,
+      });
+      onSuccess(`Payment of ₹${amt.toLocaleString('en-IN')} recorded and verified successfully for ${activeBooking.bookingNumber}.`);
+      setRecordPaymentModalOpen(false);
+      setRecordPaymentAmount('');
+      setRecordPaymentReference('');
+      setRecordPaymentNotes('');
+      await reloadPaymentDetails(activeBooking.id);
+      void loadData();
+    } catch (err: any) {
+      onError(err?.message || 'Failed to record counter payment');
+    } finally {
+      setRecordingPayment(false);
+    }
+  };
+
+  const openCancelModal = (category: 'KYC_CORRECTION_TIMEOUT' | 'CUSTOMER_REQUESTED' | 'NO_SHOW' | 'OPERATIONS_DISCRETION' | 'VEHICLE_UNAVAILABLE' | 'PAYMENT_FAILED_OR_OVERDUE' | 'OTHER' = 'CUSTOMER_REQUESTED') => {
+    if (!activeBooking) return;
+    if (activeBooking.status !== 'CONFIRMED' && activeBooking.status !== 'PENDING_PAYMENT') {
+      onError('Rental booking cannot be cancelled once vehicle pickup has been dispatched. Please use the Return Inspection workflow instead.');
+      return;
+    }
+    setCancelCategory(category);
+    if (category === 'KYC_CORRECTION_TIMEOUT') {
+      setCancelReason('Customer did not submit corrected KYC documents within the required verification window.');
+    } else if (category === 'CUSTOMER_REQUESTED') {
+      setCancelReason('Customer contacted operations requesting to cancel this rental booking.');
+    } else if (category === 'NO_SHOW') {
+      setCancelReason('Customer did not arrive at pickup hub to collect vehicle.');
+    } else if (category === 'VEHICLE_UNAVAILABLE') {
+      setCancelReason('Assigned vehicle is undergoing unscheduled maintenance/repairs.');
+    } else if (category === 'PAYMENT_FAILED_OR_OVERDUE') {
+      setCancelReason('Rental payment schedule is overdue and unpaid.');
+    } else {
+      setCancelReason('Cancelled per operations review.');
+    }
+    setCancelWaiveFee(true);
+    setCancelInternalNotes('');
+    setCancelModalOpen(true);
+  };
+
+  const handleCancelBookingSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!activeBooking || !user) return;
+    if (activeBooking.status !== 'CONFIRMED' && activeBooking.status !== 'PENDING_PAYMENT') {
+      onError('Rental booking cannot be cancelled once vehicle pickup has been dispatched.');
+      return;
+    }
+    const trimmedReason = cancelReason.trim();
+    if (!trimmedReason) {
+      onError('Please provide a reason for cancelling this booking.');
+      return;
+    }
+    try {
+      setCancellingBooking(true);
+      await api.cancelRentalBooking(user, activeBooking.id, {
+        reason: trimmedReason,
+        cancellationCategory: cancelCategory,
+        waiveCancellationFee: cancelWaiveFee,
+        internalNotes: cancelInternalNotes.trim() || undefined,
+      });
+      setCancelModalOpen(false);
+      onSuccess(`Booking #${activeBooking.bookingNumber} was cancelled. Vehicle is released to Available.`);
+      setActiveBooking(prev => prev ? { ...prev, status: 'CANCELLED', cancellationReason: `[${cancelCategory}] ${trimmedReason}` } : null);
+      void loadData();
+    } catch (err: any) {
+      onError(err?.message || 'Failed to cancel rental booking');
+    } finally {
+      setCancellingBooking(false);
+    }
+  };
 
   // Handle Onboard Fleet
   const handleOnboardSubmit = async (e: FormEvent) => {
@@ -1425,16 +1576,32 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           )}
                         </td>
                         <td style={{ textAlign: 'right' }}>
-                          <button
-                            type="button"
-                            className="button primary small"
-                            onClick={() => {
-                              setActiveBooking(b);
-                              setBookingDrawerTab('overview');
-                            }}
-                          >
-                            Manage Trip
-                          </button>
+                          <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '6px' }}>
+                            <button
+                              type="button"
+                              className="button primary small"
+                              onClick={() => {
+                                setActiveBooking(b);
+                                setBookingDrawerTab('overview');
+                              }}
+                            >
+                              Manage Trip
+                            </button>
+                            {(b.status === 'CONFIRMED' || b.status === 'PENDING_PAYMENT') && (
+                              <button
+                                type="button"
+                                className="button danger small"
+                                style={{ fontSize: '0.72rem', padding: '0.3rem 0.5rem' }}
+                                onClick={() => {
+                                  setActiveBooking(b);
+                                  openCancelModal(b.kycStatus === 'REJECTED' ? 'KYC_CORRECTION_TIMEOUT' : 'CUSTOMER_REQUESTED');
+                                }}
+                                title="Cancel booking before dispatch"
+                              >
+                                🚫 Cancel
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -2928,9 +3095,22 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   Booking #{activeBooking.bookingNumber} — {activeBooking.vehicle?.make} {activeBooking.vehicle?.model}
                 </h3>
               </div>
-              <button type="button" className="icon-button" onClick={() => setActiveBooking(null)}>
-                <IconCross />
-              </button>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                {(activeBooking.status === 'CONFIRMED' || activeBooking.status === 'PENDING_PAYMENT') && (
+                  <button
+                    type="button"
+                    className="btn-danger button danger small"
+                    style={{ fontSize: '0.78rem', padding: '0.35rem 0.65rem' }}
+                    onClick={() => openCancelModal('CUSTOMER_REQUESTED')}
+                    title="Cancel booking before dispatch"
+                  >
+                    🚫 Cancel Booking
+                  </button>
+                )}
+                <button type="button" className="icon-button" onClick={() => setActiveBooking(null)}>
+                  <IconCross />
+                </button>
+              </div>
             </div>
 
             {/* Sub-Tabs */}
@@ -2957,6 +3137,39 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               {/* TAB 1: OVERVIEW */}
               {bookingDrawerTab === 'overview' && (
                 <div>
+                  {activeBooking.status === 'CANCELLED' && (
+                    <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', borderRadius: '8px', padding: '1rem', marginBottom: '1.25rem' }}>
+                      <div style={{ fontWeight: 800, color: '#ef4444', fontSize: '0.9rem', marginBottom: '4px' }}>
+                        🚫 THIS RESERVATION IS CANCELLED
+                      </div>
+                      <div style={{ fontSize: '0.8125rem' }}>
+                        <strong>Cancellation Reason:</strong> {activeBooking.cancellationReason || 'Cancelled by operations / customer'}
+                      </div>
+                      {activeBooking.cancelledAt && (
+                        <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '4px' }}>
+                          Cancelled on: {new Date(activeBooking.cancelledAt).toLocaleString('en-IN')}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {(activeBooking.status === 'TRIP_ACTIVE' || activeBooking.status === 'VEHICLE_COLLECTED') && (
+                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px', padding: '0.85rem 1rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '1.2rem' }}>🚗</span>
+                        <div>
+                          <strong style={{ color: '#10b981', fontSize: '0.875rem', display: 'block' }}>
+                            Vehicle Dispatched — Trip Active On Road
+                          </strong>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                            Pickup handover has been completed and vehicle keys released. Cancellation is strictly locked.
+                          </span>
+                        </div>
+                      </div>
+                      <span className="badge badge-success">DISPATCHED</span>
+                    </div>
+                  )}
+
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
                     <div style={{ background: 'var(--surface-secondary)', padding: '0.75rem', borderRadius: '6px' }}>
                       <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>CUSTOMER</span>
@@ -3018,8 +3231,16 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           <span style={{ color: '#ef4444', fontWeight: 800, marginLeft: '6px' }}>(OVERDUE)</span>
                         )}
                       </div>
-                      <div>
-                        Policy Version: <strong>{activePaymentSummary?.paymentPlan?.policyVersion || activeBooking.paymentPlanSnapshot?.policyVersion || 'VMR-POL-2026.1'}</strong>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <button
+                          type="button"
+                          className="btn-secondary button secondary"
+                          style={{ fontSize: '0.72rem', padding: '0.2rem 0.55rem' }}
+                          onClick={() => openRecordPaymentModal()}
+                        >
+                          💳 Record Counter Payment
+                        </button>
+                        <span>Policy: <strong>{activePaymentSummary?.paymentPlan?.policyVersion || activeBooking.paymentPlanSnapshot?.policyVersion || 'VMR-POL-2026.1'}</strong></span>
                       </div>
                     </div>
                   </div>
@@ -3162,9 +3383,19 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         Real-time verified payments, outstanding balance, and installment settlement audit trail.
                       </p>
                     </div>
-                    {loadingPaymentDetails && (
-                      <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Loading financial records…</span>
-                    )}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <button
+                        type="button"
+                        className="btn-primary btn-gold button primary"
+                        style={{ fontSize: '0.8125rem', padding: '0.45rem 0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+                        onClick={() => openRecordPaymentModal()}
+                      >
+                        <span>💳</span> Record Counter / Offline Payment
+                      </button>
+                      {loadingPaymentDetails && (
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Loading financial records…</span>
+                      )}
+                    </div>
                   </div>
 
                   {/* Payment Overview Card */}
@@ -3220,20 +3451,35 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </thead>
                         <tbody>
                           {activePaymentSchedule?.installments && activePaymentSchedule.installments.length > 0 ? (
-                            activePaymentSchedule.installments.map((inst, idx) => (
-                              <tr key={idx}>
-                                <td><strong>{inst.type === 'ADVANCE' ? 'Initial Advance' : 'Remaining Balance'}</strong></td>
-                                <td>{inst.percentage}%</td>
-                                <td className="money"><strong>₹{inst.amountRupees.toLocaleString('en-IN')}</strong></td>
-                                <td>{formatDate(inst.dueAt)}</td>
-                                <td>
-                                  <span className={`badge ${inst.status === 'PAID' ? 'badge-success' : inst.status === 'OVERDUE' ? 'badge-danger' : 'badge-warning'}`}>
-                                    {inst.status}
-                                  </span>
-                                </td>
-                                <td>{inst.paidAt ? formatDate(inst.paidAt) : '—'}</td>
-                              </tr>
-                            ))
+                            activePaymentSchedule.installments.map((inst, idx) => {
+                              const amount = typeof inst.amountRupees === 'number'
+                                ? inst.amountRupees
+                                : Math.round(Number(inst.amountPaise || 0) / 100);
+                              const typeLabel = inst.type === 'ADVANCE'
+                                ? 'Initial Advance'
+                                : inst.type === 'FULL'
+                                ? 'Full Rental Payment'
+                                : 'Remaining Balance';
+                              const pctLabel = inst.percentage !== undefined && inst.percentage !== null
+                                ? `${inst.percentage}%`
+                                : '—';
+                              const isPaid = inst.status === 'PAID' || inst.status === 'VERIFIED';
+                              const isOverdue = inst.status === 'OVERDUE';
+                              return (
+                                <tr key={idx}>
+                                  <td><strong>{typeLabel}</strong></td>
+                                  <td>{pctLabel}</td>
+                                  <td className="money"><strong>₹{amount.toLocaleString('en-IN')}</strong></td>
+                                  <td>{formatDate(inst.dueAt)}</td>
+                                  <td>
+                                    <span className={`badge ${isPaid ? 'badge-success' : isOverdue ? 'badge-danger' : 'badge-warning'}`}>
+                                      {inst.status}
+                                    </span>
+                                  </td>
+                                  <td>{inst.paidAt ? formatDate(inst.paidAt) : '—'}</td>
+                                </tr>
+                              );
+                            })
                           ) : (
                             <tr>
                               <td colSpan={6} style={{ textAlign: 'center', padding: '1rem', color: 'var(--muted)' }}>
@@ -3264,17 +3510,24 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </thead>
                         <tbody>
                           {activePaymentHistory && activePaymentHistory.length > 0 ? (
-                            activePaymentHistory.map((tx) => (
-                              <tr key={tx.id}>
-                                <td><span className="code-pill">{tx.id.slice(0, 8)}…</span></td>
-                                <td><strong>{tx.installmentType || 'PAYMENT'}</strong></td>
-                                <td>{tx.provider}</td>
-                                <td><span className="code-pill">{tx.reference || '—'}</span></td>
-                                <td><span className="badge badge-success">{tx.status}</span></td>
-                                <td className="money"><strong>₹{tx.amountRupees.toLocaleString('en-IN')}</strong></td>
-                                <td>{formatDate(tx.createdAt)}</td>
-                              </tr>
-                            ))
+                            activePaymentHistory.map((tx) => {
+                              const amount = typeof tx.amountRupees === 'number'
+                                ? tx.amountRupees
+                                : Math.round(Number(tx.amountPaise || 0) / 100);
+                              const isSuccess = tx.status === 'VERIFIED' || tx.status === 'PAID';
+                              const isFailed = tx.status === 'FAILED';
+                              return (
+                                <tr key={tx.id}>
+                                  <td><span className="code-pill">{(tx.id || '').slice(0, 8)}…</span></td>
+                                  <td><strong>{tx.installmentType || 'PAYMENT'}</strong></td>
+                                  <td>{tx.provider || (tx as any).paymentGateway || '—'}</td>
+                                  <td><span className="code-pill">{tx.reference || (tx as any).gatewayPaymentId || (tx as any).gatewayOrderId || '—'}</span></td>
+                                  <td><span className={`badge ${isSuccess ? 'badge-success' : isFailed ? 'badge-danger' : 'badge-warning'}`}>{tx.status}</span></td>
+                                  <td className="money"><strong>₹{amount.toLocaleString('en-IN')}</strong></td>
+                                  <td>{formatDate(tx.createdAt)}</td>
+                                </tr>
+                              );
+                            })
                           ) : (
                             <tr>
                               <td colSpan={7} style={{ textAlign: 'center', padding: '1rem', color: 'var(--muted)' }}>
@@ -3406,6 +3659,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                     /* PENDING REVIEW / RE-UPLOAD FORM */
                     <>
                       {activeBooking.driverVerification ? (
+                        <>
                         <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '6px', marginBottom: '1.25rem' }}>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
                             <div>
@@ -3535,6 +3789,29 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             </div>
                           </div>
                         </div>
+
+                        {/* PROMINENT REJECTED KYC CANCELLATION ACTION */}
+                        {activeBooking.kycStatus === 'REJECTED' && (activeBooking.status === 'CONFIRMED' || activeBooking.status === 'PENDING_PAYMENT') && (
+                          <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid #ef4444', borderRadius: '8px', padding: '1rem', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                            <div>
+                              <div style={{ fontWeight: 700, color: '#ef4444', fontSize: '0.875rem' }}>
+                                ⚠️ Driver KYC Is Marked Rejected
+                              </div>
+                              <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '2px' }}>
+                                If customer has not submitted valid document corrections within the required review window, or requests to cancel:
+                              </div>
+                            </div>
+                            <button
+                              type="button"
+                              className="btn-danger button danger small"
+                              style={{ fontSize: '0.78rem', whiteSpace: 'nowrap' }}
+                              onClick={() => openCancelModal('KYC_CORRECTION_TIMEOUT')}
+                            >
+                              🚫 Cancel Booking (KYC Timeout / No Correction)
+                            </button>
+                          </div>
+                        )}
+                        </>
                       ) : (
                         <div style={{ padding: '1.25rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '6px', color: 'var(--muted)', marginBottom: '1.25rem' }}>
                           Customer has not yet submitted driving license KYC online. Please inspect the original card and attach documents below.
@@ -4426,6 +4703,320 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   )}
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* RECORD COUNTER / OFFLINE PAYMENT MODAL */}
+      {recordPaymentModalOpen && activeBooking && (
+        <div className="modal-overlay" style={{ zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div className="modal-dialog" style={{ maxWidth: '520px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span className="eyebrow">COUNTER / OFFLINE PAYMENT</span>
+                <h3 style={{ margin: 0 }}>Record Rental Payment</h3>
+                <small style={{ color: 'var(--muted)' }}>Booking #{activeBooking.bookingNumber} • {activeBooking.customer?.displayName || 'Customer'}</small>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setRecordPaymentModalOpen(false)}>
+                <IconCross />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ padding: '1.25rem' }}>
+              {/* Financial Status Quick Card */}
+              <div style={{ background: 'var(--surface-secondary)', padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block' }}>OUTSTANDING BALANCE</span>
+                  <strong style={{ fontSize: '1.05rem', color: Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) > 0 ? '#ef4444' : '#10b981' }}>
+                    {formatRupees(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0)}
+                  </strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block' }}>SECURITY DEPOSIT</span>
+                  <strong style={{ fontSize: '1.05rem' }}>{formatRupees(activeBooking.securityDepositPaise)}</strong>
+                  <div style={{ fontSize: '0.65rem', color: 'var(--muted)' }}>({activeBooking.depositStatus || 'NOT_COLLECTED'})</div>
+                </div>
+              </div>
+
+              <form onSubmit={handleRecordPaymentSubmit}>
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.4rem' }}>
+                    Installment / Payment Type *
+                  </label>
+                  <select
+                    className="input select"
+                    value={recordPaymentType}
+                    onChange={(e) => {
+                      const val = e.target.value as any;
+                      setRecordPaymentType(val);
+                      if (val === 'BALANCE') {
+                        const bal = Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) / 100;
+                        if (bal > 0) setRecordPaymentAmount(bal.toString());
+                      } else if (val === 'DEPOSIT') {
+                        const dep = Number(activeBooking.securityDepositPaise || 0) / 100;
+                        setRecordPaymentAmount(dep.toString());
+                      }
+                    }}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)' }}
+                  >
+                    <option value="BALANCE">Remaining Balance Payment</option>
+                    <option value="DEPOSIT">Refundable Security Deposit</option>
+                    <option value="ADVANCE">Initial Advance Payment</option>
+                    <option value="FULL">Full Rental Fare</option>
+                    <option value="ADDITIONAL">Additional / Extension / Penalty Charges</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                    <label style={{ fontSize: '0.8125rem', fontWeight: 600, margin: 0 }}>
+                      Amount (₹) *
+                    </label>
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      {Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) > 0 && (
+                        <button
+                          type="button"
+                          style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent)', border: '1px solid rgba(245, 158, 11, 0.3)', cursor: 'pointer' }}
+                          onClick={() => {
+                            setRecordPaymentType('BALANCE');
+                            setRecordPaymentAmount((Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) / 100).toString());
+                          }}
+                        >
+                          Fill Balance
+                        </button>
+                      )}
+                      {Number(activeBooking.securityDepositPaise || 0) > 0 && (
+                        <button
+                          type="button"
+                          style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '4px', background: 'var(--surface-secondary)', border: '1px solid var(--border)', cursor: 'pointer' }}
+                          onClick={() => {
+                            setRecordPaymentType('DEPOSIT');
+                            setRecordPaymentAmount((Number(activeBooking.securityDepositPaise || 0) / 100).toString());
+                          }}
+                        >
+                          Fill Deposit
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                  <input
+                    type="number"
+                    min="1"
+                    step="1"
+                    className="input"
+                    required
+                    value={recordPaymentAmount}
+                    onChange={(e) => setRecordPaymentAmount(e.target.value)}
+                    placeholder="e.g. 5000"
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)' }}
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.4rem' }}>
+                    Payment Method / Channel *
+                  </label>
+                  <select
+                    className="input select"
+                    value={recordPaymentMethod}
+                    onChange={(e) => setRecordPaymentMethod(e.target.value)}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)' }}
+                  >
+                    <option value="CASH">Cash at Hub Counter</option>
+                    <option value="UPI_QR">UPI QR Code (Counter Scanner)</option>
+                    <option value="POS_CARD">POS Terminal Card Swipe / Tap</option>
+                    <option value="BANK_TRANSFER">Direct Bank Transfer (NEFT / IMPS / RTGS)</option>
+                    <option value="CHEQUE">Cheque / Demand Draft</option>
+                    <option value="OTHER">Other Offline Channel</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.4rem' }}>
+                    Receipt / Transaction Reference (Optional)
+                  </label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={recordPaymentReference}
+                    onChange={(e) => setRecordPaymentReference(e.target.value)}
+                    placeholder="e.g. CASH-RCP-1049, UPI-TXN-984129, POS-AUTH-4412"
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)' }}
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.4rem' }}>
+                    Staff Remarks / Notes (Optional)
+                  </label>
+                  <textarea
+                    className="input textarea"
+                    rows={2}
+                    value={recordPaymentNotes}
+                    onChange={(e) => setRecordPaymentNotes(e.target.value)}
+                    placeholder="e.g. Received counter payment from customer during vehicle handover."
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)', resize: 'vertical' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary button secondary"
+                    onClick={() => setRecordPaymentModalOpen(false)}
+                    disabled={recordingPayment}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-primary btn-gold button primary"
+                    disabled={recordingPayment}
+                  >
+                    {recordingPayment ? 'Recording...' : '✓ Confirm & Record Payment'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OPERATIONS MANUAL CANCEL BOOKING MODAL */}
+      {cancelModalOpen && activeBooking && (
+        <div className="modal-overlay" style={{ zIndex: 1100, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' }}>
+          <div className="modal-dialog" style={{ maxWidth: '520px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span className="eyebrow" style={{ color: '#ef4444' }}>OPERATIONS CANCELLATION</span>
+                <h3 style={{ margin: 0, fontSize: '1.1rem' }}>
+                  Cancel Booking #{activeBooking.bookingNumber}
+                </h3>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => setCancelModalOpen(false)}
+                disabled={cancellingBooking}
+              >
+                <IconCross />
+              </button>
+            </div>
+
+            <div className="modal-body" style={{ padding: '1.25rem' }}>
+              <div style={{ background: 'var(--surface-secondary)', padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1.25rem' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.8125rem' }}>
+                  <span style={{ color: 'var(--muted)' }}>Customer:</span>
+                  <strong>{activeBooking.customer?.displayName || 'Customer'}</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px', fontSize: '0.8125rem' }}>
+                  <span style={{ color: 'var(--muted)' }}>Vehicle:</span>
+                  <strong>{activeBooking.vehicle?.make} {activeBooking.vehicle?.model} ({activeBooking.vehicle?.registrationNumber || 'Fleet'})</strong>
+                </div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.8125rem' }}>
+                  <span style={{ color: 'var(--muted)' }}>Current Status:</span>
+                  <span className="badge badge-warning">{activeBooking.status}</span>
+                </div>
+              </div>
+
+              <form onSubmit={handleCancelBookingSubmit}>
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.4rem' }}>
+                    Cancellation Reason Category *
+                  </label>
+                  <select
+                    className="input select"
+                    value={cancelCategory}
+                    onChange={(e) => {
+                      const cat = e.target.value as any;
+                      setCancelCategory(cat);
+                      if (cat === 'KYC_CORRECTION_TIMEOUT') {
+                        setCancelReason('Customer did not submit corrected KYC documents within the required verification window.');
+                      } else if (cat === 'CUSTOMER_REQUESTED') {
+                        setCancelReason('Customer contacted operations requesting to cancel this rental booking.');
+                      } else if (cat === 'NO_SHOW') {
+                        setCancelReason('Customer did not arrive at pickup hub to collect vehicle.');
+                      } else if (cat === 'VEHICLE_UNAVAILABLE') {
+                        setCancelReason('Assigned vehicle is undergoing unscheduled maintenance/repairs.');
+                      } else if (cat === 'PAYMENT_FAILED_OR_OVERDUE') {
+                        setCancelReason('Rental payment schedule is overdue and unpaid.');
+                      } else {
+                        setCancelReason('Cancelled per operations review.');
+                      }
+                    }}
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)' }}
+                  >
+                    <option value="KYC_CORRECTION_TIMEOUT">📄 No KYC Correction Received / Document Timeout</option>
+                    <option value="CUSTOMER_REQUESTED">📞 Customer Requested Cancellation (Phone / Support)</option>
+                    <option value="NO_SHOW">⏱️ Customer No-Show at Pickup Hub</option>
+                    <option value="PAYMENT_FAILED_OR_OVERDUE">💳 Overdue / Failed Rental Payment</option>
+                    <option value="VEHICLE_UNAVAILABLE">🚗 Vehicle Mechanical Issue / Unavailable</option>
+                    <option value="OPERATIONS_DISCRETION">⚙️ Operations Management Discretion / Other</option>
+                  </select>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.4rem' }}>
+                    Reason / Details (Shown to Customer in Notification) *
+                  </label>
+                  <textarea
+                    className="input textarea"
+                    rows={3}
+                    required
+                    value={cancelReason}
+                    onChange={(e) => setCancelReason(e.target.value)}
+                    placeholder="Describe why this booking is being cancelled..."
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)', resize: 'vertical' }}
+                  />
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1rem' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.8125rem', fontWeight: 600 }}>
+                    <input
+                      type="checkbox"
+                      checked={cancelWaiveFee}
+                      onChange={(e) => setCancelWaiveFee(e.target.checked)}
+                    />
+                    Waive cancellation penalty & refund eligible amount (if any)
+                  </label>
+                  <small style={{ color: 'var(--muted)', display: 'block', marginTop: '2px', marginLeft: '22px' }}>
+                    Also immediately releases vehicle {activeBooking.vehicle?.registrationNumber || ''} back to <strong>AVAILABLE</strong> in fleet.
+                  </small>
+                </div>
+
+                <div className="form-group" style={{ marginBottom: '1.25rem' }}>
+                  <label style={{ display: 'block', fontSize: '0.8125rem', fontWeight: 600, marginBottom: '0.4rem' }}>
+                    Internal Staff Notes (Optional - for audit trail)
+                  </label>
+                  <input
+                    type="text"
+                    className="input"
+                    value={cancelInternalNotes}
+                    onChange={(e) => setCancelInternalNotes(e.target.value)}
+                    placeholder="e.g. Spoke with customer Rohan over phone; confirmed refund initiated."
+                    style={{ width: '100%', padding: '0.5rem', borderRadius: '6px', border: '1px solid var(--border)', background: 'var(--surface)' }}
+                  />
+                </div>
+
+                <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem', borderTop: '1px solid var(--border)', paddingTop: '1rem' }}>
+                  <button
+                    type="button"
+                    className="btn-secondary button secondary"
+                    onClick={() => setCancelModalOpen(false)}
+                    disabled={cancellingBooking}
+                  >
+                    Keep Booking
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-danger button danger"
+                    disabled={cancellingBooking}
+                  >
+                    {cancellingBooking ? 'Cancelling...' : 'Confirm & Cancel Booking'}
+                  </button>
+                </div>
+              </form>
             </div>
           </div>
         </div>

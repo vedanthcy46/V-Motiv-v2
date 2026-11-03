@@ -110,6 +110,7 @@ export function App() {
   const [sessionReload, setSessionReload] = useState(0);
 
   useEffect(() => { const handler = () => setRoute(currentRoute()); window.addEventListener('popstate', handler); return () => window.removeEventListener('popstate', handler); }, []);
+  // Removed auto-refresh interval per user request
   useEffect(() => {
     if (!auth) { setLoading(false); return; }
     // After a signInWithRedirect, Google returns us to the origin root.

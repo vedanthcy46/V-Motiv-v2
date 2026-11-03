@@ -314,9 +314,14 @@ export default {
       const response = await fetchToExpress(app, request);
 
       // 5. Ensure CORS headers are present on all responses
-      if (origin && !response.headers.has('Access-Control-Allow-Origin')) {
-        response.headers.set('Access-Control-Allow-Origin', origin);
+      const allowOrigin = origin || '*';
+      if (!response.headers.has('Access-Control-Allow-Origin')) {
+        response.headers.set('Access-Control-Allow-Origin', allowOrigin);
+      }
+      if (!response.headers.has('Access-Control-Allow-Methods')) {
         response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      }
+      if (!response.headers.has('Access-Control-Allow-Headers')) {
         response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin');
       }
 

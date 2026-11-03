@@ -2,6 +2,8 @@ import React, { useCallback, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
+  type AppStateStatus,
   FlatList,
   RefreshControl,
   ScrollView,

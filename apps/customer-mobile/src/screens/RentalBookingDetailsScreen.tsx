@@ -8,6 +8,8 @@ import {
   Pressable,
   ActivityIndicator,
   Alert,
+  AppState,
+  type AppStateStatus,
   Modal,
   TextInput,
   KeyboardAvoidingView,
@@ -85,9 +87,9 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
   const [balancePaymentMethod, setBalancePaymentMethod] = useState<'UPI' | 'CARD' | 'NETBANKING' | 'DEMO'>('UPI');
   const [payingBalance, setPayingBalance] = useState(false);
 
-  const loadDetails = useCallback(async () => {
+  const loadDetails = useCallback(async (isSilent = false) => {
     try {
-      setLoading(true);
+      if (!isSilent) setLoading(true);
       const [bookingData, summaryData, scheduleData] = await Promise.all([
         fetchRentalBookingDetails(bookingId),
         fetchRentalPaymentSummary(bookingId).catch(() => null),
@@ -97,9 +99,9 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
       setPaymentSummary(summaryData);
       setPaymentSchedule(scheduleData);
     } catch (e: any) {
-      Alert.alert('Booking Error', e?.message || 'Could not load rental booking.');
+      if (!isSilent) Alert.alert('Booking Error', e?.message || 'Could not load rental booking.');
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
     }
   }, [bookingId]);
 
@@ -108,7 +110,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
     try {
       setPayingBalance(true);
       const order = await payRentalBalance(booking.id);
-      const paymentId = `pay_bal_${Date.now()}`;
+      const paymentId = `pay_demo_bal_${Date.now()}`;
       await verifyRentalBalancePayment(booking.id, {
         paymentGateway: balancePaymentMethod === 'DEMO' ? 'DEMO' : balancePaymentMethod,
         gatewayOrderId: order.gatewayOrderId,
@@ -129,10 +131,14 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
   };
 
   useEffect(() => {
-    loadDetails();
+    void loadDetails();
   }, [loadDetails]);
 
   const handleCancel = () => {
+    if (!booking || booking.status === 'TRIP_ACTIVE' || booking.status === 'VEHICLE_COLLECTED' || booking.trip?.pickupTime) {
+      Alert.alert('Cannot Cancel', 'This booking cannot be cancelled once the vehicle pickup has been dispatched.');
+      return;
+    }
     Alert.alert(
       'Cancel Reservation',
       'Are you sure you want to cancel this booking? Refund will be calculated server-side according to the cancellation policy.',
@@ -231,8 +237,8 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
     ? Math.round(Number(booking.trip.depositRefundPaise) / 100)
     : Math.max(0, securityDeposit - totalExtraCharges);
 
-  const isCancellable = booking.status === 'CONFIRMED' || booking.status === 'PENDING_PAYMENT';
-  const isActiveTrip = booking.status === 'TRIP_ACTIVE' || booking.status === 'VEHICLE_COLLECTED';
+  const isCancellable = (booking.status === 'CONFIRMED' || booking.status === 'PENDING_PAYMENT') && !booking.trip?.pickupTime;
+  const isActiveTrip = booking.status === 'TRIP_ACTIVE' || booking.status === 'VEHICLE_COLLECTED' || Boolean(booking.trip?.pickupTime);
 
   return (
     <View style={[styles.container, { backgroundColor: colors.background }]}>

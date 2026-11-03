@@ -303,6 +303,23 @@ export function createApp(deps: {
     app.use('/api/inspection-review', standardLimiter, inspectionReviewRouter);
     app.use('/inspection-review', standardLimiter, inspectionReviewRouter);
 
+    // Service & Rental Operations must be mounted before generic /operations to prevent inspectionRouter shadowing
+    if (deps.service && deps.db) {
+      const serviceOpsRouter = createServiceOperationsRouter({ verify: deps.verify, db: deps.db, store: deps.service });
+      app.use('/api/v2/operations/service', serviceLimiter, serviceOpsRouter);
+      app.use('/api/v1/operations/service', serviceLimiter, serviceOpsRouter);
+      app.use('/api/operations/service', serviceLimiter, serviceOpsRouter);
+      app.use('/operations/service', serviceLimiter, serviceOpsRouter);
+    }
+
+    if (deps.rental && deps.db) {
+      const rentalOpsRouter = createRentalOperationsRouter({ verify: deps.verify, store: deps.rental, db: deps.db });
+      app.use('/api/v2/operations/rentals', rentalLimiter, rentalOpsRouter);
+      app.use('/api/v1/operations/rentals', rentalLimiter, rentalOpsRouter);
+      app.use('/api/operations/rentals', rentalLimiter, rentalOpsRouter);
+      app.use('/operations/rentals', rentalLimiter, rentalOpsRouter);
+    }
+
     app.use('/api/v2/operations', standardLimiter, operationsRouter);
     app.use('/api/v1/operations', standardLimiter, operationsRouter);
     app.use('/api/operations', standardLimiter, operationsRouter);
@@ -374,6 +391,7 @@ export function createApp(deps: {
 
     if (deps.db) {
       const serviceOpsRouter = createServiceOperationsRouter({ verify: deps.verify, db: deps.db, store: deps.service });
+      unifiedApiRouter.use('/operations/service', serviceOpsRouter);
       app.use('/api/v2/operations/service', serviceLimiter, serviceOpsRouter);
       app.use('/api/v1/operations/service', serviceLimiter, serviceOpsRouter);
       app.use('/api/operations/service', serviceLimiter, serviceOpsRouter);
@@ -389,6 +407,7 @@ export function createApp(deps: {
     app.use('/rentals', rentalLimiter, rentalCustomerRouter);
 
     const rentalOpsRouter = createRentalOperationsRouter({ verify: deps.verify, store: deps.rental, db: deps.db });
+    unifiedApiRouter.use('/operations/rentals', rentalOpsRouter);
     app.use('/api/v2/operations/rentals', rentalLimiter, rentalOpsRouter);
     app.use('/api/v1/operations/rentals', rentalLimiter, rentalOpsRouter);
     app.use('/api/operations/rentals', rentalLimiter, rentalOpsRouter);

@@ -438,12 +438,14 @@ export async function archiveCustomerVehicle(vehicleId: string): Promise<{ succe
 // -------------------------------------------------------------
 // SERVICE API METHODS
 // -------------------------------------------------------------
-export async function fetchServiceCategories(): Promise<ServiceIssueCategory[]> {
-  return api<ServiceIssueCategory[]>('/api/v2/service/categories');
+export async function fetchServiceCategories(hubId?: string): Promise<ServiceIssueCategory[]> {
+  const query = hubId ? `?hubId=${encodeURIComponent(hubId)}` : '';
+  return api<ServiceIssueCategory[]>(`/api/v2/service/categories${query}`);
 }
 
-export async function fetchServiceTemplate(categoryKey: string): Promise<ServiceIssueTemplate> {
-  return api<ServiceIssueTemplate>(`/api/v2/service/categories/${categoryKey}`);
+export async function fetchServiceTemplate(categoryKey: string, hubId?: string): Promise<ServiceIssueTemplate> {
+  const query = hubId ? `?hubId=${encodeURIComponent(hubId)}` : '';
+  return api<ServiceIssueTemplate>(`/api/v2/service/categories/${categoryKey}${query}`);
 }
 
 export async function fetchServiceHubs(city?: string): Promise<ServiceHub[]> {
@@ -491,8 +493,17 @@ export async function cancelServiceRequest(
   });
 }
 
-export async function fetchCategoryPaymentOptions(categoryKey: string): Promise<ServiceCategoryPaymentOptionsResponse> {
-  return api<ServiceCategoryPaymentOptionsResponse>(`/api/v2/service/categories/${categoryKey}/payment-options`);
+export async function fetchCategoryPaymentOptions(categoryKey: string, hubId?: string): Promise<ServiceCategoryPaymentOptionsResponse> {
+  const query = hubId ? `?hubId=${encodeURIComponent(hubId)}` : '';
+  const res = await api<ServiceCategoryPaymentOptionsResponse>(`/api/v2/service/categories/${categoryKey}/payment-options${query}`);
+  if (res && Array.isArray(res.options)) {
+    res.options = res.options.map(o => ({
+      ...o,
+      planId: o.planId || (o as any).id || 'ZERO_UPFRONT',
+      id: (o as any).id || o.planId || 'ZERO_UPFRONT',
+    }));
+  }
+  return res;
 }
 
 export async function fetchServicePaymentSummary(requestId: string): Promise<ServicePaymentSummary> {

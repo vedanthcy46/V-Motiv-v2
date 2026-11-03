@@ -353,6 +353,8 @@ function App() {
       .finally(() => setLoading(false));
   }, [user, sessionReload]);
 
+  // Removed auto-refresh interval per user request
+
   const googleSignIn = async () => {
     if (!auth) return;
     setBusy(true);

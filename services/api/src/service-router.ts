@@ -200,9 +200,10 @@ export function createServiceCustomerRouter(deps: {
   const router = Router();
 
   // Public Catalog & Availability Endpoints
-  router.get('/categories', async (_req, res, next) => {
+  router.get('/categories', async (req, res, next) => {
     try {
-      res.json(await deps.store.getIssueCategories());
+      const hubId = typeof req.query.hubId === 'string' ? req.query.hubId : undefined;
+      res.json(await deps.store.getIssueCategories(hubId));
     } catch (e) {
       next(e);
     }
@@ -210,7 +211,8 @@ export function createServiceCustomerRouter(deps: {
 
   router.get('/categories/:key', async (req, res, next) => {
     try {
-      res.json(await deps.store.getIssueTemplate(req.params.key));
+      const hubId = typeof req.query.hubId === 'string' ? req.query.hubId : undefined;
+      res.json(await deps.store.getIssueTemplate(req.params.key, hubId));
     } catch (e) {
       next(e);
     }
@@ -218,7 +220,8 @@ export function createServiceCustomerRouter(deps: {
 
   router.get('/categories/:key/payment-options', async (req, res, next) => {
     try {
-      res.json(await deps.store.getPaymentOptionsForCategory(req.params.key));
+      const hubId = typeof req.query.hubId === 'string' ? req.query.hubId : undefined;
+      res.json(await deps.store.getPaymentOptionsForCategory(req.params.key, hubId));
     } catch (e) {
       next(e);
     }
@@ -813,15 +816,28 @@ export function createServiceOperationsRouter(deps: {
         title: z.string().trim().min(2).max(100).optional(),
         description: z.string().trim().min(5).max(500).optional(),
         fixedPackageAvailable: z.boolean().optional(),
+        packagePriceRupees: z.union([z.number(), z.string()]).nullable().optional(),
         packagePricePaise: z.union([z.number(), z.string(), z.bigint()]).nullable().optional(),
         pricingType: z.string().trim().optional(),
+        diagnosticFeeRupees: z.union([z.number(), z.string()]).optional(),
         diagnosticFeePaise: z.union([z.number(), z.string(), z.bigint()]).optional(),
         packageFeatures: z.array(z.string().trim()).optional(),
         isActive: z.boolean().optional(),
+        hubId: z.string().trim().optional(),
       });
       const input = parse(schema, req.body);
+      const pkgRupees = input.packagePriceRupees !== undefined
+        ? (input.packagePriceRupees === null ? null : Number(input.packagePriceRupees))
+        : undefined;
+      const diagRupees = input.diagnosticFeeRupees !== undefined
+        ? Number(input.diagnosticFeeRupees)
+        : undefined;
+
       res.json(await deps.store.updateCategoryPricing(employee.userId, String(req.params.key), {
         ...input,
+        hubId: input.hubId,
+        packagePriceRupees: pkgRupees,
+        diagnosticFeeRupees: diagRupees,
         packagePricePaise: input.packagePricePaise !== undefined ? (input.packagePricePaise === null ? null : BigInt(input.packagePricePaise)) : undefined,
         diagnosticFeePaise: input.diagnosticFeePaise !== undefined ? BigInt(input.diagnosticFeePaise) : undefined,
       }));

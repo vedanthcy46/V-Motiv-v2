@@ -278,14 +278,15 @@ export function ServiceHomeScreen() {
     setStep(4); // Move to fulfillment
   };
 
-  const loadPaymentOptions = useCallback(async (catKey: string) => {
+  const loadPaymentOptions = useCallback(async (catKey: string, hubId?: string) => {
     setLoadingPaymentOptions(true);
     try {
-      const res = await fetchCategoryPaymentOptions(catKey);
+      const res = await fetchCategoryPaymentOptions(catKey, hubId);
       setPaymentOptionsResponse(res);
       if (res.options && res.options.length > 0) {
         const rec = res.options.find(o => o.isRecommended) || res.options[0];
-        if (rec) setSelectedPlanId(rec.planId);
+        const initialPlanId = rec?.planId || (rec as any)?.id || 'ZERO_UPFRONT';
+        setSelectedPlanId(initialPlanId);
       }
     } catch (err) {
       console.warn('Failed to load category payment options', err);
@@ -307,7 +308,7 @@ export function ServiceHomeScreen() {
 
     setSubmitting(true);
     try {
-      const selectedPlan = paymentOptionsResponse?.options?.find(o => o.planId === selectedPlanId);
+      const selectedPlan = paymentOptionsResponse?.options?.find(o => (o.planId || (o as any).id) === selectedPlanId);
       const payNowPaise = selectedPlan?.payNowPaise ? BigInt(selectedPlan.payNowPaise) : 0n;
 
       let gatewayOrderId: string | undefined;
@@ -388,11 +389,11 @@ export function ServiceHomeScreen() {
         </View>
       ) : (
         <View style={styles.carListWrap}>
-          {vehicles.map(v => {
+          {vehicles.map((v, vIdx) => {
             const isSelected = selectedVehicle?.id === v.id;
             return (
               <TouchableOpacity
-                key={v.id}
+                key={v.id || `veh-${vIdx}`}
                 onPress={() => setSelectedVehicle(v)}
                 style={[
                   styles.carSelectCard,
@@ -444,11 +445,11 @@ export function ServiceHomeScreen() {
       </Text>
 
       <View style={styles.categoriesGrid}>
-        {categories.map(cat => {
+        {categories.map((cat, cIdx) => {
           const IconComponent = CATEGORY_ICON_MAP[cat.categoryKey] || Wrench;
           return (
             <TouchableOpacity
-              key={cat.categoryKey}
+              key={cat.categoryKey || `cat-${cIdx}`}
               onPress={() => handleSelectCategory(cat)}
               style={[
                 styles.categoryCard,
@@ -503,7 +504,7 @@ export function ServiceHomeScreen() {
           <View style={[styles.packageBox, { backgroundColor: isDark ? '#162C4E' : '#F8FAFC', borderColor: c.border }]}>
             <Text style={[styles.packageBoxTitle, { color: c.text }]}>What’s Included:</Text>
             {template.packageFeatures.map((feat, i) => (
-              <View key={i} style={styles.packageItemRow}>
+              <View key={`pkg-feat-${i}-${feat}`} style={styles.packageItemRow}>
                 <CheckCircle size={14} color="#10B981" />
                 <Text style={[styles.packageItemText, { color: c.text }]}>{feat}</Text>
               </View>
@@ -514,7 +515,7 @@ export function ServiceHomeScreen() {
         {/* Dynamic Questions */}
         <View style={styles.questionsList}>
           {template.questions.map((q, idx) => (
-            <View key={q.stableId} style={[styles.questionCard, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <View key={q.stableId || `q-${idx}`} style={[styles.questionCard, { backgroundColor: c.surface, borderColor: c.border }]}>
               <View style={styles.questionHeader}>
                 <Text style={[styles.questionNumber, { color: c.accent }]}>Q{idx + 1}</Text>
                 <Text style={[styles.questionLabel, { color: c.text }]}>
@@ -530,11 +531,11 @@ export function ServiceHomeScreen() {
               {/* SINGLE_SELECT */}
               {q.responseType === 'SINGLE_SELECT' && q.options && (
                 <View style={styles.optionsWrap}>
-                  {q.options.map(opt => {
+                  {q.options.map((opt, optIdx) => {
                     const isSelected = answers[q.stableId] === opt;
                     return (
                       <TouchableOpacity
-                        key={opt}
+                        key={`sopt-${optIdx}-${opt}`}
                         onPress={() => handleAnswerChange(q.stableId, opt)}
                         style={[
                           styles.optionBtn,
@@ -557,7 +558,7 @@ export function ServiceHomeScreen() {
               {/* MULTI_SELECT */}
               {q.responseType === 'MULTI_SELECT' && q.options && (
                 <View style={styles.optionsWrap}>
-                  {q.options.map(opt => {
+                  {q.options.map((opt, optIdx) => {
                     const currentList: string[] = answers[q.stableId] || [];
                     const isSelected = currentList.includes(opt);
                     const toggle = () => {
@@ -569,7 +570,7 @@ export function ServiceHomeScreen() {
                     };
                     return (
                       <TouchableOpacity
-                        key={opt}
+                        key={`mopt-${optIdx}-${opt}`}
                         onPress={toggle}
                         style={[
                           styles.optionBtn,
@@ -779,11 +780,11 @@ export function ServiceHomeScreen() {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
               >
-                {savedAddresses.map(sa => {
+                {savedAddresses.map((sa, saIdx) => {
                   const isSelected = pickupAddress.line1 === sa.addressLine && (!sa.pincode || pickupAddress.pincode === sa.pincode);
                   return (
                     <TouchableOpacity
-                      key={sa.id}
+                      key={sa.id || `sa-${saIdx}`}
                       onPress={() => applySavedAddress(sa)}
                       accessibilityRole="button"
                       accessibilityLabel={`Use saved address ${sa.label}`}
@@ -866,11 +867,11 @@ export function ServiceHomeScreen() {
         <Text style={{ color: c.textMuted, fontSize: 12, marginBottom: space.sm }}>
           Available service centers in {userCity}:
         </Text>
-        {cityHubs.map((h: ServiceHub) => {
+        {cityHubs.map((h: ServiceHub, hIdx) => {
           const isSelected = selectedHub?.id === h.id;
           return (
             <TouchableOpacity
-              key={h.id}
+              key={h.id || `hub-${hIdx}`}
               onPress={() => setSelectedHub(h)}
               style={[
                 styles.hubOption,
@@ -922,11 +923,11 @@ export function ServiceHomeScreen() {
         {/* Date Selector Row */}
         <Text style={[styles.label, { color: c.text }]}>Select Date</Text>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroll}>
-          {dateOptions.map(opt => {
+          {dateOptions.map((opt, dIdx) => {
             const isSelected = selectedDate === opt.dateStr;
             return (
               <TouchableOpacity
-                key={opt.dateStr}
+                key={opt.dateStr || `date-${dIdx}`}
                 onPress={() => setSelectedDate(opt.dateStr)}
                 style={[
                   styles.datePill,
@@ -956,12 +957,12 @@ export function ServiceHomeScreen() {
           <ActivityIndicator size="small" color={c.accent} style={{ marginVertical: 20 }} />
         ) : (
           <View style={styles.slotsGrid}>
-            {slots.map(s => {
+            {slots.map((s, sIdx) => {
               const isSelected = selectedSlotTime === s.slotTime;
               const disabled = !s.isAvailable;
               return (
                 <TouchableOpacity
-                  key={s.slotTime}
+                  key={s.slotTime || `slot-${sIdx}`}
                   disabled={disabled}
                   onPress={() => setSelectedSlotTime(s.slotTime)}
                   style={[
@@ -989,7 +990,7 @@ export function ServiceHomeScreen() {
         <TouchableOpacity
           onPress={() => {
             if (selectedCategory) {
-              void loadPaymentOptions(selectedCategory.categoryKey);
+              void loadPaymentOptions(selectedCategory.categoryKey, selectedHub?.id);
             }
             setStep(6);
           }}
@@ -1004,8 +1005,9 @@ export function ServiceHomeScreen() {
 
   const renderStep6Review = () => {
     if (!selectedVehicle || !selectedCategory || !selectedHub) return null;
-    const isPackage = selectedCategory.fixedPackageAvailable && selectedCategory.packagePricePaise;
-    const packageAmount = isPackage ? Number(selectedCategory.packagePricePaise) / 100 : 0;
+    const isPackage = paymentOptionsResponse?.fixedPackageAvailable ?? (selectedCategory.fixedPackageAvailable && selectedCategory.packagePricePaise);
+    const effectivePricePaise = paymentOptionsResponse?.packagePricePaise ?? selectedCategory.packagePricePaise;
+    const packageAmount = isPackage && effectivePricePaise ? Number(effectivePricePaise) / 100 : 0;
     const pickupFee = fulfillmentType === 'PICKUP_AND_RETURN' ? 499 : 0;
     const totalEst = packageAmount + pickupFee;
 
@@ -1036,7 +1038,7 @@ export function ServiceHomeScreen() {
       },
     ];
 
-    const currentSelectedPlan = availableOptions.find(o => o.planId === selectedPlanId) || availableOptions[0];
+    const currentSelectedPlan = availableOptions.find(o => (o.planId || (o as any).id) === selectedPlanId) || availableOptions[0];
     const payNowRupees = currentSelectedPlan ? Math.round(Number(currentSelectedPlan.payNowPaise) / 100) : 0;
     const balanceRupees = currentSelectedPlan ? Math.round(Number(currentSelectedPlan.balancePaise) / 100) : 0;
 
@@ -1113,7 +1115,7 @@ export function ServiceHomeScreen() {
               Included in this Package
             </Text>
             {selectedCategory.packageFeatures.map((feat, idx) => (
-              <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+              <View key={`sel-feat-${idx}-${feat}`} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
                 <CheckCircle size={14} color="#10B981" />
                 <Text style={{ fontSize: 12, color: c.text }}>{feat}</Text>
               </View>
@@ -1134,16 +1136,17 @@ export function ServiceHomeScreen() {
             <ActivityIndicator size="small" color={c.accent} style={{ padding: 20 }} />
           ) : (
             <View style={{ gap: 10 }}>
-              {availableOptions.map((opt) => {
-                const isSelected = selectedPlanId === opt.planId;
+              {availableOptions.map((opt, optIdx) => {
+                const planKey = opt.planId || (opt as any).id || `plan-${optIdx}`;
+                const isSelected = (selectedPlanId || 'ZERO_UPFRONT') === planKey;
                 const optPayNow = Math.round(Number(opt.payNowPaise) / 100);
                 const optBal = Math.round(Number(opt.balancePaise) / 100);
 
                 return (
                   <TouchableOpacity
-                    key={opt.planId}
+                    key={planKey}
                     activeOpacity={0.8}
-                    onPress={() => setSelectedPlanId(opt.planId)}
+                    onPress={() => setSelectedPlanId(planKey)}
                     style={{
                       backgroundColor: isSelected ? 'rgba(247, 181, 3, 0.08)' : c.surface,
                       borderWidth: isSelected ? 2 : 1,

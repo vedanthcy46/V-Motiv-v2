@@ -586,11 +586,7 @@ export const App: FC = () => {
     }
   };
 
-  useEffect(() => {
-    if (!user || activeTab !== 'dispatch') return;
-    const refresh = window.setInterval(() => void loadAllData(user), 30_000);
-    return () => window.clearInterval(refresh);
-  }, [user, activeTab]);
+  // Removed auto-refresh interval per user request - user manually refreshes via refresh button
 
   // --- Handlers ---
   const handleAssignSubmit = async (e: FormEvent) => {

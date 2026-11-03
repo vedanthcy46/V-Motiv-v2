@@ -75,6 +75,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   // Dynamic Service Pricing Modal state
   const [pricingModalOpen, setPricingModalOpen] = useState(false);
   const [editingCategoryKey, setEditingCategoryKey] = useState<string | null>(null);
+  const [editPricingHubId, setEditPricingHubId] = useState<string>('all');
   const [editPriceRupees, setEditPriceRupees] = useState<number>(0);
   const [editDiagnosticFeeRupees, setEditDiagnosticFeeRupees] = useState<number>(500);
   const [editPricingType, setEditPricingType] = useState<string>('FIXED');
@@ -270,6 +271,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         .map((f: string) => f.trim())
         .filter(Boolean);
       await api.updateServiceCategoryPricing(user, categoryKey, {
+        hubId: editPricingHubId === 'all' ? undefined : editPricingHubId,
         pricingType: editPricingType,
         fixedPackageAvailable: editPackageAvailable,
         packagePriceRupees: editPackageAvailable ? editPriceRupees : undefined,
@@ -278,7 +280,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
       });
       onSuccess(`Pricing for ${categoryKey} updated successfully.`);
       setEditingCategoryKey(null);
-      const cats = await api.serviceCategories(user);
+      const cats = await api.serviceCategories(user, editPricingHubId === 'all' ? undefined : editPricingHubId);
       if (Array.isArray(cats)) setCategories(cats);
     } catch (err: any) {
       onError(err?.message || 'Failed to update category pricing');
@@ -2545,6 +2547,46 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     </button>
                   </div>
 
+                  <div style={{ marginBottom: '1rem' }}>
+                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Target Hub / Branch Override</label>
+                    <select
+                      className="select"
+                      value={editPricingHubId}
+                      onChange={e => {
+                        const hubId = e.target.value;
+                        setEditPricingHubId(hubId);
+                        const selectedCat = categories.find(c => c.categoryKey === editingCategoryKey);
+                        if (selectedCat) {
+                          const hubOverride = (selectedCat as any).hubPricing?.[hubId];
+                          if (hubOverride) {
+                            if (hubOverride.packagePricePaise) setEditPriceRupees(Math.round(Number(hubOverride.packagePricePaise) / 100));
+                            if (hubOverride.diagnosticFeePaise) setEditDiagnosticFeeRupees(Math.round(Number(hubOverride.diagnosticFeePaise) / 100));
+                            if (hubOverride.fixedPackageAvailable !== undefined) setEditPackageAvailable(hubOverride.fixedPackageAvailable);
+                          } else {
+                            const basePrice = selectedCat.packagePricePaise ? Math.round(Number(selectedCat.packagePricePaise) / 100) : 0;
+                            const baseDiag = selectedCat.diagnosticFeePaise ? Math.round(Number(selectedCat.diagnosticFeePaise) / 100) : 500;
+                            setEditPriceRupees(basePrice);
+                            setEditDiagnosticFeeRupees(baseDiag);
+                            setEditPackageAvailable(selectedCat.fixedPackageAvailable !== false);
+                          }
+                        }
+                      }}
+                      style={{ width: '100%', marginTop: '4px' }}
+                    >
+                      <option value="all">🌐 All Branches / Hubs (Default Base Price)</option>
+                      {branches.map(b => (
+                        <option key={b.id} value={b.id}>
+                          📍 {b.name} ({b.city})
+                        </option>
+                      ))}
+                    </select>
+                    <small style={{ color: 'var(--muted)', display: 'block', marginTop: '4px' }}>
+                      {editPricingHubId === 'all'
+                        ? 'Sets the default standard package price across all branches without explicit overrides.'
+                        : 'Sets branch-specific pricing override specifically for this location.'}
+                    </small>
+                  </div>
+
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                     <div>
                       <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Pricing Type *</label>
@@ -2631,6 +2673,26 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 </div>
               ) : (
                 // LIST CATEGORIES
+                <div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
+                    <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>Pricing View & Hub Overrides:</span>
+                    <select
+                      className="select"
+                      value={editPricingHubId}
+                      onChange={async e => {
+                        const hId = e.target.value;
+                        setEditPricingHubId(hId);
+                        const cats = await api.serviceCategories(user, hId === 'all' ? undefined : hId);
+                        if (Array.isArray(cats)) setCategories(cats);
+                      }}
+                      style={{ minWidth: '240px', padding: '0.4rem 0.6rem' }}
+                    >
+                      <option value="all">🌐 All Branches (Base Default)</option>
+                      {branches.map(b => (
+                        <option key={b.id} value={b.id}>📍 {b.name} ({b.city})</option>
+                      ))}
+                    </select>
+                  </div>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
                   {categories.map(cat => {
                     const price = cat.packagePricePaise ? Math.round(Number(cat.packagePricePaise) / 100) : null;
@@ -2683,6 +2745,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       </div>
                     );
                   })}
+                </div>
                 </div>
               )}
             </div>

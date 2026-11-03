@@ -2,6 +2,8 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
+  type AppStateStatus,
   Keyboard,
   KeyboardAvoidingView,
   Modal,
@@ -79,16 +81,17 @@ export function ServiceRequestDetailsScreen() {
   const [payMethod, setPayMethod] = useState<'RAZORPAY_UPI' | 'RAZORPAY_CARD' | 'NET_BANKING'>('RAZORPAY_UPI');
   const { keyboardHeight, isKeyboardVisible } = useKeyboard();
 
-  const loadDetails = useCallback(async () => {
+  const loadDetails = useCallback(async (isSilent = false) => {
     if (!requestId) return;
     try {
+      if (!isSilent) setLoading(true);
       const data = await fetchCustomerServiceRequest(requestId);
       setRequest(data);
     } catch (err: any) {
       console.warn('[SERVICE_DETAILS_ERROR]', err?.message || err);
-      Alert.alert('Error', 'Could not load service request details.');
+      if (!isSilent) Alert.alert('Error', 'Could not load service request details.');
     } finally {
-      setLoading(false);
+      if (!isSilent) setLoading(false);
       setRefreshing(false);
     }
   }, [requestId]);

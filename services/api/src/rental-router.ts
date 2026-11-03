@@ -125,6 +125,21 @@ const cancelBookingSchema = z.object({
   reason: z.string().trim().min(3).max(500),
 });
 
+const opsCancelBookingSchema = z.object({
+  reason: z.string().trim().min(2).max(500),
+  cancellationCategory: z.enum([
+    'KYC_CORRECTION_TIMEOUT',
+    'CUSTOMER_REQUESTED',
+    'NO_SHOW',
+    'OPERATIONS_DISCRETION',
+    'VEHICLE_UNAVAILABLE',
+    'PAYMENT_FAILED_OR_OVERDUE',
+    'OTHER',
+  ]).default('CUSTOMER_REQUESTED'),
+  waiveCancellationFee: z.boolean().default(true),
+  internalNotes: z.string().trim().max(1000).optional(),
+});
+
 const fleetCreateSchema = z.object({
   fleetNumber: z.string().trim().min(3).max(30).optional(),
   registrationNumber: z.string().trim().min(5).max(30),
@@ -164,6 +179,17 @@ const refundAuthorizeSchema = z.object({
   refundPaise: z.number().int().positive(),
   bankReference: z.string().trim().min(3),
   notes: z.string().trim().max(500).optional(),
+});
+
+const recordOperationsPaymentSchema = z.object({
+  type: z.enum(['RENTAL_PREPAYMENT', 'REFUNDABLE_DEPOSIT', 'EXTENSION_FEE', 'ADDITIONAL_CHARGES']).optional(),
+  installmentType: z.enum(['ADVANCE', 'BALANCE', 'FULL', 'DEPOSIT', 'ADDITIONAL']).optional(),
+  amountRupees: z.number().positive().optional(),
+  amountPaise: z.union([z.string(), z.number()]).optional(),
+  paymentMethod: z.string().trim().default('CASH'),
+  reference: z.string().trim().optional(),
+  notes: z.string().trim().optional(),
+  autoVerify: z.boolean().default(true),
 });
 
 // -------------------------------------------------------------
@@ -565,6 +591,21 @@ export function createRentalOperationsRouter(deps: {
     }
   });
 
+  // Get single fleet vehicle details
+  router.get('/fleet/:id', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
+    try {
+      const vehicleId = uuid.parse(req.params.id);
+      const vehicle = await deps.store.getFleetVehicle(vehicleId);
+      if (!vehicle) {
+        res.status(404).json({ code: 'VEHICLE_NOT_FOUND', message: 'Vehicle not found' });
+        return;
+      }
+      res.json(vehicle);
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // Add fleet vehicle
   router.post('/fleet', requireRentalRole(['RENTAL_MANAGER', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
     try {
@@ -715,6 +756,28 @@ export function createRentalOperationsRouter(deps: {
     }
   });
 
+  // Get booking payment schedule for operations panel
+  router.get('/bookings/:id/payment-schedule', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
+    try {
+      const bookingId = uuid.parse(req.params.id);
+      const schedule = await deps.store.getPaymentSchedule(bookingId);
+      res.json(schedule);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Get booking payment transactions history for operations panel
+  router.get('/bookings/:id/payment-history', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
+    try {
+      const bookingId = uuid.parse(req.params.id);
+      const history = await deps.store.getPaymentHistory(bookingId);
+      res.json(history);
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // Driver KYC review (Accepts either decision: 'APPROVE' | 'REJECT' or status: 'VERIFIED' | 'REJECTED')
   router.post('/bookings/:id/kyc/review', requireRentalRole(['RENTAL_MANAGER', 'RENTAL_DISPATCH', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
     try {
@@ -819,6 +882,34 @@ export function createRentalOperationsRouter(deps: {
       const input = parse(refundAuthorizeSchema, req.body);
       const employee = res.locals.employee;
       const result = await deps.store.authorizeDepositRefund(employee.userId, bookingId, input);
+      res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Record counter / offline payment from operations
+  router.post('/bookings/:id/record-payment', requireRentalRole(['RENTAL_MANAGER', 'RENTAL_DISPATCH', 'HUB_MANAGER', 'ADMIN', 'SUPER_ADMIN', 'FINANCE']), async (req, res, next) => {
+    try {
+      const bookingId = uuid.parse(req.params.id);
+      const employee = res.locals.employee;
+      const input = parse(recordOperationsPaymentSchema, req.body);
+      const result = await deps.store.recordOperationsPayment(employee.userId, bookingId, input);
+      res.status(201).json(result);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Operations manual cancel booking (e.g. no KYC correction received or customer requested cancellation)
+  router.post('/bookings/:id/cancel', requireRentalRole(['RENTAL_MANAGER', 'RENTAL_DISPATCH', 'HUB_MANAGER', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
+    try {
+      const identity = res.locals.identity as Identity;
+      const employee = res.locals.employee;
+      const actorId = employee?.userId || employee?.id || identity.uid;
+      const bookingId = uuid.parse(req.params.id);
+      const input = parse(opsCancelBookingSchema, req.body);
+      const result = await deps.store.cancelBookingByOperations(actorId, bookingId, input);
       res.json(result);
     } catch (e) {
       next(e);

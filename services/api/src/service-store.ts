@@ -650,6 +650,62 @@ function formatCustomerVehicleRecord(v: any, activeServiceRequest?: any) {
   };
 }
 
+export function parseFeaturesAndHubPricing(raw: any): {
+  features: string[];
+  hubPricing: Record<string, { packagePricePaise?: string; diagnosticFeePaise?: string; fixedPackageAvailable?: boolean }>;
+} {
+  const parsed = safeParseJson<any>(raw, null);
+  if (!parsed) {
+    return { features: [], hubPricing: {} };
+  }
+  if (Array.isArray(parsed)) {
+    return { features: parsed.filter((item: any) => typeof item === 'string'), hubPricing: {} };
+  }
+  if (typeof parsed === 'object') {
+    const features = Array.isArray(parsed.features) ? parsed.features.filter((item: any) => typeof item === 'string') : [];
+    const hubPricing = (parsed.hubPricing && typeof parsed.hubPricing === 'object') ? parsed.hubPricing : {};
+    return { features, hubPricing };
+  }
+  return { features: [], hubPricing: {} };
+}
+
+export function resolveEffectiveCategoryPricing(
+  item: {
+    packagePricePaise: bigint | null;
+    diagnosticFeePaise: bigint;
+    fixedPackageAvailable: boolean;
+    packageFeatures: any;
+  },
+  hubId?: string
+) {
+  const { features, hubPricing } = parseFeaturesAndHubPricing(item.packageFeatures);
+
+  let effectivePackagePricePaise = item.packagePricePaise;
+  let effectiveDiagnosticFeePaise = item.diagnosticFeePaise ?? 50000n;
+  let effectiveFixedAvailable = item.fixedPackageAvailable;
+
+  if (hubId && hubPricing[hubId]) {
+    const override = hubPricing[hubId];
+    if (override.packagePricePaise !== undefined && override.packagePricePaise !== null) {
+      effectivePackagePricePaise = BigInt(override.packagePricePaise);
+    }
+    if (override.diagnosticFeePaise !== undefined && override.diagnosticFeePaise !== null) {
+      effectiveDiagnosticFeePaise = BigInt(override.diagnosticFeePaise);
+    }
+    if (override.fixedPackageAvailable !== undefined) {
+      effectiveFixedAvailable = override.fixedPackageAvailable;
+    }
+  }
+
+  return {
+    packagePricePaise: effectivePackagePricePaise,
+    diagnosticFeePaise: effectiveDiagnosticFeePaise,
+    fixedPackageAvailable: effectiveFixedAvailable,
+    packageFeatures: features,
+    hubPricing,
+  };
+}
+
 export class PrismaServiceStore {
   private seedPromise: Promise<void> | null = null;
   private isSeeded = false;
@@ -686,10 +742,6 @@ export class PrismaServiceStore {
                 title: cat.title,
                 description: cat.description,
                 icon: cat.icon,
-                fixedPackageAvailable: cat.fixedPackageAvailable,
-                packagePricePaise: cat.packagePricePaise ?? null,
-                packageFeatures: cat.packageFeatures ? JSON.stringify(cat.packageFeatures) : Prisma.JsonNull,
-                questionsJson: JSON.stringify(cat.questions),
                 isActive: true,
               },
               create: {
@@ -819,27 +871,31 @@ export class PrismaServiceStore {
     });
   }
 
-  async getIssueCategories() {
+  async getIssueCategories(hubId?: string) {
     await this.ensureSeedData();
     const list = await this.db.serviceIssueTemplate.findMany({
       where: { isActive: true },
       orderBy: { createdAt: 'asc' },
     });
-    return list.map(item => ({
-      categoryKey: item.categoryKey,
-      version: item.version,
-      title: item.title,
-      description: item.description,
-      icon: item.icon,
-      fixedPackageAvailable: item.fixedPackageAvailable,
-      packagePricePaise: item.packagePricePaise ? item.packagePricePaise.toString() : null,
-      pricingType: item.pricingType || (item.fixedPackageAvailable ? 'FIXED' : 'QUOTE_REQUIRED'),
-      diagnosticFeePaise: (item.diagnosticFeePaise ?? 50000n).toString(),
-      packageFeatures: safeParseJson(item.packageFeatures, null),
-    }));
+    return list.map(item => {
+      const resolved = resolveEffectiveCategoryPricing(item, hubId);
+      return {
+        categoryKey: item.categoryKey,
+        version: item.version,
+        title: item.title,
+        description: item.description,
+        icon: item.icon,
+        fixedPackageAvailable: resolved.fixedPackageAvailable,
+        packagePricePaise: resolved.packagePricePaise ? resolved.packagePricePaise.toString() : null,
+        pricingType: item.pricingType || (resolved.fixedPackageAvailable ? 'FIXED' : 'QUOTE_REQUIRED'),
+        diagnosticFeePaise: resolved.diagnosticFeePaise.toString(),
+        packageFeatures: resolved.packageFeatures,
+        hubPricing: resolved.hubPricing,
+      };
+    });
   }
 
-  async getIssueTemplate(categoryKey: string) {
+  async getIssueTemplate(categoryKey: string, hubId?: string) {
     await this.ensureSeedData();
     const item = await this.db.serviceIssueTemplate.findUnique({
       where: { categoryKey },
@@ -847,17 +903,19 @@ export class PrismaServiceStore {
     if (!item || !item.isActive) {
       throw new HttpError(404, 'CATEGORY_NOT_FOUND');
     }
+    const resolved = resolveEffectiveCategoryPricing(item, hubId);
     return {
       categoryKey: item.categoryKey,
       version: item.version,
       title: item.title,
       description: item.description,
       icon: item.icon,
-      fixedPackageAvailable: item.fixedPackageAvailable,
-      packagePricePaise: item.packagePricePaise ? item.packagePricePaise.toString() : null,
-      pricingType: item.pricingType || (item.fixedPackageAvailable ? 'FIXED' : 'QUOTE_REQUIRED'),
-      diagnosticFeePaise: (item.diagnosticFeePaise ?? 50000n).toString(),
-      packageFeatures: safeParseJson(item.packageFeatures, null),
+      fixedPackageAvailable: resolved.fixedPackageAvailable,
+      packagePricePaise: resolved.packagePricePaise ? resolved.packagePricePaise.toString() : null,
+      pricingType: item.pricingType || (resolved.fixedPackageAvailable ? 'FIXED' : 'QUOTE_REQUIRED'),
+      diagnosticFeePaise: resolved.diagnosticFeePaise.toString(),
+      packageFeatures: resolved.packageFeatures,
+      hubPricing: resolved.hubPricing,
       questions: safeParseJson(item.questionsJson, []),
     };
   }
@@ -866,11 +924,14 @@ export class PrismaServiceStore {
     actorId: string,
     categoryKey: string,
     input: {
+      hubId?: string;
       title?: string;
       description?: string;
       fixedPackageAvailable?: boolean;
+      packagePriceRupees?: number | null;
       packagePricePaise?: bigint | number | null;
       pricingType?: string;
+      diagnosticFeeRupees?: number;
       diagnosticFeePaise?: bigint | number;
       packageFeatures?: string[];
       isActive?: boolean;
@@ -880,33 +941,91 @@ export class PrismaServiceStore {
     const existing = await this.db.serviceIssueTemplate.findUnique({ where: { categoryKey } });
     if (!existing) throw new HttpError(404, 'CATEGORY_NOT_FOUND');
 
+    const { features: existingFeatures, hubPricing } = parseFeaturesAndHubPricing(existing.packageFeatures);
+
+    // Resolve target package price in Paise from rupees or paise input
+    let targetPricePaise: bigint | null | undefined = undefined;
+    if (input.packagePriceRupees !== undefined) {
+      targetPricePaise = input.packagePriceRupees === null ? null : BigInt(Math.round(input.packagePriceRupees * 100));
+    } else if (input.packagePricePaise !== undefined) {
+      targetPricePaise = input.packagePricePaise === null ? null : BigInt(input.packagePricePaise);
+    }
+
+    // Resolve target diagnostic fee in Paise from rupees or paise input
+    let targetDiagFeePaise: bigint | undefined = undefined;
+    if (input.diagnosticFeeRupees !== undefined) {
+      targetDiagFeePaise = BigInt(Math.round(input.diagnosticFeeRupees * 100));
+    } else if (input.diagnosticFeePaise !== undefined) {
+      targetDiagFeePaise = BigInt(input.diagnosticFeePaise);
+    }
+
+    const nextFeatures = input.packageFeatures !== undefined ? input.packageFeatures : existingFeatures;
+
+    if (input.hubId && input.hubId.trim() && input.hubId !== 'all') {
+      const cleanHubId = input.hubId.trim();
+      hubPricing[cleanHubId] = {
+        packagePricePaise: targetPricePaise !== undefined ? (targetPricePaise === null ? '0' : targetPricePaise.toString()) : (hubPricing[cleanHubId]?.packagePricePaise || existing.packagePricePaise?.toString() || '0'),
+        diagnosticFeePaise: targetDiagFeePaise !== undefined ? targetDiagFeePaise.toString() : (hubPricing[cleanHubId]?.diagnosticFeePaise || existing.diagnosticFeePaise?.toString() || '50000'),
+        fixedPackageAvailable: input.fixedPackageAvailable !== undefined ? input.fixedPackageAvailable : (hubPricing[cleanHubId]?.fixedPackageAvailable ?? existing.fixedPackageAvailable),
+      };
+
+      const updated = await this.db.serviceIssueTemplate.update({
+        where: { categoryKey },
+        data: {
+          packageFeatures: JSON.stringify({ features: nextFeatures, hubPricing }),
+          updatedByEmployeeId: actorId,
+          version: { increment: 1 },
+        },
+      });
+
+      const res = resolveEffectiveCategoryPricing(updated, cleanHubId);
+      return {
+        categoryKey: updated.categoryKey,
+        version: updated.version,
+        title: updated.title,
+        description: updated.description,
+        icon: updated.icon,
+        fixedPackageAvailable: res.fixedPackageAvailable,
+        packagePricePaise: res.packagePricePaise ? res.packagePricePaise.toString() : null,
+        pricingType: updated.pricingType,
+        diagnosticFeePaise: res.diagnosticFeePaise.toString(),
+        packageFeatures: res.packageFeatures,
+        hubPricing: res.hubPricing,
+        hubId: cleanHubId,
+        isActive: updated.isActive,
+      };
+    }
+
+    // Default base update for all hubs
     const updated = await this.db.serviceIssueTemplate.update({
       where: { categoryKey },
       data: {
         title: input.title !== undefined ? input.title.trim() : existing.title,
         description: input.description !== undefined ? input.description.trim() : existing.description,
         fixedPackageAvailable: input.fixedPackageAvailable !== undefined ? input.fixedPackageAvailable : existing.fixedPackageAvailable,
-        packagePricePaise: input.packagePricePaise !== undefined ? (input.packagePricePaise === null ? null : BigInt(input.packagePricePaise)) : existing.packagePricePaise,
+        packagePricePaise: targetPricePaise !== undefined ? targetPricePaise : existing.packagePricePaise,
         pricingType: input.pricingType !== undefined ? input.pricingType : existing.pricingType,
-        diagnosticFeePaise: input.diagnosticFeePaise !== undefined ? BigInt(input.diagnosticFeePaise) : existing.diagnosticFeePaise,
-        packageFeatures: input.packageFeatures !== undefined ? JSON.stringify(input.packageFeatures) : (existing.packageFeatures as Prisma.InputJsonValue ?? Prisma.JsonNull),
+        diagnosticFeePaise: targetDiagFeePaise !== undefined ? targetDiagFeePaise : existing.diagnosticFeePaise,
+        packageFeatures: JSON.stringify({ features: nextFeatures, hubPricing }),
         isActive: input.isActive !== undefined ? input.isActive : existing.isActive,
         updatedByEmployeeId: actorId,
         version: { increment: 1 },
       },
     });
 
+    const res = resolveEffectiveCategoryPricing(updated);
     return {
       categoryKey: updated.categoryKey,
       version: updated.version,
       title: updated.title,
       description: updated.description,
       icon: updated.icon,
-      fixedPackageAvailable: updated.fixedPackageAvailable,
-      packagePricePaise: updated.packagePricePaise ? updated.packagePricePaise.toString() : null,
+      fixedPackageAvailable: res.fixedPackageAvailable,
+      packagePricePaise: res.packagePricePaise ? res.packagePricePaise.toString() : null,
       pricingType: updated.pricingType,
-      diagnosticFeePaise: updated.diagnosticFeePaise.toString(),
-      packageFeatures: safeParseJson(updated.packageFeatures, []),
+      diagnosticFeePaise: res.diagnosticFeePaise.toString(),
+      packageFeatures: res.packageFeatures,
+      hubPricing: res.hubPricing,
       isActive: updated.isActive,
     };
   }
@@ -977,19 +1096,21 @@ export class PrismaServiceStore {
     };
   }
 
-  async getPaymentOptionsForCategory(categoryKey: string) {
+  async getPaymentOptionsForCategory(categoryKey: string, hubId?: string) {
     await this.ensureSeedData();
     const template = await this.db.serviceIssueTemplate.findUnique({ where: { categoryKey } });
     if (!template || !template.isActive) throw new HttpError(404, 'CATEGORY_NOT_FOUND');
 
     const policy = await this.ensurePaymentPolicy();
+    const resolved = resolveEffectiveCategoryPricing(template, hubId);
 
-    const isPackage = template.fixedPackageAvailable && template.packagePricePaise && template.packagePricePaise > 0n;
-    const packagePricePaise = template.packagePricePaise || 0n;
-    const diagnosticFeePaise = template.diagnosticFeePaise > 0n ? template.diagnosticFeePaise : policy.diagnosticFeePaise;
+    const isPackage = resolved.fixedPackageAvailable && resolved.packagePricePaise && resolved.packagePricePaise > 0n;
+    const packagePricePaise = resolved.packagePricePaise || 0n;
+    const diagnosticFeePaise = resolved.diagnosticFeePaise > 0n ? resolved.diagnosticFeePaise : policy.diagnosticFeePaise;
 
     const options: Array<{
       id: 'ZERO_UPFRONT' | 'ADVANCE_25' | 'FULL_100' | 'DIAGNOSTIC_FEE';
+      planId: 'ZERO_UPFRONT' | 'ADVANCE_25' | 'FULL_100' | 'DIAGNOSTIC_FEE';
       title: string;
       description: string;
       badge?: string;
@@ -1002,6 +1123,7 @@ export class PrismaServiceStore {
       if (policy.allowZeroAdvance) {
         options.push({
           id: 'ZERO_UPFRONT',
+          planId: 'ZERO_UPFRONT',
           title: 'Pay After Service / At Workshop',
           description: 'Zero upfront cost. Inspect work first and pay total package charges upon vehicle delivery.',
           payNowPaise: '0',
@@ -1015,6 +1137,7 @@ export class PrismaServiceStore {
         const remainingPaise = packagePricePaise - advancePaise;
         options.push({
           id: 'ADVANCE_25',
+          planId: 'ADVANCE_25',
           title: `${policy.defaultPartialAdvancePercent}% Priority Advance`,
           description: `Pay ₹${(Number(advancePaise) / 100).toLocaleString('en-IN')} now to lock in genuine OEM parts and technician bay. Balance due at pickup.`,
           badge: 'POPULAR',
@@ -1026,6 +1149,7 @@ export class PrismaServiceStore {
 
       options.push({
         id: 'FULL_100',
+        planId: 'FULL_100',
         title: 'Pay 100% In Full',
         description: `Pay total package charges of ₹${(Number(packagePricePaise) / 100).toLocaleString('en-IN')} now for express vehicle release without cashier delay.`,
         badge: 'EXPRESS PICKUP',
@@ -1036,6 +1160,7 @@ export class PrismaServiceStore {
     } else {
       options.push({
         id: 'ZERO_UPFRONT',
+        planId: 'ZERO_UPFRONT',
         title: 'Free Diagnostic Booking',
         description: 'Zero upfront charges. Our master technician will diagnose vehicle symptoms and provide an itemized estimate.',
         badge: 'RECOMMENDED',
@@ -1046,6 +1171,7 @@ export class PrismaServiceStore {
 
       options.push({
         id: 'DIAGNOSTIC_FEE',
+        planId: 'DIAGNOSTIC_FEE',
         title: `Diagnostic Fee Advance (₹${(Number(diagnosticFeePaise) / 100).toLocaleString('en-IN')})`,
         description: `Pay diagnostic fee now. 100% credited against your final service invoice when repair work is approved.`,
         payNowPaise: diagnosticFeePaise.toString(),
@@ -1057,11 +1183,12 @@ export class PrismaServiceStore {
     return {
       categoryKey: template.categoryKey,
       title: template.title,
-      fixedPackageAvailable: template.fixedPackageAvailable,
-      packagePricePaise: template.packagePricePaise ? template.packagePricePaise.toString() : null,
+      fixedPackageAvailable: resolved.fixedPackageAvailable,
+      packagePricePaise: resolved.packagePricePaise ? resolved.packagePricePaise.toString() : null,
       pricingType: template.pricingType,
       diagnosticFeePaise: diagnosticFeePaise.toString(),
-      packageFeatures: safeParseJson(template.packageFeatures, []),
+      packageFeatures: resolved.packageFeatures,
+      hubPricing: resolved.hubPricing,
       policy: {
         version: policy.version,
         allowZeroAdvance: policy.allowZeroAdvance,
@@ -1446,9 +1573,10 @@ export class PrismaServiceStore {
       const planId = input.paymentPlanId || 'ZERO_UPFRONT';
       let payNowPaise = 0n;
       let balancePaise = 0n;
-      const isFixed = template.fixedPackageAvailable && template.packagePricePaise && template.packagePricePaise > 0n;
-      const packagePrice = template.packagePricePaise || 0n;
-      const diagFee = template.diagnosticFeePaise > 0n ? template.diagnosticFeePaise : 50000n;
+      const resolved = resolveEffectiveCategoryPricing(template, input.hubId);
+      const isFixed = resolved.fixedPackageAvailable && resolved.packagePricePaise && resolved.packagePricePaise > 0n;
+      const packagePrice = resolved.packagePricePaise || 0n;
+      const diagFee = resolved.diagnosticFeePaise > 0n ? resolved.diagnosticFeePaise : 50000n;
 
       if (isFixed) {
         if (planId === 'FULL_100') {
@@ -1634,6 +1762,9 @@ export class PrismaServiceStore {
   }
 
   async getCustomerServiceRequest(firebaseUid: string, requestId: string) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) {
+      throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    }
     const user = await this.db.user.findUnique({ where: { firebaseUid } });
     if (!user) throw new HttpError(404, 'USER_NOT_FOUND');
 
@@ -1869,6 +2000,9 @@ export class PrismaServiceStore {
   }
 
   async cancelServiceRequest(firebaseUid: string, requestId: string, reason: string) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) {
+      throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    }
     const user = await this.db.user.findUnique({ where: { firebaseUid } });
     if (!user) throw new HttpError(404, 'USER_NOT_FOUND');
 
@@ -2291,7 +2425,9 @@ export class PrismaServiceStore {
     const skip = (page - 1) * limit;
 
     const where: Prisma.ServiceRequestWhereInput = {};
-    if (filters.hubId) where.hubId = filters.hubId;
+    if (filters.hubId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(filters.hubId)) {
+      where.hubId = filters.hubId;
+    }
     if (filters.status) where.status = filters.status;
     if (filters.search) {
       where.OR = [
@@ -3099,8 +3235,9 @@ export class PrismaServiceStore {
       estimateId = approvedEstimate.id;
     } else {
       const template = await this.db.serviceIssueTemplate.findUnique({ where: { categoryKey: sr.categoryKey } });
-      if (template && template.packagePricePaise) {
-        subtotalPaise = template.packagePricePaise;
+      const resolved = template ? resolveEffectiveCategoryPricing(template, sr.hubId) : null;
+      if (resolved && resolved.packagePricePaise) {
+        subtotalPaise = resolved.packagePricePaise;
       } else {
         subtotalPaise = 0n;
       }
@@ -3210,7 +3347,8 @@ export class PrismaServiceStore {
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
 
     const template = await this.db.serviceIssueTemplate.findUnique({ where: { categoryKey: sr.categoryKey } });
-    const packagePricePaise = template?.packagePricePaise || 0n;
+    const resolved = template ? resolveEffectiveCategoryPricing(template, sr.hubId) : null;
+    const packagePricePaise = resolved?.packagePricePaise || 0n;
 
     const approvedEstimate = sr.estimates.find(e => e.status === ServiceEstimateStatus.APPROVED) || sr.estimates[0];
     const latestInvoice = sr.invoices[0];
@@ -3314,6 +3452,9 @@ export class PrismaServiceStore {
       amountPaise?: bigint | number;
     }
   ) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(requestId)) {
+      throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    }
     const sr = await this.db.serviceRequest.findFirst({
       where: { id: requestId, customerId },
       include: {

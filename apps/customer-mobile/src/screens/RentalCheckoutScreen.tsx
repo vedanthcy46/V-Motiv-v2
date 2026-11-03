@@ -161,12 +161,15 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
   const initialPayableRupees = advancePayableRupees;
 
   const processAndStoreLicense = (asset: ImagePicker.ImagePickerAsset, type: 'front' | 'back') => {
+    const dataUrl = asset.base64
+      ? `data:${asset.mimeType || 'image/jpeg'};base64,${asset.base64}`
+      : asset.uri;
     if (type === 'front') {
       setLocalFrontAsset(asset);
-      setDriverLicenseFront(asset.uri);
+      setDriverLicenseFront(dataUrl);
     } else {
       setLocalBackAsset(asset);
-      setDriverLicenseBack(asset.uri);
+      setDriverLicenseBack(dataUrl);
     }
   };
 
@@ -268,7 +271,9 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             }),
           });
           const url = uploadRes?.secureUrl || uploadRes?.url;
-          if (url) finalFrontUrl = url;
+          if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+            finalFrontUrl = url;
+          }
         } catch (uploadErr) {
           console.warn('License front upload fallback:', uploadErr);
         }
@@ -286,10 +291,21 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             }),
           });
           const url = uploadRes?.secureUrl || uploadRes?.url;
-          if (url) finalBackUrl = url;
+          if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+            finalBackUrl = url;
+          }
         } catch (uploadErr) {
           console.warn('License back upload fallback:', uploadErr);
         }
+      }
+
+      // If either front or back is still a local file:// URL, convert to a base64 data URL
+      // so web browsers on operations-portal can render it without security blocks
+      if (finalFrontUrl?.startsWith('file://') && localFrontAsset?.base64) {
+        finalFrontUrl = `data:${localFrontAsset.mimeType || 'image/jpeg'};base64,${localFrontAsset.base64}`;
+      }
+      if (finalBackUrl?.startsWith('file://') && localBackAsset?.base64) {
+        finalBackUrl = `data:${localBackAsset.mimeType || 'image/jpeg'};base64,${localBackAsset.base64}`;
       }
 
       // Submit Driver KYC details
