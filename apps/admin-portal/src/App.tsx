@@ -140,11 +140,18 @@ export function App() {
       setLoading(false);
       return;
     }
+    // If actor is already verified and session is active, do not re-verify or reset loading on route changes
+    if (actor && sessionReload === 0) {
+      setLoading(false);
+      return;
+    }
     setLoading(true); setError('');
     adminApi.me(user)
       .then(setActor)
       .catch(error => {
-        setActor(null);
+        if (!actor) {
+          setActor(null);
+        }
         setError(errorMessage(error));
         if (auth && multiFactor(user).enrolledFactors.length === 0) {
           setEnrollMfaOpen(true);

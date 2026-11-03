@@ -427,13 +427,13 @@ function App() {
         return fallback;
       });
       const [actorData, dashData, notifData] = await Promise.all([
-        salesApi.me(currentUser),
-        salesApi.dashboard(currentUser),
-        salesApi.notifications(currentUser),
+        actor ? Promise.resolve(actor) : salesApi.me(currentUser),
+        page === 'overview' || !dashboard ? salesApi.dashboard(currentUser) : Promise.resolve(dashboard),
+        optional('notifications', salesApi.notifications(currentUser), notifications),
       ]);
-      setActor(actorData);
-      setDashboard(dashData);
-      setNotifications(notifData);
+      if (actorData) setActor(actorData);
+      if (dashData) setDashboard(dashData);
+      if (notifData) setNotifications(notifData);
       setDenied(false);
 
       // Load data based on current page
@@ -525,7 +525,7 @@ function App() {
         setError(`${unavailable.join(', ')} could not be loaded. Your saved work is intact; check sales permissions and refresh.`);
       }
     } catch (err: any) {
-      if (err instanceof ApiError && err.status === 403) {
+      if (err instanceof ApiError && err.status === 403 && !actor) {
         setDenied(true);
       } else {
         const msg = err instanceof ApiError ? `Error: ${err.code} (${err.status})` : (err?.message || 'Unable to connect to the V MOTIV Sales service.');

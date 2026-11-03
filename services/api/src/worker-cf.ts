@@ -15,6 +15,13 @@ import { getAuth } from 'firebase-admin/auth';
 import { PrismaClient } from '@prisma/client';
 import { neonConfig } from '@neondatabase/serverless';
 import { PrismaNeon } from '@prisma/adapter-neon';
+
+// In edge environments (Cloudflare Workers), force Neon serverless queries to run over HTTP fetch
+// instead of persistent WebSockets. WebSockets freeze/break across requests in warm isolates.
+neonConfig.poolQueryViaFetch = true;
+if (typeof WebSocket !== 'undefined') {
+  neonConfig.webSocketConstructor = WebSocket;
+}
 import { createApp } from './app.js';
 import { readConfig } from './config.js';
 import { PrismaIdentityStore } from './identity-store.js';
@@ -70,6 +77,7 @@ function getOrCreateApp(): Express {
 
   let db: PrismaClient;
   try {
+    neonConfig.poolQueryViaFetch = true;
     if (typeof WebSocket !== 'undefined') {
       neonConfig.webSocketConstructor = WebSocket;
     }
@@ -180,6 +188,7 @@ async function fetchToExpress(app: Express, webReq: Request): Promise<Response> 
                        '127.0.0.1';
 
       const socket = new Socket();
+      socket.on('error', () => { /* prevent unhandled socket error from crashing isolate */ });
       Object.defineProperty(socket, 'remoteAddress', {
         value: clientIp,
         writable: true,
@@ -187,6 +196,7 @@ async function fetchToExpress(app: Express, webReq: Request): Promise<Response> 
       });
 
       const req = new IncomingMessage(socket);
+      req.on('error', () => { /* prevent unhandled req error */ });
       const parsedUrl = new URL(webReq.url);
       
       req.url = parsedUrl.pathname + parsedUrl.search;
@@ -200,7 +210,19 @@ async function fetchToExpress(app: Express, webReq: Request): Promise<Response> 
       (req as any).ip = clientIp;
 
       const res = new ServerResponse(req);
+      res.on('error', () => { /* prevent unhandled res error */ });
       res.assignSocket(socket);
+
+      let resolved = false;
+      const timeoutTimer = setTimeout(() => {
+        if (!resolved) {
+          resolved = true;
+          resolve(new Response(
+            JSON.stringify({ code: 'GATEWAY_TIMEOUT', message: 'Request execution timed out' }),
+            { status: 504, headers: { 'Content-Type': 'application/json' } }
+          ));
+        }
+      }, 25000);
 
       const chunks: Buffer[] = [];
       res.write = (chunk: any, encoding?: any, cb?: any): any => {
@@ -214,6 +236,10 @@ async function fetchToExpress(app: Express, webReq: Request): Promise<Response> 
       };
 
       res.end = (chunk?: any, encoding?: any, cb?: any): any => {
+        if (resolved) return res;
+        resolved = true;
+        clearTimeout(timeoutTimer);
+
         if (typeof chunk === 'function') { cb = chunk; chunk = null; }
         if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
         if (chunk) {

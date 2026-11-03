@@ -342,7 +342,9 @@ function App() {
         return loadFinanceData(user);
       })
       .catch(err => {
-        setActor(null);
+        if (!actor) {
+          setActor(null);
+        }
         setError(errorMessage(err));
         if (auth && multiFactor(user).enrolledFactors.length === 0) {
           setEnrollMfaOpen(true);
