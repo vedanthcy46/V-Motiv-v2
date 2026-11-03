@@ -348,9 +348,23 @@ export const api = {
   approveServiceEstimateByStaff: (u: User, id: string, estimateId: string, body?: { decision?: 'APPROVE' | 'DECLINE'; notes?: string; channel?: string }) =>
     call<unknown>(u, `/operations/service/jobs/${id}/estimates/${estimateId}/approve`, { method: 'POST', body: JSON.stringify(body || {}) }),
   serviceCategories: (u: User) =>
-    call<Array<{ categoryKey: string; title: string; description: string; icon: string }>>(u, '/service/categories'),
+    call<Array<{ categoryKey: string; title: string; description: string; icon: string; fixedPackageAvailable?: boolean; packagePricePaise?: string | null; pricingType?: string; diagnosticFeePaise?: string; packageFeatures?: string[] }>>(u, '/service/categories'),
   serviceHubs: (u: User) =>
     call<Array<{ id: string; name: string; city: string; address?: string | null; code: string; isActive: boolean }>>(u, '/service/hubs'),
+  updateServiceCategoryPricing: (u: User, categoryKey: string, body: Record<string, any>) =>
+    call<unknown>(u, `/operations/service/categories/${categoryKey}/pricing`, { method: 'PUT', body: JSON.stringify(body) }),
+  fetchServicePaymentSummary: (u: User, id: string) =>
+    call<any>(u, `/operations/service/jobs/${id}/payment-summary`),
+  fetchServicePaymentHistory: (u: User, id: string) =>
+    call<any[]>(u, `/operations/service/jobs/${id}/payment-history`),
+  generateServiceInvoice: (u: User, id: string, body?: { customDiscountPaise?: number; notes?: string }) =>
+    call<any>(u, `/operations/service/jobs/${id}/invoices/generate`, { method: 'POST', body: JSON.stringify(body || {}) }),
+  fetchServiceReleaseReadiness: (u: User, id: string) =>
+    call<{ canRelease: boolean; reasons: string[]; gateChecks: { qcPassed: boolean; estimateApproved: boolean; invoiceIssued: boolean; paymentSettled: boolean }; billAmountPaise: string; totalVerifiedPaidPaise: string; outstandingBalancePaise: string }>(u, `/operations/service/jobs/${id}/release-readiness`),
+  fetchServicePaymentPolicy: (u: User) =>
+    call<any>(u, '/operations/service/payment-policy'),
+  updateServicePaymentPolicy: (u: User, body: Record<string, any>) =>
+    call<any>(u, '/operations/service/payment-policy', { method: 'PUT', body: JSON.stringify(body) }),
 
   // --- Car Rental Operations ---
   rentalHubs: (u: User) =>

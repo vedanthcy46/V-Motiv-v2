@@ -46,16 +46,19 @@ import type { CustomerAddress } from '../types';
 import {
   createCustomerVehicle,
   createServiceRequest,
+  fetchCategoryPaymentOptions,
   fetchCustomerVehicles,
   fetchServiceCategories,
   fetchServiceHubs,
   fetchServiceTemplate,
   fetchSlotAvailability,
   type CustomerVehicle,
+  type ServiceCategoryPaymentOptionsResponse,
   type ServiceHub,
   type ServiceIssueCategory,
   type ServiceIssueQuestion,
   type ServiceIssueTemplate,
+  type ServicePaymentOption,
   type SlotCapacity,
 } from '../services/service-api';
 
@@ -115,6 +118,9 @@ export function ServiceHomeScreen() {
   const [selectedHub, setSelectedHub] = useState<ServiceHub | null>(null);
   const [selectedDate, setSelectedDate] = useState<string>('');
   const [selectedSlotTime, setSelectedSlotTime] = useState<string>('');
+  const [paymentOptionsResponse, setPaymentOptionsResponse] = useState<ServiceCategoryPaymentOptionsResponse | null>(null);
+  const [selectedPlanId, setSelectedPlanId] = useState<string>('ZERO_UPFRONT');
+  const [loadingPaymentOptions, setLoadingPaymentOptions] = useState(false);
   const [pickupAddress, setPickupAddress] = useState({
     line1: '',
     line2: '',
@@ -272,6 +278,22 @@ export function ServiceHomeScreen() {
     setStep(4); // Move to fulfillment
   };
 
+  const loadPaymentOptions = useCallback(async (catKey: string) => {
+    setLoadingPaymentOptions(true);
+    try {
+      const res = await fetchCategoryPaymentOptions(catKey);
+      setPaymentOptionsResponse(res);
+      if (res.options && res.options.length > 0) {
+        const rec = res.options.find(o => o.isRecommended) || res.options[0];
+        if (rec) setSelectedPlanId(rec.planId);
+      }
+    } catch (err) {
+      console.warn('Failed to load category payment options', err);
+    } finally {
+      setLoadingPaymentOptions(false);
+    }
+  }, []);
+
   const handleBookService = async () => {
     if (!selectedVehicle || !selectedHub || !selectedCategory) return;
     if (fulfillmentType === 'PICKUP_AND_RETURN' && (!pickupAddress.line1.trim() || !pickupAddress.pincode.trim())) {
@@ -285,6 +307,21 @@ export function ServiceHomeScreen() {
 
     setSubmitting(true);
     try {
+      const selectedPlan = paymentOptionsResponse?.options?.find(o => o.planId === selectedPlanId);
+      const payNowPaise = selectedPlan?.payNowPaise ? BigInt(selectedPlan.payNowPaise) : 0n;
+
+      let gatewayOrderId: string | undefined;
+      let gatewayPaymentId: string | undefined;
+      let gatewaySignature: string | undefined;
+      let paymentGateway: string | undefined;
+
+      if (payNowPaise > 0n) {
+        paymentGateway = 'RAZORPAY';
+        gatewayOrderId = `order_srv_${Date.now()}`;
+        gatewayPaymentId = `pay_srv_${Date.now()}`;
+        gatewaySignature = 'demo_sig_verified_vmotiv';
+      }
+
       const result = await createServiceRequest({
         vehicleId: selectedVehicle.id,
         hubId: selectedHub.id,
@@ -295,11 +332,22 @@ export function ServiceHomeScreen() {
         scheduledDate: selectedDate,
         scheduledTimeSlot: selectedSlotTime,
         pickupAddress: fulfillmentType === 'PICKUP_AND_RETURN' ? pickupAddress : undefined,
+        paymentPlanId: selectedPlanId,
+        paymentGateway,
+        gatewayOrderId,
+        gatewayPaymentId,
+        gatewaySignature,
       });
+
+      const payNowRupees = Math.round(Number(payNowPaise) / 100);
+      const balanceRupees = selectedPlan ? Math.round(Number(selectedPlan.balancePaise) / 100) : 0;
+      const successMsg = payNowRupees > 0
+        ? `Your request #${result.requestNumber} has been confirmed with initial payment of ₹${payNowRupees.toLocaleString('en-IN')}.\n\nRemaining balance: ₹${balanceRupees.toLocaleString('en-IN')}.\nOur service advisor will coordinate vehicle arrival.`
+        : `Your request #${result.requestNumber} has been received. Our service advisor will coordinate shortly.`;
 
       Alert.alert(
         'Service Booked!',
-        `Your request #${result.requestNumber} has been received. Our service advisor will coordinate shortly.`,
+        successMsg,
         [
           {
             text: 'Track Request',
@@ -939,10 +987,15 @@ export function ServiceHomeScreen() {
         )}
 
         <TouchableOpacity
-          onPress={() => setStep(6)}
+          onPress={() => {
+            if (selectedCategory) {
+              void loadPaymentOptions(selectedCategory.categoryKey);
+            }
+            setStep(6);
+          }}
           style={[styles.continueBtn, { backgroundColor: c.accent, marginTop: space.xl }]}
         >
-          <Text style={styles.continueBtnText}>Review & Confirm</Text>
+          <Text style={styles.continueBtnText}>Next: Review & Payment Options</Text>
           <ChevronRight size={18} color="#061A38" />
         </TouchableOpacity>
       </View>
@@ -956,43 +1009,66 @@ export function ServiceHomeScreen() {
     const pickupFee = fulfillmentType === 'PICKUP_AND_RETURN' ? 499 : 0;
     const totalEst = packageAmount + pickupFee;
 
+    const availableOptions = paymentOptionsResponse?.options || [
+      {
+        planId: 'ZERO_UPFRONT',
+        title: 'Zero Upfront Booking',
+        description: 'Pay ₹0 today. Full inspection and estimate approval before work commences. Settle at workshop.',
+        payNowPaise: '0',
+        balancePaise: isPackage ? String(totalEst * 100) : '0',
+        isRecommended: true,
+      },
+      {
+        planId: 'PARTIAL_ADVANCE_25',
+        title: 'Priority Advance (25%)',
+        description: 'Pay 25% today to lock bay and technician priority. Remaining balance settled post-service.',
+        percentage: 25,
+        payNowPaise: isPackage ? String(Math.round(totalEst * 25)) : '12500',
+        balancePaise: isPackage ? String(Math.round(totalEst * 75)) : '37500',
+      },
+      {
+        planId: 'FULL_PAYMENT_100',
+        title: 'Full Advance Payment (100%)',
+        description: 'Pay 100% upfront for express vehicle release without checkout delays.',
+        percentage: 100,
+        payNowPaise: isPackage ? String(totalEst * 100) : '50000',
+        balancePaise: '0',
+      },
+    ];
+
+    const currentSelectedPlan = availableOptions.find(o => o.planId === selectedPlanId) || availableOptions[0];
+    const payNowRupees = currentSelectedPlan ? Math.round(Number(currentSelectedPlan.payNowPaise) / 100) : 0;
+    const balanceRupees = currentSelectedPlan ? Math.round(Number(currentSelectedPlan.balancePaise) / 100) : 0;
+
     return (
       <View style={styles.stepContainer}>
-        <Text style={[styles.stepTitle, { color: c.text }]}>6. Summary & Confirmation</Text>
+        <Text style={[styles.stepTitle, { color: c.text }]}>6. Summary & Payment Options</Text>
         <Text style={[styles.stepSubtitle, { color: c.textMuted }]}>
-          Review your appointment details before confirming.
+          Review booking details and select your payment plan before confirming.
         </Text>
 
+        {/* Appointment Card */}
         <View style={[styles.reviewCard, { backgroundColor: c.surface, borderColor: c.border }]}>
-          {/* Vehicle */}
           <View style={styles.reviewRow}>
             <Text style={[styles.reviewLabel, { color: c.textMuted }]}>Vehicle</Text>
             <Text style={[styles.reviewValue, { color: c.text }]}>
               {selectedVehicle.make} {selectedVehicle.model} ({selectedVehicle.year})
             </Text>
           </View>
-
-          {/* Service Category */}
           <View style={styles.reviewRow}>
             <Text style={[styles.reviewLabel, { color: c.textMuted }]}>Service</Text>
             <Text style={[styles.reviewValue, { color: c.text }]}>{selectedCategory.title}</Text>
           </View>
-
-          {/* Fulfillment */}
           <View style={styles.reviewRow}>
             <Text style={[styles.reviewLabel, { color: c.textMuted }]}>Handover Mode</Text>
             <Text style={[styles.reviewValue, { color: c.text }]}>
-              {fulfillmentType === 'PICKUP_AND_RETURN' ? 'Doorstep Pickup' : 'Self-Drop at Hub'}
+              {fulfillmentType === 'PICKUP_AND_RETURN' ? 'Doorstep Pickup & Return' : 'Self-Drop at Hub'}
             </Text>
           </View>
-
-          {/* Location / Hub */}
           <View style={styles.reviewRow}>
             <Text style={[styles.reviewLabel, { color: c.textMuted }]}>Hub</Text>
             <Text style={[styles.reviewValue, { color: c.text }]}>{selectedHub.name}</Text>
           </View>
-
-          {/* Slot */}
           <View style={styles.reviewRow}>
             <Text style={[styles.reviewLabel, { color: c.textMuted }]}>Appointment</Text>
             <Text style={[styles.reviewValue, { color: c.text }]}>
@@ -1030,15 +1106,124 @@ export function ServiceHomeScreen() {
           </View>
         </View>
 
+        {/* Included Deliverables if any */}
+        {selectedCategory.packageFeatures && selectedCategory.packageFeatures.length > 0 && (
+          <View style={[styles.reviewCard, { backgroundColor: c.surface, borderColor: c.border, padding: 14 }]}>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: c.accent, marginBottom: 8, textTransform: 'uppercase' }}>
+              Included in this Package
+            </Text>
+            {selectedCategory.packageFeatures.map((feat, idx) => (
+              <View key={idx} style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 }}>
+                <CheckCircle size={14} color="#10B981" />
+                <Text style={{ fontSize: 12, color: c.text }}>{feat}</Text>
+              </View>
+            ))}
+          </View>
+        )}
+
+        {/* PAYMENT OPTIONS SELECTOR */}
+        <View style={{ marginTop: 6 }}>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: c.text, marginBottom: 4 }}>
+            Choose Booking Payment Option
+          </Text>
+          <Text style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>
+            Select an authorized advance payment plan or choose zero upfront booking.
+          </Text>
+
+          {loadingPaymentOptions ? (
+            <ActivityIndicator size="small" color={c.accent} style={{ padding: 20 }} />
+          ) : (
+            <View style={{ gap: 10 }}>
+              {availableOptions.map((opt) => {
+                const isSelected = selectedPlanId === opt.planId;
+                const optPayNow = Math.round(Number(opt.payNowPaise) / 100);
+                const optBal = Math.round(Number(opt.balancePaise) / 100);
+
+                return (
+                  <TouchableOpacity
+                    key={opt.planId}
+                    activeOpacity={0.8}
+                    onPress={() => setSelectedPlanId(opt.planId)}
+                    style={{
+                      backgroundColor: isSelected ? 'rgba(247, 181, 3, 0.08)' : c.surface,
+                      borderWidth: isSelected ? 2 : 1,
+                      borderColor: isSelected ? c.accent : c.border,
+                      borderRadius: 10,
+                      padding: 14,
+                    }}
+                  >
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 4 }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1 }}>
+                        <View
+                          style={{
+                            width: 18,
+                            height: 18,
+                            borderRadius: 9,
+                            borderWidth: 2,
+                            borderColor: isSelected ? c.accent : c.textMuted,
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                          }}
+                        >
+                          {isSelected && (
+                            <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: c.accent }} />
+                          )}
+                        </View>
+                        <Text style={{ fontSize: 14, fontWeight: '700', color: c.text }}>
+                          {opt.title}
+                        </Text>
+                      </View>
+                      {opt.isRecommended && (
+                        <View style={{ backgroundColor: 'rgba(16, 185, 129, 0.15)', paddingHorizontal: 8, paddingVertical: 2, borderRadius: 10 }}>
+                          <Text style={{ fontSize: 10, fontWeight: '800', color: '#10B981' }}>POPULAR</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    <Text style={{ fontSize: 12, color: c.textMuted, marginLeft: 26, marginBottom: 8, lineHeight: 16 }}>
+                      {opt.description}
+                    </Text>
+
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginLeft: 26, paddingTop: 6, borderTopWidth: 1, borderTopColor: isSelected ? 'rgba(247, 181, 3, 0.2)' : c.border }}>
+                      <Text style={{ fontSize: 12, color: c.textMuted }}>
+                        Pay Now: <Text style={{ fontWeight: '800', color: '#10B981' }}>₹{optPayNow.toLocaleString('en-IN')}</Text>
+                      </Text>
+                      <Text style={{ fontSize: 12, color: c.textMuted }}>
+                        Balance Later: <Text style={{ fontWeight: '700', color: optBal > 0 ? c.text : '#10B981' }}>₹{optBal.toLocaleString('en-IN')}</Text>
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          )}
+        </View>
+
+        {/* Selected Plan Summary Banner */}
+        <View style={{ backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F3F4F6', borderRadius: 8, padding: 14, marginTop: 14, borderWidth: 1, borderColor: c.border }}>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+            <Text style={{ fontSize: 13, color: c.textMuted }}>Total Payable Today:</Text>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#10B981' }}>₹{payNowRupees.toLocaleString('en-IN')}</Text>
+          </View>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={{ fontSize: 12, color: c.textMuted }}>Remaining Due on Completion:</Text>
+            <Text style={{ fontSize: 13, fontWeight: '700', color: balanceRupees > 0 ? c.text : '#10B981' }}>₹{balanceRupees.toLocaleString('en-IN')}</Text>
+          </View>
+        </View>
+
         <TouchableOpacity
           onPress={handleBookService}
           disabled={submitting}
-          style={[styles.confirmBtn, { backgroundColor: c.accent }]}
+          style={[styles.confirmBtn, { backgroundColor: c.accent, marginTop: 16 }]}
         >
           {submitting ? (
             <ActivityIndicator size="small" color="#061A38" />
           ) : (
-            <Text style={styles.confirmBtnText}>Confirm & Book Service</Text>
+            <Text style={styles.confirmBtnText}>
+              {payNowRupees > 0
+                ? `Pay ₹${payNowRupees.toLocaleString('en-IN')} & Confirm Service`
+                : 'Confirm & Book Service (₹0 Upfront)'}
+            </Text>
           )}
         </TouchableOpacity>
       </View>

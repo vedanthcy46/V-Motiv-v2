@@ -140,6 +140,67 @@ function setupApp(activeRole: 'CUSTOMER' | 'SERVICE_ADVISOR' | 'FINANCE') {
     recordQC: vi.fn().mockResolvedValue({ id: 'qc-1', result: 'PASS' }),
     recordCustodyReturn: vi.fn().mockResolvedValue({ id: 'custody-2', type: 'CHECK_OUT' }),
     verifyServicePayment: vi.fn().mockResolvedValue({ id: PAYMENT_ID, status: 'PAID_VERIFIED' }),
+    getPaymentOptionsForCategory: vi.fn().mockResolvedValue({
+      categoryKey: 'REGULAR_SERVICE',
+      categoryTitle: 'Regular Maintenance',
+      pricingType: 'FIXED',
+      fixedPackageAvailable: true,
+      packagePricePaise: '499900',
+      diagnosticFeePaise: '50000',
+      policyCode: 'VMS-POL-2026.1',
+      options: [
+        { planId: 'ZERO_UPFRONT', title: 'Zero Upfront Booking', payNowPaise: '0', balancePaise: '499900' },
+        { planId: 'PARTIAL_ADVANCE_25', title: 'Priority Advance (25%)', percentage: 25, payNowPaise: '124975', balancePaise: '374925' },
+        { planId: 'FULL_PAYMENT_100', title: 'Full Advance Payment (100%)', percentage: 100, payNowPaise: '499900', balancePaise: '0' },
+      ],
+    }),
+    updateCategoryPricing: vi.fn().mockResolvedValue({
+      id: 'cat-1',
+      categoryKey: 'REGULAR_SERVICE',
+      pricingType: 'FIXED',
+      fixedPackageAvailable: true,
+      packagePricePaise: 599900n,
+      diagnosticFeePaise: 50000n,
+    }),
+    getServicePaymentSummary: vi.fn().mockResolvedValue({
+      requestId: REQUEST_ID,
+      requestNumber: 'SR-20261101-1234',
+      servicePaymentStatus: 'PARTIALLY_PAID',
+      depositStatus: 'NOT_COLLECTED',
+      verifiedPaidPaise: '124975',
+      outstandingBalancePaise: '374925',
+      payments: [],
+    }),
+    verifyCustomerGatewayPayment: vi.fn().mockResolvedValue({
+      success: true,
+      servicePaymentStatus: 'PAID_IN_FULL',
+      verifiedPaidPaise: '499900',
+      outstandingBalancePaise: '0',
+    }),
+    generateServiceInvoice: vi.fn().mockResolvedValue({
+      id: 'inv-1',
+      invoiceNumber: 'INV-SR-20261101-1234',
+      subtotalPaise: '423644',
+      cgstPaise: '38128',
+      sgstPaise: '38128',
+      totalAmountPaise: '499900',
+      outstandingPaise: '374925',
+      status: 'ISSUED',
+      issuedAt: new Date().toISOString(),
+    }),
+    computeServiceReleaseReadiness: vi.fn().mockResolvedValue({
+      canRelease: false,
+      reasons: ['Outstanding balance of ₹3,749 must be paid in full prior to release.'],
+      gateChecks: {
+        qcPassed: true,
+        estimateApproved: true,
+        invoiceIssued: true,
+        paymentSettled: false,
+      },
+      billAmountPaise: '499900',
+      totalVerifiedPaidPaise: '124975',
+      outstandingBalancePaise: '374925',
+    }),
   };
 
   const app = createApp({
@@ -296,5 +357,83 @@ describe('V MOTIV V2 — Car Service & My Garage API', () => {
       .send({ verified: true, notes: 'NEFT credit confirmed in HDFC account' });
     expect(successRes.status).toBe(200);
     expect(mockServiceStore.verifyServicePayment).toHaveBeenCalled();
+  });
+
+  it('GET /api/v2/service/categories/:key/payment-options returns calculated payment plans with paise math', async () => {
+    const { app, mockServiceStore } = setupApp('CUSTOMER');
+    const res = await request(app).get('/api/v2/service/categories/REGULAR_SERVICE/payment-options');
+    expect(res.status).toBe(200);
+    expect(res.body.categoryKey).toBe('REGULAR_SERVICE');
+    expect(res.body.options).toHaveLength(3);
+    expect(res.body.options[0].planId).toBe('ZERO_UPFRONT');
+    expect(res.body.options[1].planId).toBe('PARTIAL_ADVANCE_25');
+    expect(res.body.options[1].payNowPaise).toBe('124975');
+    expect(mockServiceStore.getPaymentOptionsForCategory).toHaveBeenCalledWith('REGULAR_SERVICE');
+  });
+
+  it('PUT /api/v2/operations/service/categories/:key/pricing allows Ops to update pricing and features', async () => {
+    const { app, mockServiceStore } = setupApp('SERVICE_ADVISOR');
+    const res = await request(app)
+      .put('/api/v2/operations/service/categories/REGULAR_SERVICE/pricing')
+      .set('Authorization', 'Bearer staff-token')
+      .send({
+        pricingType: 'FIXED',
+        fixedPackageAvailable: true,
+        packagePriceRupees: 5999,
+        diagnosticFeeRupees: 500,
+        packageFeatures: ['Engine Oil Flush', 'OEM Oil Filter Cartridge'],
+      });
+    expect(res.status).toBe(200);
+    expect(mockServiceStore.updateCategoryPricing).toHaveBeenCalled();
+  });
+
+  it('GET /api/v2/service/requests/:id/payment-summary returns verified paid and outstanding balance', async () => {
+    const { app, mockServiceStore } = setupApp('CUSTOMER');
+    const res = await request(app)
+      .get(`/api/v2/service/requests/${REQUEST_ID}/payment-summary`)
+      .set('Authorization', 'Bearer valid-customer-token');
+    expect(res.status).toBe(200);
+    expect(res.body.servicePaymentStatus).toBe('PARTIALLY_PAID');
+    expect(res.body.verifiedPaidPaise).toBe('124975');
+    expect(mockServiceStore.getServicePaymentSummary).toHaveBeenCalledWith(REQUEST_ID);
+  });
+
+  it('POST /api/v2/service/requests/:id/verify-payment verifies payment signature & settles balance', async () => {
+    const { app, mockServiceStore } = setupApp('CUSTOMER');
+    const res = await request(app)
+      .post(`/api/v2/service/requests/${REQUEST_ID}/verify-payment`)
+      .set('Authorization', 'Bearer valid-customer-token')
+      .send({
+        gatewayOrderId: 'order_test_123',
+        gatewayPaymentId: 'pay_test_456',
+        gatewaySignature: 'demo_sig_verified_vmotiv',
+        amountPaise: '374925',
+      });
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(mockServiceStore.verifyCustomerGatewayPayment).toHaveBeenCalled();
+  });
+
+  it('POST /api/v2/operations/service/jobs/:id/invoices/generate produces official 18% GST tax invoice', async () => {
+    const { app, mockServiceStore } = setupApp('SERVICE_ADVISOR');
+    const res = await request(app)
+      .post(`/api/v2/operations/service/jobs/${REQUEST_ID}/invoices/generate`)
+      .set('Authorization', 'Bearer staff-token')
+      .send({});
+    expect(res.status).toBe(201);
+    expect(res.body.invoiceNumber).toBe('INV-SR-20261101-1234');
+    expect(res.body.totalAmountPaise).toBe('499900');
+    expect(mockServiceStore.generateServiceInvoice).toHaveBeenCalled();
+  });
+
+  it('GET /api/v2/operations/service/jobs/:id/release-readiness strictly enforces 4 release gate conditions', async () => {
+    const { app, mockServiceStore } = setupApp('SERVICE_ADVISOR');
+    const res = await request(app)
+      .get(`/api/v2/operations/service/jobs/${REQUEST_ID}/release-readiness`)
+      .set('Authorization', 'Bearer staff-token');
+    expect(res.status).toBe(200);
+    expect(res.body.canRelease).toBe(false);
+    expect(res.body.gateChecks.paymentSettled).toBe(false);
+    expect(mockServiceStore.computeServiceReleaseReadiness).toHaveBeenCalledWith(REQUEST_ID);
   });
 });

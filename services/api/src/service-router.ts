@@ -74,6 +74,11 @@ const serviceRequestCreateSchema = z.object({
   scheduledTimeSlot: z.string().trim().min(5).max(30),
   pickupAddress: addressSchema.optional(),
   returnAddress: addressSchema.optional(),
+  paymentPlanId: z.enum(['ZERO_UPFRONT', 'ADVANCE_25', 'FULL_100', 'DIAGNOSTIC_FEE']).optional(),
+  paymentGateway: z.string().trim().max(50).optional(),
+  gatewayOrderId: z.string().trim().max(100).optional(),
+  gatewayPaymentId: z.string().trim().max(100).optional(),
+  gatewaySignature: z.string().trim().max(256).optional(),
 }).strict().superRefine((val, ctx) => {
   if (val.fulfillmentType === 'PICKUP_AND_RETURN' && !val.pickupAddress) {
     ctx.addIssue({ code: 'custom', path: ['pickupAddress'], message: 'Pickup address required for PICKUP_AND_RETURN' });
@@ -211,6 +216,14 @@ export function createServiceCustomerRouter(deps: {
     }
   });
 
+  router.get('/categories/:key/payment-options', async (req, res, next) => {
+    try {
+      res.json(await deps.store.getPaymentOptionsForCategory(req.params.key));
+    } catch (e) {
+      next(e);
+    }
+  });
+
   router.get('/hubs', async (req, res, next) => {
     try {
       const city = typeof req.query.city === 'string' ? req.query.city : undefined;
@@ -308,6 +321,44 @@ export function createServiceCustomerRouter(deps: {
     try {
       const identity = res.locals.identity as Identity;
       res.json(await deps.store.getCustomerServiceRequest(identity.uid, uuid.parse(req.params.id)));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.get('/requests/:id/payment-summary', auth, async (req, res, next) => {
+    try {
+      res.json(await deps.store.getServicePaymentSummary(uuid.parse(req.params.id)));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.get('/requests/:id/payment-history', auth, async (req, res, next) => {
+    try {
+      res.json(await deps.store.getServicePaymentHistory(uuid.parse(req.params.id)));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.post('/requests/:id/verify-payment', auth, async (req, res, next) => {
+    try {
+      const identity = res.locals.identity as Identity;
+      const verifySchema = z.object({
+        gatewayOrderId: z.string().trim().min(3),
+        gatewayPaymentId: z.string().trim().min(3),
+        gatewaySignature: z.string().trim().min(10),
+        paymentGateway: z.string().trim().optional(),
+        installmentType: z.string().trim().optional(),
+        amountPaise: z.union([z.number(), z.string(), z.bigint()]).optional(),
+      });
+      const input = parse(verifySchema, req.body);
+      const result = await deps.store.verifyCustomerGatewayPayment(identity.uid, uuid.parse(req.params.id), {
+        ...input,
+        amountPaise: input.amountPaise !== undefined ? BigInt(input.amountPaise) : undefined,
+      });
+      res.json(result);
     } catch (e) {
       next(e);
     }
@@ -749,6 +800,112 @@ export function createServiceOperationsRouter(deps: {
       }).parse(req.body);
 
       res.json(await deps.store.cancelOperationsServiceJob(employee.userId, uuid.parse(req.params.id), input.reason));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 15. Dynamic Service Pricing (Ops / Admin)
+  router.put('/categories/:key/pricing', requireServiceRole(['SERVICE_MANAGER', 'HUB_MANAGER', 'ADMIN', 'OPERATIONS_MANAGER', 'SUPER_ADMIN', 'SERVICE_ADVISOR']), async (req, res, next) => {
+    try {
+      const employee = res.locals.employee;
+      const schema = z.object({
+        title: z.string().trim().min(2).max(100).optional(),
+        description: z.string().trim().min(5).max(500).optional(),
+        fixedPackageAvailable: z.boolean().optional(),
+        packagePricePaise: z.union([z.number(), z.string(), z.bigint()]).nullable().optional(),
+        pricingType: z.string().trim().optional(),
+        diagnosticFeePaise: z.union([z.number(), z.string(), z.bigint()]).optional(),
+        packageFeatures: z.array(z.string().trim()).optional(),
+        isActive: z.boolean().optional(),
+      });
+      const input = parse(schema, req.body);
+      res.json(await deps.store.updateCategoryPricing(employee.userId, String(req.params.key), {
+        ...input,
+        packagePricePaise: input.packagePricePaise !== undefined ? (input.packagePricePaise === null ? null : BigInt(input.packagePricePaise)) : undefined,
+        diagnosticFeePaise: input.diagnosticFeePaise !== undefined ? BigInt(input.diagnosticFeePaise) : undefined,
+      }));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 16. Service Payment Policy Management
+  router.get('/payment-policy', requireServiceRole(ALL_SERVICE_STAFF), async (_req, res, next) => {
+    try {
+      res.json(await deps.store.getServicePaymentPolicy());
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.put('/payment-policy', requireServiceRole(['ADMIN', 'HUB_MANAGER', 'OPERATIONS_MANAGER', 'SUPER_ADMIN']), async (req, res, next) => {
+    try {
+      const employee = res.locals.employee;
+      const schema = z.object({
+        name: z.string().trim().optional(),
+        description: z.string().trim().optional(),
+        allowZeroAdvance: z.boolean().optional(),
+        allowPartialAdvance: z.boolean().optional(),
+        defaultPartialAdvancePercent: z.number().int().min(5).max(100).optional(),
+        diagnosticFeePaise: z.union([z.number(), z.string(), z.bigint()]).optional(),
+        diagnosticFeeCreditedToInvoice: z.boolean().optional(),
+        partsAdvancePercent: z.number().int().min(0).max(100).optional(),
+        partialPlans: z.array(z.object({
+          id: z.string(),
+          percentage: z.number(),
+          label: z.string(),
+        })).optional(),
+      });
+      const input = parse(schema, req.body);
+      res.json(await deps.store.updateServicePaymentPolicy(employee.userId, {
+        ...input,
+        diagnosticFeePaise: input.diagnosticFeePaise !== undefined ? BigInt(input.diagnosticFeePaise) : undefined,
+      }));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 17. Payment Summary & Transaction History
+  router.get('/jobs/:id/payment-summary', requireServiceRole(ALL_SERVICE_STAFF), async (req, res, next) => {
+    try {
+      res.json(await deps.store.getServicePaymentSummary(uuid.parse(req.params.id)));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  router.get('/jobs/:id/payment-history', requireServiceRole(ALL_SERVICE_STAFF), async (req, res, next) => {
+    try {
+      res.json(await deps.store.getServicePaymentHistory(uuid.parse(req.params.id)));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 18. Final Tax Invoice Generation
+  router.post('/jobs/:id/invoices/generate', requireServiceRole(['SERVICE_ADVISOR', 'FINANCE', 'HUB_MANAGER', 'SERVICE_MANAGER', 'ADMIN', 'OPERATIONS_MANAGER', 'SUPER_ADMIN']), async (req, res, next) => {
+    try {
+      const employee = res.locals.employee;
+      const schema = z.object({
+        customDiscountPaise: z.union([z.number(), z.string(), z.bigint()]).optional(),
+        notes: z.string().trim().optional(),
+      });
+      const input = parse(schema, req.body || {});
+      res.status(201).json(await deps.store.generateServiceInvoice(employee.userId, uuid.parse(req.params.id), {
+        customDiscountPaise: input.customDiscountPaise !== undefined ? BigInt(input.customDiscountPaise) : undefined,
+        notes: input.notes,
+      }));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // 19. Authoritative Vehicle Release Readiness Gate Check
+  router.get('/jobs/:id/release-readiness', requireServiceRole(ALL_SERVICE_STAFF), async (req, res, next) => {
+    try {
+      res.json(await deps.store.computeServiceReleaseReadiness(uuid.parse(req.params.id)));
     } catch (e) {
       next(e);
     }

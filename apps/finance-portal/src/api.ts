@@ -726,4 +726,37 @@ export const financeApi = {
 
   // Audit Trail
   auditTrail: (u: User) => call<AuditLogEntry[]>(u, '/audit-trail'),
+
+  // Service Invoices & Prepayment Ledgers
+  serviceInvoices: (u: User) => call<Array<{
+    id: string;
+    invoiceNumber: string;
+    subtotalPaise: string;
+    diagnosticFeeCreditPaise: string;
+    priorPaymentsCreditedPaise: string;
+    cgstPaise: string;
+    sgstPaise: string;
+    totalAmountPaise: string;
+    outstandingPaise: string;
+    status: string;
+    issuedAt: string;
+    serviceRequest?: {
+      requestNumber: string;
+      customer?: { displayName: string; phone?: string; email?: string };
+      vehicle?: { make: string; model: string; registrationNumber?: string };
+    };
+  }>>(u, '/service/invoices'),
+  servicePayments: (u: User) => call<Array<{
+    id: string;
+    type: string;
+    amountPaise: string;
+    paymentGateway: string;
+    status: string;
+    gatewayPaymentId?: string;
+    verifiedAt?: string;
+    serviceRequest?: {
+      requestNumber: string;
+      customer?: { displayName: string };
+    };
+  }>>(u, '/service/payments'),
 };

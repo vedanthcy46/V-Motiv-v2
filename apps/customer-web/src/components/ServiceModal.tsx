@@ -38,6 +38,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   });
   const [timeSlot, setTimeSlot] = useState('10:00 - 12:00');
   const [customerNotes, setCustomerNotes] = useState('');
+  const [selectedPaymentPlan, setSelectedPaymentPlan] = useState('ZERO_UPFRONT');
 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -381,6 +382,41 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
                     value={customerNotes}
                     onChange={(e) => setCustomerNotes(e.target.value)}
                   />
+                </div>
+
+                <div className="form-group full-width" style={{ marginTop: '0.5rem', padding: '1rem', background: 'rgba(255, 255, 255, 0.04)', borderRadius: '8px', border: '1px solid rgba(255, 255, 255, 0.1)' }}>
+                  <label style={{ fontWeight: 700, display: 'block', marginBottom: '0.5rem' }}>Select Booking Payment Plan</label>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                    {[
+                      { id: 'ZERO_UPFRONT', title: 'Zero Upfront', sub: 'Pay ₹0 Now (Settle at Workshop)' },
+                      { id: 'PARTIAL_ADVANCE_25', title: 'Priority Advance (25%)', sub: 'Pay 25% to lock priority bay' },
+                      { id: 'FULL_PAYMENT_100', title: 'Full Advance (100%)', sub: 'Pay 100% for express release' },
+                    ].map(p => (
+                      <label
+                        key={p.id}
+                        style={{
+                          display: 'flex',
+                          flexDirection: 'column',
+                          padding: '0.75rem',
+                          borderRadius: '6px',
+                          border: `1px solid ${selectedPaymentPlan === p.id ? 'var(--accent, #f7b503)' : 'rgba(255, 255, 255, 0.15)'}`,
+                          background: selectedPaymentPlan === p.id ? 'rgba(247, 181, 3, 0.08)' : 'transparent',
+                          cursor: 'pointer',
+                        }}
+                      >
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <input
+                            type="radio"
+                            name="paymentPlan"
+                            checked={selectedPaymentPlan === p.id}
+                            onChange={() => setSelectedPaymentPlan(p.id)}
+                          />
+                          <strong style={{ fontSize: '0.85rem' }}>{p.title}</strong>
+                        </div>
+                        <span style={{ fontSize: '0.75rem', color: 'var(--muted, #888)', marginTop: '4px', marginLeft: '1.25rem' }}>{p.sub}</span>
+                      </label>
+                    ))}
+                  </div>
                 </div>
               </div>
 

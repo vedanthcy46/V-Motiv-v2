@@ -908,5 +908,22 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
     }
   });
 
+  // 11. Workshop Service Invoices & Prepayment Ledger
+  router.get('/service/invoices', async (_req, res, next) => {
+    try {
+      res.json(await deps.store.listServiceInvoices(res.locals.financeActor));
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.get('/service/payments', async (_req, res, next) => {
+    try {
+      res.json(await deps.store.listServicePayments(res.locals.financeActor));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   return router;
 }

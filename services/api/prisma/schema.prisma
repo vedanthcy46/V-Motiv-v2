@@ -2309,6 +2309,9 @@ model ServiceIssueTemplate {
   icon String
   fixedPackageAvailable Boolean @default(false)
   packagePricePaise BigInt?
+  pricingType String @default("FIXED")
+  diagnosticFeePaise BigInt @default(0)
+  updatedByEmployeeId String? @db.Uuid
   packageFeatures Json?
   questionsJson Json
   isActive Boolean @default(true)
@@ -2344,6 +2347,13 @@ model ServiceRequest {
   estimatedCompletionDate DateTime?
   cancellationReason String?
   cancelledAt DateTime?
+  paymentPlanSnapshot Json?
+  servicePaymentStatus String @default("UNPAID")
+  depositStatus String @default("NOT_COLLECTED")
+  verifiedPaidPaise BigInt @default(0)
+  outstandingBalancePaise BigInt @default(0)
+  finalInvoiceId String? @db.Uuid
+  releaseReadiness Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -2357,6 +2367,7 @@ model ServiceRequest {
   qcRecords ServiceQCRecord[]
   payments ServicePaymentRecord[]
   historyEvents ServiceHistoryEvent[]
+  invoices ServiceInvoice[]
 
   @@index([customerId, status])
   @@index([hubId, status])
@@ -2487,11 +2498,14 @@ model ServicePaymentRecord {
   id String @id @default(uuid()) @db.Uuid
   serviceRequestId String @db.Uuid
   type String
+  installmentType String?
   amountPaise BigInt
   status ServicePaymentStatus @default(PENDING)
   paymentGateway String?
   gatewayOrderId String?
   gatewayPaymentId String?
+  gatewaySignature String?
+  idempotencyKey String? @unique
   verifiedByFinanceId String? @db.Uuid
   verifiedAt DateTime?
   createdAt DateTime @default(now())
@@ -2500,6 +2514,51 @@ model ServicePaymentRecord {
   serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
 
   @@index([serviceRequestId])
+}
+
+model ServiceInvoice {
+  id String @id @default(uuid()) @db.Uuid
+  invoiceNumber String @unique
+  serviceRequestId String @db.Uuid
+  customerId String @db.Uuid
+  estimateId String? @db.Uuid
+  subtotalPaise BigInt
+  diagnosticFeeCreditPaise BigInt @default(0)
+  priorPaymentsCreditedPaise BigInt @default(0)
+  cgstPaise BigInt @default(0)
+  sgstPaise BigInt @default(0)
+  igstPaise BigInt @default(0)
+  totalAmountPaise BigInt
+  outstandingPaise BigInt
+  status String @default("ISSUED")
+  pdfUri String?
+  issuedAt DateTime @default(now())
+  issuedById String? @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  serviceRequest ServiceRequest @relation(fields: [serviceRequestId], references: [id], onDelete: Cascade)
+
+  @@index([serviceRequestId])
+  @@index([customerId])
+}
+
+model ServicePaymentPolicy {
+  id String @id @default(uuid()) @db.Uuid
+  version String @unique
+  name String
+  description String?
+  isActive Boolean @default(true)
+  isApproved Boolean @default(true)
+  allowZeroAdvance Boolean @default(true)
+  allowPartialAdvance Boolean @default(true)
+  defaultPartialAdvancePercent Int @default(25)
+  diagnosticFeePaise BigInt @default(50000)
+  diagnosticFeeCreditedToInvoice Boolean @default(true)
+  partsAdvancePercent Int @default(50)
+  partialPlans Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model ServiceHistoryEvent {

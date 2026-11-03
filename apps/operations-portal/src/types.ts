@@ -506,6 +506,38 @@ export type ServiceJobItem = {
     verifiedAt?: string | null;
     createdAt: string;
   }>;
+  servicePaymentStatus?: 'UNPAID' | 'PARTIALLY_PAID' | 'PAID_IN_FULL' | 'REFUNDED';
+  depositStatus?: string;
+  verifiedPaidPaise?: string | number;
+  outstandingBalancePaise?: string | number;
+  paymentPlanSnapshot?: {
+    planId: string;
+    payNowPaise?: string;
+    balancePaise?: string;
+    categoryTitle?: string;
+    paidAt?: string | null;
+  } | null;
+  finalInvoiceId?: string | null;
+  finalInvoice?: {
+    id: string;
+    invoiceNumber: string;
+    totalAmountPaise: string | number;
+    outstandingPaise: string | number;
+    status: string;
+  } | null;
+  invoices?: Array<{
+    id: string;
+    invoiceNumber: string;
+    subtotalPaise: string | number;
+    diagnosticFeeCreditPaise: string | number;
+    priorPaymentsCreditedPaise: string | number;
+    cgstPaise: string | number;
+    sgstPaise: string | number;
+    totalAmountPaise: string | number;
+    outstandingPaise: string | number;
+    status: string;
+    issuedAt: string;
+  }>;
   historyEvents?: Array<{
     id: string;
     fromStatus?: string | null;

@@ -12,6 +12,8 @@ import {
   type ServiceQCRecord,
   type ServicePaymentRecord,
   type ServiceHistoryEvent,
+  type ServiceInvoice,
+  type ServicePaymentPolicy,
   ServiceRequestStatus,
   ServiceFulfillmentType,
   ServiceEstimateStatus,
@@ -20,6 +22,7 @@ import {
   ServicePaymentStatus,
   Prisma,
 } from '@prisma/client';
+import crypto from 'node:crypto';
 import { HttpError } from './errors.js';
 import type { Identity } from './auth.js';
 import type { NotificationService } from './notification/index.js';
@@ -101,6 +104,11 @@ export interface CreateServiceRequestInput {
     pincode: string;
     instructions?: string;
   };
+  paymentPlanId?: 'ZERO_UPFRONT' | 'ADVANCE_25' | 'FULL_100' | 'DIAGNOSTIC_FEE';
+  paymentGateway?: string;
+  gatewayOrderId?: string;
+  gatewayPaymentId?: string;
+  gatewaySignature?: string;
 }
 
 export interface CustodyInput {
@@ -164,6 +172,8 @@ export const DEFAULT_SERVICE_CATEGORIES: Array<{
   icon: string;
   fixedPackageAvailable: boolean;
   packagePricePaise?: bigint;
+  pricingType?: string;
+  diagnosticFeePaise?: bigint;
   packageFeatures?: string[];
   questions: Array<{
     stableId: string;
@@ -745,6 +755,32 @@ export class PrismaServiceStore {
           }
         }
 
+        // 3. Seed Service Payment Policy
+        const policy = await this.db.servicePaymentPolicy.findUnique({
+          where: { version: 'VMS-POL-2026.1' },
+        });
+        if (!policy) {
+          await this.db.servicePaymentPolicy.create({
+            data: {
+              version: 'VMS-POL-2026.1',
+              name: 'V MOTIV Standard Service Payment Policy',
+              description: 'Configurable booking payment options including zero upfront, partial advance, diagnostic fee and 100% full payment.',
+              isActive: true,
+              isApproved: true,
+              allowZeroAdvance: true,
+              allowPartialAdvance: true,
+              defaultPartialAdvancePercent: 25,
+              diagnosticFeePaise: 50000n,
+              diagnosticFeeCreditedToInvoice: true,
+              partsAdvancePercent: 50,
+              partialPlans: [
+                { id: 'ADVANCE_25', percentage: 25, label: '25% Package Advance' },
+                { id: 'ADVANCE_50', percentage: 50, label: '50% Package Advance' },
+              ],
+            },
+          });
+        }
+
         this.isSeeded = true;
       } finally {
         this.seedPromise = null;
@@ -752,6 +788,35 @@ export class PrismaServiceStore {
     })();
 
     return this.seedPromise;
+  }
+
+  async ensurePaymentPolicy(): Promise<ServicePaymentPolicy> {
+    await this.ensureSeedData();
+    const policy = await this.db.servicePaymentPolicy.findFirst({
+      where: { isActive: true },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (policy) return policy;
+
+    return this.db.servicePaymentPolicy.create({
+      data: {
+        version: 'VMS-POL-2026.1',
+        name: 'V MOTIV Standard Service Payment Policy',
+        description: 'Default tiered service payment policy',
+        isActive: true,
+        isApproved: true,
+        allowZeroAdvance: true,
+        allowPartialAdvance: true,
+        defaultPartialAdvancePercent: 25,
+        diagnosticFeePaise: 50000n,
+        diagnosticFeeCreditedToInvoice: true,
+        partsAdvancePercent: 50,
+        partialPlans: [
+          { id: 'ADVANCE_25', percentage: 25, label: '25% Package Advance' },
+          { id: 'ADVANCE_50', percentage: 50, label: '50% Package Advance' },
+        ],
+      },
+    });
   }
 
   async getIssueCategories() {
@@ -768,7 +833,9 @@ export class PrismaServiceStore {
       icon: item.icon,
       fixedPackageAvailable: item.fixedPackageAvailable,
       packagePricePaise: item.packagePricePaise ? item.packagePricePaise.toString() : null,
-      packageFeatures: item.packageFeatures ? JSON.parse(item.packageFeatures as string) : null,
+      pricingType: item.pricingType || (item.fixedPackageAvailable ? 'FIXED' : 'QUOTE_REQUIRED'),
+      diagnosticFeePaise: (item.diagnosticFeePaise ?? 50000n).toString(),
+      packageFeatures: safeParseJson(item.packageFeatures, null),
     }));
   }
 
@@ -788,8 +855,221 @@ export class PrismaServiceStore {
       icon: item.icon,
       fixedPackageAvailable: item.fixedPackageAvailable,
       packagePricePaise: item.packagePricePaise ? item.packagePricePaise.toString() : null,
-      packageFeatures: item.packageFeatures ? JSON.parse(item.packageFeatures as string) : null,
-      questions: JSON.parse(item.questionsJson as string),
+      pricingType: item.pricingType || (item.fixedPackageAvailable ? 'FIXED' : 'QUOTE_REQUIRED'),
+      diagnosticFeePaise: (item.diagnosticFeePaise ?? 50000n).toString(),
+      packageFeatures: safeParseJson(item.packageFeatures, null),
+      questions: safeParseJson(item.questionsJson, []),
+    };
+  }
+
+  async updateCategoryPricing(
+    actorId: string,
+    categoryKey: string,
+    input: {
+      title?: string;
+      description?: string;
+      fixedPackageAvailable?: boolean;
+      packagePricePaise?: bigint | number | null;
+      pricingType?: string;
+      diagnosticFeePaise?: bigint | number;
+      packageFeatures?: string[];
+      isActive?: boolean;
+    }
+  ) {
+    await this.ensureSeedData();
+    const existing = await this.db.serviceIssueTemplate.findUnique({ where: { categoryKey } });
+    if (!existing) throw new HttpError(404, 'CATEGORY_NOT_FOUND');
+
+    const updated = await this.db.serviceIssueTemplate.update({
+      where: { categoryKey },
+      data: {
+        title: input.title !== undefined ? input.title.trim() : existing.title,
+        description: input.description !== undefined ? input.description.trim() : existing.description,
+        fixedPackageAvailable: input.fixedPackageAvailable !== undefined ? input.fixedPackageAvailable : existing.fixedPackageAvailable,
+        packagePricePaise: input.packagePricePaise !== undefined ? (input.packagePricePaise === null ? null : BigInt(input.packagePricePaise)) : existing.packagePricePaise,
+        pricingType: input.pricingType !== undefined ? input.pricingType : existing.pricingType,
+        diagnosticFeePaise: input.diagnosticFeePaise !== undefined ? BigInt(input.diagnosticFeePaise) : existing.diagnosticFeePaise,
+        packageFeatures: input.packageFeatures !== undefined ? JSON.stringify(input.packageFeatures) : (existing.packageFeatures as Prisma.InputJsonValue ?? Prisma.JsonNull),
+        isActive: input.isActive !== undefined ? input.isActive : existing.isActive,
+        updatedByEmployeeId: actorId,
+        version: { increment: 1 },
+      },
+    });
+
+    return {
+      categoryKey: updated.categoryKey,
+      version: updated.version,
+      title: updated.title,
+      description: updated.description,
+      icon: updated.icon,
+      fixedPackageAvailable: updated.fixedPackageAvailable,
+      packagePricePaise: updated.packagePricePaise ? updated.packagePricePaise.toString() : null,
+      pricingType: updated.pricingType,
+      diagnosticFeePaise: updated.diagnosticFeePaise.toString(),
+      packageFeatures: safeParseJson(updated.packageFeatures, []),
+      isActive: updated.isActive,
+    };
+  }
+
+  async getServicePaymentPolicy() {
+    const policy = await this.ensurePaymentPolicy();
+    return {
+      id: policy.id,
+      version: policy.version,
+      name: policy.name,
+      description: policy.description,
+      isActive: policy.isActive,
+      isApproved: policy.isApproved,
+      allowZeroAdvance: policy.allowZeroAdvance,
+      allowPartialAdvance: policy.allowPartialAdvance,
+      defaultPartialAdvancePercent: policy.defaultPartialAdvancePercent,
+      diagnosticFeePaise: policy.diagnosticFeePaise.toString(),
+      diagnosticFeeCreditedToInvoice: policy.diagnosticFeeCreditedToInvoice,
+      partsAdvancePercent: policy.partsAdvancePercent,
+      partialPlans: safeParseJson(policy.partialPlans, []),
+    };
+  }
+
+  async updateServicePaymentPolicy(
+    adminId: string,
+    input: {
+      name?: string;
+      description?: string;
+      allowZeroAdvance?: boolean;
+      allowPartialAdvance?: boolean;
+      defaultPartialAdvancePercent?: number;
+      diagnosticFeePaise?: bigint | number;
+      diagnosticFeeCreditedToInvoice?: boolean;
+      partsAdvancePercent?: number;
+      partialPlans?: Array<{ id: string; percentage: number; label: string }>;
+    }
+  ) {
+    const current = await this.ensurePaymentPolicy();
+    const updated = await this.db.servicePaymentPolicy.update({
+      where: { id: current.id },
+      data: {
+        name: input.name !== undefined ? input.name.trim() : current.name,
+        description: input.description !== undefined ? input.description.trim() : current.description,
+        allowZeroAdvance: input.allowZeroAdvance !== undefined ? input.allowZeroAdvance : current.allowZeroAdvance,
+        allowPartialAdvance: input.allowPartialAdvance !== undefined ? input.allowPartialAdvance : current.allowPartialAdvance,
+        defaultPartialAdvancePercent: input.defaultPartialAdvancePercent !== undefined ? input.defaultPartialAdvancePercent : current.defaultPartialAdvancePercent,
+        diagnosticFeePaise: input.diagnosticFeePaise !== undefined ? BigInt(input.diagnosticFeePaise) : current.diagnosticFeePaise,
+        diagnosticFeeCreditedToInvoice: input.diagnosticFeeCreditedToInvoice !== undefined ? input.diagnosticFeeCreditedToInvoice : current.diagnosticFeeCreditedToInvoice,
+        partsAdvancePercent: input.partsAdvancePercent !== undefined ? input.partsAdvancePercent : current.partsAdvancePercent,
+        partialPlans: input.partialPlans !== undefined ? JSON.stringify(input.partialPlans) : (current.partialPlans as Prisma.InputJsonValue),
+      },
+    });
+
+    return {
+      id: updated.id,
+      version: updated.version,
+      name: updated.name,
+      description: updated.description,
+      isActive: updated.isActive,
+      isApproved: updated.isApproved,
+      allowZeroAdvance: updated.allowZeroAdvance,
+      allowPartialAdvance: updated.allowPartialAdvance,
+      defaultPartialAdvancePercent: updated.defaultPartialAdvancePercent,
+      diagnosticFeePaise: updated.diagnosticFeePaise.toString(),
+      diagnosticFeeCreditedToInvoice: updated.diagnosticFeeCreditedToInvoice,
+      partsAdvancePercent: updated.partsAdvancePercent,
+      partialPlans: safeParseJson(updated.partialPlans, []),
+    };
+  }
+
+  async getPaymentOptionsForCategory(categoryKey: string) {
+    await this.ensureSeedData();
+    const template = await this.db.serviceIssueTemplate.findUnique({ where: { categoryKey } });
+    if (!template || !template.isActive) throw new HttpError(404, 'CATEGORY_NOT_FOUND');
+
+    const policy = await this.ensurePaymentPolicy();
+
+    const isPackage = template.fixedPackageAvailable && template.packagePricePaise && template.packagePricePaise > 0n;
+    const packagePricePaise = template.packagePricePaise || 0n;
+    const diagnosticFeePaise = template.diagnosticFeePaise > 0n ? template.diagnosticFeePaise : policy.diagnosticFeePaise;
+
+    const options: Array<{
+      id: 'ZERO_UPFRONT' | 'ADVANCE_25' | 'FULL_100' | 'DIAGNOSTIC_FEE';
+      title: string;
+      description: string;
+      badge?: string;
+      payNowPaise: string;
+      balancePaise: string;
+      isRecommended: boolean;
+    }> = [];
+
+    if (isPackage) {
+      if (policy.allowZeroAdvance) {
+        options.push({
+          id: 'ZERO_UPFRONT',
+          title: 'Pay After Service / At Workshop',
+          description: 'Zero upfront cost. Inspect work first and pay total package charges upon vehicle delivery.',
+          payNowPaise: '0',
+          balancePaise: packagePricePaise.toString(),
+          isRecommended: false,
+        });
+      }
+
+      if (policy.allowPartialAdvance) {
+        const advancePaise = (packagePricePaise * BigInt(policy.defaultPartialAdvancePercent)) / 100n;
+        const remainingPaise = packagePricePaise - advancePaise;
+        options.push({
+          id: 'ADVANCE_25',
+          title: `${policy.defaultPartialAdvancePercent}% Priority Advance`,
+          description: `Pay ₹${(Number(advancePaise) / 100).toLocaleString('en-IN')} now to lock in genuine OEM parts and technician bay. Balance due at pickup.`,
+          badge: 'POPULAR',
+          payNowPaise: advancePaise.toString(),
+          balancePaise: remainingPaise.toString(),
+          isRecommended: true,
+        });
+      }
+
+      options.push({
+        id: 'FULL_100',
+        title: 'Pay 100% In Full',
+        description: `Pay total package charges of ₹${(Number(packagePricePaise) / 100).toLocaleString('en-IN')} now for express vehicle release without cashier delay.`,
+        badge: 'EXPRESS PICKUP',
+        payNowPaise: packagePricePaise.toString(),
+        balancePaise: '0',
+        isRecommended: false,
+      });
+    } else {
+      options.push({
+        id: 'ZERO_UPFRONT',
+        title: 'Free Diagnostic Booking',
+        description: 'Zero upfront charges. Our master technician will diagnose vehicle symptoms and provide an itemized estimate.',
+        badge: 'RECOMMENDED',
+        payNowPaise: '0',
+        balancePaise: '0',
+        isRecommended: true,
+      });
+
+      options.push({
+        id: 'DIAGNOSTIC_FEE',
+        title: `Diagnostic Fee Advance (₹${(Number(diagnosticFeePaise) / 100).toLocaleString('en-IN')})`,
+        description: `Pay diagnostic fee now. 100% credited against your final service invoice when repair work is approved.`,
+        payNowPaise: diagnosticFeePaise.toString(),
+        balancePaise: '0',
+        isRecommended: false,
+      });
+    }
+
+    return {
+      categoryKey: template.categoryKey,
+      title: template.title,
+      fixedPackageAvailable: template.fixedPackageAvailable,
+      packagePricePaise: template.packagePricePaise ? template.packagePricePaise.toString() : null,
+      pricingType: template.pricingType,
+      diagnosticFeePaise: diagnosticFeePaise.toString(),
+      packageFeatures: safeParseJson(template.packageFeatures, []),
+      policy: {
+        version: policy.version,
+        allowZeroAdvance: policy.allowZeroAdvance,
+        allowPartialAdvance: policy.allowPartialAdvance,
+        defaultPartialAdvancePercent: policy.defaultPartialAdvancePercent,
+        diagnosticFeeCreditedToInvoice: policy.diagnosticFeeCreditedToInvoice,
+      },
+      options,
     };
   }
 
@@ -1162,6 +1442,62 @@ export class PrismaServiceStore {
         },
       });
 
+      // Calculate payment plan and snapshot
+      const planId = input.paymentPlanId || 'ZERO_UPFRONT';
+      let payNowPaise = 0n;
+      let balancePaise = 0n;
+      const isFixed = template.fixedPackageAvailable && template.packagePricePaise && template.packagePricePaise > 0n;
+      const packagePrice = template.packagePricePaise || 0n;
+      const diagFee = template.diagnosticFeePaise > 0n ? template.diagnosticFeePaise : 50000n;
+
+      if (isFixed) {
+        if (planId === 'FULL_100') {
+          payNowPaise = packagePrice;
+          balancePaise = 0n;
+        } else if (planId === 'ADVANCE_25') {
+          payNowPaise = (packagePrice * 25n) / 100n;
+          balancePaise = packagePrice - payNowPaise;
+        } else {
+          payNowPaise = 0n;
+          balancePaise = packagePrice;
+        }
+      } else {
+        if (planId === 'DIAGNOSTIC_FEE') {
+          payNowPaise = diagFee;
+          balancePaise = 0n;
+        } else {
+          payNowPaise = 0n;
+          balancePaise = 0n;
+        }
+      }
+
+      let isPaidNow = false;
+      if (payNowPaise > 0n && input.gatewayPaymentId && input.gatewayOrderId) {
+        const secret = process.env.RAZORPAY_KEY_SECRET || 'dev_secret_key_12345';
+        const generatedSignature = crypto
+          .createHmac('sha256', secret)
+          .update(`${input.gatewayOrderId}|${input.gatewayPaymentId}`)
+          .digest('hex');
+        const isDemo = input.paymentGateway === 'DEMO' || input.gatewayPaymentId.startsWith('pay_demo_');
+        if (!isDemo && input.gatewaySignature !== generatedSignature && process.env.NODE_ENV === 'production') {
+          throw new HttpError(400, 'INVALID_PAYMENT_SIGNATURE');
+        }
+        isPaidNow = true;
+      }
+
+      const initialVerifiedPaid = isPaidNow ? payNowPaise : 0n;
+      const initialOutstanding = isPaidNow ? balancePaise : (isFixed ? packagePrice : 0n);
+      const initialPaymentStatus = isPaidNow ? (balancePaise === 0n ? 'PAID_IN_FULL' : 'PARTIALLY_PAID') : 'UNPAID';
+      const initialDepositStatus = isPaidNow ? (planId === 'DIAGNOSTIC_FEE' ? 'DIAGNOSTIC_PAID' : 'ADVANCE_PAID') : 'NOT_COLLECTED';
+
+      const planSnapshot = {
+        planId,
+        payNowPaise: payNowPaise.toString(),
+        balancePaise: balancePaise.toString(),
+        categoryTitle: template.title,
+        paidAt: isPaidNow ? new Date().toISOString() : null,
+      };
+
       const sr = await tx.serviceRequest.create({
         data: {
           requestNumber,
@@ -1174,24 +1510,47 @@ export class PrismaServiceStore {
           questionAnswers: JSON.stringify(input.questionAnswers),
           mediaUrls: input.mediaUrls ? JSON.stringify(input.mediaUrls) : Prisma.JsonNull,
           fulfillmentType: input.fulfillmentType,
-          status: ServiceRequestStatus.SUBMITTED,
+          status: ServiceRequestStatus.APPOINTMENT_SCHEDULED,
           scheduledDate: input.scheduledDate,
           scheduledTimeSlot: input.scheduledTimeSlot,
           pickupAddress: input.pickupAddress ? JSON.stringify(input.pickupAddress) : Prisma.JsonNull,
           returnAddress: input.returnAddress ? JSON.stringify(input.returnAddress) : Prisma.JsonNull,
           emergencySafetyFlag: hasSafetyCriticalWarning,
           safetyNotes: safetyNotes.trim() || null,
+          paymentPlanSnapshot: JSON.stringify(planSnapshot),
+          servicePaymentStatus: initialPaymentStatus,
+          depositStatus: initialDepositStatus,
+          verifiedPaidPaise: initialVerifiedPaid,
+          outstandingBalancePaise: initialOutstanding,
         },
       });
+
+      if (isPaidNow) {
+        await tx.servicePaymentRecord.create({
+          data: {
+            serviceRequestId: sr.id,
+            type: planId === 'DIAGNOSTIC_FEE' ? 'DIAGNOSTIC_FEE' : 'BOOKING_ADVANCE',
+            installmentType: planId,
+            amountPaise: payNowPaise,
+            status: ServicePaymentStatus.PAID_VERIFIED,
+            paymentGateway: input.paymentGateway || 'RAZORPAY',
+            gatewayOrderId: input.gatewayOrderId,
+            gatewayPaymentId: input.gatewayPaymentId,
+            gatewaySignature: input.gatewaySignature,
+            idempotencyKey: `booking_${sr.id}_${input.gatewayPaymentId}`,
+            verifiedAt: new Date(),
+          },
+        });
+      }
 
       // Insert Initial Audit / History Event
       await tx.serviceHistoryEvent.create({
         data: {
           serviceRequestId: sr.id,
           fromStatus: null,
-          toStatus: ServiceRequestStatus.SUBMITTED,
-          title: 'Service Booking Submitted',
-          description: `Appointment booked for ${input.scheduledDate} (${input.scheduledTimeSlot}) at ${hub.name}. Fulfillment: ${input.fulfillmentType}.`,
+          toStatus: ServiceRequestStatus.APPOINTMENT_SCHEDULED,
+          title: isPaidNow ? 'Service Booked with Advance Payment' : 'Service Appointment Booked',
+          description: `Appointment confirmed for ${input.scheduledDate} (${input.scheduledTimeSlot}) at ${hub.name}. Plan: ${planId}.${isPaidNow ? ` Payment of ₹${(Number(payNowPaise) / 100).toLocaleString('en-IN')} verified.` : ' Zero upfront fee.'}`,
           actorRole: 'CUSTOMER',
           actorId: user.id,
         },
@@ -1244,6 +1603,11 @@ export class PrismaServiceStore {
       scheduledDate: r.scheduledDate,
       scheduledTimeSlot: r.scheduledTimeSlot,
       emergencySafetyFlag: r.emergencySafetyFlag,
+      servicePaymentStatus: r.servicePaymentStatus || 'UNPAID',
+      depositStatus: r.depositStatus || 'NOT_COLLECTED',
+      verifiedPaidPaise: r.verifiedPaidPaise ? r.verifiedPaidPaise.toString() : '0',
+      outstandingBalancePaise: r.outstandingBalancePaise ? r.outstandingBalancePaise.toString() : '0',
+      paymentPlanSnapshot: safeParseJson(r.paymentPlanSnapshot, null),
       vehicle: {
         id: r.vehicle.id,
         make: r.vehicle.make,
@@ -1287,6 +1651,7 @@ export class PrismaServiceStore {
         workOrders: { orderBy: { createdAt: 'desc' } },
         qcRecords: { orderBy: { createdAt: 'desc' } },
         payments: { orderBy: { createdAt: 'desc' } },
+        invoices: { orderBy: { createdAt: 'desc' } },
         historyEvents: { orderBy: { createdAt: 'asc' } },
       },
     });
@@ -1410,6 +1775,25 @@ export class PrismaServiceStore {
         description: h.description,
         actorRole: h.actorRole,
         createdAt: h.createdAt.toISOString(),
+      })),
+      servicePaymentStatus: r.servicePaymentStatus || 'UNPAID',
+      depositStatus: r.depositStatus || 'NOT_COLLECTED',
+      verifiedPaidPaise: r.verifiedPaidPaise ? r.verifiedPaidPaise.toString() : '0',
+      outstandingBalancePaise: r.outstandingBalancePaise ? r.outstandingBalancePaise.toString() : '0',
+      finalInvoiceId: r.finalInvoiceId || null,
+      paymentPlanSnapshot: safeParseJson(r.paymentPlanSnapshot, null),
+      invoices: (r.invoices || []).map(inv => ({
+        id: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        subtotalPaise: inv.subtotalPaise.toString(),
+        diagnosticFeeCreditPaise: inv.diagnosticFeeCreditPaise.toString(),
+        priorPaymentsCreditedPaise: inv.priorPaymentsCreditedPaise.toString(),
+        cgstPaise: inv.cgstPaise.toString(),
+        sgstPaise: inv.sgstPaise.toString(),
+        totalAmountPaise: inv.totalAmountPaise.toString(),
+        outstandingPaise: inv.outstandingPaise.toString(),
+        status: inv.status,
+        issuedAt: inv.issuedAt.toISOString(),
       })),
       createdAt: r.createdAt.toISOString(),
     };
@@ -1936,6 +2320,10 @@ export class PrismaServiceStore {
           payments: {
             orderBy: { createdAt: 'desc' },
           },
+          invoices: {
+            orderBy: { createdAt: 'desc' },
+            take: 1,
+          },
         },
       }),
     ]);
@@ -1987,6 +2375,21 @@ export class PrismaServiceStore {
           gatewayPaymentId: p.gatewayPaymentId,
           createdAt: p.createdAt.toISOString(),
         })),
+        servicePaymentStatus: r.servicePaymentStatus || 'UNPAID',
+        depositStatus: r.depositStatus || 'NOT_COLLECTED',
+        verifiedPaidPaise: r.verifiedPaidPaise ? r.verifiedPaidPaise.toString() : '0',
+        outstandingBalancePaise: r.outstandingBalancePaise ? r.outstandingBalancePaise.toString() : '0',
+        paymentPlanSnapshot: safeParseJson(r.paymentPlanSnapshot, null),
+        finalInvoiceId: r.finalInvoiceId || null,
+        finalInvoice: r.invoices?.[0]
+          ? {
+              id: r.invoices[0].id,
+              invoiceNumber: r.invoices[0].invoiceNumber,
+              totalAmountPaise: r.invoices[0].totalAmountPaise.toString(),
+              outstandingPaise: r.invoices[0].outstandingPaise.toString(),
+              status: r.invoices[0].status,
+            }
+          : null,
         createdAt: r.createdAt.toISOString(),
       })),
     };
@@ -2008,6 +2411,7 @@ export class PrismaServiceStore {
         workOrders: { orderBy: { createdAt: 'desc' } },
         qcRecords: { orderBy: { createdAt: 'desc' } },
         payments: { orderBy: { createdAt: 'desc' } },
+        invoices: { orderBy: { createdAt: 'desc' } },
         historyEvents: { orderBy: { createdAt: 'asc' } },
       },
     });
@@ -2019,6 +2423,25 @@ export class PrismaServiceStore {
       mediaUrls: safeParseJson(r.mediaUrls, []),
       pickupAddress: safeParseJson(r.pickupAddress, null),
       returnAddress: safeParseJson(r.returnAddress, null),
+      servicePaymentStatus: r.servicePaymentStatus || 'UNPAID',
+      depositStatus: r.depositStatus || 'NOT_COLLECTED',
+      verifiedPaidPaise: r.verifiedPaidPaise ? r.verifiedPaidPaise.toString() : '0',
+      outstandingBalancePaise: r.outstandingBalancePaise ? r.outstandingBalancePaise.toString() : '0',
+      paymentPlanSnapshot: safeParseJson(r.paymentPlanSnapshot, null),
+      finalInvoiceId: r.finalInvoiceId || null,
+      invoices: (r.invoices || []).map(inv => ({
+        id: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        subtotalPaise: inv.subtotalPaise.toString(),
+        diagnosticFeeCreditPaise: inv.diagnosticFeeCreditPaise.toString(),
+        priorPaymentsCreditedPaise: inv.priorPaymentsCreditedPaise.toString(),
+        cgstPaise: inv.cgstPaise.toString(),
+        sgstPaise: inv.sgstPaise.toString(),
+        totalAmountPaise: inv.totalAmountPaise.toString(),
+        outstandingPaise: inv.outstandingPaise.toString(),
+        status: inv.status,
+        issuedAt: inv.issuedAt.toISOString(),
+      })),
       estimates: r.estimates.map(e => ({
         ...e,
         subtotalPaise: e.subtotalPaise.toString(),
@@ -2531,41 +2954,17 @@ export class PrismaServiceStore {
         },
       });
 
-      // Check customer estimate approval & payment settlement
-      const latestEstimate = await tx.serviceEstimate.findFirst({
-        where: { serviceRequestId: sr.id },
-        orderBy: { version: 'desc' },
-      });
-      const approvedEstimate = await tx.serviceEstimate.findFirst({
-        where: { serviceRequestId: sr.id, status: ServiceEstimateStatus.APPROVED },
-        orderBy: { version: 'desc' },
-      });
-
-      // Strict Gate 1: An estimate MUST be created and approved by the customer before vehicle release
-      if (!approvedEstimate) {
-        throw new HttpError(400, 'ESTIMATE_NOT_APPROVED: Vehicle cannot be handed over before customer approves the service estimate.');
-      }
-
-      // Strict Gate 2: Customer payment must be verified in full (PAID_VERIFIED only, not PENDING)
-      const verifiedPayments = await tx.servicePaymentRecord.findMany({
-        where: { serviceRequestId: sr.id, status: ServicePaymentStatus.PAID_VERIFIED },
-      });
-      const totalPaid = verifiedPayments.reduce((acc, p) => acc + p.amountPaise, 0n);
-      const isPaid = totalPaid >= approvedEstimate.totalAmountPaise;
-
-      // Balance must be paid in full prior to release
-      if (!isPaid) {
-        const balRupees = Math.max(0, Math.round(Number(approvedEstimate.totalAmountPaise - totalPaid) / 100));
-        throw new HttpError(403, `SERVICE_BALANCE_PENDING_CANNOT_HANDOVER_VEHICLE: Outstanding balance of ₹${balRupees.toLocaleString('en-IN')} must be collected and verified before vehicle release.`);
+      // Strict Release Readiness Gate Check
+      const readiness = await this.computeServiceReleaseReadiness(requestId);
+      if (!readiness.canRelease) {
+        throw new HttpError(403, `VEHICLE_RELEASE_GATE_BLOCKED: ${readiness.reasons.join('; ')}`);
       }
 
       let nextStatus: ServiceRequestStatus;
       if (sr.fulfillmentType === ServiceFulfillmentType.PICKUP_AND_RETURN) {
         nextStatus = ServiceRequestStatus.RETURN_DISPATCHED;
-      } else if (isPaid) {
-        nextStatus = ServiceRequestStatus.COMPLETED;
       } else {
-        nextStatus = ServiceRequestStatus.PAYMENT_PENDING;
+        nextStatus = ServiceRequestStatus.COMPLETED;
       }
 
       await tx.serviceRequest.update({
@@ -2581,7 +2980,7 @@ export class PrismaServiceStore {
           title: nextStatus === ServiceRequestStatus.RETURN_DISPATCHED
             ? 'Vehicle Dispatched for Customer Return'
             : 'Service Completed & Vehicle Handed Over',
-          description: `Handover recorded at ${input.odometerKm} km. Vehicle returned in spotless condition.`,
+          description: `Handover recorded at ${input.odometerKm} km. Vehicle returned in spotless condition. All invoices settled.`,
           actorRole: 'SERVICE_ADVISOR',
           actorId,
         },
@@ -2594,13 +2993,430 @@ export class PrismaServiceStore {
           referenceId: sr.id,
           entityType: 'ServiceRequest',
           title: nextStatus === ServiceRequestStatus.RETURN_DISPATCHED ? 'Vehicle Out for Return Delivery' : 'Service Completed',
-          body: `Your vehicle service is fully completed and ready.`,
+          body: `Your vehicle service is fully completed and released.`,
           category: 'SERVICE',
           recipientUserIds: [sr.customerId],
         });
       }
 
       return record;
+    });
+  }
+
+  // -------------------------------------------------------------
+  // RELEASE READINESS & INVOICE MANAGEMENT
+  // -------------------------------------------------------------
+  async computeServiceReleaseReadiness(requestId: string) {
+    const sr = await this.db.serviceRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        qcRecords: { orderBy: { createdAt: 'desc' }, take: 1 },
+        estimates: { orderBy: { version: 'desc' } },
+        invoices: { orderBy: { createdAt: 'desc' }, take: 1 },
+        payments: { where: { status: ServicePaymentStatus.PAID_VERIFIED } },
+      },
+    });
+    if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+
+    const reasons: string[] = [];
+    const latestQc = sr.qcRecords[0];
+    const isQcPassed = latestQc ? latestQc.result === ServiceQCResult.PASS : false;
+    if (!isQcPassed) {
+      reasons.push('Quality control inspection has not been completed and passed.');
+    }
+
+    const hasEstimates = sr.estimates.length > 0;
+    const approvedEstimate = sr.estimates.find(e => e.status === ServiceEstimateStatus.APPROVED);
+    const isEstimateApproved = !hasEstimates || Boolean(approvedEstimate);
+    if (!isEstimateApproved) {
+      reasons.push('Service estimate has not been approved by the customer.');
+    }
+
+    const latestInvoice = sr.invoices[0];
+    const isInvoiceIssued = Boolean(latestInvoice);
+    if (!isInvoiceIssued) {
+      reasons.push('Final tax invoice has not been generated.');
+    }
+
+    const totalVerifiedPaid = sr.payments.reduce((acc, p) => acc + p.amountPaise, 0n);
+    const billAmount = latestInvoice
+      ? latestInvoice.totalAmountPaise
+      : (approvedEstimate ? approvedEstimate.totalAmountPaise : sr.outstandingBalancePaise);
+    const outstandingPaise = billAmount > totalVerifiedPaid ? billAmount - totalVerifiedPaid : 0n;
+    const isPaymentSettled = billAmount > 0n ? outstandingPaise === 0n : totalVerifiedPaid > 0n;
+    if (!isPaymentSettled && billAmount > 0n) {
+      reasons.push(`Outstanding balance of ₹${(Number(outstandingPaise) / 100).toLocaleString('en-IN')} must be settled.`);
+    }
+
+    const canRelease = isQcPassed && isEstimateApproved && isInvoiceIssued && isPaymentSettled;
+
+    return {
+      canRelease,
+      reasons,
+      gateChecks: {
+        qcPassed: isQcPassed,
+        estimateApproved: isEstimateApproved,
+        invoiceIssued: isInvoiceIssued,
+        paymentSettled: isPaymentSettled,
+      },
+      billAmountPaise: billAmount.toString(),
+      totalVerifiedPaidPaise: totalVerifiedPaid.toString(),
+      outstandingBalancePaise: outstandingPaise.toString(),
+    };
+  }
+
+  async generateServiceInvoice(
+    officerId: string,
+    requestId: string,
+    input?: { customDiscountPaise?: bigint | number; notes?: string }
+  ) {
+    const sr = await this.db.serviceRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        customer: true,
+        vehicle: true,
+        hub: true,
+        estimates: {
+          include: { items: true },
+          orderBy: { version: 'desc' },
+        },
+        payments: {
+          where: { status: ServicePaymentStatus.PAID_VERIFIED },
+        },
+        invoices: {
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+    if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+
+    const approvedEstimate = sr.estimates.find(e => e.status === ServiceEstimateStatus.APPROVED) || sr.estimates[0];
+    let subtotalPaise = 0n;
+    let estimateId: string | null = null;
+
+    if (approvedEstimate) {
+      subtotalPaise = approvedEstimate.subtotalPaise;
+      estimateId = approvedEstimate.id;
+    } else {
+      const template = await this.db.serviceIssueTemplate.findUnique({ where: { categoryKey: sr.categoryKey } });
+      if (template && template.packagePricePaise) {
+        subtotalPaise = template.packagePricePaise;
+      } else {
+        subtotalPaise = 0n;
+      }
+    }
+
+    const customDiscount = input?.customDiscountPaise ? BigInt(input.customDiscountPaise) : 0n;
+
+    // Diagnostic fee credit
+    const diagnosticPayment = sr.payments.find(p => p.type === 'DIAGNOSTIC_FEE');
+    const diagnosticFeeCreditPaise = diagnosticPayment ? diagnosticPayment.amountPaise : 0n;
+
+    // Prepayments credited: booking advance, parts advance, walk-in advance
+    const priorPaymentsCreditedPaise = sr.payments
+      .filter(p => p.type !== 'DIAGNOSTIC_FEE')
+      .reduce((acc, p) => acc + p.amountPaise, 0n);
+
+    const totalCredits = diagnosticFeeCreditPaise + priorPaymentsCreditedPaise;
+
+    // 18% GST (9% CGST + 9% SGST)
+    const taxableBase = subtotalPaise > customDiscount ? subtotalPaise - customDiscount : 0n;
+    const cgstPaise = (taxableBase * 9n) / 100n;
+    const sgstPaise = (taxableBase * 9n) / 100n;
+    const totalAmountPaise = taxableBase + cgstPaise + sgstPaise;
+
+    const outstandingPaise = totalAmountPaise > totalCredits ? totalAmountPaise - totalCredits : 0n;
+
+    const dateStr = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+    const randomHex = Math.floor(1000 + Math.random() * 9000).toString();
+    const invoiceNumber = `INV-${sr.requestNumber}-${randomHex}`;
+
+    return this.db.$transaction(async tx => {
+      const invoice = await tx.serviceInvoice.create({
+        data: {
+          invoiceNumber,
+          serviceRequestId: sr.id,
+          customerId: sr.customerId,
+          estimateId,
+          subtotalPaise,
+          diagnosticFeeCreditPaise,
+          priorPaymentsCreditedPaise,
+          cgstPaise,
+          sgstPaise,
+          totalAmountPaise,
+          outstandingPaise,
+          status: outstandingPaise === 0n ? 'PAID' : 'ISSUED',
+          issuedById: officerId,
+        },
+      });
+
+      const isFullyPaid = outstandingPaise === 0n;
+      const nextPaymentStatus = isFullyPaid ? 'PAID_IN_FULL' : (totalCredits > 0n ? 'PARTIALLY_PAID' : 'UNPAID');
+      const nextRequestStatus = isFullyPaid ? ServiceRequestStatus.PAID : ServiceRequestStatus.PAYMENT_PENDING;
+
+      await tx.serviceRequest.update({
+        where: { id: sr.id },
+        data: {
+          finalInvoiceId: invoice.id,
+          outstandingBalancePaise: outstandingPaise,
+          servicePaymentStatus: nextPaymentStatus,
+          status: nextRequestStatus,
+        },
+      });
+
+      await tx.serviceHistoryEvent.create({
+        data: {
+          serviceRequestId: sr.id,
+          fromStatus: sr.status,
+          toStatus: nextRequestStatus,
+          title: 'Final Tax Invoice Generated',
+          description: `Invoice ${invoiceNumber} issued for ₹${(Number(totalAmountPaise) / 100).toLocaleString('en-IN')}. Prior payments & diagnostic fee credited: ₹${(Number(totalCredits) / 100).toLocaleString('en-IN')}. Outstanding balance: ₹${(Number(outstandingPaise) / 100).toLocaleString('en-IN')}.`,
+          actorRole: 'SERVICE_ADVISOR',
+          actorId: officerId,
+        },
+      });
+
+      return {
+        ...invoice,
+        subtotalPaise: invoice.subtotalPaise.toString(),
+        diagnosticFeeCreditPaise: invoice.diagnosticFeeCreditPaise.toString(),
+        priorPaymentsCreditedPaise: invoice.priorPaymentsCreditedPaise.toString(),
+        cgstPaise: invoice.cgstPaise.toString(),
+        sgstPaise: invoice.sgstPaise.toString(),
+        totalAmountPaise: invoice.totalAmountPaise.toString(),
+        outstandingPaise: invoice.outstandingPaise.toString(),
+      };
+    });
+  }
+
+  async getServicePaymentSummary(requestId: string) {
+    const sr = await this.db.serviceRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        customer: true,
+        vehicle: true,
+        estimates: {
+          include: { items: true },
+          orderBy: { version: 'desc' },
+        },
+        invoices: {
+          orderBy: { createdAt: 'desc' },
+        },
+        payments: {
+          orderBy: { createdAt: 'desc' },
+        },
+      },
+    });
+    if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+
+    const template = await this.db.serviceIssueTemplate.findUnique({ where: { categoryKey: sr.categoryKey } });
+    const packagePricePaise = template?.packagePricePaise || 0n;
+
+    const approvedEstimate = sr.estimates.find(e => e.status === ServiceEstimateStatus.APPROVED) || sr.estimates[0];
+    const latestInvoice = sr.invoices[0];
+
+    const verifiedPayments = sr.payments.filter(p => p.status === ServicePaymentStatus.PAID_VERIFIED);
+    const totalVerifiedPaidPaise = verifiedPayments.reduce((acc, p) => acc + p.amountPaise, 0n);
+
+    const diagnosticPayment = verifiedPayments.find(p => p.type === 'DIAGNOSTIC_FEE');
+    const diagnosticFeePaise = diagnosticPayment ? diagnosticPayment.amountPaise : 0n;
+
+    const totalBillPaise = latestInvoice
+      ? latestInvoice.totalAmountPaise
+      : (approvedEstimate ? approvedEstimate.totalAmountPaise : packagePricePaise);
+
+    const outstandingBalancePaise = totalBillPaise > totalVerifiedPaidPaise ? totalBillPaise - totalVerifiedPaidPaise : 0n;
+
+    const readiness = await this.computeServiceReleaseReadiness(requestId);
+
+    return {
+      requestId: sr.id,
+      requestNumber: sr.requestNumber,
+      categoryKey: sr.categoryKey,
+      categoryTitle: template?.title || sr.categoryKey,
+      packagePricePaise: packagePricePaise.toString(),
+      estimateTotalPaise: approvedEstimate ? approvedEstimate.totalAmountPaise.toString() : '0',
+      totalBillPaise: totalBillPaise.toString(),
+      diagnosticFeePaise: diagnosticFeePaise.toString(),
+      diagnosticFeeCreditedPaise: latestInvoice ? latestInvoice.diagnosticFeeCreditPaise.toString() : diagnosticFeePaise.toString(),
+      verifiedPaidPaise: totalVerifiedPaidPaise.toString(),
+      outstandingBalancePaise: outstandingBalancePaise.toString(),
+      servicePaymentStatus: sr.servicePaymentStatus || (outstandingBalancePaise === 0n && totalBillPaise > 0n ? 'PAID_IN_FULL' : (totalVerifiedPaidPaise > 0n ? 'PARTIALLY_PAID' : 'UNPAID')),
+      depositStatus: sr.depositStatus || 'NOT_COLLECTED',
+      paymentPlanSnapshot: safeParseJson(sr.paymentPlanSnapshot, null),
+      finalInvoice: latestInvoice
+        ? {
+            id: latestInvoice.id,
+            invoiceNumber: latestInvoice.invoiceNumber,
+            subtotalPaise: latestInvoice.subtotalPaise.toString(),
+            cgstPaise: latestInvoice.cgstPaise.toString(),
+            sgstPaise: latestInvoice.sgstPaise.toString(),
+            diagnosticFeeCreditPaise: latestInvoice.diagnosticFeeCreditPaise.toString(),
+            priorPaymentsCreditedPaise: latestInvoice.priorPaymentsCreditedPaise.toString(),
+            totalAmountPaise: latestInvoice.totalAmountPaise.toString(),
+            outstandingPaise: latestInvoice.outstandingPaise.toString(),
+            status: latestInvoice.status,
+            issuedAt: latestInvoice.issuedAt.toISOString(),
+          }
+        : null,
+      invoices: sr.invoices.map(inv => ({
+        id: inv.id,
+        invoiceNumber: inv.invoiceNumber,
+        totalAmountPaise: inv.totalAmountPaise.toString(),
+        outstandingPaise: inv.outstandingPaise.toString(),
+        status: inv.status,
+        issuedAt: inv.issuedAt.toISOString(),
+      })),
+      payments: sr.payments.map(p => ({
+        id: p.id,
+        type: p.type,
+        installmentType: p.installmentType,
+        amountPaise: p.amountPaise.toString(),
+        status: p.status,
+        paymentGateway: p.paymentGateway,
+        gatewayOrderId: p.gatewayOrderId,
+        gatewayPaymentId: p.gatewayPaymentId,
+        createdAt: p.createdAt.toISOString(),
+        verifiedAt: p.verifiedAt ? p.verifiedAt.toISOString() : null,
+      })),
+      releaseReadiness: readiness,
+    };
+  }
+
+  async getServicePaymentHistory(requestId: string) {
+    const payments = await this.db.servicePaymentRecord.findMany({
+      where: { serviceRequestId: requestId },
+      orderBy: { createdAt: 'desc' },
+    });
+    return payments.map(p => ({
+      id: p.id,
+      type: p.type,
+      installmentType: p.installmentType,
+      amountPaise: p.amountPaise.toString(),
+      status: p.status,
+      paymentGateway: p.paymentGateway,
+      gatewayOrderId: p.gatewayOrderId,
+      gatewayPaymentId: p.gatewayPaymentId,
+      createdAt: p.createdAt.toISOString(),
+      verifiedAt: p.verifiedAt ? p.verifiedAt.toISOString() : null,
+    }));
+  }
+
+  async verifyCustomerGatewayPayment(
+    customerId: string,
+    requestId: string,
+    input: {
+      gatewayOrderId: string;
+      gatewayPaymentId: string;
+      gatewaySignature: string;
+      paymentGateway?: string;
+      installmentType?: string;
+      amountPaise?: bigint | number;
+    }
+  ) {
+    const sr = await this.db.serviceRequest.findFirst({
+      where: { id: requestId, customerId },
+      include: {
+        payments: true,
+        invoices: { orderBy: { createdAt: 'desc' }, take: 1 },
+        estimates: { orderBy: { version: 'desc' }, take: 1 },
+      },
+    });
+    if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+
+    // Idempotency check: if payment ID already verified
+    const existingVerified = sr.payments.find(
+      p => p.gatewayPaymentId === input.gatewayPaymentId && p.status === ServicePaymentStatus.PAID_VERIFIED
+    );
+    if (existingVerified) {
+      return { success: true, paymentId: existingVerified.id, alreadyVerified: true };
+    }
+
+    // Signature verification
+    const secret = process.env.RAZORPAY_KEY_SECRET || 'dev_secret_key_12345';
+    const generatedSignature = crypto
+      .createHmac('sha256', secret)
+      .update(`${input.gatewayOrderId}|${input.gatewayPaymentId}`)
+      .digest('hex');
+
+    const isDemoPayment = input.paymentGateway === 'DEMO' || input.gatewayPaymentId?.startsWith('pay_demo_');
+    if (!isDemoPayment && generatedSignature !== input.gatewaySignature && process.env.NODE_ENV === 'production') {
+      throw new HttpError(400, 'INVALID_PAYMENT_SIGNATURE');
+    }
+
+    // Determine amount
+    const amountPaise = input.amountPaise ? BigInt(input.amountPaise) : (sr.outstandingBalancePaise > 0n ? sr.outstandingBalancePaise : 0n);
+
+    return this.db.$transaction(async tx => {
+      const payment = await tx.servicePaymentRecord.create({
+        data: {
+          serviceRequestId: sr.id,
+          type: input.installmentType === 'DIAGNOSTIC_FEE' ? 'DIAGNOSTIC_FEE' : (input.installmentType === 'BALANCE' ? 'FINAL_SETTLEMENT' : 'BOOKING_ADVANCE'),
+          installmentType: input.installmentType || 'BALANCE',
+          amountPaise,
+          status: ServicePaymentStatus.PAID_VERIFIED,
+          paymentGateway: input.paymentGateway || 'RAZORPAY',
+          gatewayOrderId: input.gatewayOrderId,
+          gatewayPaymentId: input.gatewayPaymentId,
+          gatewaySignature: input.gatewaySignature,
+          idempotencyKey: `sig_${sr.id}_${input.gatewayPaymentId}`,
+          verifiedAt: new Date(),
+        },
+      });
+
+      const allVerified = await tx.servicePaymentRecord.findMany({
+        where: { serviceRequestId: sr.id, status: ServicePaymentStatus.PAID_VERIFIED },
+      });
+      const totalVerified = allVerified.reduce((acc, p) => acc + p.amountPaise, 0n);
+
+      const latestInvoice = sr.invoices[0];
+      const totalBill = latestInvoice ? latestInvoice.totalAmountPaise : (sr.estimates[0] ? sr.estimates[0].totalAmountPaise : sr.outstandingBalancePaise);
+      const newOutstanding = totalBill > totalVerified ? totalBill - totalVerified : 0n;
+
+      const isFullyPaid = newOutstanding === 0n;
+      const newPaymentStatus = isFullyPaid ? 'PAID_IN_FULL' : 'PARTIALLY_PAID';
+      const nextRequestStatus = isFullyPaid ? ServiceRequestStatus.PAID : sr.status;
+
+      await tx.serviceRequest.update({
+        where: { id: sr.id },
+        data: {
+          verifiedPaidPaise: totalVerified,
+          outstandingBalancePaise: newOutstanding,
+          servicePaymentStatus: newPaymentStatus,
+          status: nextRequestStatus,
+        },
+      });
+
+      if (latestInvoice) {
+        await tx.serviceInvoice.update({
+          where: { id: latestInvoice.id },
+          data: {
+            outstandingPaise: newOutstanding,
+            status: isFullyPaid ? 'PAID' : 'ISSUED',
+          },
+        });
+      }
+
+      await tx.serviceHistoryEvent.create({
+        data: {
+          serviceRequestId: sr.id,
+          fromStatus: sr.status,
+          toStatus: nextRequestStatus,
+          title: 'Payment Verified Online',
+          description: `Customer payment of ₹${(Number(amountPaise) / 100).toLocaleString('en-IN')} verified successfully via ${input.paymentGateway || 'Razorpay'}. Reference: ${input.gatewayPaymentId}. Outstanding balance: ₹${(Number(newOutstanding) / 100).toLocaleString('en-IN')}.`,
+          actorRole: 'CUSTOMER',
+          actorId: customerId,
+        },
+      });
+
+      return {
+        success: true,
+        paymentId: payment.id,
+        verifiedPaidPaise: totalVerified.toString(),
+        outstandingBalancePaise: newOutstanding.toString(),
+        servicePaymentStatus: newPaymentStatus,
+        requestStatus: nextRequestStatus,
+      };
     });
   }
 
@@ -2617,43 +3433,55 @@ export class PrismaServiceStore {
       gatewayOrderId?: string;
       gatewayPaymentId?: string;
       autoVerify?: boolean;
+      notes?: string;
     }
   ) {
-    const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
+    const sr = await this.db.serviceRequest.findUnique({
+      where: { id: requestId },
+      include: {
+        invoices: { orderBy: { createdAt: 'desc' }, take: 1 },
+        estimates: { orderBy: { version: 'desc' }, take: 1 },
+      },
+    });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
 
     return this.db.$transaction(async tx => {
-      const isAutoVerify = Boolean(input.autoVerify);
+      const isAutoVerify = Boolean(input.autoVerify ?? true);
       const paymentStatus = isAutoVerify ? ServicePaymentStatus.PAID_VERIFIED : ServicePaymentStatus.PENDING;
+      const amountPaise = BigInt(input.amountPaise);
 
       const payment = await tx.servicePaymentRecord.create({
         data: {
           serviceRequestId: requestId,
           type: input.type,
-          amountPaise: BigInt(input.amountPaise),
+          installmentType: input.type,
+          amountPaise,
           status: paymentStatus,
-          paymentGateway: input.paymentGateway || 'RAZORPAY',
+          paymentGateway: input.paymentGateway || 'COUNTER',
           gatewayOrderId: input.gatewayOrderId,
-          gatewayPaymentId: input.gatewayPaymentId,
+          gatewayPaymentId: input.gatewayPaymentId || `COUNTER-${Date.now()}`,
           verifiedByFinanceId: isAutoVerify ? actorId : null,
           verifiedAt: isAutoVerify ? new Date() : null,
         },
       });
 
-      // Check if checkout return custody has already been recorded
-      const hasCheckout = await tx.serviceCustodyRecord.findFirst({
-        where: { serviceRequestId: requestId, type: 'CHECK_OUT' },
-      });
-
-      const approvedEst = await tx.serviceEstimate.findFirst({
-        where: { serviceRequestId: requestId, status: ServiceEstimateStatus.APPROVED },
-        orderBy: { version: 'desc' },
-      });
+      // Recompute verified totals
       const allVerified = await tx.servicePaymentRecord.findMany({
         where: { serviceRequestId: requestId, status: ServicePaymentStatus.PAID_VERIFIED },
       });
       const totalVerifiedPaise = allVerified.reduce((acc, p) => acc + p.amountPaise, 0n);
-      const isFullySettled = approvedEst ? totalVerifiedPaise >= approvedEst.totalAmountPaise : totalVerifiedPaise > 0n;
+
+      const latestInvoice = sr.invoices[0];
+      const totalBill = latestInvoice ? latestInvoice.totalAmountPaise : (sr.estimates[0] ? sr.estimates[0].totalAmountPaise : sr.outstandingBalancePaise);
+      const newOutstanding = totalBill > totalVerifiedPaise ? totalBill - totalVerifiedPaise : 0n;
+
+      const isFullySettled = newOutstanding === 0n;
+      const newPaymentStatus = isFullySettled ? 'PAID_IN_FULL' : (totalVerifiedPaise > 0n ? 'PARTIALLY_PAID' : 'UNPAID');
+
+      // Check custody check-out
+      const hasCheckout = await tx.serviceCustodyRecord.findFirst({
+        where: { serviceRequestId: requestId, type: 'CHECK_OUT' },
+      });
 
       let nextRequestStatus: ServiceRequestStatus = isFullySettled ? ServiceRequestStatus.PAID : ServiceRequestStatus.PAYMENT_PENDING;
       if (isFullySettled && hasCheckout) {
@@ -2662,17 +3490,34 @@ export class PrismaServiceStore {
 
       await tx.serviceRequest.update({
         where: { id: requestId },
-        data: { status: nextRequestStatus },
+        data: {
+          status: nextRequestStatus,
+          verifiedPaidPaise: totalVerifiedPaise,
+          outstandingBalancePaise: newOutstanding,
+          servicePaymentStatus: newPaymentStatus,
+        },
       });
+
+      if (latestInvoice) {
+        await tx.serviceInvoice.update({
+          where: { id: latestInvoice.id },
+          data: {
+            outstandingPaise: newOutstanding,
+            status: isFullySettled ? 'PAID' : 'ISSUED',
+          },
+        });
+      }
 
       await tx.serviceHistoryEvent.create({
         data: {
           serviceRequestId: sr.id,
           fromStatus: sr.status,
-          toStatus: ServiceRequestStatus.PAYMENT_PENDING,
-          title: `Payment Initiated (${input.type})`,
-          description: `Amount: ₹${(Number(input.amountPaise) / 100).toLocaleString('en-IN')}. Awaiting Finance verification.`,
-          actorRole: 'FINANCE',
+          toStatus: nextRequestStatus,
+          title: isAutoVerify ? 'Counter Payment Recorded & Verified' : `Payment Initiated (${input.type})`,
+          description: isAutoVerify
+            ? `Counter payment of ₹${(Number(amountPaise) / 100).toLocaleString('en-IN')} recorded via ${input.paymentGateway || 'COUNTER'} (Ref: ${input.gatewayPaymentId || 'COUNTER'}). Balance remaining: ₹${(Number(newOutstanding) / 100).toLocaleString('en-IN')}.`
+            : `Amount: ₹${(Number(amountPaise) / 100).toLocaleString('en-IN')}. Awaiting Finance verification.`,
+          actorRole: 'SERVICE_ADVISOR',
           actorId,
         },
       });
@@ -2688,7 +3533,14 @@ export class PrismaServiceStore {
   ) {
     const payment = await this.db.servicePaymentRecord.findUnique({
       where: { id: paymentId },
-      include: { serviceRequest: true },
+      include: {
+        serviceRequest: {
+          include: {
+            invoices: { orderBy: { createdAt: 'desc' }, take: 1 },
+            estimates: { orderBy: { version: 'desc' }, take: 1 },
+          },
+        },
+      },
     });
     if (!payment) throw new HttpError(404, 'PAYMENT_RECORD_NOT_FOUND');
 
@@ -2705,18 +3557,44 @@ export class PrismaServiceStore {
       });
 
       if (input.verified) {
-        await tx.serviceRequest.update({
-          where: { id: payment.serviceRequestId },
-          data: { status: ServiceRequestStatus.PAID },
+        const sr = payment.serviceRequest;
+        const allVerified = await tx.servicePaymentRecord.findMany({
+          where: { serviceRequestId: sr.id, status: ServicePaymentStatus.PAID_VERIFIED },
         });
+        const totalVerified = allVerified.reduce((acc, p) => acc + p.amountPaise, 0n);
+
+        const latestInvoice = sr.invoices[0];
+        const totalBill = latestInvoice ? latestInvoice.totalAmountPaise : (sr.estimates[0] ? sr.estimates[0].totalAmountPaise : sr.outstandingBalancePaise);
+        const newOutstanding = totalBill > totalVerified ? totalBill - totalVerified : 0n;
+        const isFullyPaid = newOutstanding === 0n;
+
+        await tx.serviceRequest.update({
+          where: { id: sr.id },
+          data: {
+            verifiedPaidPaise: totalVerified,
+            outstandingBalancePaise: newOutstanding,
+            servicePaymentStatus: isFullyPaid ? 'PAID_IN_FULL' : 'PARTIALLY_PAID',
+            status: isFullyPaid ? ServiceRequestStatus.PAID : sr.status,
+          },
+        });
+
+        if (latestInvoice) {
+          await tx.serviceInvoice.update({
+            where: { id: latestInvoice.id },
+            data: {
+              outstandingPaise: newOutstanding,
+              status: isFullyPaid ? 'PAID' : 'ISSUED',
+            },
+          });
+        }
 
         await tx.serviceHistoryEvent.create({
           data: {
             serviceRequestId: payment.serviceRequestId,
             fromStatus: payment.serviceRequest.status,
-            toStatus: ServiceRequestStatus.PAID,
+            toStatus: isFullyPaid ? ServiceRequestStatus.PAID : payment.serviceRequest.status,
             title: 'Payment Verified by Finance',
-            description: `Payment of ₹${(Number(payment.amountPaise) / 100).toLocaleString('en-IN')} verified. Ready for return or customer collection.`,
+            description: `Payment of ₹${(Number(payment.amountPaise) / 100).toLocaleString('en-IN')} verified. Outstanding balance: ₹${(Number(newOutstanding) / 100).toLocaleString('en-IN')}.`,
             actorRole: 'FINANCE',
             actorId: financeActorId,
           },

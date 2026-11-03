@@ -693,51 +693,87 @@ export function RequestsScreen() {
                       No car service bookings found. You can book scheduled maintenance or diagnostics anytime.
                     </Text>
                   ) : (
-                    serviceRequests.map((item) => (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
-                        activeOpacity={0.8}
-                        onPress={() =>
-                          navigation.navigate('ServiceRequestDetails', { requestId: item.id })
-                        }
-                      >
-                        <View style={styles.cardHeader}>
-                          <View style={{ flex: 1 }}>
-                            <Text style={[styles.cardTitle, { color: c.textPrimary }]}>
-                              {item.vehicle.make} {item.vehicle.model} ({item.vehicle.year})
-                            </Text>
-                            <Text style={[styles.cardSubtitle, { color: c.brandAccent }]}>
-                              {item.categoryKey.replace(/_/g, ' ')} · {item.requestNumber}
+                    serviceRequests.map((item) => {
+                      const verifiedPaid = Math.round(Number(item.verifiedPaidPaise || 0) / 100);
+                      const outstanding = Math.round(Number(item.outstandingBalancePaise || 0) / 100);
+                      const pStatus = item.servicePaymentStatus || (outstanding === 0 && verifiedPaid > 0 ? 'PAID_IN_FULL' : (verifiedPaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID'));
+
+                      let pBadgeColor = '#EF4444';
+                      let pBadgeBg = isDark ? 'rgba(239, 68, 68, 0.2)' : '#FEE2E2';
+                      let pBadgeText = 'UNPAID';
+                      if (pStatus === 'PAID_IN_FULL' || (outstanding === 0 && verifiedPaid > 0)) {
+                        pBadgeColor = '#10B981';
+                        pBadgeBg = isDark ? 'rgba(16, 185, 129, 0.2)' : '#D1FAE5';
+                        pBadgeText = 'PAID IN FULL';
+                      } else if (pStatus === 'PARTIALLY_PAID' || verifiedPaid > 0) {
+                        pBadgeColor = '#F59E0B';
+                        pBadgeBg = isDark ? 'rgba(245, 158, 11, 0.2)' : '#FEF3C7';
+                        pBadgeText = 'PARTIAL';
+                      }
+
+                      return (
+                        <TouchableOpacity
+                          key={item.id}
+                          style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}
+                          activeOpacity={0.8}
+                          onPress={() =>
+                            navigation.navigate('ServiceRequestDetails', { requestId: item.id })
+                          }
+                        >
+                          <View style={styles.cardHeader}>
+                            <View style={{ flex: 1 }}>
+                              <Text style={[styles.cardTitle, { color: c.textPrimary }]}>
+                                {item.vehicle.make} {item.vehicle.model} ({item.vehicle.year})
+                              </Text>
+                              <Text style={[styles.cardSubtitle, { color: c.brandAccent }]}>
+                                {item.categoryKey.replace(/_/g, ' ')} · {item.requestNumber}
+                              </Text>
+                            </View>
+                            <StatusBadge status={item.status} themeColors={c} />
+                          </View>
+
+                          <View style={styles.driveDetails}>
+                            <View style={styles.driveRow}>
+                              <Calendar size={14} color={c.brandAccent} />
+                              <Text style={[styles.driveText, { color: c.textSecondary }]}>
+                                {item.scheduledDate} · {item.scheduledTimeSlot}
+                              </Text>
+                            </View>
+                            <View style={styles.driveRow}>
+                              <MapPin size={14} color={c.brandAccent} />
+                              <Text style={[styles.driveText, { color: c.textSecondary }]}>
+                                {item.hub.name}
+                              </Text>
+                            </View>
+                          </View>
+
+                          {/* Payment status pill */}
+                          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 6, paddingHorizontal: 10, marginTop: 8, borderRadius: 6, backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#F9FAFB', borderWidth: 1, borderColor: c.border }}>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                              <View style={{ paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: pBadgeBg }}>
+                                <Text style={{ fontSize: 10, fontWeight: '700', color: pBadgeColor }}>{pBadgeText}</Text>
+                              </View>
+                              <Text style={{ fontSize: 11, color: c.textSecondary }}>
+                                Paid: <Text style={{ fontWeight: '700', color: '#10B981' }}>₹{verifiedPaid.toLocaleString('en-IN')}</Text>
+                              </Text>
+                            </View>
+                            <Text style={{ fontSize: 11, color: outstanding > 0 ? '#EF4444' : '#10B981', fontWeight: '700' }}>
+                              {outstanding > 0 ? `Due: ₹${outstanding.toLocaleString('en-IN')}` : 'Settled'}
                             </Text>
                           </View>
-                          <StatusBadge status={item.status} themeColors={c} />
-                        </View>
-                        <View style={styles.driveDetails}>
-                          <View style={styles.driveRow}>
-                            <Calendar size={14} color={c.brandAccent} />
-                            <Text style={[styles.driveText, { color: c.textSecondary }]}>
-                              {item.scheduledDate} · {item.scheduledTimeSlot}
+
+                          <View style={[styles.metaRow, { alignItems: 'center', paddingTop: space.xs }]}>
+                            <Text style={[styles.metaText, { color: c.textMuted }]}>
+                              Booked {new Date(item.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
                             </Text>
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                              <Text style={{ color: c.brandAccent, fontSize: 12, fontWeight: '700' }}>Track Live</Text>
+                              <ChevronRight size={14} color={c.brandAccent} />
+                            </View>
                           </View>
-                          <View style={styles.driveRow}>
-                            <MapPin size={14} color={c.brandAccent} />
-                            <Text style={[styles.driveText, { color: c.textSecondary }]}>
-                              {item.hub.name}
-                            </Text>
-                          </View>
-                        </View>
-                        <View style={[styles.metaRow, { alignItems: 'center', paddingTop: space.xs }]}>
-                          <Text style={[styles.metaText, { color: c.textMuted }]}>
-                            Booked {new Date(item.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
-                          </Text>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                            <Text style={{ color: c.brandAccent, fontSize: 12, fontWeight: '700' }}>Track Live</Text>
-                            <ChevronRight size={14} color={c.brandAccent} />
-                          </View>
-                        </View>
-                      </TouchableOpacity>
-                    ))
+                        </TouchableOpacity>
+                      );
+                    })
                   )}
                 </View>
               )}

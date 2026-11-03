@@ -123,6 +123,58 @@ export interface SlotCapacity {
   availableCount: number;
 }
 
+export interface ServicePaymentOption {
+  planId: string;
+  title: string;
+  description: string;
+  percentage?: number;
+  payNowPaise: string;
+  balancePaise: string;
+  isRecommended?: boolean;
+}
+
+export interface ServiceCategoryPaymentOptionsResponse {
+  categoryKey: string;
+  categoryTitle: string;
+  pricingType: string;
+  fixedPackageAvailable: boolean;
+  packagePricePaise: string | null;
+  packageFeatures?: string[];
+  diagnosticFeePaise: string;
+  policyCode: string;
+  options: ServicePaymentOption[];
+}
+
+export interface ServicePaymentSummary {
+  requestId: string;
+  requestNumber: string;
+  servicePaymentStatus: string;
+  depositStatus: string;
+  verifiedPaidPaise: string;
+  outstandingBalancePaise: string;
+  paymentPlanSnapshot?: any;
+  finalInvoice?: any;
+  payments: Array<{
+    id: string;
+    type: string;
+    amountPaise: string;
+    paymentGateway: string;
+    status: string;
+    gatewayPaymentId?: string;
+    gatewayOrderId?: string;
+    createdAt: string;
+  }>;
+}
+
+export interface VerifyServicePaymentPayload {
+  gatewayOrderId: string;
+  gatewayPaymentId: string;
+  gatewaySignature: string;
+  amountPaise?: string;
+  paymentGateway?: string;
+  installmentType?: string;
+}
+
 export interface CreateServiceRequestPayload {
   vehicleId: string;
   hubId: string;
@@ -133,6 +185,11 @@ export interface CreateServiceRequestPayload {
   fulfillmentType: 'PICKUP_AND_RETURN' | 'SELF_DROP_AT_HUB';
   scheduledDate: string;
   scheduledTimeSlot: string;
+  paymentPlanId?: string;
+  paymentGateway?: string;
+  gatewayOrderId?: string;
+  gatewayPaymentId?: string;
+  gatewaySignature?: string;
   pickupAddress?: {
     line1: string;
     line2?: string;
@@ -242,6 +299,10 @@ export interface ServiceRequestSummary {
     status: string;
     totalAmountPaise: string;
   } | null;
+  servicePaymentStatus?: string;
+  depositStatus?: string;
+  verifiedPaidPaise?: string;
+  outstandingBalancePaise?: string;
   createdAt: string;
 }
 
@@ -319,6 +380,25 @@ export interface ServiceRequestDetails {
     paymentGateway?: string;
     gatewayPaymentId?: string;
     verifiedAt?: string | null;
+  }>;
+  servicePaymentStatus?: string;
+  depositStatus?: string;
+  verifiedPaidPaise?: string;
+  outstandingBalancePaise?: string;
+  paymentPlanSnapshot?: any;
+  finalInvoiceId?: string | null;
+  invoices?: Array<{
+    id: string;
+    invoiceNumber: string;
+    subtotalPaise: string;
+    diagnosticFeeCreditPaise: string;
+    priorPaymentsCreditedPaise: string;
+    cgstPaise: string;
+    sgstPaise: string;
+    totalAmountPaise: string;
+    outstandingPaise: string;
+    status: string;
+    issuedAt: string;
   }>;
   historyEvents: ServiceHistoryEvent[];
   createdAt: string;
@@ -409,4 +489,25 @@ export async function cancelServiceRequest(
     method: 'POST',
     body: JSON.stringify({ reason }),
   });
+}
+
+export async function fetchCategoryPaymentOptions(categoryKey: string): Promise<ServiceCategoryPaymentOptionsResponse> {
+  return api<ServiceCategoryPaymentOptionsResponse>(`/api/v2/service/categories/${categoryKey}/payment-options`);
+}
+
+export async function fetchServicePaymentSummary(requestId: string): Promise<ServicePaymentSummary> {
+  return api<ServicePaymentSummary>(`/api/v2/service/requests/${requestId}/payment-summary`);
+}
+
+export async function verifyServicePayment(
+  requestId: string,
+  payload: VerifyServicePaymentPayload
+): Promise<{ success: boolean; servicePaymentStatus: string; verifiedPaidPaise: string; outstandingBalancePaise: string }> {
+  return api<{ success: boolean; servicePaymentStatus: string; verifiedPaidPaise: string; outstandingBalancePaise: string }>(
+    `/api/v2/service/requests/${requestId}/verify-payment`,
+    {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    }
+  );
 }

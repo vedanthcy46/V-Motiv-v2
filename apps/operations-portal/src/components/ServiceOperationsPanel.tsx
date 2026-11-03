@@ -58,7 +58,45 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const [actionTab, setActionTab] = useState<'details' | 'schedule' | 'dispatch' | 'custody' | 'estimate' | 'qc' | 'payment' | 'return'>('details');
 
   // Categories
-  const [categories, setCategories] = useState<Array<{ categoryKey: string; title: string; description: string; icon: string }>>([]);
+  const [categories, setCategories] = useState<
+    Array<{
+      categoryKey: string;
+      title: string;
+      description: string;
+      icon: string;
+      fixedPackageAvailable?: boolean;
+      packagePricePaise?: string | null;
+      pricingType?: string;
+      diagnosticFeePaise?: string;
+      packageFeatures?: string[];
+    }>
+  >([]);
+
+  // Dynamic Service Pricing Modal state
+  const [pricingModalOpen, setPricingModalOpen] = useState(false);
+  const [editingCategoryKey, setEditingCategoryKey] = useState<string | null>(null);
+  const [editPriceRupees, setEditPriceRupees] = useState<number>(0);
+  const [editDiagnosticFeeRupees, setEditDiagnosticFeeRupees] = useState<number>(500);
+  const [editPricingType, setEditPricingType] = useState<string>('FIXED');
+  const [editPackageAvailable, setEditPackageAvailable] = useState<boolean>(true);
+  const [editFeaturesText, setEditFeaturesText] = useState<string>('');
+  const [savingCategoryPricing, setSavingCategoryPricing] = useState(false);
+
+  // Final Invoice Generation & Release Readiness
+  const [generatingInvoice, setGeneratingInvoice] = useState(false);
+  const [readinessData, setReadinessData] = useState<{
+    canRelease: boolean;
+    reasons: string[];
+    gateChecks: {
+      qcPassed: boolean;
+      estimateApproved: boolean;
+      invoiceIssued: boolean;
+      paymentSettled: boolean;
+    };
+    billAmountPaise: string;
+    totalVerifiedPaidPaise: string;
+    outstandingBalancePaise: string;
+  } | null>(null);
 
   // Walk-in modal state
   const [walkInModalOpen, setWalkInModalOpen] = useState(false);
@@ -180,6 +218,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         setIntakeOdometer(full.vehicle.odometerKm);
         setReturnOdometer(full.vehicle.odometerKm);
       }
+      try {
+        const rd = await api.fetchServiceReleaseReadiness(user, job.id);
+        setReadinessData(rd);
+      } catch {
+        // ignore readiness fetch error
+      }
     } catch (err) {
       console.warn('Failed to load full job details', err);
     } finally {
@@ -191,10 +235,56 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     try {
       const full = await api.serviceJobDetails(user, jobId);
       setActiveJob(full);
+      try {
+        const rd = await api.fetchServiceReleaseReadiness(user, jobId);
+        setReadinessData(rd);
+      } catch {
+        // ignore
+      }
     } catch (e) {
       console.warn('Failed to refresh job', e);
     }
     void loadQueue();
+  };
+
+  const handleGenerateInvoice = async () => {
+    if (!activeJob) return;
+    setGeneratingInvoice(true);
+    try {
+      const inv = await api.generateServiceInvoice(user, activeJob.id, {});
+      onSuccess(`Tax Invoice ${inv.invoiceNumber} generated successfully!`);
+      await refreshActiveJob(activeJob.id);
+    } catch (err: any) {
+      onError(err?.message || 'Failed to generate tax invoice');
+    } finally {
+      setGeneratingInvoice(false);
+    }
+  };
+
+  const handleSaveCategoryPricing = async (categoryKey: string) => {
+    if (!user) return;
+    setSavingCategoryPricing(true);
+    try {
+      const features = editFeaturesText
+        .split('\n')
+        .map((f: string) => f.trim())
+        .filter(Boolean);
+      await api.updateServiceCategoryPricing(user, categoryKey, {
+        pricingType: editPricingType,
+        fixedPackageAvailable: editPackageAvailable,
+        packagePriceRupees: editPackageAvailable ? editPriceRupees : undefined,
+        diagnosticFeeRupees: editDiagnosticFeeRupees,
+        packageFeatures: features,
+      });
+      onSuccess(`Pricing for ${categoryKey} updated successfully.`);
+      setEditingCategoryKey(null);
+      const cats = await api.serviceCategories(user);
+      if (Array.isArray(cats)) setCategories(cats);
+    } catch (err: any) {
+      onError(err?.message || 'Failed to update category pricing');
+    } finally {
+      setSavingCategoryPricing(false);
+    }
   };
 
   const handleCancelServiceJob = async (e: FormEvent) => {
@@ -469,18 +559,28 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   };
 
   // Calculations for active job financials
-  const activeEstimateTotalRupees = activeJob?.estimates?.[0]
-    ? Math.round(Number(activeJob.estimates[0].totalAmountPaise) / 100)
-    : 0;
+  const latestInvoice = activeJob?.finalInvoice || (activeJob?.invoices && activeJob.invoices.length > 0 ? activeJob.invoices[0] : null);
 
-  const activeTotalPaidRupees = (activeJob?.payments || []).reduce((acc, p) => {
-    if (p.status === 'PAID_VERIFIED' || p.status === 'PENDING') {
-      return acc + Math.round(Number(p.amountPaise) / 100);
-    }
-    return acc;
-  }, 0);
+  const activeEstimateTotalRupees = latestInvoice
+    ? Math.round(Number(latestInvoice.totalAmountPaise) / 100)
+    : (activeJob?.estimates?.[0]
+        ? Math.round(Number(activeJob.estimates[0].totalAmountPaise) / 100)
+        : ((activeJob?.paymentPlanSnapshot as any)?.packagePricePaise
+            ? Math.round(Number((activeJob?.paymentPlanSnapshot as any)?.packagePricePaise) / 100)
+            : 0));
 
-  const activeBalanceDueRupees = Math.max(0, activeEstimateTotalRupees - activeTotalPaidRupees);
+  const activeTotalPaidRupees = activeJob?.verifiedPaidPaise
+    ? Math.round(Number(activeJob.verifiedPaidPaise) / 100)
+    : (activeJob?.payments || []).reduce((acc, p) => {
+        if (p.status === 'PAID_VERIFIED' || p.status === 'PENDING') {
+          return acc + Math.round(Number(p.amountPaise) / 100);
+        }
+        return acc;
+      }, 0);
+
+  const activeBalanceDueRupees = activeJob?.outstandingBalancePaise !== undefined && activeJob?.outstandingBalancePaise !== null
+    ? Math.round(Number(activeJob.outstandingBalancePaise) / 100)
+    : Math.max(0, activeEstimateTotalRupees - activeTotalPaidRupees);
 
   // Auto-fill default payment amount when opening payment tab
   useEffect(() => {
@@ -541,6 +641,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
           </p>
         </div>
         <div style={{ display: 'flex', gap: '0.75rem', alignItems: 'center' }}>
+          <button
+            type="button"
+            className="btn-secondary button secondary"
+            onClick={() => setPricingModalOpen(true)}
+            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 600 }}
+          >
+            ⚙️ Service Pricing & Packages
+          </button>
           <button
             type="button"
             className="btn-primary btn-gold button primary"
@@ -674,6 +782,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 <th style={{ padding: '0.75rem 1rem' }}>CATEGORY & FULFILLMENT</th>
                 <th style={{ padding: '0.75rem 1rem' }}>SCHEDULED SLOT</th>
                 <th style={{ padding: '0.75rem 1rem' }}>ESTIMATE</th>
+                <th style={{ padding: '0.75rem 1rem' }}>PAYMENT STATE</th>
                 <th style={{ padding: '0.75rem 1rem' }}>STATUS</th>
                 <th style={{ padding: '0.75rem 1rem', textAlign: 'right' }}>ACTIONS</th>
               </tr>
@@ -746,6 +855,58 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           <div style={{ fontSize: '0.68rem', color: est.status === 'APPROVED' ? '#10b981' : '#f59e0b' }}>
                             {est.status === 'APPROVED' ? '✓ APPROVED' : est.status.replace(/_/g, ' ')}
                           </div>
+                        </div>
+                      );
+                    })()}
+                  </td>
+                  <td style={{ padding: '0.75rem 1rem' }}>
+                    {(() => {
+                      const verifiedPaid = Math.round(Number(job.verifiedPaidPaise || 0) / 100);
+                      const balanceDue = Math.round(Number(job.outstandingBalancePaise || 0) / 100);
+                      const pStatus = job.servicePaymentStatus || (balanceDue === 0 && verifiedPaid > 0 ? 'PAID_IN_FULL' : (verifiedPaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID'));
+
+                      let badgeColor = '#ef4444';
+                      let badgeBg = 'rgba(239, 68, 68, 0.15)';
+                      let badgeText = 'UNPAID';
+                      if (pStatus === 'PAID_IN_FULL' || (balanceDue === 0 && verifiedPaid > 0)) {
+                        badgeColor = '#10b981';
+                        badgeBg = 'rgba(16, 185, 129, 0.15)';
+                        badgeText = 'PAID IN FULL';
+                      } else if (pStatus === 'PARTIALLY_PAID' || verifiedPaid > 0) {
+                        badgeColor = '#f59e0b';
+                        badgeBg = 'rgba(245, 158, 11, 0.15)';
+                        badgeText = 'PARTIAL';
+                      }
+
+                      return (
+                        <div>
+                          <span
+                            style={{
+                              display: 'inline-block',
+                              padding: '2px 8px',
+                              borderRadius: '999px',
+                              fontSize: '0.7rem',
+                              fontWeight: 700,
+                              color: badgeColor,
+                              background: badgeBg,
+                              border: `1px solid ${badgeColor}40`,
+                              marginBottom: '4px',
+                            }}
+                          >
+                            {badgeText}
+                          </span>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>
+                            Paid: <strong style={{ color: '#10b981' }}>₹{verifiedPaid.toLocaleString('en-IN')}</strong>
+                          </div>
+                          {balanceDue > 0 ? (
+                            <div style={{ fontSize: '0.72rem', color: '#ef4444', fontWeight: 600 }}>
+                              Due: ₹{balanceDue.toLocaleString('en-IN')}
+                            </div>
+                          ) : (
+                            <div style={{ fontSize: '0.72rem', color: '#10b981' }}>
+                              Due: ₹0
+                            </div>
+                          )}
                         </div>
                       );
                     })()}
@@ -1052,6 +1213,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         </span>
                       )}
                     </div>
+                    {activeJob.paymentPlanSnapshot && (
+                      <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem', background: 'rgba(247, 181, 3, 0.1)', border: '1px solid rgba(247, 181, 3, 0.25)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                        Selected Booking Plan: <strong style={{ color: 'var(--accent)' }}>{(activeJob.paymentPlanSnapshot as any).title || (activeJob.paymentPlanSnapshot as any).planId}</strong>
+                        {(activeJob.paymentPlanSnapshot as any).percentage ? ` (${(activeJob.paymentPlanSnapshot as any).percentage}% Advance)` : ''}
+                      </div>
+                    )}
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(140px, 1fr))', gap: '0.75rem' }}>
                       <div>
                         <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Approved Estimate</span>
@@ -1614,6 +1781,69 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       </div>
                     </div>
 
+                    {/* TAX INVOICE CARD */}
+                    <div style={{ marginBottom: '1.5rem', padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '8px' }}>
+                        <div>
+                          <h4 style={{ margin: 0, fontSize: '0.95rem', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <span>🧾 Official Tax Invoice (GST 18%)</span>
+                            {activeJob.invoices && activeJob.invoices.length > 0 && (
+                              <span className="code-pill">{activeJob.invoices[0].invoiceNumber}</span>
+                            )}
+                          </h4>
+                          <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
+                            {activeJob.invoices && activeJob.invoices.length > 0
+                              ? `Issued ${formatDate(activeJob.invoices[0].issuedAt)} · Status: ${activeJob.invoices[0].status}`
+                              : 'Final tax invoice has not been generated for this completed service.'}
+                          </span>
+                        </div>
+                        {(!activeJob.invoices || activeJob.invoices.length === 0) && (
+                          <button
+                            type="button"
+                            className="btn-primary btn-gold button primary small"
+                            onClick={handleGenerateInvoice}
+                            disabled={generatingInvoice || isJobCancelled}
+                            style={{ fontWeight: 700 }}
+                          >
+                            {generatingInvoice ? 'Generating Invoice…' : '+ Generate Final Tax Invoice'}
+                          </button>
+                        )}
+                      </div>
+
+                      {activeJob.invoices && activeJob.invoices.length > 0 ? (
+                        <div style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '6px', fontSize: '0.85rem' }}>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem' }}>
+                            <div>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Gross Subtotal:</span>
+                              <div style={{ fontWeight: 700 }}>₹{Math.round(Number(activeJob.invoices[0].subtotalPaise) / 100).toLocaleString('en-IN')}</div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>CGST (9%) + SGST (9%):</span>
+                              <div style={{ fontWeight: 700 }}>₹{(Math.round(Number(activeJob.invoices[0].cgstPaise) / 100) + Math.round(Number(activeJob.invoices[0].sgstPaise) / 100)).toLocaleString('en-IN')}</div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Prepayment Credits:</span>
+                              <div style={{ fontWeight: 700, color: '#10b981' }}>-₹{(Math.round(Number(activeJob.invoices[0].priorPaymentsCreditedPaise) / 100) + Math.round(Number(activeJob.invoices[0].diagnosticFeeCreditPaise) / 100)).toLocaleString('en-IN')}</div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Net Invoice Total:</span>
+                              <div style={{ fontWeight: 800, color: 'var(--accent)' }}>₹{Math.round(Number(activeJob.invoices[0].totalAmountPaise) / 100).toLocaleString('en-IN')}</div>
+                            </div>
+                            <div>
+                              <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Outstanding Balance:</span>
+                              <div style={{ fontWeight: 800, color: Number(activeJob.invoices[0].outstandingPaise) > 0 ? '#ef4444' : '#10b981' }}>
+                                ₹{Math.round(Number(activeJob.invoices[0].outstandingPaise) / 100).toLocaleString('en-IN')}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ) : (
+                        <p style={{ margin: 0, fontSize: '0.8125rem', color: 'var(--muted)' }}>
+                          Click &quot;+ Generate Final Tax Invoice&quot; to calculate 18% GST (9% CGST + 9% SGST), credit prior advances/diagnostic fees, and produce an official tax invoice.
+                        </p>
+                      )}
+                    </div>
+
                     {/* TRANSACTION RECORDS HISTORY TABLE */}
                     <div style={{ marginBottom: '1.5rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem' }}>
@@ -1765,22 +1995,68 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     </p>
 
                     {(() => {
-                      const hasApprovedEstimate = activeJob.estimates?.some(e => e.status === 'APPROVED');
-                      const isEstimatePending = !hasApprovedEstimate;
-                      const isBalancePending = activeBalanceDueRupees > 0;
-                      const isBlocked = isEstimatePending || isBalancePending;
+                      const gateQc = readinessData?.gateChecks ? readinessData.gateChecks.qcPassed : (activeJob.qcRecord?.isPassed || (activeJob as any).qcRecords?.[0]?.result === 'PASS');
+                      const gateEstimate = readinessData?.gateChecks ? readinessData.gateChecks.estimateApproved : !!activeJob.estimates?.some(e => e.status === 'APPROVED');
+                      const gateInvoice = readinessData?.gateChecks ? readinessData.gateChecks.invoiceIssued : (Boolean(activeJob.invoices && activeJob.invoices.length > 0));
+                      const gateSettled = readinessData?.gateChecks ? readinessData.gateChecks.paymentSettled : (activeBalanceDueRupees === 0 && activeTotalPaidRupees > 0);
+                      const isBlocked = readinessData ? !readinessData.canRelease : (!gateQc || !gateEstimate || !gateInvoice || !gateSettled);
 
                       return (
                         <>
+                          {/* RELEASE READINESS GATE CHECKLIST */}
+                          <div style={{ padding: '1rem', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px solid var(--border)', marginBottom: '1.25rem' }}>
+                            <div style={{ fontWeight: 800, fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.05em', color: 'var(--accent)', marginBottom: '0.75rem' }}>
+                              Vehicle Release Readiness Checklist (Authoritative Gate)
+                            </div>
+                            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem', background: 'var(--surface)', borderRadius: '6px' }}>
+                                <span style={{ fontSize: '1.1rem' }}>{gateQc ? '✅' : '❌'}</span>
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>1. QC Inspection</div>
+                                  <div style={{ fontSize: '0.7rem', color: gateQc ? '#10b981' : '#ef4444' }}>{gateQc ? 'Passed' : 'Pending QC Sign-off'}</div>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem', background: 'var(--surface)', borderRadius: '6px' }}>
+                                <span style={{ fontSize: '1.1rem' }}>{gateEstimate ? '✅' : '❌'}</span>
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>2. Customer Estimate</div>
+                                  <div style={{ fontSize: '0.7rem', color: gateEstimate ? '#10b981' : '#ef4444' }}>{gateEstimate ? 'Approved' : 'Pending Approval'}</div>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem', background: 'var(--surface)', borderRadius: '6px' }}>
+                                <span style={{ fontSize: '1.1rem' }}>{gateInvoice ? '✅' : '❌'}</span>
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>3. Tax Invoice</div>
+                                  <div style={{ fontSize: '0.7rem', color: gateInvoice ? '#10b981' : '#ef4444' }}>{gateInvoice ? 'Issued (GST 18%)' : 'Invoice Not Issued'}</div>
+                                </div>
+                              </div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem', background: 'var(--surface)', borderRadius: '6px' }}>
+                                <span style={{ fontSize: '1.1rem' }}>{gateSettled ? '✅' : '❌'}</span>
+                                <div>
+                                  <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>4. Payment Settled</div>
+                                  <div style={{ fontSize: '0.7rem', color: gateSettled ? '#10b981' : '#ef4444' }}>
+                                    {gateSettled ? 'Fully Settled (₹0 Due)' : `Pending ₹${activeBalanceDueRupees.toLocaleString('en-IN')}`}
+                                  </div>
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+
                           {isBlocked && (
                             <div style={{ padding: '0.85rem 1rem', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid #ef4444', borderRadius: '8px', marginBottom: '1rem', color: '#ef4444' }}>
                               <div style={{ fontWeight: 800, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 ⚠️ VEHICLE HANDOVER STRICTLY BLOCKED — ACTION REQUIRED
                               </div>
                               <div style={{ fontSize: '0.825rem', marginTop: '4px', color: 'var(--text)' }}>
-                                {isEstimatePending
-                                  ? 'Customer has not yet approved the service estimate. An approved service estimate is required before vehicle release.'
-                                  : `Outstanding balance of ₹${activeBalanceDueRupees.toLocaleString('en-IN')} must be collected and verified in Tab 6 (Billing & Ledger) prior to vehicle departure.`}
+                                {readinessData?.reasons && readinessData.reasons.length > 0
+                                  ? readinessData.reasons.join(' · ')
+                                  : (!gateQc
+                                      ? 'Quality control inspection must be passed in Tab 5.'
+                                      : (!gateEstimate
+                                          ? 'Customer must approve the diagnostic estimate.'
+                                          : (!gateInvoice
+                                              ? 'Final tax invoice must be issued in Tab 6.'
+                                              : `Outstanding balance of ₹${activeBalanceDueRupees.toLocaleString('en-IN')} must be collected.`)))}
                               </div>
                             </div>
                           )}
@@ -1829,7 +2105,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                               title={isBlocked ? 'Handover blocked: estimate approval and payment required.' : undefined}
                             >
                               {isBlocked
-                                ? (isEstimatePending ? 'Handover Blocked: Estimate Pending' : 'Handover Blocked: Unpaid Balance')
+                                ? (readinessData?.reasons?.[0] || 'Handover Blocked: Requirements Pending')
                                 : (actionBusy ? 'Releasing…' : 'Release Vehicle & Conclude Handover')}
                             </button>
                           </div>
@@ -2223,6 +2499,193 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* DYNAMIC SERVICE PRICING & PACKAGES MODAL */}
+      {pricingModalOpen && (
+        <div className="modal-overlay" style={{ zIndex: 1100 }}>
+          <div className="modal-dialog" style={{ maxWidth: '800px', width: '92%', maxHeight: '90vh', overflowY: 'auto' }}>
+            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <span>⚙️ Manage Service Packages & Pricing</span>
+                </h3>
+                <span style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
+                  Configure package prices, diagnostic upfront fees, and included features live across Mobile & Web.
+                </span>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => {
+                  setPricingModalOpen(false);
+                  setEditingCategoryKey(null);
+                }}
+              >
+                <IconCross />
+              </button>
+            </div>
+
+            <div style={{ padding: '1.25rem' }}>
+              {editingCategoryKey ? (
+                // EDIT CATEGORY FORM
+                <div style={{ background: 'var(--surface-secondary)', padding: '1.25rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem' }}>
+                    <h4 style={{ margin: 0, color: 'var(--accent)', textTransform: 'uppercase' }}>
+                      Edit Pricing: {editingCategoryKey.replace(/-/g, ' ')}
+                    </h4>
+                    <button
+                      type="button"
+                      className="btn-secondary btn-sm button secondary small"
+                      onClick={() => setEditingCategoryKey(null)}
+                    >
+                      ← Back to Category List
+                    </button>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Pricing Type *</label>
+                      <select
+                        className="select"
+                        value={editPricingType}
+                        onChange={e => setEditPricingType(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      >
+                        <option value="FIXED">FIXED (Standard Package Fee)</option>
+                        <option value="ESTIMATE_REQUIRED">ESTIMATE_REQUIRED (Diagnostic / Inspection Fee)</option>
+                      </select>
+                    </div>
+
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Diagnostic Upfront Fee (₹) *</label>
+                      <input
+                        type="number"
+                        className="input"
+                        required
+                        value={editDiagnosticFeeRupees}
+                        onChange={e => setEditDiagnosticFeeRupees(Number(e.target.value))}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '1rem' }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '0.85rem', fontWeight: 600 }}>
+                      <input
+                        type="checkbox"
+                        checked={editPackageAvailable}
+                        onChange={e => setEditPackageAvailable(e.target.checked)}
+                      />
+                      <span>Enable Fixed Upfront Package Pricing</span>
+                    </label>
+                  </div>
+
+                  {editPackageAvailable && (
+                    <div style={{ marginTop: '1rem' }}>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Base Package Price (₹) *</label>
+                      <input
+                        type="number"
+                        className="input"
+                        required
+                        value={editPriceRupees}
+                        onChange={e => setEditPriceRupees(Number(e.target.value))}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                  )}
+
+                  <div style={{ marginTop: '1rem' }}>
+                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>
+                      Included Package Features / Deliverables (one per line)
+                    </label>
+                    <textarea
+                      className="input"
+                      rows={5}
+                      value={editFeaturesText}
+                      onChange={e => setEditFeaturesText(e.target.value)}
+                      placeholder="e.g. Engine Oil Flush&#10;Oil Filter Cartridge Replacement&#10;50-point Safety Check&#10;Complimentary Vacuum"
+                      style={{ width: '100%', marginTop: '4px', fontFamily: 'inherit' }}
+                    />
+                  </div>
+
+                  <div style={{ marginTop: '1.25rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                    <button
+                      type="button"
+                      className="btn-secondary button secondary"
+                      onClick={() => setEditingCategoryKey(null)}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      className="btn-primary btn-gold button primary"
+                      disabled={savingCategoryPricing}
+                      onClick={() => handleSaveCategoryPricing(editingCategoryKey)}
+                    >
+                      {savingCategoryPricing ? 'Saving Live…' : 'Save Changes Live'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                // LIST CATEGORIES
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                  {categories.map(cat => {
+                    const price = cat.packagePricePaise ? Math.round(Number(cat.packagePricePaise) / 100) : null;
+                    const diagFee = cat.diagnosticFeePaise ? Math.round(Number(cat.diagnosticFeePaise) / 100) : 500;
+                    return (
+                      <div
+                        key={cat.categoryKey}
+                        style={{
+                          background: 'var(--surface-secondary)',
+                          border: '1px solid var(--border)',
+                          borderRadius: '8px',
+                          padding: '1rem',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '1rem',
+                        }}
+                      >
+                        <div style={{ flex: 1 }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <strong style={{ fontSize: '0.95rem' }}>{cat.title}</strong>
+                            <span className="code-pill">{cat.categoryKey}</span>
+                            <span className={`badge ${cat.pricingType === 'FIXED' ? 'badge-success' : 'badge-warning'}`}>
+                              {cat.pricingType || 'FIXED'}
+                            </span>
+                          </div>
+                          <p style={{ margin: '4px 0 6px', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                            {cat.description}
+                          </p>
+                          <div style={{ display: 'flex', gap: '1rem', fontSize: '0.8rem' }}>
+                            <span>Package Price: <strong style={{ color: 'var(--accent)' }}>{price !== null ? `₹${price.toLocaleString('en-IN')}` : 'Quote on Diagnosis'}</strong></span>
+                            <span>Diagnostic Fee: <strong>₹{diagFee.toLocaleString('en-IN')}</strong></span>
+                            <span>Features: <strong>{(cat.packageFeatures || []).length} included</strong></span>
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          className="btn-secondary btn-sm button secondary small"
+                          onClick={() => {
+                            setEditingCategoryKey(cat.categoryKey);
+                            setEditPriceRupees(price || 0);
+                            setEditDiagnosticFeeRupees(diagFee);
+                            setEditPricingType(cat.pricingType || 'FIXED');
+                            setEditPackageAvailable(cat.fixedPackageAvailable !== false && price !== null);
+                            setEditFeaturesText((cat.packageFeatures || []).join('\n'));
+                          }}
+                        >
+                          Edit Pricing
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

@@ -2799,4 +2799,69 @@ export class PrismaFinanceStore {
 
     return logs;
   }
+
+  // --- 11. Workshop Service Billing & Prepayments Ledger ---
+  async listServiceInvoices(actor: FinanceActor) {
+    const list = await this.db.serviceInvoice.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        serviceRequest: {
+          select: {
+            requestNumber: true,
+            categoryKey: true,
+            status: true,
+            customer: { select: { displayName: true, email: true, phone: true } },
+            vehicle: { select: { make: true, model: true, registrationNumber: true } },
+          },
+        },
+      },
+    });
+    return list.map(inv => ({
+      id: inv.id,
+      invoiceNumber: inv.invoiceNumber,
+      serviceRequestId: inv.serviceRequestId,
+      requestNumber: inv.serviceRequest.requestNumber,
+      customerName: inv.serviceRequest.customer?.displayName || 'Customer',
+      vehicle: `${inv.serviceRequest.vehicle?.make} ${inv.serviceRequest.vehicle?.model} (${inv.serviceRequest.vehicle?.registrationNumber || 'No Plate'})`,
+      categoryKey: inv.serviceRequest.categoryKey,
+      subtotalPaise: inv.subtotalPaise.toString(),
+      diagnosticFeeCreditPaise: inv.diagnosticFeeCreditPaise.toString(),
+      priorPaymentsCreditedPaise: inv.priorPaymentsCreditedPaise.toString(),
+      cgstPaise: inv.cgstPaise.toString(),
+      sgstPaise: inv.sgstPaise.toString(),
+      totalAmountPaise: inv.totalAmountPaise.toString(),
+      outstandingPaise: inv.outstandingPaise.toString(),
+      status: inv.status,
+      issuedAt: inv.issuedAt.toISOString(),
+    }));
+  }
+
+  async listServicePayments(actor: FinanceActor) {
+    const list = await this.db.servicePaymentRecord.findMany({
+      orderBy: { createdAt: 'desc' },
+      include: {
+        serviceRequest: {
+          select: {
+            requestNumber: true,
+            customer: { select: { displayName: true } },
+          },
+        },
+      },
+    });
+    return list.map(p => ({
+      id: p.id,
+      serviceRequestId: p.serviceRequestId,
+      requestNumber: p.serviceRequest.requestNumber,
+      customerName: p.serviceRequest.customer?.displayName || 'Customer',
+      type: p.type,
+      installmentType: p.installmentType,
+      amountPaise: p.amountPaise.toString(),
+      status: p.status,
+      paymentGateway: p.paymentGateway,
+      gatewayOrderId: p.gatewayOrderId,
+      gatewayPaymentId: p.gatewayPaymentId,
+      verifiedAt: p.verifiedAt ? p.verifiedAt.toISOString() : null,
+      createdAt: p.createdAt.toISOString(),
+    }));
+  }
 }

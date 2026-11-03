@@ -40,6 +40,7 @@ import {
   cancelServiceRequest,
   fetchCustomerServiceRequest,
   respondToServiceEstimate,
+  verifyServicePayment,
   type ServiceRequestDetails,
 } from '../services/service-api';
 import { useKeyboard } from '../components/KeyboardAwareFormScreen';
@@ -70,6 +71,12 @@ export function ServiceRequestDetailsScreen() {
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [cancelReason, setCancelReason] = useState('');
+
+  // Pay Balance Modal State
+  const [payBalanceModalVisible, setPayBalanceModalVisible] = useState(false);
+  const [payingBalance, setPayingBalance] = useState(false);
+  const [customPayAmountRupees, setCustomPayAmountRupees] = useState<number>(0);
+  const [payMethod, setPayMethod] = useState<'RAZORPAY_UPI' | 'RAZORPAY_CARD' | 'NET_BANKING'>('RAZORPAY_UPI');
   const { keyboardHeight, isKeyboardVisible } = useKeyboard();
 
   const loadDetails = useCallback(async () => {
@@ -133,6 +140,50 @@ export function ServiceRequestDetailsScreen() {
       Alert.alert('Error', err?.message || 'Could not cancel request.');
     } finally {
       setCancelling(false);
+    }
+  };
+
+  const handlePayBalance = async () => {
+    if (!request) return;
+    const outstandingRupees = Math.round(Number(request.outstandingBalancePaise || 0) / 100);
+    const amountToPay = customPayAmountRupees > 0 ? customPayAmountRupees : outstandingRupees;
+    if (amountToPay <= 0) {
+      Alert.alert('Invalid Amount', 'Please specify a valid payment amount.');
+      return;
+    }
+
+    setPayingBalance(true);
+    try {
+      const gatewayPaymentId = `pay_srv_${Date.now()}`;
+      const gatewayOrderId = `order_srv_${Date.now()}`;
+      const gatewaySignature = 'demo_sig_verified_vmotiv';
+
+      await verifyServicePayment(request.id, {
+        gatewayOrderId,
+        gatewayPaymentId,
+        gatewaySignature,
+        amountPaise: (BigInt(amountToPay) * 100n).toString(),
+        paymentGateway: 'RAZORPAY',
+        installmentType: amountToPay >= outstandingRupees ? 'FINAL_BALANCE' : 'INTERMEDIATE_ADVANCE',
+      });
+
+      Alert.alert(
+        'Payment Successful! 🎉',
+        `Payment of ₹${amountToPay.toLocaleString('en-IN')} has been verified. Transaction ID: ${gatewayPaymentId}.`,
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              setPayBalanceModalVisible(false);
+              void loadDetails();
+            },
+          },
+        ]
+      );
+    } catch (err: any) {
+      Alert.alert('Payment Error', err?.message || 'Payment verification could not be completed.');
+    } finally {
+      setPayingBalance(false);
     }
   };
 
@@ -354,6 +405,151 @@ export function ServiceRequestDetailsScreen() {
                 </View>
               </View>
             ))}
+          </View>
+        )}
+
+        {/* Billing & Payment Card */}
+        {(() => {
+          const verifiedPaid = Math.round(Number(request.verifiedPaidPaise || 0) / 100);
+          const outstanding = Math.round(Number(request.outstandingBalancePaise || 0) / 100);
+          const latestInvoice = request.invoices && request.invoices.length > 0 ? request.invoices[0] : null;
+          const pStatus = request.servicePaymentStatus || (outstanding === 0 && verifiedPaid > 0 ? 'PAID_IN_FULL' : (verifiedPaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID'));
+
+          let pBadgeColor = '#EF4444';
+          let pBadgeBg = 'rgba(239, 68, 68, 0.15)';
+          let pBadgeText = 'PAYMENT PENDING';
+          if (pStatus === 'PAID_IN_FULL' || (outstanding === 0 && verifiedPaid > 0)) {
+            pBadgeColor = '#10B981';
+            pBadgeBg = 'rgba(16, 185, 129, 0.15)';
+            pBadgeText = 'PAID IN FULL';
+          } else if (pStatus === 'PARTIALLY_PAID' || verifiedPaid > 0) {
+            pBadgeColor = '#F59E0B';
+            pBadgeBg = 'rgba(245, 158, 11, 0.15)';
+            pBadgeText = 'PARTIALLY PAID';
+          }
+
+          return (
+            <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <CreditCard size={20} color={c.accent} />
+                  <Text style={[styles.sectionTitle, { color: c.text }]}>Billing & Payment</Text>
+                </View>
+                <View style={{ backgroundColor: pBadgeBg, paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: `${pBadgeColor}40` }}>
+                  <Text style={{ color: pBadgeColor, fontSize: 11, fontWeight: '700' }}>{pBadgeText}</Text>
+                </View>
+              </View>
+
+              {/* Tax Invoice Details if Issued */}
+              {latestInvoice && (
+                <View style={{ backgroundColor: isDark ? 'rgba(255, 255, 255, 0.04)' : '#F9FAFB', padding: 12, borderRadius: 8, marginBottom: 12, borderWidth: 1, borderColor: c.border }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 6 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: c.accent }}>
+                      Tax Invoice #{latestInvoice.invoiceNumber}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: c.textMuted }}>
+                      {new Date(latestInvoice.issuedAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                    </Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={{ fontSize: 12, color: c.textMuted }}>Subtotal:</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: c.text }}>₹{Math.round(Number(latestInvoice.subtotalPaise) / 100).toLocaleString('en-IN')}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={{ fontSize: 12, color: c.textMuted }}>Prepayments Credited:</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: '#10B981' }}>-₹{(Math.round(Number(latestInvoice.priorPaymentsCreditedPaise) / 100) + Math.round(Number(latestInvoice.diagnosticFeeCreditPaise) / 100)).toLocaleString('en-IN')}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 4 }}>
+                    <Text style={{ fontSize: 12, color: c.textMuted }}>GST (18%):</Text>
+                    <Text style={{ fontSize: 12, fontWeight: '600', color: c.text }}>₹{(Math.round(Number(latestInvoice.cgstPaise) / 100) + Math.round(Number(latestInvoice.sgstPaise) / 100)).toLocaleString('en-IN')}</Text>
+                  </View>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: c.border, paddingTop: 6, marginTop: 4 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: c.text }}>Net Invoice Total:</Text>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: c.accent }}>₹{Math.round(Number(latestInvoice.totalAmountPaise) / 100).toLocaleString('en-IN')}</Text>
+                  </View>
+                </View>
+              )}
+
+              {/* KPI Numbers */}
+              <View style={{ flexDirection: 'row', gap: 12, marginBottom: 14 }}>
+                <View style={{ flex: 1, backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#F3F4F6', padding: 12, borderRadius: 8 }}>
+                  <Text style={{ fontSize: 11, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase' }}>Verified Paid</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: '#10B981', marginTop: 2 }}>₹{verifiedPaid.toLocaleString('en-IN')}</Text>
+                </View>
+                <View style={{ flex: 1, backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#F3F4F6', padding: 12, borderRadius: 8 }}>
+                  <Text style={{ fontSize: 11, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase' }}>Balance Due</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: outstanding > 0 ? '#EF4444' : '#10B981', marginTop: 2 }}>₹{outstanding.toLocaleString('en-IN')}</Text>
+                </View>
+              </View>
+
+              {/* Action Button: Pay Remaining Balance */}
+              {outstanding > 0 && request.status !== 'CANCELLED' && (
+                <TouchableOpacity
+                  onPress={() => {
+                    setCustomPayAmountRupees(outstanding);
+                    setPayBalanceModalVisible(true);
+                  }}
+                  style={{
+                    backgroundColor: c.accent,
+                    paddingVertical: 12,
+                    borderRadius: 8,
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexDirection: 'row',
+                    gap: 6,
+                  }}
+                >
+                  <CreditCard size={18} color="#061A38" />
+                  <Text style={{ color: '#061A38', fontWeight: '800', fontSize: 14 }}>
+                    Pay Remaining Balance (₹{outstanding.toLocaleString('en-IN')})
+                  </Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          );
+        })()}
+
+        {/* Transaction History Card */}
+        {request.payments && request.payments.length > 0 && (
+          <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <Text style={[styles.sectionTitle, { color: c.text }]}>Transaction Records ({request.payments.length})</Text>
+            </View>
+            {request.payments.map((p, idx) => {
+              const pAmt = Math.round(Number(p.amountPaise) / 100);
+              return (
+                <View
+                  key={p.id || idx}
+                  style={{
+                    paddingVertical: 10,
+                    borderBottomWidth: idx < request.payments.length - 1 ? 1 : 0,
+                    borderBottomColor: c.border,
+                    flexDirection: 'row',
+                    justifyContent: 'space-between',
+                    alignItems: 'center',
+                  }}
+                >
+                  <View style={{ flex: 1 }}>
+                    <Text style={{ fontSize: 13, fontWeight: '700', color: c.text }}>
+                      {p.type.replace(/_/g, ' ')}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: c.textMuted, marginTop: 2 }}>
+                      {p.paymentGateway || 'RAZORPAY'} · {p.gatewayPaymentId || 'Counter'}
+                    </Text>
+                  </View>
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Text style={{ fontSize: 14, fontWeight: '800', color: c.text }}>
+                      ₹{pAmt.toLocaleString('en-IN')}
+                    </Text>
+                    <View style={{ marginTop: 2, paddingHorizontal: 6, paddingVertical: 2, borderRadius: 4, backgroundColor: p.status === 'PAID_VERIFIED' ? 'rgba(16, 185, 129, 0.15)' : 'rgba(245, 158, 11, 0.15)' }}>
+                      <Text style={{ fontSize: 10, fontWeight: '700', color: p.status === 'PAID_VERIFIED' ? '#10B981' : '#F59E0B' }}>
+                        {p.status}
+                      </Text>
+                    </View>
+                  </View>
+                </View>
+              );
+            })}
           </View>
         )}
 
@@ -585,6 +781,98 @@ export function ServiceRequestDetailsScreen() {
               </View>
             </View>
           </KeyboardAvoidingView>
+        </View>
+      </Modal>
+      {/* Pay Balance Modal */}
+      <Modal
+        visible={payBalanceModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setPayBalanceModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: insets.bottom + 16 }]}>
+            <View style={styles.modalHeader}>
+              <Text style={[styles.modalTitle, { color: c.text }]}>Settle Outstanding Balance</Text>
+              <TouchableOpacity onPress={() => setPayBalanceModalVisible(false)}>
+                <Text style={[styles.modalClose, { color: c.accent }]}>Close</Text>
+              </TouchableOpacity>
+            </View>
+
+            <View style={{ padding: 16 }}>
+              <Text style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>
+                Make an immediate secure payment via Razorpay UPI, Card, or Net Banking to settle your service balance.
+              </Text>
+
+              <Text style={{ fontSize: 12, fontWeight: '700', color: c.textMuted, marginBottom: 4 }}>
+                Amount to Pay (₹)
+              </Text>
+              <TextInput
+                style={{
+                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F3F4F6',
+                  color: c.text,
+                  borderWidth: 1,
+                  borderColor: c.border,
+                  borderRadius: 8,
+                  padding: 12,
+                  fontSize: 16,
+                  fontWeight: '700',
+                  marginBottom: 16,
+                }}
+                keyboardType="numeric"
+                value={String(customPayAmountRupees)}
+                onChangeText={t => setCustomPayAmountRupees(Number(t) || 0)}
+              />
+
+              <View style={{ gap: 8, marginBottom: 20 }}>
+                {[
+                  { id: 'RAZORPAY_UPI', label: 'UPI (GPay / PhonePe / Paytm)' },
+                  { id: 'RAZORPAY_CARD', label: 'Credit / Debit Card' },
+                  { id: 'NET_BANKING', label: 'Net Banking' },
+                ].map(opt => (
+                  <TouchableOpacity
+                    key={opt.id}
+                    onPress={() => setPayMethod(opt.id as any)}
+                    style={{
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: 12,
+                      borderRadius: 8,
+                      borderWidth: 1,
+                      borderColor: payMethod === opt.id ? c.accent : c.border,
+                      backgroundColor: payMethod === opt.id ? 'rgba(247, 181, 3, 0.1)' : 'transparent',
+                    }}
+                  >
+                    <Text style={{ fontSize: 14, fontWeight: payMethod === opt.id ? '700' : '500', color: c.text }}>
+                      {opt.label}
+                    </Text>
+                    {payMethod === opt.id && <CheckCircle size={16} color={c.accent} />}
+                  </TouchableOpacity>
+                ))}
+              </View>
+
+              <TouchableOpacity
+                onPress={handlePayBalance}
+                disabled={payingBalance || customPayAmountRupees <= 0}
+                style={{
+                  backgroundColor: c.accent,
+                  paddingVertical: 14,
+                  borderRadius: 8,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                {payingBalance ? (
+                  <ActivityIndicator size="small" color="#061A38" />
+                ) : (
+                  <Text style={{ color: '#061A38', fontWeight: '800', fontSize: 15 }}>
+                    Authorize & Pay ₹{customPayAmountRupees.toLocaleString('en-IN')}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
         </View>
       </Modal>
     </View>
