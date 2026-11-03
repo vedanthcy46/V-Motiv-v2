@@ -1,0 +1,47 @@
+{
+  "project_info": {
+    "project_number": "717469798962",
+    "project_id": "v-motiv",
+    "storage_bucket": "v-motiv.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:717469798962:android:af85204d0d6776071aa22b",
+        "android_client_info": {
+          "package_name": "in.vmotiv.customer"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "717469798962-q3t2lvd0fvn8c54ae95ljcb651tbqjrb.apps.googleusercontent.com",
+          "client_type": 1,
+          "android_info": {
+            "package_name": "in.vmotiv.customer",
+            "certificate_hash": "5e8f16062ea3cd2c4a0d547876baa6f38cabf625"
+          }
+        },
+        {
+          "client_id": "717469798962-6otee93590qkrh5nj70hc7ctatm1s1uc.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBHrC7f27aDGCQNQGFQJrcyxPXszq88W8c"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "717469798962-6otee93590qkrh5nj70hc7ctatm1s1uc.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

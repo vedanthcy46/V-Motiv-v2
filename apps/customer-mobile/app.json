@@ -11,10 +11,12 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "in.vmotiv.customer",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "icon": "./assets/icon.png",
       "infoPlist": {
         "NSCameraUsageDescription": "V MOTIV uses the camera only when you choose to scan a V MOTIV Connect QR sticker.",
-        "NSMicrophoneUsageDescription": "V MOTIV uses the microphone only during a private V MOTIV Connect voice call."
+        "NSMicrophoneUsageDescription": "V MOTIV uses the microphone only during a private V MOTIV Connect voice call.",
+        "ITSAppUsesNonExemptEncryption": false
       }
     },
     "android": {
