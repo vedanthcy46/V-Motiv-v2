@@ -26,6 +26,8 @@
     "mfa:enroll": "tsx --env-file-if-exists=.env scripts/enroll-phone-mfa.ts"
   },
   "dependencies": {
+    "@neondatabase/serverless": "^1.2.0",
+    "@prisma/adapter-neon": "^6.19.3",
     "@prisma/client": "6.19.3",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.3",

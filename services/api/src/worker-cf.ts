@@ -13,6 +13,8 @@ import type { Express } from 'express';
 import { cert, getApp, getApps, initializeApp } from 'firebase-admin/app';
 import { getAuth } from 'firebase-admin/auth';
 import { PrismaClient } from '@prisma/client';
+import { neonConfig } from '@neondatabase/serverless';
+import { PrismaNeon } from '@prisma/adapter-neon';
 import { createApp } from './app.js';
 import { readConfig } from './config.js';
 import { PrismaIdentityStore } from './identity-store.js';
@@ -65,10 +67,23 @@ function getOrCreateApp(): Express {
     return firebaseApp;
   }
 
-  const db = new PrismaClient({
-    datasourceUrl: config.DATABASE_URL,
-    transactionOptions: { timeout: 15000, maxWait: 5000 },
-  });
+  let db: PrismaClient;
+  try {
+    if (typeof WebSocket !== 'undefined') {
+      neonConfig.webSocketConstructor = WebSocket;
+    }
+    const adapter = new PrismaNeon({ connectionString: config.DATABASE_URL });
+    db = new PrismaClient({
+      adapter,
+      transactionOptions: { timeout: 15000, maxWait: 5000 },
+    });
+  } catch (adapterErr) {
+    console.warn('[PRISMA_ADAPTER_FALLBACK]', adapterErr);
+    db = new PrismaClient({
+      datasourceUrl: config.DATABASE_URL,
+      transactionOptions: { timeout: 15000, maxWait: 5000 },
+    });
+  }
   dbClient = db;
 
   const resendApiKey = config.RESEND_API_KEY;
