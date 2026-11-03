@@ -160,7 +160,14 @@ export function createApp(deps: {
   app.use(helmet({
     crossOriginOpenerPolicy: false,
   }));
-  const configuredWebHost = new URL(deps.webOrigin).hostname;
+  const rawWebOrigins = (deps.webOrigin || '').split(',').map(s => s.trim().replace(/\/+$/, '')).filter(Boolean);
+  const primaryWebOrigin = rawWebOrigins[0] || 'http://localhost:3100';
+  let configuredWebHost = 'localhost';
+  try {
+    configuredWebHost = new URL(primaryWebOrigin).hostname;
+  } catch {
+    configuredWebHost = 'localhost';
+  }
   const localDevelopmentOrigin = ['localhost', '127.0.0.1', '[::1]'].includes(configuredWebHost);
   // Vercel generates a unique production/preview hostname for this project
   // (for example vmotiv-<deployment>-<team>.vercel.app). These are first-
@@ -171,6 +178,7 @@ export function createApp(deps: {
   );
   const allowedOrigins = new Set([
     deps.webOrigin,
+    ...rawWebOrigins,
     deps.adminWebOrigin,
     ...(deps.employeePortalOrigins || []),
     ...(localDevelopmentOrigin ? ['http://localhost:3100', 'http://127.0.0.1:3100', 'http://localhost:3200', 'http://127.0.0.1:3200', 'http://localhost:3300', 'http://127.0.0.1:3300', 'http://localhost:3400', 'http://127.0.0.1:3400', 'http://localhost:3500', 'http://127.0.0.1:3500', 'http://localhost:3600', 'http://127.0.0.1:3600', 'http://localhost:5173', 'http://127.0.0.1:5173'] : []),
@@ -198,6 +206,9 @@ export function createApp(deps: {
         normalizedOrigin === 'http://127.0.0.1:3600' ||
         normalizedOrigin === 'https://vmotiv.in' ||
         normalizedOrigin === 'https://www.vmotiv.in' ||
+        normalizedOrigin?.endsWith('.vmotiv.in') ||
+        normalizedOrigin?.endsWith('.pages.dev') ||
+        normalizedOrigin?.endsWith('.workers.dev') ||
         normalizedOrigin === 'https://admin.vmotiv.in' ||
         normalizedOrigin === 'https://sales.vmotiv.in' ||
         normalizedOrigin === 'https://review.vmotiv.in' ||
@@ -563,7 +574,13 @@ export function createApp(deps: {
   app.use('/api', apiLimiter, unifiedApiRouter);
 
   app.use((_req, res) => res.status(404).json({ code: 'NOT_FOUND' }));
-  const errors: ErrorRequestHandler = (error: unknown, _req, res, _next) => {
+  const errors: ErrorRequestHandler = (error: unknown, req, res, _next) => {
+    const origin = req.headers.origin;
+    if (origin && !res.getHeader('Access-Control-Allow-Origin')) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+      res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin');
+    }
     const isHttpError =
       error instanceof HttpError ||
       (typeof error === 'object' &&

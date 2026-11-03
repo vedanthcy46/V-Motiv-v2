@@ -114,6 +114,17 @@ describe('environment and retry guardrails', () => {
     expect(() => readConfig({ ...production, WEB_ORIGIN: 'http://example.test' })).toThrow('HTTPS');
     expect(() => readConfig({ ...production, FIREBASE_AUTH_EMULATOR_HOST: 'localhost:9099' })).toThrow('emulator');
   });
+  it('supports comma-separated WEB_ORIGIN and normalizes trailing slashes', () => {
+    const production = { ...env, NODE_ENV: 'production', DATABASE_URL: 'postgresql://test@example.test/dedicated_v2' };
+    const parsed = readConfig({
+      ...production,
+      WEB_ORIGIN: 'https://vmotiv.in, https://www.vmotiv.in/',
+      ADMIN_WEB_ORIGIN: 'https://admin.vmotiv.in/',
+    });
+    expect(parsed.WEB_ORIGIN).toBe('https://vmotiv.in');
+    expect(parsed.ALLOWED_ORIGINS).toEqual(['https://vmotiv.in', 'https://www.vmotiv.in']);
+    expect(parsed.ADMIN_WEB_ORIGIN).toBe('https://admin.vmotiv.in');
+  });
   it('quarantines retries outside provider deduplication window', () => {
     const now = new Date();
     expect(retryAllowed({ attempts: 1, firstAttemptAt: new Date(now.getTime() - 24 * 60 * 60 * 1000) }, now)).toBe(false);

@@ -110,7 +110,10 @@ function getOrCreateApp(): Express {
     customer: new PrismaCustomerStore(db),
     webOrigin: config.WEB_ORIGIN,
     adminWebOrigin,
-    employeePortalOrigins: Object.values(employeePortalOrigins),
+    employeePortalOrigins: [
+      ...Object.values(employeePortalOrigins),
+      ...(config.ALLOWED_ORIGINS || []),
+    ],
     adminPortalDestinations: employeePortalOrigins,
     admin: new PrismaAdminStore(db),
     sales: new PrismaSalesStore(db),
@@ -198,19 +201,65 @@ async function fetchToExpress(app: Express, webReq: Request): Promise<Response> 
 
 export default {
   async fetch(request: Request, env: Record<string, string>, ctx: { waitUntil: (p: Promise<any>) => void }): Promise<Response> {
-    // 1. Populate process.env from Cloudflare Worker env/secrets bindings
-    if (env && typeof env === 'object') {
-      for (const [key, value] of Object.entries(env)) {
-        if (typeof value === 'string' && process.env[key] === undefined) {
-          process.env[key] = value;
-        }
-      }
+    const origin = request.headers.get('Origin') || '';
+
+    // 1. Explicit Worker-level CORS preflight
+    if (request.method === 'OPTIONS') {
+      const reqHeaders = request.headers.get('Access-Control-Request-Headers') || 'Content-Type, Authorization, Accept, X-Requested-With, Origin';
+      return new Response(null, {
+        status: 204,
+        headers: {
+          'Access-Control-Allow-Origin': origin || '*',
+          'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+          'Access-Control-Allow-Headers': reqHeaders,
+          'Access-Control-Max-Age': '86400',
+        },
+      });
     }
 
-    // 2. Initialize application with populated environment
-    const app = getOrCreateApp();
+    try {
+      // 2. Populate process.env from Cloudflare Worker env/secrets bindings
+      if (env && typeof env === 'object') {
+        for (const [key, value] of Object.entries(env)) {
+          if (typeof value === 'string') {
+            process.env[key] = value;
+          }
+        }
+      }
 
-    // 3. Forward request through Express bridge
-    return fetchToExpress(app, request);
+      // 3. Initialize application with populated environment
+      const app = getOrCreateApp();
+
+      // 4. Forward request through Express bridge
+      const response = await fetchToExpress(app, request);
+
+      // 5. Ensure CORS headers are present on all responses
+      if (origin && !response.headers.has('Access-Control-Allow-Origin')) {
+        response.headers.set('Access-Control-Allow-Origin', origin);
+        response.headers.set('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+        response.headers.set('Access-Control-Allow-Headers', 'Content-Type, Authorization, Accept, X-Requested-With, Origin');
+      }
+
+      return response;
+    } catch (err: any) {
+      console.error('[WORKER_UNHANDLED_ERROR]', err);
+      const fallbackOrigin = origin || '*';
+      return new Response(
+        JSON.stringify({
+          code: 'WORKER_INTERNAL_ERROR',
+          message: err?.message || 'Internal Worker Error',
+          issues: err?.issues || undefined,
+        }),
+        {
+          status: 500,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': fallbackOrigin,
+            'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+            'Access-Control-Allow-Headers': 'Content-Type, Authorization, Accept, X-Requested-With, Origin',
+          },
+        }
+      );
+    }
   },
 };
