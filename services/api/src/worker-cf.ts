@@ -33,6 +33,12 @@ let dbClient: PrismaClient | null = null;
 function getOrCreateApp(): Express {
   if (expressApp) return expressApp;
 
+  // Gracefully degrade email delivery if RESEND_API_KEY or EMAIL_FROM is not configured in worker secrets
+  if (process.env.EMAIL_DELIVERY_ENABLED === 'true' && (!process.env.RESEND_API_KEY || !process.env.EMAIL_FROM)) {
+    console.warn('[CLOUDFLARE WORKER] RESEND_API_KEY or EMAIL_FROM not found in environment secrets. Disabling outbound email dispatch to keep API healthy.');
+    process.env.EMAIL_DELIVERY_ENABLED = 'false';
+  }
+
   const config = readConfig(process.env);
 
   let firebaseApp: ReturnType<typeof initializeApp> | null = null;

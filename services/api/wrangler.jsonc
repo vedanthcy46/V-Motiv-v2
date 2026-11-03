@@ -15,6 +15,6 @@
     "OPERATIONS_WEB_ORIGIN": "https://ops.vmotiv.in",
     "FINANCE_WEB_ORIGIN": "https://finance.vmotiv.in",
     "FIREBASE_PROJECT_ID": "vmotiv-2a0dc",
-    "EMAIL_DELIVERY_ENABLED": "true"
+    "EMAIL_DELIVERY_ENABLED": "false"
   }
 }
