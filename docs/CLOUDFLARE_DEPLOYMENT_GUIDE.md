@@ -29,12 +29,18 @@ This guide provides end-to-end instructions for deploying all V MOTIV V2 web por
 
 All 6 web portals are Single Page Applications (SPAs) built with Vite and React 19.
 
-### Key SPA Requirements (Configured)
-1. **`_redirects` (`dist/_redirects`)**:
-   Enables seamless client-side routing (React Router). Without this file, reloading deep paths such as `/service`, `/rentals`, or `/finance/dashboard` returns 404 from Cloudflare Pages.
+### Key SPA Routing Architecture
+
+1. **Native Single Page Application Handling (`wrangler.jsonc`)**:
+   Instead of a legacy `_redirects` file (which triggers Cloudflare rule loop error `[code: 100324]` when mapping `/* /index.html`), Cloudflare Workers Static Assets natively handles SPA routing via:
+   ```jsonc
+   "assets": {
+     "directory": "./dist",
+     "not_found_handling": "single-page-application"
+   }
    ```
-   /*    /index.html   200
-   ```
+   When set to `"single-page-application"`, Cloudflare serves `/index.html` with status 200 for any non-asset route navigation without requiring or allowing recursive `_redirects` rewrite rules.
+
 2. **`_headers` (`dist/_headers`)**:
    Provides security headers (`X-Frame-Options`, `X-Content-Type-Options`) and year-long immutable caching for bundled assets under `/assets/*`.
 
