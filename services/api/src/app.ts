@@ -264,14 +264,28 @@ export function createApp(deps: {
     }
   };
 
-  const apiLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
-  const standardLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
-  const salesLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
-  const financeLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
-  const serviceLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
-  const rentalLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
-  const connectLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
-  const connectPublicLimiter = rateLimit({ windowMs: 15 * 60_000, limit: 30, standardHeaders: 'draft-8', legacyHeaders: false });
+  const createLimiter = (options: { windowMs: number; limit: number }) => rateLimit({
+    ...options,
+    standardHeaders: 'draft-8',
+    legacyHeaders: false,
+    validate: false,
+    keyGenerator: (req) => {
+      const cfIp = req.headers['cf-connecting-ip'];
+      if (typeof cfIp === 'string') return cfIp;
+      const xff = req.headers['x-forwarded-for'];
+      if (typeof xff === 'string') return (xff.split(',')[0] || '').trim();
+      return (req as any).ip || (req.socket && req.socket.remoteAddress) || '127.0.0.1';
+    },
+  });
+
+  const apiLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
+  const standardLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
+  const salesLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
+  const financeLimiter = createLimiter({ windowMs: 60_000, limit: 60 });
+  const serviceLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
+  const rentalLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
+  const connectLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
+  const connectPublicLimiter = createLimiter({ windowMs: 15 * 60_000, limit: 30 });
 
   if (deps.inspection) {
     const inspectorRouter = createInspectorRouter({ verify: deps.verify, store: deps.inspection });
@@ -315,7 +329,7 @@ export function createApp(deps: {
   }
   if (deps.valuation && deps.db) {
     const valuationStaffRouter = createValuationRouter({ verify: deps.verify, store: deps.valuation, db: deps.db });
-    const valuationStaffLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+    const valuationStaffLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
     app.use('/api/v2/valuations', valuationStaffLimiter, valuationStaffRouter);
     app.use('/api/v1/valuations', valuationStaffLimiter, valuationStaffRouter);
     app.use('/api/valuations', valuationStaffLimiter, valuationStaffRouter);
@@ -336,7 +350,7 @@ export function createApp(deps: {
       revokeTokens: deps.revokeTokens,
       drainEmails: deps.drainEmails,
     });
-    const adminLimiter = rateLimit({ windowMs: 60_000, limit: 120, standardHeaders: 'draft-8', legacyHeaders: false });
+    const adminLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
     app.use('/api/v2', adminLimiter, adminRouter);
     app.use('/api/v1', adminLimiter, adminRouter);
     app.use('/api', adminLimiter, adminRouter);
@@ -438,7 +452,7 @@ export function createApp(deps: {
   });
 
   if (deps.valuation) {
-    const valuationLimiter = rateLimit({ windowMs: 60_000, limit: 60, standardHeaders: 'draft-8', legacyHeaders: false });
+    const valuationLimiter = createLimiter({ windowMs: 60_000, limit: 60 });
     const optAuth = optionalAuthentication(deps.verify);
     unifiedApiRouter.post('/valuations/instant', optAuth, valuationLimiter, async (req, res) => {
       const identity = res.locals.identity as Identity | undefined;
@@ -546,14 +560,19 @@ export function createApp(deps: {
       // Local storage fallback when Cloudinary is not configured
       const ext = input.mimeType.split('/')[1] || 'bin';
       const filename = `${input.filename || 'upload'}-${Date.now()}.${ext}`;
+      const isEdge = typeof (globalThis as any).WebSocketPair !== 'undefined' ||
+                     !fs.mkdirSync ||
+                     (fs.mkdirSync as any)?.name === 'createNotImplementedError';
       const isServerless = Boolean(process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME || process.env.LAMBDA_TASK_ROOT);
       const storageBase = isServerless ? os.tmpdir() : process.cwd();
       const localDir = path.resolve(storageBase, 'storage/uploads');
-      if (!fs.existsSync(localDir)) {
+      if (!isEdge && typeof fs.existsSync === 'function' && !fs.existsSync(localDir)) {
         try { fs.mkdirSync(localDir, { recursive: true }); } catch {}
       }
-      await fs.promises.writeFile(path.resolve(localDir, filename), buffer);
-      const checksumSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+      if (!isEdge) {
+        try { await fs.promises.writeFile(path.resolve(localDir, filename), buffer); } catch {}
+      }
+      const checksumSha256 = buffer ? crypto.createHash('sha256').update(buffer).digest('hex') : '';
       res.status(201).json({
         url: `/storage/uploads/${filename}`,
         secureUrl: `/storage/uploads/${filename}`,

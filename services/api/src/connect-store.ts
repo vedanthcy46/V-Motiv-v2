@@ -9,6 +9,7 @@ import { isCloudinaryConfigured, uploadToCloudinary } from './cloudinary.js';
 import { issueRealtimeTicket } from './connect-realtime.js';
 
 export function sha256(text: string): string {
+  if (typeof text !== 'string') return '';
   return crypto.createHash('sha256').update(text).digest('hex');
 }
 
@@ -16,7 +17,7 @@ export function sha256(text: string): string {
 const memorySignalsByCall = new Map<string, Array<{ id: string; kind: string; senderRole: string; payload: unknown; createdAt: Date }>>();
 
 export function verifyConnectSignature(rawBody: string, signature: string, secret: string): boolean {
-  if (!signature || !secret) return false;
+  if (!signature || !secret || typeof rawBody !== 'string') return false;
   const hmac = crypto.createHmac('sha256', secret).update(rawBody).digest('hex');
   const sigBuffer = Buffer.from(signature, 'utf8');
   const hmacBuffer = Buffer.from(hmac, 'utf8');

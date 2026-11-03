@@ -149,7 +149,18 @@ function getOrCreateApp(): Express {
 async function fetchToExpress(app: Express, webReq: Request): Promise<Response> {
   return new Promise(async (resolve, reject) => {
     try {
+      const clientIp = webReq.headers.get('cf-connecting-ip') ||
+                       (webReq.headers.get('x-forwarded-for')?.split(',')[0] || '').trim() ||
+                       webReq.headers.get('x-real-ip') ||
+                       '127.0.0.1';
+
       const socket = new Socket();
+      Object.defineProperty(socket, 'remoteAddress', {
+        value: clientIp,
+        writable: true,
+        configurable: true,
+      });
+
       const req = new IncomingMessage(socket);
       const parsedUrl = new URL(webReq.url);
       
@@ -157,20 +168,32 @@ async function fetchToExpress(app: Express, webReq: Request): Promise<Response> 
       req.method = webReq.method;
       req.headers = Object.fromEntries(webReq.headers.entries());
 
+      req.headers['cf-connecting-ip'] = clientIp;
+      if (!req.headers['x-forwarded-for']) {
+        req.headers['x-forwarded-for'] = clientIp;
+      }
+      (req as any).ip = clientIp;
+
       const res = new ServerResponse(req);
       res.assignSocket(socket);
 
       const chunks: Buffer[] = [];
       res.write = (chunk: any, encoding?: any, cb?: any): any => {
-        if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding));
-        if (typeof encoding === 'function') encoding();
+        if (typeof chunk === 'function') { cb = chunk; chunk = null; }
+        if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
+        if (chunk) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), encoding));
+        }
         if (typeof cb === 'function') cb();
         return true;
       };
 
       res.end = (chunk?: any, encoding?: any, cb?: any): any => {
-        if (chunk) chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk, encoding));
-        if (typeof encoding === 'function') encoding();
+        if (typeof chunk === 'function') { cb = chunk; chunk = null; }
+        if (typeof encoding === 'function') { cb = encoding; encoding = undefined; }
+        if (chunk) {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), encoding));
+        }
         if (typeof cb === 'function') cb();
 
         const responseBody = Buffer.concat(chunks);

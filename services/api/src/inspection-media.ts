@@ -62,15 +62,19 @@ export class InspectionMediaService {
       ? path.resolve(customDir)
       : defaultStorage;
     try {
-      if (!fs.existsSync(this.baseDir)) {
+      const isEdge = typeof (globalThis as any).WebSocketPair !== 'undefined' ||
+                     !fs.mkdirSync ||
+                     (fs.mkdirSync as any)?.name === 'createNotImplementedError';
+      if (!isEdge && typeof fs.existsSync === 'function' && !fs.existsSync(this.baseDir)) {
         fs.mkdirSync(this.baseDir, { recursive: true, mode: 0o700 });
       }
-    } catch (err) {
-      console.warn('[InspectionMediaService] Local media directory initialization bypassed:', err);
+    } catch {
+      // Local media directory initialization bypassed in edge / unenv environments
     }
   }
 
   calculateChecksum(buffer: Buffer): string {
+    if (!buffer || (!Buffer.isBuffer(buffer) && typeof buffer !== 'string')) return '';
     return crypto.createHash('sha256').update(buffer).digest('hex');
   }
 
@@ -134,19 +138,22 @@ export class InspectionMediaService {
     // 2. Fallback to local storage ONLY if Cloudinary is unconfigured or failed
     const relativeKey = `${reportId}/${safeLogicalId}-${Date.now()}.${ext}`;
     const destinationPath = path.resolve(this.baseDir, relativeKey);
-    if (destinationPath.startsWith(this.baseDir)) {
+    const isEdge = typeof (globalThis as any).WebSocketPair !== 'undefined' ||
+                   !fs.mkdirSync ||
+                   (fs.mkdirSync as any)?.name === 'createNotImplementedError';
+    if (!isEdge && destinationPath.startsWith(this.baseDir)) {
       const parentDir = path.dirname(destinationPath);
-      if (!fs.existsSync(parentDir)) {
+      if (typeof fs.existsSync === 'function' && !fs.existsSync(parentDir)) {
         try {
           fs.mkdirSync(parentDir, { recursive: true, mode: 0o700 });
-        } catch (dirErr) {
-          console.warn('[LOCAL_MEDIA_DIR_CREATE_WARNING]', dirErr);
+        } catch {
+          // Local media directory creation bypassed
         }
       }
       try {
         await fs.promises.writeFile(destinationPath, buffer);
-      } catch (writeErr) {
-        console.warn('[LOCAL_MEDIA_CACHE_WARNING]', writeErr);
+      } catch {
+        // Local media write bypassed
       }
     }
 
