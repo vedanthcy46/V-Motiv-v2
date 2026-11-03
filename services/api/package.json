@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch --env-file-if-exists=.env src/dev.ts",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "wrangler deploy",
     "postinstall": "prisma generate",
     "build": "prisma generate && tsc",
     "typecheck": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json",
