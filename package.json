@@ -51,6 +51,7 @@
     "@types/express": "^5.0.3",
     "@types/node": "^22.19.0",
     "@types/qrcode": "^1.5.6",
+    "jose": "^4.15.9",
     "jwks-rsa": "3.1.0"
   }
 }

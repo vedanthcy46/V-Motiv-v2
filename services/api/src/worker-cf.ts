@@ -28,6 +28,7 @@ import { PrismaServiceStore } from './service-store.js';
 import { PrismaRentalStore } from './rental-store.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
 import { PrismaConnectStore } from './connect-store.js';
+import { createEdgeTokenVerifier } from './edge-auth.js';
 
 let expressApp: Express | null = null;
 let dbClient: PrismaClient | null = null;
@@ -113,10 +114,15 @@ function getOrCreateApp(): Express {
     inspector: config.INSPECTOR_MOBILE_DEEP_LINK || 'vmotiv://inspector',
   };
 
-  const verifyToken = (token: string, revoked: boolean) => {
-    const hasServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-    return getAuth(getFirebase()).verifyIdToken(token, hasServiceAccount ? revoked : false);
-  };
+  let fallbackVerifier: ((token: string, revoked: boolean) => Promise<any>) | undefined;
+  if (process.env.FIREBASE_SERVICE_ACCOUNT_JSON) {
+    fallbackVerifier = (t, r) => getAuth(getFirebase()).verifyIdToken(t, r);
+  }
+
+  const verifyToken = createEdgeTokenVerifier({
+    projectId: config.FIREBASE_PROJECT_ID,
+    fallbackVerifier,
+  });
 
   const notificationService = new NotificationService(db);
   const notificationRouter = createNotificationRouter({
@@ -146,10 +152,14 @@ function getOrCreateApp(): Express {
     db,
     notificationRouter,
     notificationService,
-    revokeTokens: firebaseUid => {
+    revokeTokens: async firebaseUid => {
       const hasServiceAccount = Boolean(process.env.FIREBASE_SERVICE_ACCOUNT_JSON);
-      if (!hasServiceAccount) return Promise.resolve();
-      return getAuth(getFirebase()).revokeRefreshTokens(firebaseUid);
+      if (!hasServiceAccount) return;
+      try {
+        await getAuth(getFirebase()).revokeRefreshTokens(firebaseUid);
+      } catch (err) {
+        console.warn('[CLOUDFLARE WORKER REVOKE TOKENS FAILED]', err);
+      }
     },
     drainEmails,
   });
