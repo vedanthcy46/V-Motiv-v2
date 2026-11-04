@@ -75,7 +75,9 @@ export const KeyboardAwareFormScreen = forwardRef<ScrollView, KeyboardAwareFormS
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }, containerStyle]} edges={edges}>
         <KeyboardAvoidingView
-          behavior="padding"
+          // Android must reduce available height; padding alone leaves a
+          // bottom CTA and the active field underneath the soft keyboard.
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           keyboardVerticalOffset={keyboardVerticalOffset}
           style={styles.keyboardAvoid}
         >

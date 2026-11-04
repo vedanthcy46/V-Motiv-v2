@@ -638,6 +638,7 @@ export function ServiceRequestDetailsScreen() {
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
+                automaticallyAdjustKeyboardInsets
               >
                 {/* Items Table */}
                 <View style={[styles.itemsTable, { borderColor: c.border }]}>
@@ -832,10 +833,12 @@ export function ServiceRequestDetailsScreen() {
 
             <ScrollView
               ref={paymentScrollRef}
+              style={styles.paymentScroll}
               contentContainerStyle={styles.paymentScrollContent}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={false}
+              automaticallyAdjustKeyboardInsets
             >
               <Text style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>
                 Make an immediate secure payment via Razorpay UPI, Card, or Net Banking to settle your service balance.
@@ -1238,6 +1241,7 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.card,
     borderTopRightRadius: radius.card,
     maxHeight: '90%',
+    flexShrink: 1,
     padding: space.lg,
   },
   modalHeader: {
@@ -1255,7 +1259,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   modalScroll: {
-    flexGrow: 0,
+    flexShrink: 1,
     maxHeight: 500,
   },
   modalScrollContent: {
@@ -1264,6 +1268,9 @@ const styles = StyleSheet.create({
   paymentScrollContent: {
     padding: space.lg,
     paddingBottom: space.xl,
+  },
+  paymentScroll: {
+    flexShrink: 1,
   },
   itemsTable: {
     borderWidth: 1,
@@ -1375,6 +1382,7 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(255, 255, 255, 0.1)',
   },
   keyboardAvoidWrap: {
+    flex: 1,
     width: '100%',
     justifyContent: 'flex-end',
   },
