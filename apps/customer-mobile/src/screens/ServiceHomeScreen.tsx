@@ -42,7 +42,6 @@ import { useAuth } from '../auth/AuthProvider';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 import { BrandLogo } from '../components/BrandLogo';
 import { AuthScreen } from './AuthScreen';
-import { useKeyboard } from '../components/KeyboardAwareFormScreen';
 import { customer } from '../services/customer';
 import type { CustomerAddress } from '../types';
 import {
@@ -125,7 +124,11 @@ export function ServiceHomeScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
-  const { isKeyboardVisible } = useKeyboard();
+  const revealFocusedField = () => {
+    requestAnimationFrame(() => {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), Platform.OS === 'android' ? 180 : 0);
+    });
+  };
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
@@ -635,6 +638,7 @@ export function ServiceHomeScreen() {
                 <TextInput
                   value={answers[q.stableId]?.toString() || ''}
                   onChangeText={txt => handleAnswerChange(q.stableId, txt)}
+                  onFocus={revealFocusedField}
                   keyboardType="number-pad"
                   placeholder="Enter value"
                   placeholderTextColor={c.textMuted}
@@ -647,6 +651,7 @@ export function ServiceHomeScreen() {
                 <TextInput
                   value={answers[q.stableId] || ''}
                   onChangeText={txt => handleAnswerChange(q.stableId, txt)}
+                  onFocus={revealFocusedField}
                   placeholder="Type your notes or observations here..."
                   placeholderTextColor={c.textMuted}
                   multiline
@@ -692,6 +697,7 @@ export function ServiceHomeScreen() {
             <TextInput
               value={customSymptoms}
               onChangeText={setCustomSymptoms}
+              onFocus={revealFocusedField}
               placeholder="e.g. Please also check the horn sound and windscreen wipers..."
               placeholderTextColor={c.textMuted}
               multiline
@@ -866,6 +872,7 @@ export function ServiceHomeScreen() {
           <TextInput
             value={pickupAddress.line1}
             onChangeText={txt => setPickupAddress(prev => ({ ...prev, line1: txt }))}
+            onFocus={revealFocusedField}
             placeholder="House / Flat No., Building, Street *"
             placeholderTextColor={c.textMuted}
             style={[styles.input, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
@@ -873,6 +880,7 @@ export function ServiceHomeScreen() {
           <TextInput
             value={pickupAddress.line2}
             onChangeText={txt => setPickupAddress(prev => ({ ...prev, line2: txt }))}
+            onFocus={revealFocusedField}
             placeholder="Locality / Landmark"
             placeholderTextColor={c.textMuted}
             style={[styles.input, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
@@ -882,6 +890,7 @@ export function ServiceHomeScreen() {
               <TextInput
                 value={pickupAddress.city}
                 onChangeText={txt => setPickupAddress(prev => ({ ...prev, city: txt }))}
+                onFocus={revealFocusedField}
                 placeholder="City"
                 placeholderTextColor={c.textMuted}
                 style={[styles.input, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
@@ -891,6 +900,7 @@ export function ServiceHomeScreen() {
               <TextInput
                 value={pickupAddress.pincode}
                 onChangeText={txt => setPickupAddress(prev => ({ ...prev, pincode: txt }))}
+                onFocus={revealFocusedField}
                 placeholder="Pincode *"
                 keyboardType="number-pad"
                 placeholderTextColor={c.textMuted}
@@ -1296,14 +1306,14 @@ export function ServiceHomeScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
       >
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: isKeyboardVisible ? 240 : 120 },
+            { paddingBottom: Math.max(insets.bottom + 96, 120) },
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -1344,8 +1354,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   iconBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
