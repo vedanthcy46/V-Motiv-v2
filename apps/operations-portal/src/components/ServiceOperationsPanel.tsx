@@ -621,10 +621,9 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   }, [actionTab, activeBalanceDueRupees]);
 
   const isJobCancelled = activeJob?.status === 'CANCELLED';
-  const hasApprovedEstimate = !!activeJob?.estimates?.some(e => e.status === 'APPROVED');
-  const isJobConcluded = (activeJob?.status === 'COMPLETED' || activeJob?.status === 'DELIVERED') &&
-    hasApprovedEstimate &&
-    activeBalanceDueRupees === 0;
+  // Completed = delivered and closed. The API refuses every staff change from here on, so the whole
+  // record is shown read-only, exactly like a settled rental booking.
+  const isJobConcluded = activeJob?.status === 'COMPLETED' || activeJob?.status === 'DELIVERED';
 
   const statusBadgeClass = (status: ServiceJobStatus) => {
     switch (status) {
@@ -1363,6 +1362,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
                     <h4 style={{ margin: 0, color: '#ef4444' }}>Appointment Locked — Job Cancelled</h4>
                   </div>
+                ) : isJobConcluded ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
+                    <h4 style={{ margin: 0, color: '#10b981' }}>Appointment Locked — Service Completed</h4>
+                    <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
+                      This service is completed, so its record is read-only. 
+                    </p>
+                  </div>
                 ) : (
                   <form onSubmit={handleScheduleSubmit}>
                     <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
@@ -1466,6 +1473,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
                     <h4 style={{ margin: 0, color: '#ef4444' }}>Intake Locked — Job Cancelled</h4>
                   </div>
+                ) : isJobConcluded && !activeJob.custodyRecord ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
+                    <h4 style={{ margin: 0, color: '#10b981' }}>Intake Locked — Service Completed</h4>
+                    <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
+                      This service is completed, so its record is read-only. 
+                    </p>
+                  </div>
                 ) : activeJob.custodyRecord ? (
                   <div style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 700, marginBottom: '0.75rem' }}>
@@ -1548,6 +1563,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
                       Any open estimate was withdrawn automatically. The customer can no longer review or approve it.
                       {(activeJob as any).cancellationReason ? ` Reason: ${(activeJob as any).cancellationReason}.` : ''}
+                    </p>
+                  </div>
+                ) : isJobConcluded ? (
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                    <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
+                    <h4 style={{ margin: 0, color: '#10b981' }}>Estimate Locked — Service Completed</h4>
+                    <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
+                      This service is completed, so its record is read-only. The approved estimate and any deferred items remain in the estimate history above and on the invoice.
                     </p>
                   </div>
                 ) : (
@@ -1914,7 +1937,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                             type="button"
                             className="btn-primary btn-gold button primary small"
                             onClick={handleGenerateInvoice}
-                            disabled={generatingInvoice || isJobCancelled}
+                            disabled={generatingInvoice || isJobCancelled || isJobConcluded}
                             style={{ fontWeight: 700 }}
                           >
                             {generatingInvoice ? 'Generating Invoice…' : '+ Generate Final Tax Invoice'}

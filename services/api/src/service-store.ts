@@ -719,6 +719,15 @@ export const ESTIMATE_LOCKED_STATUSES: ServiceRequestStatus[] = [
   ServiceRequestStatus.READY_FOR_COLLECTION,
 ];
 
+/**
+ * A completed (delivered and settled) or cancelled job is a closed record: nothing about it may be
+ * changed by staff. Mirrors the rental flow, where a settled booking is read-only.
+ */
+export function assertServiceJobOpen(sr: { status: ServiceRequestStatus | string }): void {
+  if (sr.status === ServiceRequestStatus.COMPLETED) throw new HttpError(409, 'SERVICE_JOB_COMPLETED_LOCKED');
+  if (sr.status === ServiceRequestStatus.CANCELLED) throw new HttpError(409, 'SERVICE_JOB_CANCELLED_LOCKED');
+}
+
 export const ESTIMATE_DECLINE_REASONS = ['TOO_EXPENSIVE', 'WANT_SECOND_OPINION', 'NOT_NEEDED_NOW', 'OTHER'] as const;
 
 export class PrismaServiceStore {
@@ -2742,6 +2751,7 @@ export class PrismaServiceStore {
   ) {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    assertServiceJobOpen(sr);
 
     return this.db.$transaction(async tx => {
       const updated = await tx.serviceRequest.update({
@@ -2786,6 +2796,7 @@ export class PrismaServiceStore {
   async dispatchPickup(actorId: string, requestId: string, driverId: string) {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    assertServiceJobOpen(sr);
 
     return this.db.$transaction(async tx => {
       const updated = await tx.serviceRequest.update({
@@ -2828,6 +2839,7 @@ export class PrismaServiceStore {
   async recordCustodyCheckIn(actorId: string, requestId: string, input: CustodyInput) {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    assertServiceJobOpen(sr);
 
     return this.db.$transaction(async tx => {
       const record = await tx.serviceCustodyRecord.create({
@@ -2892,6 +2904,7 @@ export class PrismaServiceStore {
   async submitDiagnosis(actorId: string, requestId: string, input: DiagnosisInput) {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    assertServiceJobOpen(sr);
 
     return this.db.$transaction(async tx => {
       const diag = await tx.serviceDiagnosis.create({
@@ -3034,6 +3047,7 @@ export class PrismaServiceStore {
   async createWorkOrder(actorId: string, requestId: string, input: WorkOrderInput) {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    assertServiceJobOpen(sr);
 
     return this.db.$transaction(async tx => {
       // Technicians must only see work the customer approved; deferred lines are marked do-not-perform.
@@ -3102,6 +3116,7 @@ export class PrismaServiceStore {
       include: { serviceRequest: true },
     });
     if (!wo) throw new HttpError(404, 'WORK_ORDER_NOT_FOUND');
+    assertServiceJobOpen(wo.serviceRequest);
 
     return this.db.$transaction(async tx => {
       const updated = await tx.serviceWorkOrder.update({
@@ -3140,6 +3155,7 @@ export class PrismaServiceStore {
   async recordQC(actorId: string, requestId: string, input: QCInput) {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    assertServiceJobOpen(sr);
 
     const isPass = input.result === ServiceQCResult.PASS;
     const nextStatus = isPass ? ServiceRequestStatus.QC_PASSED : ServiceRequestStatus.QC_REWORK_REQUIRED;
@@ -3200,6 +3216,7 @@ export class PrismaServiceStore {
   async recordCustodyReturn(actorId: string, requestId: string, input: CustodyInput) {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    assertServiceJobOpen(sr);
 
     return this.db.$transaction(async tx => {
       const record = await tx.serviceCustodyRecord.create({
@@ -3366,6 +3383,7 @@ export class PrismaServiceStore {
       },
     });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    assertServiceJobOpen(sr);
 
     const approvedEstimate = sr.estimates.find(e => e.status === ServiceEstimateStatus.APPROVED) || sr.estimates[0];
     let subtotalPaise = 0n;
@@ -3728,6 +3746,7 @@ export class PrismaServiceStore {
       },
     });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
+    assertServiceJobOpen(sr);
 
     return this.db.$transaction(async tx => {
       const isAutoVerify = Boolean(input.autoVerify ?? true);

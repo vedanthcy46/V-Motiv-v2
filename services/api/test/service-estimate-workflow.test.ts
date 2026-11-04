@@ -157,3 +157,33 @@ describe('work order scope', () => {
     expect(formatApprovedScope([])).toBe('');
   });
 });
+
+describe('completed and cancelled jobs are locked for staff', () => {
+  const call: Array<[string, (s: PrismaServiceStore) => Promise<unknown>]> = [
+    ['scheduleAppointment', s => s.scheduleAppointment('staff', 'req-1', {} as Any)],
+    ['dispatchPickup', s => s.dispatchPickup('staff', 'req-1', 'drv')],
+    ['recordCustodyCheckIn', s => s.recordCustodyCheckIn('staff', 'req-1', {} as Any)],
+    ['submitDiagnosis', s => s.submitDiagnosis('staff', 'req-1', {} as Any)],
+    ['createWorkOrder', s => s.createWorkOrder('staff', 'req-1', { instructions: 'x' })],
+    ['recordQC', s => s.recordQC('staff', 'req-1', { result: 'PASS', checklistResults: {} } as Any)],
+    ['recordCustodyReturn', s => s.recordCustodyReturn('staff', 'req-1', {} as Any)],
+    ['generateServiceInvoice', s => s.generateServiceInvoice('staff', 'req-1', {} as Any)],
+    ['recordPayment', s => s.recordPayment('staff', 'req-1', {} as Any)],
+  ];
+
+  for (const [status, code] of [['COMPLETED', /SERVICE_JOB_COMPLETED_LOCKED/], ['CANCELLED', /SERVICE_JOB_CANCELLED_LOCKED/]] as Array<[string, RegExp]>) {
+    it(`rejects every staff mutation on a ${status} job`, async () => {
+      for (const [name, run] of call) {
+        const { store, db } = makeStore({ requestStatus: status, estimateStatus: 'APPROVED' });
+        db.serviceRequest.findUnique.mockResolvedValue({ id: 'req-1', customerId: 'cust-1', status, requestNumber: 'SRV-1', estimates: [], payments: [], invoices: [] });
+        await expect(run(store), name).rejects.toThrow(code);
+      }
+    });
+  }
+
+  it('rejects work order updates once the job is completed', async () => {
+    const { store, db } = makeStore({ requestStatus: 'COMPLETED', estimateStatus: 'APPROVED' });
+    db.serviceWorkOrder = { findUnique: vi.fn().mockResolvedValue({ id: 'wo-1', serviceRequest: { status: 'COMPLETED' } }) };
+    await expect(store.updateWorkOrderStatus('staff', 'wo-1', 'COMPLETED' as Any)).rejects.toThrow(/SERVICE_JOB_COMPLETED_LOCKED/);
+  });
+});

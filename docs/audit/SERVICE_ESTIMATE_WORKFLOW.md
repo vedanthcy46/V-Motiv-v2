@@ -31,3 +31,8 @@ Status: implemented; API logic covered by unit tests with a mocked database (`se
 2. Photo/video evidence on each estimate line (what is worn and why); the biggest trust driver for declined-estimate conversion.
 3. Reminders: nudge the customer before `validUntil` and alert Operations if a declined or pending estimate sits untouched for N hours.
 4. Record the return handover as a custody record so the return alert can clear itself, and capture a customer-visible cancellation reason code.
+
+## Completed jobs are read-only (like a settled rental)
+- API: `assertServiceJobOpen` rejects (409 `SERVICE_JOB_COMPLETED_LOCKED` / `SERVICE_JOB_CANCELLED_LOCKED`) schedule, dispatch, custody check-in/return, diagnosis, estimate create/approve, work order create/update, QC, invoice generation and staff payment recording on a COMPLETED or CANCELLED job. Finance verification of an existing payment record and the customer-side read endpoints are unchanged.
+- Operations portal: "completed" now means status COMPLETED/DELIVERED (previously it also required an approved estimate and a zero balance, so jobs without an estimate never locked). Schedule, dispatch, intake, estimate, QC, invoice generation, payment recording and handover all show a locked/read-only state; the cancel button is hidden.
+- Tests: `service-estimate-workflow.test.ts` ("completed and cancelled jobs are locked for staff").
