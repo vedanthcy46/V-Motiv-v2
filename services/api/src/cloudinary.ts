@@ -3,6 +3,33 @@ import crypto from 'node:crypto';
 
 let isConfigured = false;
 
+type CloudinaryCredentials = { cloudName: string; apiKey: string; apiSecret: string };
+
+function getCloudinaryCredentials(): CloudinaryCredentials | null {
+  const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
+  const apiKey = process.env.CLOUDINARY_API_KEY;
+  const apiSecret = process.env.CLOUDINARY_API_SECRET;
+  if (cloudName && apiKey && apiSecret) return { cloudName, apiKey, apiSecret };
+
+  const url = process.env.CLOUDINARY_URL;
+  if (!url) return null;
+  try {
+    const parsed = new URL(url);
+    const inferredCloudName = parsed.hostname.split('.')[0];
+    const inferredApiKey = decodeURIComponent(parsed.username);
+    const inferredApiSecret = decodeURIComponent(parsed.password);
+    return inferredCloudName && inferredApiKey && inferredApiSecret
+      ? { cloudName: inferredCloudName, apiKey: inferredApiKey, apiSecret: inferredApiSecret }
+      : null;
+  } catch {
+    return null;
+  }
+}
+
+function isCloudflareWorkerRuntime(): boolean {
+  return typeof (globalThis as { WebSocketPair?: unknown }).WebSocketPair !== 'undefined';
+}
+
 export function configureCloudinary() {
   if (isConfigured) return;
 
@@ -28,9 +55,68 @@ export function configureCloudinary() {
 }
 
 export function isCloudinaryConfigured(): boolean {
+  if (isCloudflareWorkerRuntime()) return Boolean(getCloudinaryCredentials());
   configureCloudinary();
   const config = cloudinary.config();
   return Boolean(config.cloud_name && config.api_key && config.api_secret);
+}
+
+async function uploadToCloudinaryOverHttp(params: {
+  buffer: Buffer;
+  folder: string;
+  filename?: string;
+  mimeType?: string;
+  resourceType: 'image' | 'video' | 'raw';
+  tags?: string[];
+  checksumSha256: string;
+}): Promise<CloudinaryUploadResult> {
+  const credentials = getCloudinaryCredentials();
+  if (!credentials) throw new Error('CLOUDINARY_NOT_CONFIGURED');
+
+  const timestamp = Math.floor(Date.now() / 1000);
+  const publicId = params.filename?.replace(/\.[^/.]+$/, '').replace(/[^a-zA-Z0-9_-]/g, '_');
+  const tags = params.tags?.filter(Boolean).join(',') || undefined;
+  const signedParams: Record<string, string | number> = { folder: params.folder, timestamp };
+  if (publicId) signedParams.public_id = publicId;
+  if (tags) signedParams.tags = tags;
+  const signaturePayload = Object.entries(signedParams)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, value]) => `${key}=${value}`)
+    .join('&');
+  const signature = crypto.createHash('sha1').update(`${signaturePayload}${credentials.apiSecret}`).digest('hex');
+
+  const form = new FormData();
+  form.set('api_key', credentials.apiKey);
+  form.set('timestamp', String(timestamp));
+  form.set('signature', signature);
+  form.set('folder', params.folder);
+  if (publicId) form.set('public_id', publicId);
+  if (tags) form.set('tags', tags);
+  form.set('use_filename', publicId ? 'true' : 'false');
+  form.set('unique_filename', 'true');
+  form.set('overwrite', 'true');
+  form.set('file', new Blob([new Uint8Array(params.buffer)], { type: params.mimeType || 'application/octet-stream' }), params.filename || 'upload');
+
+  const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(credentials.cloudName)}/${params.resourceType}/upload`, {
+    method: 'POST',
+    body: form,
+  });
+  const body = await response.json().catch(() => ({})) as Record<string, unknown>;
+  if (!response.ok || typeof body.secure_url !== 'string' || typeof body.public_id !== 'string') {
+    throw new Error(`CLOUDINARY_UPLOAD_FAILED_${response.status}`);
+  }
+  return {
+    url: typeof body.url === 'string' ? body.url : body.secure_url,
+    secureUrl: body.secure_url,
+    publicId: body.public_id,
+    format: typeof body.format === 'string' ? body.format : (params.mimeType?.split('/')[1] || 'bin'),
+    byteSize: typeof body.bytes === 'number' ? body.bytes : params.buffer.byteLength,
+    resourceType: (body.resource_type as CloudinaryUploadResult['resourceType']) || params.resourceType,
+    checksumSha256: params.checksumSha256,
+    width: typeof body.width === 'number' ? body.width : undefined,
+    height: typeof body.height === 'number' ? body.height : undefined,
+    duration: typeof body.duration === 'number' ? body.duration : undefined,
+  };
 }
 
 export type CloudinaryUploadResult = {
@@ -70,6 +156,18 @@ export async function uploadToCloudinary(params: {
   }
 
   const checksumSha256 = crypto.createHash('sha256').update(buffer).digest('hex');
+
+  if (isCloudflareWorkerRuntime()) {
+    return uploadToCloudinaryOverHttp({
+      buffer,
+      folder,
+      filename,
+      mimeType,
+      resourceType: resourceType === 'auto' ? 'image' : resourceType,
+      tags,
+      checksumSha256,
+    });
+  }
 
   const options: UploadApiOptions = {
     folder,
