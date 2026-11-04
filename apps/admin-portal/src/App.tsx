@@ -1008,8 +1008,8 @@ function InviteDialog({ user, roles, branches, onClose, onDone }: { user: User; 
 
 function EditAccessDialog({ user, employee, roles, branches, onClose, onDone }: { user: User; employee: AdminActor; roles: Role[]; branches: Branch[]; onClose: () => void; onDone: () => void }) {
   const ref = useRef<HTMLDialogElement>(null);
-  const currentRole = roles.find(role => employee.roles.includes(role.key));
-  const [roleId, setRoleId] = useState(currentRole?.id ?? '');
+  const currentRoleIds = roles.filter(role => employee.roles.includes(role.key)).map(role => role.id);
+  const [roleIds, setRoleIds] = useState<string[]>(currentRoleIds);
   const [branchIds, setBranchIds] = useState<string[]>(employee.branches.map(branch => branch.id));
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -1019,12 +1019,13 @@ function EditAccessDialog({ user, employee, roles, branches, onClose, onDone }: 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
+    if (roleIds.length === 0) { setError('Select at least one role.'); return; }
     if (branchIds.length === 0) { setError('Select at least one branch.'); return; }
     setBusy(true);
     setError('');
     try {
       await adminApi.updateEmployeeAccess(user, employee.userId, {
-        ...(roleId && roleId !== currentRole?.id ? { roleId } : {}),
+        ...(roleIds.length !== currentRoleIds.length || roleIds.some(id => !currentRoleIds.includes(id)) ? { roleIds } : {}),
         branchIds,
         designation: String(form.get('designation') ?? '').trim() || null,
         reason: String(form.get('reason')),
@@ -1041,7 +1042,7 @@ function EditAccessDialog({ user, employee, roles, branches, onClose, onDone }: 
     {locked && <div className="alert" role="note">This employee holds a privileged role. Privileged roles are changed through the approval workflow, not here.</div>}
     <div className="form-grid">
       <label className="full">Designation<input name="designation" defaultValue={employee.designation ?? ''} maxLength={120} disabled={locked}/></label>
-      <label className="full">Role<select value={roleId} disabled={locked} onChange={event => setRoleId(event.target.value)}>{!currentRole && <option value="">Select role</option>}{roles.filter(role => !role.privileged || role.id === currentRole?.id).map(role => <option key={role.id} value={role.id}>{role.name}</option>)}</select></label>
+      <fieldset className="full" disabled={locked}><legend>Roles (select one or more) <span aria-hidden="true">*</span></legend><div className="check-grid">{roles.filter(role => !role.privileged).map(role => <label key={role.id}><input type="checkbox" checked={roleIds.includes(role.id)} onChange={event => setRoleIds(current => event.target.checked ? [...current, role.id] : current.filter(id => id !== role.id))}/><span><strong>{role.name}</strong><small>{role.description}</small></span></label>)}</div></fieldset>
       <fieldset className="full" disabled={locked}><legend>Branch access <span aria-hidden="true">*</span></legend><div className="check-grid">{branches.map(branch => <label key={branch.id}><input type="checkbox" checked={branchIds.includes(branch.id)} onChange={event => setBranchIds(current => event.target.checked ? [...current, branch.id] : current.filter(id => id !== branch.id))}/><span><strong>{branch.name}</strong><small>{branch.code} · {branch.city}</small></span></label>)}</div></fieldset>
       <label className="full">Reason for change <span aria-hidden="true">*</span><textarea name="reason" required minLength={8} maxLength={500} rows={3} placeholder="Recorded in the audit log" disabled={locked}/></label>
     </div>
@@ -2147,6 +2148,19 @@ function BusinessFinanceTab({ user }: { user: User }) {
   );
 }
 
+/** Mirrors services/api/src/master-data-rules.ts. These are the categories the customer app and portals read. */
+const MASTER_DATA_CATEGORY_OPTIONS: Array<{ value: string; label: string; parent: string | null }> = [
+  { value: 'MAKE', label: 'Car make', parent: null },
+  { value: 'MODEL', label: 'Car model (belongs to a make)', parent: 'MAKE' },
+  { value: 'VARIANT', label: 'Car variant (belongs to a model)', parent: 'MODEL' },
+  { value: 'BODY_TYPE', label: 'Body type', parent: null },
+  { value: 'FUEL_TYPE', label: 'Fuel type', parent: null },
+  { value: 'TRANSMISSION', label: 'Transmission', parent: null },
+  { value: 'COLOR', label: 'Colour', parent: null },
+  { value: 'OWNERSHIP_TYPE', label: 'Ownership type', parent: null },
+  { value: 'DOCUMENT_TYPE', label: 'Document type', parent: null },
+];
+
 function MasterDataPage({ user, actor }: { user: User; actor: AdminActor }) {
   const [items, setItems] = useState<MasterDataItem[] | null>(null);
   const [category, setCategory] = useState('');
@@ -2191,11 +2205,7 @@ function MasterDataPage({ user, actor }: { user: User; actor: AdminActor }) {
           Category
           <select value={category} onChange={e => setCategory(e.target.value)}>
             <option value="">All Categories</option>
-            <option value="CAR_MAKE">Car Make</option>
-            <option value="CAR_BODY_TYPE">Car Body Type</option>
-            <option value="FUEL_TYPE">Fuel Type</option>
-            <option value="TRANSMISSION_TYPE">Transmission Type</option>
-            <option value="DOCUMENT_TYPE">Document Type</option>
+            {MASTER_DATA_CATEGORY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
       </section>
@@ -2266,6 +2276,16 @@ function MasterDataPage({ user, actor }: { user: User; actor: AdminActor }) {
 }
 
 function CreateMasterDataDialog({ user, onClose, onDone }: { user: User; onClose: () => void; onDone: () => void }) {
+  const [categoryValue, setCategoryValue] = useState('MAKE');
+  const [parentCode, setParentCode] = useState('');
+  const [parentOptions, setParentOptions] = useState<MasterDataItem[]>([]);
+  const parentCategory = MASTER_DATA_CATEGORY_OPTIONS.find(option => option.value === categoryValue)?.parent ?? null;
+  useEffect(() => {
+    if (!parentCategory) { setParentOptions([]); return; }
+    let active = true;
+    adminApi.masterData(user, parentCategory).then(items => { if (active) setParentOptions(items.filter(item => item.active)); }).catch(() => { if (active) setParentOptions([]); });
+    return () => { active = false; };
+  }, [user, parentCategory]);
   const ref = useRef<HTMLDialogElement>(null);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -2282,7 +2302,7 @@ function CreateMasterDataDialog({ user, onClose, onDone }: { user: User; onClose
         category: String(form.get('category')).trim().toUpperCase(),
         code: String(form.get('code')).trim().toUpperCase(),
         name: String(form.get('name')).trim(),
-        parentCode: String(form.get('parentCode')).trim().toUpperCase() || undefined,
+        parentCode: String(form.get('parentCode') ?? '').trim().toUpperCase() || undefined,
       });
       onDone();
     } catch (err) {
@@ -2306,12 +2326,8 @@ function CreateMasterDataDialog({ user, onClose, onDone }: { user: User; onClose
         {error && <div className="alert error" role="alert">{error}</div>}
         <label>
           Category <span aria-hidden="true">*</span>
-          <select name="category" required defaultValue="CAR_MAKE">
-            <option value="CAR_MAKE">Car Make (CAR_MAKE)</option>
-            <option value="CAR_BODY_TYPE">Car Body Type (CAR_BODY_TYPE)</option>
-            <option value="FUEL_TYPE">Fuel Type (FUEL_TYPE)</option>
-            <option value="TRANSMISSION_TYPE">Transmission Type (TRANSMISSION_TYPE)</option>
-            <option value="DOCUMENT_TYPE">Document Type (DOCUMENT_TYPE)</option>
+          <select name="category" required value={categoryValue} onChange={event => { setCategoryValue(event.target.value); setParentCode(''); }}>
+            {MASTER_DATA_CATEGORY_OPTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
           </select>
         </label>
         <label>
@@ -2322,10 +2338,15 @@ function CreateMasterDataDialog({ user, onClose, onDone }: { user: User; onClose
           Display Name <span aria-hidden="true">*</span>
           <input name="name" required minLength={1} maxLength={160} placeholder="e.g. Hyundai, SUV, Diesel" />
         </label>
-        <label>
-          Parent Code (Optional)
-          <input name="parentCode" maxLength={80} placeholder="e.g. MAKE code if defining a model" />
-        </label>
+        {parentCategory && (
+          <label>
+            {parentCategory === 'MAKE' ? 'Make' : 'Model'} <span aria-hidden="true">*</span>
+            <select name="parentCode" required value={parentCode} onChange={event => setParentCode(event.target.value)}>
+              <option value="">Select {parentCategory === 'MAKE' ? 'a make' : 'a model'}</option>
+              {parentOptions.map(item => <option key={item.id} value={item.code}>{item.name}</option>)}
+            </select>
+          </label>
+        )}
         <footer>
           <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
           <button className="button primary" disabled={busy}>

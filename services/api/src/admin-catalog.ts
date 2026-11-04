@@ -1,4 +1,5 @@
 import type { EmployeeRole, Prisma, PrismaClient } from '@prisma/client';
+import { catalogMasterData } from './master-data-seed.js';
 
 export const permissionCatalog = {
   'admin.portal.access': 'Enter the Admin Control Centre.',
@@ -142,7 +143,7 @@ export async function ensureAdminCatalog(db: CatalogClient) {
   }
 }
 
-export const canonicalMasterData = [
+const baseMasterData = [
   // Vehicle Makes
   { category: 'MAKE', code: 'MARUTI_SUZUKI', name: 'Maruti Suzuki', parentCode: null },
   { category: 'MAKE', code: 'HYUNDAI', name: 'Hyundai', parentCode: null },
@@ -180,12 +181,27 @@ export const canonicalMasterData = [
   { category: 'DOCUMENT_TYPE', code: 'ID_PROOF', name: 'Government ID Proof', parentCode: null },
 ];
 
+/** Everything the platform starts with: the app's former built-in catalogue plus body types, extra transmissions and document types. */
+export const canonicalMasterData: Array<{ category: string; code: string; name: string; parentCode: string | null; metadata?: Record<string, unknown> }> = (() => {
+  const seen = new Set<string>();
+  return [...catalogMasterData, ...baseMasterData].filter(item => {
+    const key = `${item.category}:${item.code}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+})();
+
+/**
+ * Creates any missing standard items. Existing rows are never touched, so renames, deactivations and
+ * metadata an administrator has set are preserved when the seed is re-run.
+ */
 export async function ensureMasterDataCatalog(db: PrismaClient | Prisma.TransactionClient) {
   for (const item of canonicalMasterData) {
     await (db as any).masterDataItem.upsert({
       where: { category_code: { category: item.category, code: item.code } },
-      update: { name: item.name, parentCode: item.parentCode },
-      create: { category: item.category, code: item.code, name: item.name, parentCode: item.parentCode, metadata: {} },
+      update: {},
+      create: { category: item.category, code: item.code, name: item.name, parentCode: item.parentCode, metadata: item.metadata ?? {} },
     });
   }
 }

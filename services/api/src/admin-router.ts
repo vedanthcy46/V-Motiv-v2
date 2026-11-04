@@ -44,11 +44,11 @@ const rentalKmPolicyInput = z.object({
   extraKmRatePaise: z.number().int().min(100).max(100000).nullable().optional(),
 }).strict().refine(value => Object.keys(value).length > 0);
 const employeeAccessInput = z.object({
-  roleId: z.string().uuid().optional(),
+  roleIds: z.array(z.string().uuid()).min(1).max(10).optional(),
   branchIds: z.array(z.string().uuid()).min(1).max(20).optional(),
   designation: z.string().trim().max(120).nullable().optional(),
   reason: z.string().trim().min(8).max(500),
-}).strict().refine(value => value.roleId !== undefined || value.branchIds !== undefined || value.designation !== undefined, { message: 'Nothing to change' });
+}).strict().refine(value => value.roleIds !== undefined || value.branchIds !== undefined || value.designation !== undefined, { message: 'Nothing to change' });
 const serviceAreaCreateInput = z.object({ name: z.string().trim().min(2).max(120) }).strict();
 const serviceAreaUpdateInput = z.object({ active: z.boolean() }).strict();
 const supportQuery = pagination.extend({ status: z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']).optional(), search: z.string().trim().max(120).optional() });

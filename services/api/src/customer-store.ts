@@ -1,3 +1,4 @@
+import { dropOrphanedChildren, normalizeMasterDataCategory } from './master-data-rules.js';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
 import { profileSelect } from './identity-store.js';
@@ -871,21 +872,15 @@ export class PrismaCustomerStore implements CustomerStore {
   }
   async cities() { return this.db.supportedCity.findMany({ where: { active: true }, select: { id: true, name: true }, orderBy: { name: 'asc' } }); }
   async masterData(category?: string) {
-    return this.db.masterDataItem.findMany({
-      where: {
-        active: true,
-        ...(category ? { category: { equals: category.trim().toUpperCase() } } : {}),
-      },
-      select: {
-        id: true,
-        category: true,
-        code: true,
-        name: true,
-        parentCode: true,
-        metadata: true,
-      },
+    const items = await this.db.masterDataItem.findMany({
+      // Children are filtered against their parents below, so read the whole table (a few hundred rows).
+      select: { id: true, category: true, code: true, name: true, parentCode: true, metadata: true, active: true, updatedAt: true },
       orderBy: [{ category: 'asc' }, { name: 'asc' }],
     });
+    const wanted = category ? normalizeMasterDataCategory(category) ?? category.trim().toUpperCase() : null;
+    return dropOrphanedChildren(items)
+      .filter(item => !wanted || item.category === wanted)
+      .map(({ active: _active, ...item }) => item);
   }
   async addresses(uid: string) {
     const user = await this.user(uid);

@@ -74,18 +74,17 @@ import {
 } from '../services/connect-api';
 import {
   CAR_COLOURS,
-  CAR_MAKES,
-  MODELS_BY_MAKE,
-  OWNERSHIP_TYPES,
   QUICK_YEARS,
-  FUEL_TYPES,
-  TRANSMISSIONS,
 } from '../constants/car-catalog';
+import { useCatalog } from '../services/master-data';
+import { modelsForMake } from '../services/master-data-model';
 import { CURRENT_YEAR } from '../utils/calendar';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
 import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 export function MyGarageScreen() {
+  // Lists come from the administrator-managed master data (cached, with a bundled offline fallback).
+  const catalog = useCatalog();
   const tabBottomPadding = useTabScreenBottomPadding();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
@@ -185,14 +184,14 @@ export function MyGarageScreen() {
 
   const filteredMakes = useMemo(() => {
     const q = makeSearch.trim().toLowerCase();
-    if (!q) return CAR_MAKES;
-    return CAR_MAKES.filter(m => m.name.toLowerCase().includes(q));
-  }, [makeSearch]);
+    if (!q) return catalog.makes;
+    return catalog.makes.filter(m => m.name.toLowerCase().includes(q));
+  }, [makeSearch, catalog.makes]);
 
   const suggestedModels = useMemo(() => {
     if (!make) return [];
-    return MODELS_BY_MAKE[make] || [];
-  }, [make]);
+    return modelsForMake(catalog.modelsByMake, make);
+  }, [make, catalog.modelsByMake]);
 
   const loadConnectDataForVehicles = useCallback(async (vehList: CustomerVehicle[]) => {
     const statuses: Record<string, GarageConnectInfo> = {};
@@ -1127,7 +1126,7 @@ export function MyGarageScreen() {
               <View style={styles.formSection}>
                 <Text style={[styles.label, { color: c.text }]}>Fuel Type</Text>
                 <View style={styles.pillSelectorRow}>
-                  {FUEL_TYPES.map(f => {
+                  {catalog.fuelTypes.map(f => {
                     const isSelected = fuelType === f.value;
                     return (
                       <TouchableOpacity
@@ -1154,7 +1153,7 @@ export function MyGarageScreen() {
               <View style={styles.formSection}>
                 <Text style={[styles.label, { color: c.text }]}>Transmission</Text>
                 <View style={styles.pillSelectorRow}>
-                  {TRANSMISSIONS.map(t => {
+                  {catalog.transmissions.map(t => {
                     const isSelected = transmission === t.value;
                     return (
                       <TouchableOpacity
@@ -1263,7 +1262,7 @@ export function MyGarageScreen() {
               <View style={styles.formSection}>
                 <Text style={[styles.label, { color: c.text }]}>Ownership Relationship</Text>
                 <View style={styles.pillSelectorRow}>
-                  {OWNERSHIP_TYPES.map(o => {
+                  {catalog.ownershipTypes.map(o => {
                     const isSelected = ownership === o.value;
                     return (
                       <TouchableOpacity

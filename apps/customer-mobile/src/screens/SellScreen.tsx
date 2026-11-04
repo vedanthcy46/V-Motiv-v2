@@ -31,6 +31,8 @@ import { useAuth } from '../auth/AuthProvider';
 import { AuthScreen } from './AuthScreen';
 import { BrandLogo } from '../components/BrandLogo';
 import { useAppTheme, radius, space } from '../theme';
+import { useCatalog } from '../services/master-data';
+import { modelsForMake } from '../services/master-data-model';
 import { friendlyError } from '../format';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 import type { CustomerAddress, SupportedCity } from '../types';
@@ -43,19 +45,6 @@ import { KeyboardScrollView } from '../components/KeyboardScrollView';
 const DRAFT_KEY = 'vmotiv.v2.sell-draft';
 
 // ─── Static data ───────────────────────────────────────────────────────────
-const FUEL_TYPES = [
-  { value: 'PETROL', label: 'Petrol' },
-  { value: 'DIESEL', label: 'Diesel' },
-  { value: 'CNG', label: 'CNG' },
-  { value: 'ELECTRIC', label: 'Electric' },
-  { value: 'HYBRID', label: 'Hybrid' },
-];
-
-const TRANSMISSIONS = [
-  { value: 'MANUAL', label: 'Manual' },
-  { value: 'AUTOMATIC', label: 'Automatic' },
-];
-
 const OWNERSHIPS = [
   { value: '1', label: '1st Owner' },
   { value: '2', label: '2nd Owner' },
@@ -71,79 +60,6 @@ function formatDateIso(d: Date): string {
   const day = String(d.getDate()).padStart(2, '0');
   return `${y}-${m}-${day}`;
 }
-
-// ─── Car brands (Indian market — authentic logos) ───
-const MAKES = [
-  // High-Volume Indian Market Makes
-  { name: 'Maruti Suzuki' },
-  { name: 'Hyundai' },
-  { name: 'Tata' },
-  { name: 'Mahindra' },
-  { name: 'Toyota' },
-  { name: 'Kia' },
-  { name: 'Honda' },
-  { name: 'Volkswagen' },
-  { name: 'Skoda' },
-  { name: 'Renault' },
-  { name: 'MG' },
-  { name: 'BYD' },
-  { name: 'Nissan' },
-  { name: 'Ford' },
-  { name: 'Jeep' },
-  { name: 'Citroen' },
-  { name: 'Datsun' },
-
-  // Luxury & Premium Makes
-  { name: 'Mercedes-Benz' },
-  { name: 'BMW' },
-  { name: 'Audi' },
-  { name: 'Volvo' },
-  { name: 'Jaguar' },
-  { name: 'Land Rover' },
-  { name: 'Porsche' },
-
-  // Ultra-Luxury & Exotic Makes
-  { name: 'Rolls-Royce' },
-  { name: 'Ferrari' },
-  { name: 'Lamborghini' },
-  { name: 'Bugatti' },
-];
-
-// Popular models per make for fast selection
-const MODELS_BY_MAKE: Record<string, string[]> = {
-  'Maruti Suzuki': ['Swift', 'Baleno', 'Dzire', 'Vitara Brezza', 'Ertiga', 'Alto', 'WagonR', 'Celerio', 'Ciaz', 'S-Cross', 'Ignis', 'XL6', 'Grand Vitara', 'Fronx', 'Jimny'],
-  'Maruti': ['Swift', 'Baleno', 'Dzire', 'Vitara Brezza', 'Ertiga', 'Alto', 'WagonR', 'Celerio', 'Ciaz', 'S-Cross', 'Ignis', 'XL6', 'Grand Vitara', 'Fronx', 'Jimny'],
-  'Suzuki': ['Swift', 'Baleno', 'Dzire', 'Vitara Brezza', 'Ertiga', 'Alto', 'WagonR', 'Celerio', 'Ciaz', 'S-Cross', 'Ignis', 'XL6', 'Grand Vitara', 'Fronx', 'Jimny'],
-  'Hyundai': ['Creta', 'Venue', 'i20', 'i10', 'Verna', 'Tucson', 'Alcazar', 'Aura', 'Exter', 'Grand i10 Nios', 'Ioniq 5', 'Kona Electric'],
-  'Tata': ['Nexon', 'Harrier', 'Safari', 'Altroz', 'Tiago', 'Tigor', 'Punch', 'Curvv', 'Nexon EV', 'Tiago EV', 'Punch EV'],
-  'Mahindra': ['XUV700', 'XUV300', 'XUV 3XO', 'Thar', 'Scorpio', 'Scorpio-N', 'Bolero', 'XUV400', 'Marazzo', 'Alturas G4', 'BE 6e'],
-  'Honda': ['City', 'Amaze', 'Elevate', 'Jazz', 'WR-V', 'Civic', 'CR-V', 'BR-V', 'Brio'],
-  'Toyota': ['Innova Crysta', 'Fortuner', 'Innova Hycross', 'Urban Cruiser', 'Glanza', 'Hyryder', 'Camry', 'Corolla Altis', 'Vellfire', 'Hilux', 'Land Cruiser'],
-  'Kia': ['Seltos', 'Sonet', 'Carens', 'Carnival', 'EV6', 'EV9'],
-  'Renault': ['Kwid', 'Triber', 'Kiger', 'Duster', 'Lodgy', 'Captur'],
-  'Skoda': ['Kushaq', 'Slavia', 'Octavia', 'Superb', 'Kodiaq', 'Rapid', 'Kylaq'],
-  'Volkswagen': ['Polo', 'Virtus', 'Taigun', 'Vento', 'Tiguan', 'Jetta', 'Passat'],
-  'Ford': ['EcoSport', 'Endeavour', 'Figo', 'Aspire', 'Freestyle', 'Mustang', 'Fiesta'],
-  'MG': ['Hector', 'Astor', 'Gloster', 'ZS EV', 'Comet EV', 'Windsor EV'],
-  'BYD': ['Atto 3', 'Seal', 'eMax 7', 'e6', 'Dolphin', 'Sealion 6'],
-  'byd': ['Atto 3', 'Seal', 'eMax 7', 'e6', 'Dolphin', 'Sealion 6'],
-  'Jeep': ['Compass', 'Meridian', 'Wrangler', 'Grand Cherokee'],
-  'Nissan': ['Magnite', 'Kicks', 'Sunny', 'Micra', 'Terrano', 'X-Trail', 'Evalia'],
-  'Citroen': ['C3', 'C3 Aircross', 'Basalt', 'C5 Aircross', 'eC3'],
-  'Datsun': ['Go', 'Go+', 'Redi-GO'],
-  'Mercedes-Benz': ['C-Class', 'E-Class', 'GLA', 'GLC', 'GLE', 'S-Class', 'A-Class Limousine', 'GLS', 'CLA', 'G-Wagon', 'EQE', 'EQS'],
-  'Mercedes': ['C-Class', 'E-Class', 'GLA', 'GLC', 'GLE', 'S-Class', 'A-Class Limousine', 'GLS', 'CLA', 'G-Wagon', 'EQE', 'EQS'],
-  'BMW': ['3 Series', '5 Series', 'X1', 'X3', 'X5', '2 Series Gran Coupe', '7 Series', 'Z4', 'X7', 'iX1', 'i4', 'iX'],
-  'Audi': ['A4', 'A6', 'Q3', 'Q5', 'Q7', 'A3', 'Q8', 'A8 L', 'e-tron', 'RS5'],
-  'Volvo': ['XC40', 'XC60', 'XC90', 'S60', 'S90', 'C40 Recharge', 'EX40'],
-  'Jaguar': ['XE', 'XF', 'XJ', 'F-Pace', 'E-Pace', 'F-Type', 'I-Pace'],
-  'Land Rover': ['Defender', 'Range Rover Evoque', 'Range Rover Velar', 'Range Rover Sport', 'Discovery Sport', 'Discovery', 'Range Rover'],
-  'Porsche': ['Cayenne', 'Macan', 'Panamera', '911 Carrera', '718 Cayman', '718 Boxster', 'Taycan'],
-  'Rolls-Royce': ['Ghost', 'Phantom', 'Cullinan', 'Wraith', 'Dawn', 'Spectre'],
-  'Ferrari': ['488 GTB', 'F8 Tributo', 'Roma', 'Portofino', '296 GTB', '812 Superfast', 'California T', 'Purosangue'],
-  'Lamborghini': ['Urus', 'Huracan', 'Aventador', 'Gallardo', 'Revuelto'],
-  'Bugatti': ['Chiron', 'Veyron', 'Divo', 'Bolide', 'Tourbillon'],
-};
 
 // Colour options with swatch hex values
 const COLOUR_OPTIONS = [
@@ -275,6 +191,8 @@ function Pill({
 // ─── Main component ────────────────────────────────────────────────────────
 
 export function SellScreen() {
+  // Makes, models, fuel and transmission come from the administrator-managed master data (cached, with a bundled offline fallback).
+  const catalog = useCatalog();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { user, state: authState } = useAuth();
@@ -776,10 +694,10 @@ export function SellScreen() {
 
   // ── Filtered makes for search ─────────────────────────────────────────────
   const filteredMakes = makeSearch.trim()
-    ? MAKES.filter((m) => m.name.toLowerCase().includes(makeSearch.toLowerCase()))
-    : MAKES;
+    ? catalog.makes.filter((m) => m.name.toLowerCase().includes(makeSearch.toLowerCase()))
+    : catalog.makes;
 
-  const suggestedModels = make ? (MODELS_BY_MAKE[make] || []) : [];
+  const suggestedModels = make ? modelsForMake(catalog.modelsByMake, make) : [];
 
   // ── Wizard ────────────────────────────────────────────────────────────────
   return (
@@ -1122,7 +1040,7 @@ export function SellScreen() {
               <View style={styles.fieldGroup}>
                 <Text style={[styles.label, { color: c.textPrimary }]}>Fuel Type *</Text>
                 <View style={styles.pillRow}>
-                  {FUEL_TYPES.map((f) => (
+                  {catalog.fuelTypes.map((f) => (
                     <Pill key={f.value} label={f.label} active={fuelType === f.value} onPress={() => setFuelType(f.value)} themeColors={c} />
                   ))}
                 </View>
@@ -1131,7 +1049,7 @@ export function SellScreen() {
               <View style={styles.fieldGroup}>
                 <Text style={[styles.label, { color: c.textPrimary }]}>Transmission *</Text>
                 <View style={styles.pillRow}>
-                  {TRANSMISSIONS.map((t) => (
+                  {catalog.transmissions.map((t) => (
                     <Pill key={t.value} label={t.label} active={transmission === t.value} onPress={() => setTransmission(t.value)} themeColors={c} />
                   ))}
                 </View>

@@ -56,6 +56,8 @@ export type PolicyProposal = { key: string; title: string; content: unknown; eff
 export type BusinessSellingQuery = { page: number; limit: number; status?: string; search?: string };
 export type BusinessBuyingQuery = { page: number; limit: number; status?: string; search?: string };
 export type BusinessInventoryQuery = { page: number; limit: number; status?: string; search?: string };
+import { normalizeMasterDataCode, validateMasterDataShape } from './master-data-rules.js';
+
 export type MasterDataItemInput = { category: string; code: string; name: string; parentCode?: string; metadata?: Record<string, unknown> };
 export type MasterDataUpdateInput = { name?: string; active?: boolean; metadata?: Record<string, unknown> };
 export type CommunicationsOutboxQuery = { page: number; limit: number; state?: string };
@@ -65,7 +67,7 @@ export type CreateExportJobInput = { resourceType: string; scope?: string; filte
 /** null clears the hub value so vehicles fall back to their own km settings. */
 export type RentalKmPolicyInput = { includedKmPerDay?: number | null; extraKmRatePaise?: number | null };
 
-export type EmployeeAccessInput = { roleId?: string; branchIds?: string[]; designation?: string | null; reason: string };
+export type EmployeeAccessInput = { roleIds?: string[]; branchIds?: string[]; designation?: string | null; reason: string };
 
 export interface AdminStore {
   actor(uid: string): Promise<AdminActor>;
@@ -966,7 +968,7 @@ export class PrismaAdminStore implements AdminStore {
    */
   async updateEmployeeAccess(actor: AdminActor, employeeId: string, input: EmployeeAccessInput) {
     requirePermission(actor, 'employee.update');
-    if (input.roleId !== undefined) requirePermission(actor, 'role.assign');
+    if (input.roleIds !== undefined) requirePermission(actor, 'role.assign');
     if (actor.userId === employeeId) throw new HttpError(409, 'SELF_ACCESS_CHANGE_DENIED');
     const isSuper = actor.roles.includes('SUPER_ADMIN');
     const inScope = (branchId: string) => isSuper || actor.branches.some(branch => branch.id === branchId);
@@ -979,12 +981,15 @@ export class PrismaAdminStore implements AdminStore {
       if (target.branchAssignments.some(item => !inScope(item.branchId))) throw new HttpError(403, 'BRANCH_SCOPE_DENIED');
       if (target.roleAssignments.some(item => item.role.privileged)) throw new HttpError(403, 'PRIVILEGED_ROLE_CHANGE_REQUIRES_APPROVAL');
 
-      let nextRole: { id: string; key: string } | null = null;
-      if (input.roleId !== undefined) {
-        const role = await tx.role.findUnique({ where: { id: input.roleId } });
-        if (!role?.active) throw new HttpError(400, 'ROLE_NOT_AVAILABLE');
-        if (role.privileged) throw new HttpError(403, 'PRIVILEGED_ROLE_APPROVAL_REQUIRED');
-        nextRole = { id: role.id, key: role.key };
+      // An employee can hold several non-privileged roles (e.g. Operations + Inspector).
+      let nextRoles: Array<{ id: string; key: string }> | null = null;
+      if (input.roleIds !== undefined) {
+        const unique = [...new Set(input.roleIds)];
+        if (unique.length === 0) throw new HttpError(400, 'AT_LEAST_ONE_ROLE_REQUIRED');
+        const found = await tx.role.findMany({ where: { id: { in: unique } } });
+        if (found.length !== unique.length || found.some(role => !role.active)) throw new HttpError(400, 'ROLE_NOT_AVAILABLE');
+        if (found.some(role => role.privileged)) throw new HttpError(403, 'PRIVILEGED_ROLE_APPROVAL_REQUIRED');
+        nextRoles = found.map(role => ({ id: role.id, key: role.key }));
       }
 
       let nextBranchIds: string[] | null = null;
@@ -1003,9 +1008,9 @@ export class PrismaAdminStore implements AdminStore {
         designation: target.designation,
       };
 
-      if (nextRole) {
+      if (nextRoles) {
         await tx.employeeRoleAssignment.deleteMany({ where: { employeeId } });
-        await tx.employeeRoleAssignment.create({ data: { employeeId, roleId: nextRole.id, assignedById: actor.userId } });
+        await tx.employeeRoleAssignment.createMany({ data: nextRoles.map(role => ({ employeeId, roleId: role.id, assignedById: actor.userId })) });
       }
       if (nextBranchIds) {
         await tx.employeeBranchAssignment.deleteMany({ where: { employeeId, branchId: { notIn: nextBranchIds } } });
@@ -1016,7 +1021,8 @@ export class PrismaAdminStore implements AdminStore {
       const updated = await tx.employee.update({
         where: { userId: employeeId },
         data: {
-          ...(nextRole ? { role: nextRole.key as never } : {}),
+          // Keep the current primary role when it is still held; otherwise use the first selected role.
+          ...(nextRoles ? { role: (nextRoles.some(role => role.key === target.role) ? target.role : nextRoles[0]!.key) as never } : {}),
           ...(input.designation !== undefined ? { designation: input.designation?.trim() || null } : {}),
         },
         select: { userId: true, designation: true },
@@ -1027,10 +1033,10 @@ export class PrismaAdminStore implements AdminStore {
           action: 'EMPLOYEE_ACCESS_UPDATED',
           entityType: 'Employee',
           entityId: employeeId,
-          details: { reason: input.reason, before, after: { roles: nextRole ? [nextRole.key] : before.roles, branchIds: nextBranchIds ?? before.branchIds, designation: updated.designation } },
+          details: { reason: input.reason, before, after: { roles: nextRoles ? nextRoles.map(role => role.key) : before.roles, branchIds: nextBranchIds ?? before.branchIds, designation: updated.designation } },
         },
       });
-      return { userId: updated.userId, roles: nextRole ? [nextRole.key] : before.roles, branchIds: nextBranchIds ?? before.branchIds, designation: updated.designation };
+      return { userId: updated.userId, roles: nextRoles ? nextRoles.map(role => role.key) : before.roles, branchIds: nextBranchIds ?? before.branchIds, designation: updated.designation };
     });
   }
 
@@ -1243,12 +1249,21 @@ export class PrismaAdminStore implements AdminStore {
 
   async createMasterDataItem(actor: AdminActor, input: MasterDataItemInput) {
     requirePermission(actor, 'masterdata.manage');
+    const shape = validateMasterDataShape(input);
+    if (!shape.ok) throw new HttpError(400, shape.error);
+    const parentCode = input.parentCode ? normalizeMasterDataCode(input.parentCode) : null;
+    if (shape.parentCategory && parentCode) {
+      const parent = await this.db.masterDataItem.findUnique({ where: { category_code: { category: shape.parentCategory, code: parentCode } } });
+      if (!parent?.active) throw new HttpError(400, 'PARENT_ITEM_NOT_FOUND_OR_INACTIVE');
+    }
+    const existing = await this.db.masterDataItem.findUnique({ where: { category_code: { category: shape.category, code: shape.code } } });
+    if (existing) throw new HttpError(409, 'MASTER_DATA_ITEM_ALREADY_EXISTS');
     const item = await this.db.masterDataItem.create({
       data: {
-        category: input.category.trim().toUpperCase(),
-        code: input.code.trim().toUpperCase(),
+        category: shape.category,
+        code: shape.code,
         name: input.name.trim(),
-        parentCode: input.parentCode ? input.parentCode.trim().toUpperCase() : null,
+        parentCode,
         metadata: (input.metadata || {}) as Prisma.InputJsonValue,
       },
     });

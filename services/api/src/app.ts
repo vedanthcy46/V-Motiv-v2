@@ -23,6 +23,7 @@ const __filename = typeof import.meta !== 'undefined' && typeof import.meta.url 
   : '';
 const __dirname = __filename ? path.dirname(__filename) : (typeof process !== 'undefined' && process.cwd ? process.cwd() : '');
 import { rateLimit } from 'express-rate-limit';
+import { withMfaStatusSync } from './mfa-sync.js';
 import { isSandboxPaymentsEnabled } from './payment-signature.js';
 import { authentication, optionalAuthentication, type Identity, type VerifyToken } from './auth.js';
 import type { IdentityStore } from './identity-store.js';
@@ -162,6 +163,8 @@ export function createApp(deps: {
   onEmailQueued?: () => Promise<unknown> | unknown;
   drainEmails?: () => Promise<number>;
 }) {
+  // Keep each employee's MFA status truthful whichever portal or app they signed in to.
+  deps.verify = withMfaStatusSync(deps.verify, (deps as { db?: any }).db);
   const app = express();
   app.disable('x-powered-by');
   // Required for Vercel/proxy environments: enables correct IP detection for rate limiting
@@ -460,7 +463,17 @@ export function createApp(deps: {
     unifiedApiRouter.get('/cities', async (_req, res) => res.json(await deps.customer!.cities()));
     unifiedApiRouter.get('/master-data', async (req, res) => {
       const category = req.query.category ? String(req.query.category).trim() : undefined;
-      res.json(await deps.customer!.masterData(category));
+      const items = (await deps.customer!.masterData(category)) as Array<{ updatedAt?: Date | string }>;
+      // Version tag so apps can cache the list and only re-download it when an administrator changes something.
+      const latest = items.reduce((max, item) => Math.max(max, item.updatedAt ? new Date(item.updatedAt).getTime() : 0), 0);
+      const etag = `W/"md-${category ?? 'all'}-${items.length}-${latest}"`;
+      res.setHeader('ETag', etag);
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      if (req.headers['if-none-match'] === etag) {
+        res.status(304).end();
+        return;
+      }
+      res.json(items);
     });
   }
 

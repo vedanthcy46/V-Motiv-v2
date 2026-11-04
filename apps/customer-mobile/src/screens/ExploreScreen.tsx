@@ -275,7 +275,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
     const fromInventory = baseInventory
       .map((i) => i.vehicle?.make?.trim())
       .filter((m): m is string => Boolean(m));
-    const combined = Array.from(new Set([...fromInventory, ...fromMaster, ...POPULAR_BRANDS]));
+    const combined = Array.from(new Set([...fromInventory, ...(fromMaster.length > 0 ? fromMaster : POPULAR_BRANDS)]));
     // Prioritize brands with available cars in inventory
     return combined.sort((a, b) => {
       const countA = inventoryBrandCounts[a.toLowerCase()] || 0;
