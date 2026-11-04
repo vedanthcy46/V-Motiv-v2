@@ -558,7 +558,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
             }}
           />
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
             style={[
               styles.keyboardAvoidWrap,
@@ -729,7 +729,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
             }}
           />
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
             style={[
               styles.keyboardAvoidWrap,

@@ -472,7 +472,7 @@ export function KeyboardResizeContainer({
 }: KeyboardResizeContainerProps) {
   return (
     <KeyboardAvoidingView
-      behavior="padding"
+      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
       keyboardVerticalOffset={keyboardVerticalOffset}
       style={[{ flex: 1 }, style]}
     >

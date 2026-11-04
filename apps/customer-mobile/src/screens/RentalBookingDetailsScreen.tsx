@@ -1098,7 +1098,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
         onRequestClose={() => setExtensionModalVisible(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalBackdrop}
         >
           <Pressable
@@ -1330,7 +1330,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
         onRequestClose={() => setPayBalanceModalVisible(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
           style={styles.modalBackdrop}
         >
           <View
