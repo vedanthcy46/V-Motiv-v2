@@ -1,4 +1,5 @@
 import { HttpError } from './errors.js';
+import { isDemoProof, isSandboxPaymentsEnabled } from './payment-signature.js';
 
 export interface CapturedGatewayPayment {
   paymentId: string;
@@ -64,12 +65,14 @@ export async function fetchRazorpayPayment(
  * Returns the amount actually captured. Outside production returns null (dev/test fixtures).
  */
 export async function assertCapturedAmount(
-  proof: { gatewayOrderId?: string | null; gatewayPaymentId?: string | null },
+  proof: { paymentGateway?: string | null; gatewayOrderId?: string | null; gatewayPaymentId?: string | null; gatewaySignature?: string | null },
   expectedPaise: bigint | null,
   opts: GatewayAmountOptions & { exact?: boolean } = {},
 ): Promise<bigint | null> {
   const env = opts.env ?? process.env;
   if (env.NODE_ENV !== 'production') return null;
+  // Sandbox deployment: demo payments have no real gateway record to look up.
+  if (isSandboxPaymentsEnabled(env) && isDemoProof(proof)) return null;
   if (!proof.gatewayPaymentId) throw new HttpError(400, 'INVALID_PAYMENT_SIGNATURE');
 
   const payment = await fetchRazorpayPayment(proof.gatewayPaymentId, opts);

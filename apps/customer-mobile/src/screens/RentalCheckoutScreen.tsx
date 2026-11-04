@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStack } from '../navigation/types';
 import { useAppTheme } from '../theme';
+import { SandboxPaymentBanner } from '../components/SandboxPaymentBanner';
 import {
   ArrowLeft,
   Clock,
@@ -998,6 +999,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             <Lock size={14} color={colors.success} />
           </Pressable>
 
+          <SandboxPaymentBanner />
           {/* One-Click Instant Test / Demo Pay */}
           <Pressable
             accessibilityRole="radio"

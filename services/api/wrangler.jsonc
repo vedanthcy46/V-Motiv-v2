@@ -16,5 +16,22 @@
     "FINANCE_WEB_ORIGIN": "https://finance.vmotiv.in",
     "FIREBASE_PROJECT_ID": "v-motiv",
     "EMAIL_DELIVERY_ENABLED": "false"
+  },
+  "env": {
+    "staging": {
+      "name": "vmotiv-api-staging",
+      "vars": {
+        "NODE_ENV": "production",
+        "PAYMENT_SANDBOX_MODE": "true",
+        "WEB_ORIGIN": "https://vmotiv.in",
+        "ADMIN_WEB_ORIGIN": "https://admin.vmotiv.in",
+        "SALES_WEB_ORIGIN": "https://sales.vmotiv.in",
+        "INSPECTION_REVIEW_WEB_ORIGIN": "https://review.vmotiv.in",
+        "OPERATIONS_WEB_ORIGIN": "https://ops.vmotiv.in",
+        "FINANCE_WEB_ORIGIN": "https://finance.vmotiv.in",
+        "FIREBASE_PROJECT_ID": "v-motiv",
+        "EMAIL_DELIVERY_ENABLED": "false"
+      }
+    }
   }
 }

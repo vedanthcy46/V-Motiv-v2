@@ -43,3 +43,33 @@ describe('assertWebhookSignature', () => {
     expect(() => assertWebhookSignature('{"event": "payment.captured"}', sign('k', body), 'k', 'hex', prod())).toThrow(/INVALID_WEBHOOK_SIGNATURE/);
   });
 });
+
+import { isDemoProof, isSandboxPaymentsEnabled } from '../src/payment-signature.js';
+import { assertCapturedAmount } from '../src/razorpay-gateway.js';
+
+describe('sandbox gateway switch', () => {
+  const demo = { paymentGateway: 'DEMO', gatewayOrderId: 'order_srv_1', gatewayPaymentId: 'pay_demo_1', gatewaySignature: 'demo_sig_verified_vmotiv' };
+
+  it('is off in production unless explicitly enabled, and never with a live key', () => {
+    expect(isSandboxPaymentsEnabled({ NODE_ENV: 'production' } as NodeJS.ProcessEnv)).toBe(false);
+    expect(isSandboxPaymentsEnabled({ NODE_ENV: 'production', PAYMENT_SANDBOX_MODE: 'true' } as NodeJS.ProcessEnv)).toBe(true);
+    expect(isSandboxPaymentsEnabled({ NODE_ENV: 'production', PAYMENT_SANDBOX_MODE: 'true', RAZORPAY_KEY_ID: 'rzp_live_abc' } as NodeJS.ProcessEnv)).toBe(false);
+    expect(isSandboxPaymentsEnabled({ NODE_ENV: 'production', PAYMENT_SANDBOX_MODE: 'true', RAZORPAY_KEY_ID: 'rzp_test_abc' } as NodeJS.ProcessEnv)).toBe(true);
+    expect(isSandboxPaymentsEnabled({ NODE_ENV: 'development' } as NodeJS.ProcessEnv)).toBe(true);
+  });
+
+  it('accepts demo proofs on a sandbox deployment but still verifies real-looking proofs', async () => {
+    const env = prod({ PAYMENT_SANDBOX_MODE: 'true', RAZORPAY_KEY_SECRET: 's3cret' });
+    expect(isDemoProof(demo)).toBe(true);
+    expect(() => assertGatewayPaymentSignature(demo, env)).not.toThrow();
+    expect(await assertCapturedAmount(demo, 50000n, { env })).toBeNull();
+    const real = { paymentGateway: 'RAZORPAY', gatewayOrderId: 'order_1', gatewayPaymentId: 'pay_1', gatewaySignature: 'forged' };
+    expect(isDemoProof(real)).toBe(false);
+    expect(() => assertGatewayPaymentSignature(real, env)).toThrow(/INVALID_PAYMENT_SIGNATURE/);
+  });
+
+  it('keeps rejecting demo proofs when the sandbox is not enabled', () => {
+    expect(() => assertGatewayPaymentSignature(demo, prod({ RAZORPAY_KEY_SECRET: 's3cret' }))).toThrow(/INVALID_PAYMENT_SIGNATURE/);
+    expect(() => assertGatewayPaymentSignature(demo, prod({ PAYMENT_SANDBOX_MODE: 'true', RAZORPAY_KEY_ID: 'rzp_live_x', RAZORPAY_KEY_SECRET: 's' }))).toThrow(/INVALID_PAYMENT_SIGNATURE/);
+  });
+});

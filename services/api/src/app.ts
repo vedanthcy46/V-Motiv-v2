@@ -23,6 +23,7 @@ const __filename = typeof import.meta !== 'undefined' && typeof import.meta.url 
   : '';
 const __dirname = __filename ? path.dirname(__filename) : (typeof process !== 'undefined' && process.cwd ? process.cwd() : '');
 import { rateLimit } from 'express-rate-limit';
+import { isSandboxPaymentsEnabled } from './payment-signature.js';
 import { authentication, optionalAuthentication, type Identity, type VerifyToken } from './auth.js';
 import type { IdentityStore } from './identity-store.js';
 import { HttpError } from './errors.js';
@@ -260,6 +261,10 @@ export function createApp(deps: {
     }
   }
   app.get('/', (_req, res) => res.json({ service: 'vmotiv-api', status: 'ready', version: 'v2' }));
+  // Public: lets apps show the demo gateway only when this deployment really accepts it.
+  app.get(['/api/v2/payments/config', '/api/v1/payments/config', '/api/payments/config'], (_req, res) =>
+    res.json({ gateway: 'RAZORPAY', sandbox: isSandboxPaymentsEnabled() }),
+  );
   app.get(['/health', '/health/live', '/api/health/live', '/api/v1/health/live', '/api/v2/health/live'], (_req, res) => res.json({ status: 'alive' }));
   app.get(['/health/ready', '/api/health/ready', '/api/v1/health/ready', '/api/v2/health/ready'], async (_req, res) => {
     try { await deps.store.ready(); res.json({ database: 'ready' }); }
