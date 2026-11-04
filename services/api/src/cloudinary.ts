@@ -92,9 +92,6 @@ async function uploadToCloudinaryOverHttp(params: {
   form.set('folder', params.folder);
   if (publicId) form.set('public_id', publicId);
   if (tags) form.set('tags', tags);
-  form.set('use_filename', publicId ? 'true' : 'false');
-  form.set('unique_filename', 'true');
-  form.set('overwrite', 'true');
   form.set('file', new Blob([new Uint8Array(params.buffer)], { type: params.mimeType || 'application/octet-stream' }), params.filename || 'upload');
 
   const response = await fetch(`https://api.cloudinary.com/v1_1/${encodeURIComponent(credentials.cloudName)}/${params.resourceType}/upload`, {
