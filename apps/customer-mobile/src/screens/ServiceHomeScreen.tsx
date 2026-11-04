@@ -63,6 +63,7 @@ import {
 } from '../services/service-api';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 const CATEGORY_ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
   REGULAR_SERVICE: Wrench,
@@ -125,12 +126,6 @@ export function ServiceHomeScreen() {
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const scrollRef = useRef<ScrollView>(null);
-  const revealFocusedField = () => {
-    requestAnimationFrame(() => {
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), Platform.OS === 'android' ? 180 : 0);
-    });
-  };
-
   useEffect(() => {
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   }, [step]);
@@ -639,7 +634,6 @@ export function ServiceHomeScreen() {
                 <TextInput
                   value={answers[q.stableId]?.toString() || ''}
                   onChangeText={txt => handleAnswerChange(q.stableId, txt)}
-                  onFocus={revealFocusedField}
                   keyboardType="number-pad"
                   placeholder="Enter value"
                   placeholderTextColor={c.textMuted}
@@ -652,7 +646,6 @@ export function ServiceHomeScreen() {
                 <TextInput
                   value={answers[q.stableId] || ''}
                   onChangeText={txt => handleAnswerChange(q.stableId, txt)}
-                  onFocus={revealFocusedField}
                   placeholder="Type your notes or observations here..."
                   placeholderTextColor={c.textMuted}
                   multiline
@@ -698,7 +691,6 @@ export function ServiceHomeScreen() {
             <TextInput
               value={customSymptoms}
               onChangeText={setCustomSymptoms}
-              onFocus={revealFocusedField}
               placeholder="e.g. Please also check the horn sound and windscreen wipers..."
               placeholderTextColor={c.textMuted}
               multiline
@@ -749,7 +741,7 @@ export function ServiceHomeScreen() {
           </View>
         </View>
         <View style={styles.fulfillFeeRow}>
-          <Text style={[styles.feeText, { color: c.text }]}>Logistics & Sanitization: ₹499</Text>
+          <Text style={[styles.feeText, { color: c.text }]}>Pickup & drop charges may apply based on distance</Text>
         </View>
       </TouchableOpacity>
 
@@ -822,7 +814,7 @@ export function ServiceHomeScreen() {
               <Text style={{ fontSize: 11, fontWeight: '700', color: c.textMuted, textTransform: 'uppercase', letterSpacing: 0.6, marginBottom: 6 }}>
                 Saved Addresses (Tap to Auto-Fill):
               </Text>
-              <ScrollView
+              <KeyboardScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={{ gap: 8, paddingBottom: 4 }}
@@ -860,7 +852,7 @@ export function ServiceHomeScreen() {
                     </TouchableOpacity>
                   );
                 })}
-              </ScrollView>
+              </KeyboardScrollView>
             </View>
           ) : (
             <View style={{ marginBottom: 10, padding: 8, borderRadius: 6, backgroundColor: isDark ? 'rgba(255,255,255,0.03)' : '#F8FAFC' }}>
@@ -873,7 +865,6 @@ export function ServiceHomeScreen() {
           <TextInput
             value={pickupAddress.line1}
             onChangeText={txt => setPickupAddress(prev => ({ ...prev, line1: txt }))}
-            onFocus={revealFocusedField}
             placeholder="House / Flat No., Building, Street *"
             placeholderTextColor={c.textMuted}
             style={[styles.input, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
@@ -881,7 +872,6 @@ export function ServiceHomeScreen() {
           <TextInput
             value={pickupAddress.line2}
             onChangeText={txt => setPickupAddress(prev => ({ ...prev, line2: txt }))}
-            onFocus={revealFocusedField}
             placeholder="Locality / Landmark"
             placeholderTextColor={c.textMuted}
             style={[styles.input, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
@@ -891,7 +881,6 @@ export function ServiceHomeScreen() {
               <TextInput
                 value={pickupAddress.city}
                 onChangeText={txt => setPickupAddress(prev => ({ ...prev, city: txt }))}
-                onFocus={revealFocusedField}
                 placeholder="City"
                 placeholderTextColor={c.textMuted}
                 style={[styles.input, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
@@ -901,7 +890,6 @@ export function ServiceHomeScreen() {
               <TextInput
                 value={pickupAddress.pincode}
                 onChangeText={txt => setPickupAddress(prev => ({ ...prev, pincode: txt }))}
-                onFocus={revealFocusedField}
                 placeholder="Pincode *"
                 keyboardType="number-pad"
                 placeholderTextColor={c.textMuted}
@@ -973,7 +961,7 @@ export function ServiceHomeScreen() {
 
         {/* Date Selector Row */}
         <Text style={[styles.label, { color: c.text }]}>Select Date</Text>
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroll}>
+        <KeyboardScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.dateScroll}>
           {dateOptions.map((opt, dIdx) => {
             const isSelected = selectedDate === opt.dateStr;
             return (
@@ -997,7 +985,7 @@ export function ServiceHomeScreen() {
               </TouchableOpacity>
             );
           })}
-        </ScrollView>
+        </KeyboardScrollView>
 
         {/* Time Slots */}
         <Text style={[styles.label, { color: c.text, marginTop: space.lg }]}>
@@ -1059,8 +1047,8 @@ export function ServiceHomeScreen() {
     const isPackage = paymentOptionsResponse?.fixedPackageAvailable ?? (selectedCategory.fixedPackageAvailable && selectedCategory.packagePricePaise);
     const effectivePricePaise = paymentOptionsResponse?.packagePricePaise ?? selectedCategory.packagePricePaise;
     const packageAmount = isPackage && effectivePricePaise ? Number(effectivePricePaise) / 100 : 0;
-    const pickupFee = fulfillmentType === 'PICKUP_AND_RETURN' ? 499 : 0;
-    const totalEst = packageAmount + pickupFee;
+    // Doorstep pickup/drop is priced by distance and confirmed by the workshop, so it is never added to the total here.
+    const totalEst = packageAmount;
 
     const availableOptions = paymentOptionsResponse?.options || [
       {
@@ -1146,13 +1134,13 @@ export function ServiceHomeScreen() {
             {fulfillmentType === 'PICKUP_AND_RETURN' && (
               <View style={styles.priceRow}>
                 <Text style={[styles.priceItemLabel, { color: c.text }]}>Doorstep Pickup & Return</Text>
-                <Text style={[styles.priceItemVal, { color: c.text }]}>₹499</Text>
+                <Text style={[styles.priceItemVal, { color: c.textMuted, fontSize: 12, flexShrink: 1, textAlign: 'right' }]}>Charges may apply based on distance</Text>
               </View>
             )}
 
             {isPackage && (
               <View style={[styles.totalRow, { borderTopColor: c.border }]}>
-                <Text style={[styles.totalLabel, { color: c.text }]}>Total Configured Price</Text>
+                <Text style={[styles.totalLabel, { color: c.text }]}>{fulfillmentType === 'PICKUP_AND_RETURN' ? 'Package Price (excl. pickup/drop)' : 'Total Configured Price'}</Text>
                 <Text style={[styles.totalVal, { color: c.accent }]}>₹{totalEst.toLocaleString('en-IN')}</Text>
               </View>
             )}
@@ -1309,7 +1297,7 @@ export function ServiceHomeScreen() {
         style={{ flex: 1 }}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
       >
-        <ScrollView
+        <KeyboardScrollView
           ref={scrollRef}
           contentContainerStyle={[
             styles.scrollContent,
@@ -1318,7 +1306,6 @@ export function ServiceHomeScreen() {
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
           showsVerticalScrollIndicator={false}
-          automaticallyAdjustKeyboardInsets={true}
         >
           {loading ? (
             <View style={styles.loadingBox}>
@@ -1335,7 +1322,7 @@ export function ServiceHomeScreen() {
               {step === 6 && renderStep6Review()}
             </>
           )}
-        </ScrollView>
+        </KeyboardScrollView>
       </KeyboardAvoider>
     </View>
   );

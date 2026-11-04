@@ -57,6 +57,7 @@ import {
 import { CarBrandLogo } from '../components/CarBrandLogo';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalBookingDetails'>;
 
@@ -289,7 +290,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
         </View>
       </View>
 
-      <ScrollView
+      <KeyboardScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: safeBottom(insets.bottom) + 100 }]}
         showsVerticalScrollIndicator={false}
       >
@@ -923,7 +924,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
                     <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                       Return Inspection Evidence ({booking.trip.returnPhotos.length} photos)
                     </Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                    <KeyboardScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                       {booking.trip.returnPhotos.map((photoUrl, pIdx) => (
                         <Pressable
                           key={pIdx}
@@ -943,7 +944,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
                           />
                         </Pressable>
                       ))}
-                    </ScrollView>
+                    </KeyboardScrollView>
                   </View>
                 )}
 
@@ -990,7 +991,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
                     <Text style={{ fontSize: 11, fontWeight: '700', color: colors.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 }}>
                       Departure Handover Photos ({booking.trip.pickupPhotos.length})
                     </Text>
-                    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
+                    <KeyboardScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8 }}>
                       {booking.trip.pickupPhotos.map((photoUrl, pIdx) => (
                         <Pressable
                           key={pIdx}
@@ -1010,7 +1011,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
                           />
                         </Pressable>
                       ))}
-                    </ScrollView>
+                    </KeyboardScrollView>
                   </View>
                 )}
               </>
@@ -1089,7 +1090,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
             )}
           </Pressable>
         )}
-      </ScrollView>
+      </KeyboardScrollView>
 
       {/* Extension Modal (Keyboard-Aware & Navigation-Aware Bottom Sheet) */}
       <Modal
@@ -1149,7 +1150,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
               </TouchableOpacity>
             </View>
 
-            <ScrollView
+            <KeyboardScrollView
               bounces={false}
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={false}
@@ -1317,7 +1318,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
                   )}
                 </TouchableOpacity>
               </View>
-            </ScrollView>
+            </KeyboardScrollView>
           </View>
         </KeyboardAvoider>
       </Modal>

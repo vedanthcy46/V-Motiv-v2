@@ -46,6 +46,7 @@ import {
 } from '../services/service-api';
 import { KeyboardAwareSheet } from '../components/KeyboardAwareSheet';
 import { safeBottom } from '../layout/safe-layout';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 export function ServiceRequestDetailsScreen() {
   const insets = useSafeAreaInsets();
@@ -82,14 +83,6 @@ export function ServiceRequestDetailsScreen() {
   const estimateScrollRef = useRef<ScrollView>(null);
   const paymentScrollRef = useRef<ScrollView>(null);
   const cancelScrollRef = useRef<ScrollView>(null);
-
-  const revealFocusedField = (scrollRef: React.RefObject<ScrollView | null>) => {
-    // Allow Android's resize animation to settle before bringing the field and
-    // its actions into the remaining viewport.
-    requestAnimationFrame(() => {
-      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), Platform.OS === 'android' ? 180 : 0);
-    });
-  };
 
   const loadDetails = useCallback(async (isSilent = false) => {
     if (!requestId) return;
@@ -249,7 +242,7 @@ export function ServiceRequestDetailsScreen() {
         </View>
       </View>
 
-      <ScrollView
+      <KeyboardScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: safeBottom(insets.bottom, space.md) + space.xl }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />}
         keyboardShouldPersistTaps="handled"
@@ -433,6 +426,7 @@ export function ServiceRequestDetailsScreen() {
           let pBadgeColor = '#EF4444';
           let pBadgeBg = 'rgba(239, 68, 68, 0.15)';
           let pBadgeText = 'PAYMENT PENDING';
+          const isCancelled = request.status === 'CANCELLED';
           if (pStatus === 'PAID_IN_FULL' || (outstanding === 0 && verifiedPaid > 0)) {
             pBadgeColor = '#10B981';
             pBadgeBg = 'rgba(16, 185, 129, 0.15)';
@@ -441,6 +435,11 @@ export function ServiceRequestDetailsScreen() {
             pBadgeColor = '#F59E0B';
             pBadgeBg = 'rgba(245, 158, 11, 0.15)';
             pBadgeText = 'PARTIALLY PAID';
+          }
+          if (isCancelled) {
+            pBadgeColor = verifiedPaid > 0 ? '#F59E0B' : '#6B7280';
+            pBadgeBg = verifiedPaid > 0 ? 'rgba(245, 158, 11, 0.15)' : 'rgba(107, 114, 128, 0.15)';
+            pBadgeText = verifiedPaid > 0 ? 'CANCELLED · REFUND DUE' : 'CANCELLED';
           }
 
           return (
@@ -493,12 +492,25 @@ export function ServiceRequestDetailsScreen() {
                 </View>
                 <View style={{ flex: 1, backgroundColor: isDark ? 'rgba(255, 255, 255, 0.03)' : '#F3F4F6', padding: 12, borderRadius: 8 }}>
                   <Text style={{ fontSize: 11, color: c.textMuted, fontWeight: '600', textTransform: 'uppercase' }}>Balance Due</Text>
-                  <Text style={{ fontSize: 18, fontWeight: '800', color: outstanding > 0 ? '#EF4444' : '#10B981', marginTop: 2 }}>₹{outstanding.toLocaleString('en-IN')}</Text>
+                  <Text style={{ fontSize: 18, fontWeight: '800', color: !isCancelled && outstanding > 0 ? '#EF4444' : '#10B981', marginTop: 2 }}>₹{(isCancelled ? 0 : outstanding).toLocaleString('en-IN')}</Text>
                 </View>
               </View>
 
+              {isCancelled && (
+                <View style={{ backgroundColor: isDark ? 'rgba(245, 158, 11, 0.08)' : '#FFFBEB', borderColor: 'rgba(245, 158, 11, 0.35)', borderWidth: 1, borderRadius: 8, padding: 12, marginBottom: 12 }}>
+                  <Text style={{ fontSize: 13, fontWeight: '700', color: c.text }}>
+                    This booking was cancelled. No payment is pending.
+                  </Text>
+                  {verifiedPaid > 0 ? (
+                    <Text style={{ fontSize: 12, color: c.textMuted, marginTop: 4 }}>
+                      The ₹{verifiedPaid.toLocaleString('en-IN')} you paid will be refunded to your original payment method.
+                    </Text>
+                  ) : null}
+                </View>
+              )}
+
               {/* Action Button: Pay Remaining Balance */}
-              {outstanding > 0 && request.status !== 'CANCELLED' && (
+              {!isCancelled && outstanding > 0 && (
                 <TouchableOpacity
                   onPress={() => {
                     setCustomPayAmountRupees(outstanding);
@@ -609,7 +621,7 @@ export function ServiceRequestDetailsScreen() {
             <Text style={styles.cancelBtnText}>Cancel Service Request</Text>
           </TouchableOpacity>
         )}
-      </ScrollView>
+      </KeyboardScrollView>
 
       {/* Estimate Breakdown & Approval Modal */}
       <KeyboardAwareSheet
@@ -701,7 +713,6 @@ export function ServiceRequestDetailsScreen() {
                 <TextInput
                   value={estimateNotes}
                   onChangeText={setEstimateNotes}
-                  onFocus={() => revealFocusedField(estimateScrollRef)}
                   returnKeyType="done"
                   onSubmitEditing={Keyboard.dismiss}
                   placeholder="Optional notes or questions for service advisor..."
@@ -754,7 +765,6 @@ export function ServiceRequestDetailsScreen() {
         <TextInput
           value={cancelReason}
           onChangeText={setCancelReason}
-          onFocus={() => revealFocusedField(cancelScrollRef)}
           returnKeyType="done"
           onSubmitEditing={Keyboard.dismiss}
           placeholder="e.g. Schedule changed / Will book next week"
@@ -814,7 +824,6 @@ export function ServiceRequestDetailsScreen() {
           keyboardType="numeric"
           value={String(customPayAmountRupees)}
           onChangeText={t => setCustomPayAmountRupees(Number(t) || 0)}
-          onFocus={() => revealFocusedField(paymentScrollRef)}
           returnKeyType="done"
           onSubmitEditing={Keyboard.dismiss}
         />

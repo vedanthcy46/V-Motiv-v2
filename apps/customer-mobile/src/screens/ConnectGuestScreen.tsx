@@ -67,6 +67,7 @@ import {
 import { radius, space, useAppTheme } from '../theme';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 const ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -597,7 +598,7 @@ export function ConnectGuestScreen() {
       <KeyboardAvoider
         style={{ flex: 1 }}
       >
-        <ScrollView
+        <KeyboardScrollView
           contentContainerStyle={[
             styles.content,
             { paddingBottom: safeBottom(insets.bottom, 20) + 28 },
@@ -1039,7 +1040,7 @@ export function ConnectGuestScreen() {
               </View>
             </>
           ) : null}
-        </ScrollView>
+        </KeyboardScrollView>
       </KeyboardAvoider>
 
       <ConnectQrScannerModal

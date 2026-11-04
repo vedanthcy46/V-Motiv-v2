@@ -29,6 +29,7 @@ import { friendlyError } from '../format';
 import type { CustomerAddress, SupportedCity } from '../types';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 const SLOTS = ['10:00-12:00', '12:00-14:00', '15:00-17:00'] as const;
 
@@ -128,7 +129,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView
+        <KeyboardScrollView
           ref={scrollRef}
           style={{ flex: 1 }}
           contentContainerStyle={[
@@ -153,7 +154,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
               <Calendar size={16} color={color.yellow} />
               <Text style={styles.sectionTitle}>Preferred Date</Text>
             </View>
-            <ScrollView
+            <KeyboardScrollView
               horizontal
               showsHorizontalScrollIndicator={false}
               contentContainerStyle={styles.dateList}
@@ -184,7 +185,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
                   </TouchableOpacity>
                 );
               })}
-            </ScrollView>
+            </KeyboardScrollView>
           </View>
 
           {/* Time Slot */}
@@ -309,7 +310,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
               </View>
 
               {savedAddresses.length > 0 && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 10 }}>
+                <KeyboardScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingBottom: 10 }}>
                   {savedAddresses.map((sa) => (
                     <TouchableOpacity
                       key={sa.id}
@@ -336,7 +337,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
                       <Text style={{ color: color.muted, fontSize: 11 }}>({sa.city})</Text>
                     </TouchableOpacity>
                   ))}
-                </ScrollView>
+                </KeyboardScrollView>
               )}
 
               <TextInput
@@ -347,7 +348,6 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
                 placeholderTextColor={color.muted}
                 value={address}
                 onChangeText={setAddress}
-                onFocus={() => scrollRef.current?.scrollToEnd({ animated: true })}
                 maxLength={300}
               />
             </View>
@@ -364,7 +364,6 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
               placeholderTextColor={color.muted}
               value={notes}
               onChangeText={setNotes}
-              onFocus={() => scrollRef.current?.scrollToEnd({ animated: true })}
               maxLength={400}
             />
           </View>
@@ -376,7 +375,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
-        </ScrollView>
+        </KeyboardScrollView>
 
         {/* Floating Action Button */}
         <View

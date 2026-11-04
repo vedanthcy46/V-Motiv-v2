@@ -50,6 +50,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { AuthScreen } from './AuthScreen';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalCheckout'>;
 
@@ -458,7 +459,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
         </View>
       </View>
 
-      <ScrollView
+      <KeyboardScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: safeBottom(insets.bottom) + 120 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
@@ -1071,7 +1072,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             including fuel policy and refundable deposit terms.
           </Text>
         </Pressable>
-      </ScrollView>
+      </KeyboardScrollView>
 
       {/* Bottom CTA */}
       <View

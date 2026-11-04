@@ -37,6 +37,7 @@ import type { CustomerAddress, SupportedCity } from '../types';
 import { CURRENT_YEAR } from '../utils/calendar';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 // ─── Draft ─────────────────────────────────────────────────────────────────
 const DRAFT_KEY = 'vmotiv.v2.sell-draft';
@@ -809,7 +810,7 @@ export function SellScreen() {
           <View style={[styles.progressFill, { backgroundColor: c.brandAccent, width: `${(step / 7) * 100}%` as any }]} />
         </View>
 
-        <ScrollView
+        <KeyboardScrollView
           ref={scrollRef}
           contentContainerStyle={[
             styles.content,
@@ -927,7 +928,7 @@ export function SellScreen() {
                 <Text style={[styles.label, { color: c.textPrimary }]}>Model *</Text>
 
                 {suggestedModels.length > 0 && (
-                  <ScrollView
+                  <KeyboardScrollView
                     horizontal
                     showsHorizontalScrollIndicator={false}
                     contentContainerStyle={{ gap: 8, paddingBottom: 10, paddingTop: 2 }}
@@ -963,7 +964,7 @@ export function SellScreen() {
                         </TouchableOpacity>
                       );
                     })}
-                  </ScrollView>
+                  </KeyboardScrollView>
                 )}
 
                 <TextInput
@@ -1038,7 +1039,7 @@ export function SellScreen() {
               {/* Manufacturing Year */}
               <View style={styles.fieldGroup}>
                 <Text style={[styles.label, { color: c.textPrimary }]}>Manufacturing Year *</Text>
-                <ScrollView
+                <KeyboardScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={{ gap: 8, paddingVertical: 4 }}
@@ -1074,7 +1075,7 @@ export function SellScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
+                </KeyboardScrollView>
                 <TextInput
                   style={[
                     styles.input,
@@ -1457,7 +1458,7 @@ export function SellScreen() {
                   </View>
 
                   {savedAddresses.length > 0 && (
-                    <ScrollView
+                    <KeyboardScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
                       contentContainerStyle={{ gap: 8, paddingBottom: 10 }}
@@ -1479,7 +1480,7 @@ export function SellScreen() {
                           <Text style={[styles.savedAddressCity, { color: c.textMuted }]}>({sa.city})</Text>
                         </TouchableOpacity>
                       ))}
-                    </ScrollView>
+                    </KeyboardScrollView>
                   )}
 
                   <TextInput
@@ -1541,7 +1542,7 @@ export function SellScreen() {
                 <Text style={[styles.quickDateLabel, { color: c.textMuted }]}>
                   Upcoming Dates (Quick Pick):
                 </Text>
-                <ScrollView
+                <KeyboardScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.quickDateScroll}
@@ -1588,7 +1589,7 @@ export function SellScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
+                </KeyboardScrollView>
 
                 {/* Full Interactive Month Calendar */}
                 <View
@@ -1846,7 +1847,7 @@ export function SellScreen() {
               )}
             </TouchableOpacity>
           </View>
-        </ScrollView>
+        </KeyboardScrollView>
       </KeyboardAvoider>
     </SafeAreaView>
   );

@@ -66,6 +66,7 @@ import {
 } from '../services/inspector-sync';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 type Assignment = {
   id: string;
@@ -1141,7 +1142,7 @@ export function InspectorScreen() {
 
         {/* Tab Navigation Strip */}
         <View style={[styles.tabsContainer, { backgroundColor: c.surface, borderColor: c.border }]}>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
+          <KeyboardScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.tabsScroll}>
             {[
               { id: 'identity', label: '1. Identity' },
               { id: 'photos', label: `2. Photos (${slotsWithPhotosCount}/16)` },
@@ -1158,7 +1159,7 @@ export function InspectorScreen() {
                 <Text style={[styles.tabButtonText, activeTab === t.id && styles.tabButtonTextActive]}>{t.label}</Text>
               </Pressable>
             ))}
-          </ScrollView>
+          </KeyboardScrollView>
         </View>
 
         {/* Tab Content */}
@@ -1166,7 +1167,7 @@ export function InspectorScreen() {
           keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
           style={{ flex: 1 }}
         >
-          <ScrollView
+          <KeyboardScrollView
             contentContainerStyle={styles.contentScroll}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
@@ -1329,7 +1330,7 @@ export function InspectorScreen() {
 
                     {/* Thumbnails Gallery Strip */}
                     {photos.length > 0 && (
-                      <ScrollView
+                      <KeyboardScrollView
                         horizontal
                         showsHorizontalScrollIndicator={false}
                         contentContainerStyle={styles.thumbnailStrip}
@@ -1360,7 +1361,7 @@ export function InspectorScreen() {
                           <Plus color={color.yellow} size={18} />
                           <Text style={styles.addMoreThumbText}>Add</Text>
                         </Pressable>
-                      </ScrollView>
+                      </KeyboardScrollView>
                     )}
                   </View>
                 );
@@ -1719,7 +1720,7 @@ export function InspectorScreen() {
               )}
             </View>
           )}
-        </ScrollView>
+        </KeyboardScrollView>
         </KeyboardAvoider>
 
         {/* Modal: Add Defect */}
@@ -1772,7 +1773,7 @@ export function InspectorScreen() {
               </View>
 
               {/* Scrollable Form Content */}
-              <ScrollView
+              <KeyboardScrollView
                 ref={defectScrollRef}
                 style={styles.defectModalScroll}
                 contentContainerStyle={styles.defectModalScrollBody}
@@ -1903,7 +1904,7 @@ export function InspectorScreen() {
                     </Pressable>
                   </View>
                 )}
-              </ScrollView>
+              </KeyboardScrollView>
 
               {/* Modal Footer CTA */}
               <View style={[styles.defectModalFooter, { paddingBottom: isKeyboardVisible ? 10 : safeBottom(insets.bottom, Platform.OS === 'android' ? 20 : 14) + space.xs }]}>
@@ -2160,7 +2161,7 @@ export function InspectorScreen() {
 
       {/* Filter Section */}
       <View style={styles.filterSection}>
-        <ScrollView
+        <KeyboardScrollView
           horizontal
           showsHorizontalScrollIndicator={false}
           style={styles.filterScrollView}
@@ -2184,7 +2185,7 @@ export function InspectorScreen() {
               </Pressable>
             );
           })}
-        </ScrollView>
+        </KeyboardScrollView>
       </View>
 
       {/* Sort Selector Bar */}
@@ -2221,7 +2222,7 @@ export function InspectorScreen() {
 
       {statusMessage ? <Text style={styles.statusToast}>{statusMessage}</Text> : null}
 
-      <ScrollView contentContainerStyle={[styles.jobsListScroll, { paddingBottom: safeBottom(insets.bottom, 16) + 40 }]}>
+      <KeyboardScrollView contentContainerStyle={[styles.jobsListScroll, { paddingBottom: safeBottom(insets.bottom, 16) + 40 }]}>
         {busy && <ActivityIndicator color={color.yellow} size="small" style={{ marginVertical: space.md }} />}
 
         {jobs.length ? (
@@ -2393,7 +2394,7 @@ export function InspectorScreen() {
             </Text>
           </View>
         ) : null}
-      </ScrollView>
+      </KeyboardScrollView>
 
       {/* In-App Notifications Bottom Sheet (Navigation-Aware & Safe Area Padded) */}
       <Modal visible={notificationsOpen} transparent animationType="slide" onRequestClose={() => setNotificationsOpen(false)}>
@@ -2441,7 +2442,7 @@ export function InspectorScreen() {
             </View>
 
             {/* Notifications List */}
-            <ScrollView
+            <KeyboardScrollView
               style={{ maxHeight: 420 }}
               contentContainerStyle={{ paddingBottom: space.sm }}
               showsVerticalScrollIndicator={false}
@@ -2501,7 +2502,7 @@ export function InspectorScreen() {
                   );
                 })
               )}
-            </ScrollView>
+            </KeyboardScrollView>
           </Pressable>
         </Pressable>
       </Modal>

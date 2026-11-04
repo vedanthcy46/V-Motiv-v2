@@ -19,6 +19,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 type Props = NativeStackScreenProps<RootStack, 'ProfileEditor'>;
 
@@ -82,7 +83,7 @@ export function ProfileEditorScreen({ navigation }: Props) {
           </TouchableOpacity>
         </View>
 
-        <ScrollView
+        <KeyboardScrollView
           contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -140,7 +141,7 @@ export function ProfileEditorScreen({ navigation }: Props) {
               <ChevronRight size={18} color={color.muted} />
             </TouchableOpacity>
           </View>
-        </ScrollView>
+        </KeyboardScrollView>
       </KeyboardAvoider>
     </SafeAreaView>
   );

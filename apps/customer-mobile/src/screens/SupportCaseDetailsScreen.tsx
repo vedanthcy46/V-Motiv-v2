@@ -27,6 +27,7 @@ import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 type Props = NativeStackScreenProps<RootStack, 'SupportCaseDetails'>;
 
@@ -159,7 +160,7 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
           </View>
         </View>
 
-        <ScrollView
+        <KeyboardScrollView
           ref={scrollViewRef}
           style={{ flex: 1 }}
           contentContainerStyle={[
@@ -168,7 +169,6 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets
           showsVerticalScrollIndicator={false}
         >
           {/* Original Case Inquiry Card */}
@@ -243,7 +243,7 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
               <Text style={styles.errorText}>{error}</Text>
             </View>
           ) : null}
-        </ScrollView>
+        </KeyboardScrollView>
 
         {/* Message Composer */}
         <View

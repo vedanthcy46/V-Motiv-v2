@@ -30,6 +30,7 @@ import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 const PRESET_LABELS = ['Home', 'Office', 'Other'] as const;
 
@@ -165,7 +166,7 @@ export function AddressesScreen() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView
+        <KeyboardScrollView
           ref={scrollRef}
           contentContainerStyle={[
             styles.content,
@@ -339,7 +340,7 @@ export function AddressesScreen() {
               </View>
             )}
           </View>
-        </ScrollView>
+        </KeyboardScrollView>
       </KeyboardAvoider>
     </SafeAreaView>
   );

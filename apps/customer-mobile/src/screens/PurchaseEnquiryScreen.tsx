@@ -19,6 +19,7 @@ import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 type Props = NativeStackScreenProps<RootStack, 'PurchaseEnquiry'>;
 
@@ -119,7 +120,7 @@ export function PurchaseEnquiryScreen({ route, navigation }: Props) {
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView
+        <KeyboardScrollView
           ref={scrollRef}
           contentContainerStyle={[
             styles.content,
@@ -220,7 +221,7 @@ export function PurchaseEnquiryScreen({ route, navigation }: Props) {
               </Text>
             )}
           </TouchableOpacity>
-        </ScrollView>
+        </KeyboardScrollView>
       </KeyboardAvoider>
     </SafeAreaView>
   );

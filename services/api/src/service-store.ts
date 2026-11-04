@@ -2067,6 +2067,9 @@ export class PrismaServiceStore {
           status: ServiceRequestStatus.CANCELLED,
           cancellationReason: reason.trim(),
           cancelledAt: new Date(),
+          // A cancelled booking owes nothing; anything already paid is flagged for refund.
+          outstandingBalancePaise: 0n,
+          servicePaymentStatus: sr.verifiedPaidPaise > 0n ? 'CANCELLED_REFUND_DUE' : 'CANCELLED',
         },
       });
 
@@ -2406,6 +2409,9 @@ export class PrismaServiceStore {
           status: ServiceRequestStatus.CANCELLED,
           cancellationReason: reason.trim(),
           cancelledAt: new Date(),
+          // A cancelled booking owes nothing; anything already paid is flagged for refund.
+          outstandingBalancePaise: 0n,
+          servicePaymentStatus: sr.verifiedPaidPaise > 0n ? 'CANCELLED_REFUND_DUE' : 'CANCELLED',
         },
         include: {
           customer: { select: { id: true, displayName: true, email: true, phone: true } },

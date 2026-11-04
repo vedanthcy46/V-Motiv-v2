@@ -46,6 +46,7 @@ import {
   stopConnectCallAudio,
 } from '../services/call-audio';
 import { KeyboardAvoider } from './KeyboardAvoider';
+import { KeyboardScrollView } from './KeyboardScrollView';
 
 const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
@@ -405,7 +406,7 @@ export function ConnectVoiceCall({
         style={styles.root}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
-        <ScrollView
+        <KeyboardScrollView
           ref={scrollRef}
           contentContainerStyle={styles.scrollRoot}
           keyboardShouldPersistTaps="handled"
@@ -537,7 +538,7 @@ export function ConnectVoiceCall({
               </Pressable>
             </View>
           </View>
-        </ScrollView>
+        </KeyboardScrollView>
       </KeyboardAvoider>
     </Modal>
   );

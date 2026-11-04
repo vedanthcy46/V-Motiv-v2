@@ -38,6 +38,7 @@ import type { RootStack } from '../navigation/types';
 import type { AcquisitionOffer, SellingRequest } from '../types';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 type Props = NativeStackScreenProps<RootStack, 'SellingRequestDetails'>;
 
@@ -242,7 +243,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView
+      <KeyboardScrollView
         contentContainerStyle={[
           styles.content,
           {
@@ -533,7 +534,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
             <Text style={styles.cancelActionBtnText}>Cancel Selling Request</Text>
           </TouchableOpacity>
         ) : null}
-      </ScrollView>
+      </KeyboardScrollView>
 
       {/* Cancel Selling Request Modal */}
       <Modal
@@ -582,12 +583,11 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                 },
               ]}
             >
-              <ScrollView
+              <KeyboardScrollView
                 ref={cancelScrollRef}
                 bounces={false}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
-                automaticallyAdjustKeyboardInsets={true}
                 style={{ flexShrink: 1 }}
                 contentContainerStyle={styles.modalScrollContent}
               >
@@ -672,7 +672,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                     }, 350);
                   }}
                 />
-              </ScrollView>
+              </KeyboardScrollView>
 
               <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
                 <TouchableOpacity
@@ -751,12 +751,11 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                 },
               ]}
             >
-              <ScrollView
+              <KeyboardScrollView
                 ref={declineScrollRef}
                 bounces={false}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
-                automaticallyAdjustKeyboardInsets={true}
                 style={{ flexShrink: 1 }}
                 contentContainerStyle={styles.modalScrollContent}
               >
@@ -801,7 +800,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                     }, 350);
                   }}
                 />
-              </ScrollView>
+              </KeyboardScrollView>
 
               <View style={[styles.modalFooter, { borderTopColor: colors.border }]}>
                 <TouchableOpacity

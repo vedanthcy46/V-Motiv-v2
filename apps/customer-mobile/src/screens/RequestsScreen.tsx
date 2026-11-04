@@ -266,6 +266,12 @@ export function RequestsScreen() {
                         pBadgeBg = isDark ? 'rgba(245, 158, 11, 0.2)' : '#FEF3C7';
                         pBadgeText = 'PARTIAL';
                       }
+                      const cancelled = item.status === 'CANCELLED';
+                      if (cancelled) {
+                        pBadgeColor = verifiedPaid > 0 ? '#F59E0B' : '#6B7280';
+                        pBadgeBg = verifiedPaid > 0 ? (isDark ? 'rgba(245, 158, 11, 0.2)' : '#FEF3C7') : (isDark ? 'rgba(107, 114, 128, 0.25)' : '#E5E7EB');
+                        pBadgeText = verifiedPaid > 0 ? 'REFUND DUE' : 'CANCELLED';
+                      }
 
                       return (
                         <TouchableOpacity
@@ -313,8 +319,8 @@ export function RequestsScreen() {
                                 Paid: <Text style={{ fontWeight: '700', color: '#10B981' }}>₹{verifiedPaid.toLocaleString('en-IN')}</Text>
                               </Text>
                             </View>
-                            <Text style={{ fontSize: 11, color: outstanding > 0 ? '#EF4444' : '#10B981', fontWeight: '700' }}>
-                              {outstanding > 0 ? `Due: ₹${outstanding.toLocaleString('en-IN')}` : 'Settled'}
+                            <Text style={{ fontSize: 11, color: !cancelled && outstanding > 0 ? '#EF4444' : '#10B981', fontWeight: '700' }}>
+                              {cancelled ? (verifiedPaid > 0 ? 'Refund pending' : 'No charges') : outstanding > 0 ? `Due: ₹${outstanding.toLocaleString('en-IN')}` : 'Settled'}
                             </Text>
                           </View>
 

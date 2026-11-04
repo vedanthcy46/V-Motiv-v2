@@ -42,6 +42,7 @@ import { useTabScreenBottomPadding, safeBottom } from '../layout/safe-layout';
 import { friendlyError } from '../format';
 import { useAuth } from '../auth/AuthProvider';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<Tabs, 'Explore'>,
@@ -704,7 +705,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
 
         {/* Spinny-Style Filter Quick-Pills Row */}
         <View style={styles.filtersScrollWrap}>
-          <ScrollView
+          <KeyboardScrollView
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.filterPillsRow}
@@ -896,7 +897,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                 </TouchableOpacity>
               );
             })}
-          </ScrollView>
+          </KeyboardScrollView>
         </View>
 
         {/* Spinny-Style Results Count Banner */}
@@ -1048,7 +1049,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
             <View style={styles.modalBodyRow}>
               {/* Left Column: Categories List */}
               <View style={[styles.modalLeftCol, { backgroundColor: isDark ? '#1E293B' : '#F8FAFC', borderRightColor: c.border }]}>
-                <ScrollView showsVerticalScrollIndicator={false}>
+                <KeyboardScrollView showsVerticalScrollIndicator={false}>
                   {FILTER_CATEGORIES.map((cat) => {
                     const isActive = activeCategory === cat.key;
                     const hasSelection = isCategoryStaged(cat.key);
@@ -1088,12 +1089,12 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
+                </KeyboardScrollView>
               </View>
 
               {/* Right Pane: Filter Options Content */}
               <View style={[styles.modalRightPane, { backgroundColor: isDark ? '#0F172A' : '#FFFFFF' }]}>
-                <ScrollView
+                <KeyboardScrollView
                   contentContainerStyle={styles.rightPaneScroll}
                   showsVerticalScrollIndicator={false}
                   keyboardShouldPersistTaps="handled"
@@ -1480,7 +1481,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                       })}
                     </View>
                   )}
-                </ScrollView>
+                </KeyboardScrollView>
               </View>
             </View>
 

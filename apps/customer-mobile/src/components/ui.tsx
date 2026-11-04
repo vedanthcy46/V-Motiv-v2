@@ -15,6 +15,7 @@ import { BrandLogo } from './BrandLogo';
 import { color, radius, space, useAppTheme } from '../theme';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from './KeyboardAvoider';
+import { KeyboardScrollView } from './KeyboardScrollView';
 
 export {
   KeyboardAwareFormScreen,
@@ -48,7 +49,7 @@ export function Screen({
   const content = !scroll ? (
     <View style={[{ flex: 1 }, contentStyle]}>{children}</View>
   ) : (
-    <ScrollView
+    <KeyboardScrollView
       contentContainerStyle={[
         styles.scroll,
         { paddingBottom: safeBottom(insets.bottom, 20) + 72 },
@@ -59,7 +60,7 @@ export function Screen({
       keyboardDismissMode="on-drag"
     >
       {children}
-    </ScrollView>
+    </KeyboardScrollView>
   );
 
   return (

@@ -31,6 +31,7 @@ import { friendlyError } from '../format';
 import type { SupportedCity } from '../types';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 export function OnboardingScreen() {
   const insets = useSafeAreaInsets();
@@ -96,7 +97,7 @@ export function OnboardingScreen() {
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
-        <ScrollView
+        <KeyboardScrollView
           contentContainerStyle={[
             styles.content,
             { paddingBottom: safeBottom(insets.bottom, space.md) + 40 },
@@ -259,7 +260,7 @@ export function OnboardingScreen() {
             <LogOut size={14} color={colors.textMuted} />
             <Text style={styles.signOutBtnText}>Sign out of this Google Account</Text>
           </TouchableOpacity>
-        </ScrollView>
+        </KeyboardScrollView>
       </KeyboardAvoider>
     </SafeAreaView>
   );

@@ -83,6 +83,7 @@ import {
 } from '../constants/car-catalog';
 import { CURRENT_YEAR } from '../utils/calendar';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 export function MyGarageScreen() {
   const tabBottomPadding = useTabScreenBottomPadding();
@@ -610,7 +611,7 @@ export function MyGarageScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView
+      <KeyboardScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBottomPadding }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />}
         showsVerticalScrollIndicator={false}
@@ -867,7 +868,7 @@ export function MyGarageScreen() {
             </TouchableOpacity>
           )}
         </View>
-      </ScrollView>
+      </KeyboardScrollView>
 
       {/* Add / Edit Vehicle Modal */}
       <Modal
@@ -910,7 +911,7 @@ export function MyGarageScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView
+            <KeyboardScrollView
               ref={modalScrollRef}
               style={styles.modalBody}
               contentContainerStyle={[
@@ -920,7 +921,6 @@ export function MyGarageScreen() {
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={true}
-              automaticallyAdjustKeyboardInsets={true}
             >
               {/* SECTION 1: Brand Selection with Authentic Logos */}
               <View style={styles.formSection}>
@@ -1017,7 +1017,7 @@ export function MyGarageScreen() {
                 <View style={styles.formSection}>
                   <Text style={[styles.label, { color: c.text }]}>Car Model *</Text>
                   {suggestedModels.length > 0 && (
-                    <ScrollView
+                    <KeyboardScrollView
                       horizontal
                       showsHorizontalScrollIndicator={false}
                       contentContainerStyle={styles.modelsRow}
@@ -1042,7 +1042,7 @@ export function MyGarageScreen() {
                           </TouchableOpacity>
                         );
                       })}
-                    </ScrollView>
+                    </KeyboardScrollView>
                   )}
                   <TextInput
                     value={model}
@@ -1069,7 +1069,7 @@ export function MyGarageScreen() {
                 </View>
 
                 {/* Quick Selection Chips */}
-                <ScrollView
+                <KeyboardScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.yearsRow}
@@ -1094,7 +1094,7 @@ export function MyGarageScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
+                </KeyboardScrollView>
 
                 {/* Manual Manufacture Year Input */}
                 <View style={[styles.manualYearBox, { backgroundColor: c.background, borderColor: c.border }]}>
@@ -1180,7 +1180,7 @@ export function MyGarageScreen() {
               {/* SECTION 6: Vehicle Colour (Visual Swatches) */}
               <View style={styles.formSection}>
                 <Text style={[styles.label, { color: c.text }]}>Vehicle Colour</Text>
-                <ScrollView
+                <KeyboardScrollView
                   horizontal
                   showsHorizontalScrollIndicator={false}
                   contentContainerStyle={styles.colorsRow}
@@ -1220,7 +1220,7 @@ export function MyGarageScreen() {
                       </TouchableOpacity>
                     );
                   })}
-                </ScrollView>
+                </KeyboardScrollView>
                 <TextInput
                   value={color}
                   onChangeText={setColor}
@@ -1315,7 +1315,7 @@ export function MyGarageScreen() {
                   </Text>
                 )}
               </TouchableOpacity>
-            </ScrollView>
+            </KeyboardScrollView>
           </View>
         </KeyboardAvoider>
       </View>
@@ -1382,7 +1382,7 @@ export function MyGarageScreen() {
                 <Text style={[styles.connectLoadingText, { color: c.textMuted }]}>Syncing QR status...</Text>
               </View>
             ) : (
-              <ScrollView
+              <KeyboardScrollView
                 style={styles.modalBody}
                 contentContainerStyle={[
                   styles.modalScrollContent,
@@ -1676,7 +1676,7 @@ export function MyGarageScreen() {
                                 <Text style={[styles.alertPhotosLabel, { color: c.textMuted }]}>
                                   Attached evidence photo{alert.photoUrls.length > 1 ? 's' : ''}:
                                 </Text>
-                                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.alertPhotosRow}>
+                                <KeyboardScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.alertPhotosRow}>
                                   {alert.photoUrls.map((pUrl, pIdx) => (
                                     <TouchableOpacity
                                       key={pIdx}
@@ -1687,7 +1687,7 @@ export function MyGarageScreen() {
                                       <Image source={{ uri: pUrl }} style={styles.alertPhotoThumb} resizeMode="cover" />
                                     </TouchableOpacity>
                                   ))}
-                                </ScrollView>
+                                </KeyboardScrollView>
                               </View>
                             ) : null}
 
@@ -1733,7 +1733,7 @@ export function MyGarageScreen() {
                     </View>
                   </View>
                 )}
-              </ScrollView>
+              </KeyboardScrollView>
             )}
           </View>
         </KeyboardAvoider>

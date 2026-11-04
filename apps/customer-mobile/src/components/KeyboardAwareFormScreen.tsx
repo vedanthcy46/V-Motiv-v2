@@ -26,6 +26,7 @@ import { AlertCircle } from 'lucide-react-native';
 import { color, radius, space, useAppTheme } from '../theme';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from './KeyboardAvoider';
+import { KeyboardScrollView } from './KeyboardScrollView';
 
 // ============================================================
 // 1. KeyboardAwareFormScreen
@@ -85,7 +86,7 @@ export const KeyboardAwareFormScreen = forwardRef<ScrollView, KeyboardAwareFormS
           {header ? <View style={[styles.headerWrap, { backgroundColor: colors.surface, borderBottomColor: colors.border }]}>{header}</View> : null}
 
           {/* Main Scrollable Content */}
-          <ScrollView
+          <KeyboardScrollView
             ref={scrollRef}
             style={styles.scroll}
             contentContainerStyle={[
@@ -104,7 +105,7 @@ export const KeyboardAwareFormScreen = forwardRef<ScrollView, KeyboardAwareFormS
             {footer && !stickyFooter ? (
               <View style={styles.inScrollFooter}>{footer}</View>
             ) : null}
-          </ScrollView>
+          </KeyboardScrollView>
 
           {/* Sticky footer rendered outside ScrollView, smoothly anchored above keyboard */}
           {footer && stickyFooter ? (

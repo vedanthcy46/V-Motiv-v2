@@ -53,3 +53,24 @@ export function sheetMaxHeight(windowHeight: number, insetTop: number, keyboardH
 export function keyboardOverlap(containerBottom: number, keyboardTop: number): number {
   return Math.max(0, Math.round(containerBottom - keyboardTop));
 }
+
+/**
+ * Scroll distance (positive = scroll down) needed so a focused input is fully visible
+ * above the keyboard. All values are window coordinates. Inputs taller than the visible
+ * area are aligned to the top so the caret line stays reachable.
+ */
+export function scrollDeltaForInput(args: {
+  viewTop: number;
+  viewBottom: number;
+  inputTop: number;
+  inputBottom: number;
+  margin?: number;
+}): number {
+  const margin = args.margin ?? 16;
+  const visibleHeight = args.viewBottom - args.viewTop;
+  const inputHeight = args.inputBottom - args.inputTop;
+  if (inputHeight + margin * 2 > visibleHeight) return Math.round(args.inputTop - margin - args.viewTop);
+  if (args.inputBottom + margin > args.viewBottom) return Math.round(args.inputBottom + margin - args.viewBottom);
+  if (args.inputTop - margin < args.viewTop) return Math.round(args.inputTop - margin - args.viewTop);
+  return 0;
+}

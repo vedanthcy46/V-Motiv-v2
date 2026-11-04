@@ -67,3 +67,21 @@ describe('keyboardOverlap', () => {
     expect(keyboardOverlap(480, 500)).toBe(0);
   });
 });
+
+import { scrollDeltaForInput } from './insets-math';
+
+describe('scrollDeltaForInput', () => {
+  const view = { viewTop: 100, viewBottom: 500 };
+  it('does nothing when the input is already visible', () => {
+    expect(scrollDeltaForInput({ ...view, inputTop: 300, inputBottom: 350 })).toBe(0);
+  });
+  it('scrolls down just enough to reveal an input hidden by the keyboard', () => {
+    expect(scrollDeltaForInput({ ...view, inputTop: 480, inputBottom: 530 })).toBe(46);
+  });
+  it('scrolls up when the input is above the visible area', () => {
+    expect(scrollDeltaForInput({ ...view, inputTop: 90, inputBottom: 140 })).toBe(-26);
+  });
+  it('aligns very tall inputs to the top', () => {
+    expect(scrollDeltaForInput({ ...view, inputTop: 400, inputBottom: 900 })).toBe(284);
+  });
+});

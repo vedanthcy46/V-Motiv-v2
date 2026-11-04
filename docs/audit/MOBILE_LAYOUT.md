@@ -38,3 +38,15 @@ Fixes:
 Rule for every screen: root inside `KeyboardAvoider`; scroll content `keyboardShouldPersistTaps="handled"`; bottom padding from `safeBottom` / `useTabScreenBottomPadding` / `useStackScreenBottomPadding`; modals with inputs use `KeyboardAwareSheet` (existing hand-built sheets in MyGarage, RentalBookingDetails, SellingRequestDetails, Inspector keep their own layout but now share the same keyboard container).
 
 Not verified on a device. The Android overlap path is the riskiest change: if a keyboard still covers an input on a real Android device, capture the device, OS version and navigation mode.
+
+## Fourth pass: only the focused input moves
+- Cause of the "whole screen lifts" feel: ServiceHomeScreen (and others) stacked a keyboard-avoiding container with the ScrollView's iOS `automaticallyAdjustKeyboardInsets`, and every form input called `scrollToEnd` on focus, which jumped the whole screen to the bottom instead of revealing the field.
+- `components/KeyboardScrollView.tsx` replaces `ScrollView` in all keyboard screens, forms and sheets (68 usages in 21 files). On `keyboardDidShow` it measures the focused input and scrolls only by `scrollDeltaForInput(...)` (unit-tested), so other content stays put and remains scrollable. Works on iOS and Android.
+- Removed `automaticallyAdjustKeyboardInsets` everywhere and the `scrollToEnd`-on-focus hacks for form inputs in ServiceHome, ServiceRequestDetails, Support and TestDrive (chat lists keep their scroll-to-end).
+- Tests: 21 mobile tests. Not device-verified.
+
+## Service cancellation billing and pickup pricing
+- API (`service-store.ts`, customer and staff cancel): cancelling now sets `outstandingBalancePaise = 0` and `servicePaymentStatus` to `CANCELLED` or `CANCELLED_REFUND_DUE` (when money was verified). Previously dues and "payment pending" stayed. Older cancelled records are handled client-side from `status === 'CANCELLED'`.
+- App: details page and Activity cards show CANCELLED / REFUND DUE, no balance due and no pay button; the paid amount is stated as refundable.
+- NOTE: no automated service refund workflow exists in the API. The UI says it "will be refunded"; Finance must actually refund manually until a refund flow is built.
+- Doorstep pickup/drop: removed the hardcoded Rs 499 (display only; the API never charged it). The app now says "charges may apply based on distance" and excludes it from the total.

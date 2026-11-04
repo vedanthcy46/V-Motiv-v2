@@ -29,6 +29,7 @@ import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
+import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
 const CATEGORIES = [
   { key: 'BUYING', label: 'Buying Enquiry' },
@@ -181,7 +182,7 @@ export function SupportScreen() {
           </TouchableOpacity>
         </View>
 
-        <ScrollView
+        <KeyboardScrollView
           ref={scrollRef}
           contentContainerStyle={[
             styles.content,
@@ -189,7 +190,6 @@ export function SupportScreen() {
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
-          automaticallyAdjustKeyboardInsets
           showsVerticalScrollIndicator={false}
         >
           {successMsg ? (
@@ -334,7 +334,6 @@ export function SupportScreen() {
                 placeholderTextColor={color.muted}
                 value={subject}
                 onChangeText={setSubject}
-                onFocus={() => requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }))}
                 maxLength={120}
               />
 
@@ -347,7 +346,6 @@ export function SupportScreen() {
                 placeholderTextColor={color.muted}
                 value={description}
                 onChangeText={setDescription}
-                onFocus={() => requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }))}
                 maxLength={2000}
               />
 
@@ -375,7 +373,7 @@ export function SupportScreen() {
               </TouchableOpacity>
             </View>
           )}
-        </ScrollView>
+        </KeyboardScrollView>
       </KeyboardAvoider>
     </SafeAreaView>
   );

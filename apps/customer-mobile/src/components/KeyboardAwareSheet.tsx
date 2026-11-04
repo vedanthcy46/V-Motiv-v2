@@ -27,6 +27,7 @@ import { KeyboardAvoider } from './KeyboardAvoider';
 import { sheetMaxHeight } from '../layout/insets-math';
 import { radius, space, useAppTheme } from '../theme';
 import { useKeyboard } from './KeyboardAwareFormScreen';
+import { KeyboardScrollView } from './KeyboardScrollView';
 
 export interface KeyboardAwareSheetProps {
   visible: boolean;
@@ -94,7 +95,7 @@ export const KeyboardAwareSheet = forwardRef<ScrollView, KeyboardAwareSheetProps
               </View>
             ) : null}
 
-            <ScrollView
+            <KeyboardScrollView
               ref={ref}
               style={styles.body}
               contentContainerStyle={[
@@ -108,7 +109,7 @@ export const KeyboardAwareSheet = forwardRef<ScrollView, KeyboardAwareSheetProps
               bounces={false}
             >
               {children}
-            </ScrollView>
+            </KeyboardScrollView>
 
             {footer ? (
               <View
