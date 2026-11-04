@@ -179,7 +179,7 @@ function getOrCreateApp(): Express {
  * High-performance, zero-dependency bridge between Cloudflare Worker Web Fetch
  * requests and the Express application handler.
  */
-async function fetchToExpress(app: Express, webReq: Request): Promise<Response> {
+export async function fetchToExpress(app: Express, webReq: Request): Promise<Response> {
   return new Promise(async (resolve, reject) => {
     try {
       const clientIp = webReq.headers.get('cf-connecting-ip') ||
@@ -266,9 +266,22 @@ async function fetchToExpress(app: Express, webReq: Request): Promise<Response> 
         return res;
       };
 
+      let requestBody: Buffer | undefined;
       if (webReq.body && webReq.method !== 'GET' && webReq.method !== 'HEAD') {
         const arrayBuffer = await webReq.arrayBuffer();
-        req.push(Buffer.from(arrayBuffer));
+        requestBody = Buffer.from(arrayBuffer);
+
+        // Cloudflare's Fetch Request does not guarantee a Content-Length
+        // header. Express/body-parser uses that header (or transfer-encoding)
+        // to decide whether a request has a body. Without it, every JSON POST
+        // crossing this bridge arrives as req.body === undefined even though
+        // the bytes were pushed below.
+        if (requestBody.length > 0 && !req.headers['content-length'] && !req.headers['transfer-encoding']) {
+          req.headers['content-length'] = String(requestBody.length);
+        }
+      }
+      if (requestBody?.length) {
+        req.push(requestBody);
       }
       req.push(null);
 
