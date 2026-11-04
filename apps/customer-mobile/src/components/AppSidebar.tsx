@@ -222,9 +222,15 @@ export function SidebarProvider({ children }: SidebarProviderProps) {
     [openSidebar, minTriggerY, maxTriggerY],
   );
 
+  const { state: authState } = useAuth();
+
   const handleNavToTab = (tab: keyof Tabs) => {
     closeSidebar();
     setTimeout(() => {
+      if (authState !== 'signed-in' && tab !== 'Explore') {
+        navigateToTab('Account');
+        return;
+      }
       navigateToTab(tab);
     }, 150);
   };
@@ -232,6 +238,11 @@ export function SidebarProvider({ children }: SidebarProviderProps) {
   const handleNavToStack = (route: keyof RootStack, params?: any) => {
     closeSidebar();
     setTimeout(() => {
+      const allowedWithoutAuth = ['Vehicle', 'VehicleGallery', 'InspectionHighlights', 'CitySelection'];
+      if (authState !== 'signed-in' && !allowedWithoutAuth.includes(route)) {
+        navigateToTab('Account');
+        return;
+      }
       navigate(route, params);
     }, 150);
   };

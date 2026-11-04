@@ -204,7 +204,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Sell a Car. Tell us about your car and save progress as you go."
-            onPress={() => root?.navigate('Sell')}
+            onPress={() => (state === 'signed-in' ? root?.navigate('Sell') : navigation.navigate('Account'))}
             style={({ pressed }) => [
               styles.primaryCard,
               { backgroundColor: c.brandAccent },
@@ -232,7 +232,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
                 <Text style={[styles.draftBody, { color: c.textSecondary }]}>Continue from where you left off.</Text>
               </View>
             </View>
-            <CustomerButton title="Resume" onPress={() => root?.navigate('Sell')} />
+            <CustomerButton title="Resume" onPress={() => (state === 'signed-in' ? root?.navigate('Sell') : navigation.navigate('Account'))} />
           </View>
         )}
 
@@ -260,6 +260,10 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
                     : `${title}. Coming soon.`
                 }
                 onPress={() => {
+                  if (state !== 'signed-in') {
+                    navigation.navigate('Account');
+                    return;
+                  }
                   if (isCarService) {
                     root?.navigate('ServiceHome');
                   } else if (isRental) {
@@ -306,7 +310,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Car Service and Repairs. Scheduled maintenance, diagnosis, doorstep pickup and live tracking. Book now."
-            onPress={() => root?.navigate('ServiceHome')}
+            onPress={() => (state === 'signed-in' ? root?.navigate('ServiceHome') : navigation.navigate('Account'))}
             style={({ pressed }) => [
               styles.featuredCard,
               {
@@ -371,7 +375,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Self-Drive Car Rental. Browse vehicles and date-specific estimates."
-            onPress={() => root?.navigate('RentalHome')}
+            onPress={() => (state === 'signed-in' ? root?.navigate('RentalHome') : navigation.navigate('Account'))}
             style={({ pressed }) => [
               styles.featuredCard,
               {
@@ -554,7 +558,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
             </View>
             <Text style={[styles.howBody, { color: c.textSecondary }]}>Track inspection and offer updates live in Activity.</Text>
           </View>
-          <CustomerButton title="Sell your car" onPress={() => root?.navigate('Sell')} />
+          <CustomerButton title="Sell your car" onPress={() => (state === 'signed-in' ? root?.navigate('Sell') : navigation.navigate('Account'))} />
         </View>
 
         {/* ── Support ── */}

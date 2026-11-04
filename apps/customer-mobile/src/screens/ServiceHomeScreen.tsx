@@ -40,6 +40,8 @@ import {
 import { useAppTheme, radius, space } from '../theme';
 import { useAuth } from '../auth/AuthProvider';
 import { CarBrandLogo } from '../components/CarBrandLogo';
+import { BrandLogo } from '../components/BrandLogo';
+import { AuthScreen } from './AuthScreen';
 import { useKeyboard } from '../components/KeyboardAwareFormScreen';
 import { customer } from '../services/customer';
 import type { CustomerAddress } from '../types';
@@ -80,7 +82,7 @@ export function ServiceHomeScreen() {
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const preselectedVehicleId = route.params?.preselectedVehicleId as string | undefined;
-  const { profile } = useAuth();
+  const { state: authState, profile } = useAuth();
   const userCity = profile?.preferredCity || 'Bengaluru';
   const { theme, isDark } = useAppTheme();
   const c = {
@@ -89,6 +91,34 @@ export function ServiceHomeScreen() {
     textMuted: theme.colors.textSecondary,
     accent: theme.colors.brandAccent,
   };
+
+  if (authState !== 'signed-in') {
+    return (
+      <View style={{ flex: 1, backgroundColor: c.background }}>
+        <View
+          style={{
+            paddingTop: insets.top + space.sm,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: c.surface,
+            borderBottomWidth: 1,
+            borderBottomColor: c.border,
+          }}
+        >
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
+            <ArrowLeft size={22} color={c.text} />
+          </TouchableOpacity>
+          <BrandLogo variant="horizontal" size={24} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
+          <View style={{ marginLeft: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7' }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: c.accent }}>SERVICE</Text>
+          </View>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
+  }
 
   // Wizard Steps: 1: Car, 2: Issue, 3: Questions, 4: Fulfillment, 5: Slot, 6: Review
   const [step, setStep] = useState<number>(1);
@@ -317,11 +347,21 @@ export function ServiceHomeScreen() {
       let paymentGateway: string | undefined;
 
       if (payNowPaise > 0n) {
-        paymentGateway = 'RAZORPAY';
-        gatewayOrderId = `order_srv_${Date.now()}`;
-        gatewayPaymentId = `pay_srv_${Date.now()}`;
+        paymentGateway = 'DEMO';
+        gatewayOrderId = `order_demo_srv_${Date.now()}`;
+        gatewayPaymentId = `pay_demo_srv_${Date.now()}`;
         gatewaySignature = 'demo_sig_verified_vmotiv';
       }
+
+      const cleanPickupAddress = fulfillmentType === 'PICKUP_AND_RETURN' && pickupAddress?.line1?.trim()
+        ? {
+            line1: pickupAddress.line1.trim(),
+            line2: pickupAddress.line2?.trim() || undefined,
+            city: pickupAddress.city?.trim() || userCity,
+            pincode: pickupAddress.pincode ? pickupAddress.pincode.replace(/\s+/g, '').trim() : (userCity.toLowerCase().includes('chennai') ? '600032' : '560103'),
+            instructions: pickupAddress.instructions?.trim() || undefined,
+          }
+        : undefined;
 
       const result = await createServiceRequest({
         vehicleId: selectedVehicle.id,
@@ -332,7 +372,7 @@ export function ServiceHomeScreen() {
         fulfillmentType,
         scheduledDate: selectedDate,
         scheduledTimeSlot: selectedSlotTime,
-        pickupAddress: fulfillmentType === 'PICKUP_AND_RETURN' ? pickupAddress : undefined,
+        pickupAddress: cleanPickupAddress,
         paymentPlanId: selectedPlanId,
         paymentGateway,
         gatewayOrderId,

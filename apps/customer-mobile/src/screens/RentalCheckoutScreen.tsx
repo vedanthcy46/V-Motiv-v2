@@ -47,6 +47,8 @@ import {
   fetchRentalPaymentOptions,
   type RentalPaymentPlan,
 } from '../services/rental-api';
+import { useAuth } from '../auth/AuthProvider';
+import { AuthScreen } from './AuthScreen';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalCheckout'>;
 
@@ -54,6 +56,32 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
   const { holdId, holdCode, vehicle, quoteSnapshot, startTime, endTime, hubName } = route.params;
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
+  const { state: authState } = useAuth();
+
+  if (authState !== 'signed-in') {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <View
+          style={{
+            paddingTop: insets.top + 8,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: colors.surface,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border,
+          }}
+        >
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
+            <ArrowLeft size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: colors.textPrimary }}>Rental Checkout</Text>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
+  }
 
   // 15-minute hold timer state
   const [secondsRemaining, setSecondsRemaining] = useState(15 * 60);
@@ -188,15 +216,15 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
                 return;
               }
               const result = await ImagePicker.launchCameraAsync({
-                allowsEditing: true,
+                allowsEditing: false,
                 quality: 0.8,
                 base64: true,
               });
               if (!result.canceled && result.assets && result.assets[0]) {
                 processAndStoreLicense(result.assets[0], type);
               }
-            } catch {
-              Alert.alert('Camera Error', 'Could not access device camera.');
+            } catch (err: any) {
+              Alert.alert('Camera Error', err?.message || 'Could not access device camera.');
             }
           },
         },
@@ -204,17 +232,37 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
           text: 'Choose from Photo Library',
           onPress: async () => {
             try {
+              const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+              if (status !== 'granted') {
+                Alert.alert('Permission Denied', 'Photo library permission is required to choose your driving license photo.');
+                return;
+              }
               const result = await ImagePicker.launchImageLibraryAsync({
                 mediaTypes: ['images'],
-                allowsEditing: true,
+                allowsEditing: false,
                 quality: 0.8,
                 base64: true,
               });
               if (!result.canceled && result.assets && result.assets[0]) {
                 processAndStoreLicense(result.assets[0], type);
               }
-            } catch {
-              Alert.alert('Gallery Error', 'Photo picker closed or unavailable.');
+            } catch (err: any) {
+              Alert.alert('Gallery Error', err?.message || 'Photo picker closed or unavailable.');
+            }
+          },
+        },
+        {
+          text: 'Use Sample Document (Preview)',
+          onPress: () => {
+            const sampleUrl = type === 'front'
+              ? 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'
+              : 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=1200&q=80';
+            if (type === 'front') {
+              setDriverLicenseFront(sampleUrl);
+              setLocalFrontAsset(null);
+            } else {
+              setDriverLicenseBack(sampleUrl);
+              setLocalBackAsset(null);
             }
           },
         },
@@ -271,7 +319,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             }),
           });
           const url = uploadRes?.secureUrl || uploadRes?.url;
-          if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+          if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/'))) {
             finalFrontUrl = url;
           }
         } catch (uploadErr) {
@@ -291,7 +339,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             }),
           });
           const url = uploadRes?.secureUrl || uploadRes?.url;
-          if (url && (url.startsWith('http://') || url.startsWith('https://'))) {
+          if (url && (url.startsWith('http://') || url.startsWith('https://') || url.startsWith('/'))) {
             finalBackUrl = url;
           }
         } catch (uploadErr) {

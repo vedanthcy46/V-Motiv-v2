@@ -368,7 +368,7 @@ describe('V MOTIV V2 — Car Service & My Garage API', () => {
     expect(res.body.options[0].planId).toBe('ZERO_UPFRONT');
     expect(res.body.options[1].planId).toBe('PARTIAL_ADVANCE_25');
     expect(res.body.options[1].payNowPaise).toBe('124975');
-    expect(mockServiceStore.getPaymentOptionsForCategory).toHaveBeenCalledWith('REGULAR_SERVICE');
+    expect(mockServiceStore.getPaymentOptionsForCategory).toHaveBeenCalledWith('REGULAR_SERVICE', undefined);
   });
 
   it('PUT /api/v2/operations/service/categories/:key/pricing allows Ops to update pricing and features', async () => {

@@ -50,6 +50,9 @@ import {
   Zap,
 } from 'lucide-react-native';
 import { useAppTheme, radius, space } from '../theme';
+import { useAuth } from '../auth/AuthProvider';
+import { AuthScreen } from './AuthScreen';
+import { BrandLogo } from '../components/BrandLogo';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 import { useKeyboard } from '../components/KeyboardAwareFormScreen';
 import {
@@ -83,12 +86,46 @@ export function MyGarageScreen() {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { theme, isDark } = useAppTheme();
+  const { state: authState } = useAuth();
   const c = {
     ...theme.colors,
     text: theme.colors.textPrimary,
     textMuted: theme.colors.textSecondary,
     accent: theme.colors.brandAccent,
   };
+
+  if (authState !== 'signed-in') {
+    return (
+      <View style={[styles.container, { backgroundColor: c.background }]}>
+        <View
+          style={{
+            paddingTop: insets.top + space.sm,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: c.surface,
+            borderBottomWidth: 1,
+            borderBottomColor: c.border,
+          }}
+        >
+          <BrandLogo variant="horizontal" size={26} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
+          <View
+            style={{
+              paddingHorizontal: 8,
+              paddingVertical: 3,
+              borderRadius: 6,
+              backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7',
+            }}
+          >
+            <Text style={{ fontSize: 10, fontWeight: '800', color: c.accent }}>MY GARAGE</Text>
+          </View>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
+  }
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);

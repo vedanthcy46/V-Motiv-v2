@@ -8,12 +8,16 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  TouchableOpacity,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStack } from '../navigation/types';
 import { useAppTheme } from '../theme';
+import { useAuth } from '../auth/AuthProvider';
+import { AuthScreen } from './AuthScreen';
 import {
+  ArrowLeft,
   CalendarDays,
   Calendar,
   MapPin,
@@ -63,6 +67,35 @@ const PRESET_DAYS = [1, 2, 3, 5, 7, 10, 14];
 export function RentalHomeScreen({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
+  const { state: authState } = useAuth();
+
+  if (authState !== 'signed-in') {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <View
+          style={{
+            paddingTop: insets.top + 8,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: colors.surface,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border,
+          }}
+        >
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
+            <ArrowLeft size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <BrandLogo variant="horizontal" size={24} bodyColor={isDark ? '#FFFFFF' : colors.brandNavy} />
+          <View style={{ marginLeft: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7' }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: colors.brandAccent }}>RENTALS</Text>
+          </View>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
+  }
 
   const [hubs, setHubs] = useState<RentalHub[]>([]);
   const [selectedHub, setSelectedHub] = useState<RentalHub | null>(null);

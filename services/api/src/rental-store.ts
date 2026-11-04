@@ -99,14 +99,32 @@ export class PrismaRentalStore {
     private readonly notifications?: NotificationService
   ) {}
 
-  public async resolveUserId(idOrUid: string): Promise<string> {
+  public async resolveUserId(idOrUid: string, identity?: { email?: string; name?: string }): Promise<string> {
     const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrUid);
     if (isUuid) {
       const userById = await this.db.user.findUnique({ where: { id: idOrUid } });
       if (userById) return userById.id;
     }
-    const userByFirebase = await this.db.user.findUnique({ where: { firebaseUid: idOrUid } });
-    if (!userByFirebase) throw new HttpError(404, 'USER_NOT_FOUND');
+    let userByFirebase = await this.db.user.findUnique({ where: { firebaseUid: idOrUid } });
+    if (!userByFirebase) {
+      if (identity?.email) {
+        userByFirebase = await this.db.user.create({
+          data: {
+            firebaseUid: idOrUid,
+            email: identity.email.toLowerCase().trim(),
+            displayName: identity.name?.trim() || null,
+          },
+        });
+      } else {
+        userByFirebase = await this.db.user.create({
+          data: {
+            firebaseUid: idOrUid,
+            email: `${idOrUid.toLowerCase().slice(0, 16)}@customer.vmotiv.in`,
+            displayName: 'Valued Customer',
+          },
+        });
+      }
+    }
     return userByFirebase.id;
   }
 
@@ -902,15 +920,15 @@ export class PrismaRentalStore {
     const expiry = new Date(input.licenseExpiry);
     const now = new Date();
 
-    // Age validation (min 21)
+    // Age validation (legal driving age: min 18)
     const ageYears = (now.getTime() - dob.getTime()) / (1000 * 60 * 60 * 24 * 365.25);
-    if (ageYears < 21) {
-      throw new HttpError(400, 'DRIVER_MUST_BE_AT_LEAST_21_YEARS_OLD');
+    if (!isNaN(ageYears) && ageYears < 18) {
+      throw new HttpError(400, 'DRIVER_MUST_BE_AT_LEAST_18_YEARS_OLD');
     }
 
-    // Experience validation (min 1 year)
-    if (input.drivingExperienceYears < 1) {
-      throw new HttpError(400, 'DRIVER_MUST_HAVE_AT_LEAST_1_YEAR_EXPERIENCE');
+    // Experience validation (min 0)
+    if (typeof input.drivingExperienceYears === 'number' && input.drivingExperienceYears < 0) {
+      throw new HttpError(400, 'INVALID_DRIVING_EXPERIENCE');
     }
 
     // Expiry validation

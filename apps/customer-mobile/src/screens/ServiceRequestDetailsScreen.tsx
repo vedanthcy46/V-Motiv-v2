@@ -157,8 +157,8 @@ export function ServiceRequestDetailsScreen() {
 
     setPayingBalance(true);
     try {
-      const gatewayPaymentId = `pay_srv_${Date.now()}`;
-      const gatewayOrderId = `order_srv_${Date.now()}`;
+      const gatewayPaymentId = `pay_demo_srv_${Date.now()}`;
+      const gatewayOrderId = `order_demo_srv_${Date.now()}`;
       const gatewaySignature = 'demo_sig_verified_vmotiv';
 
       await verifyServicePayment(request.id, {
@@ -166,7 +166,7 @@ export function ServiceRequestDetailsScreen() {
         gatewayPaymentId,
         gatewaySignature,
         amountPaise: (BigInt(amountToPay) * 100n).toString(),
-        paymentGateway: 'RAZORPAY',
+        paymentGateway: 'DEMO',
         installmentType: amountToPay >= outstandingRupees ? 'FINAL_BALANCE' : 'INTERMEDIATE_ADVANCE',
       });
 

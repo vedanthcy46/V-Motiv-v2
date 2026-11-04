@@ -35,6 +35,7 @@ import { RentalVehicleDetailsScreen } from '../screens/RentalVehicleDetailsScree
 import { RentalCheckoutScreen } from '../screens/RentalCheckoutScreen';
 import { RentalBookingDetailsScreen } from '../screens/RentalBookingDetailsScreen';
 import { useAppTheme } from '../theme';
+import { useAuth } from '../auth/AuthProvider';
 import type { RootStack, Tabs } from './types';
 
 const Tab = createBottomTabNavigator<Tabs>();
@@ -50,6 +51,7 @@ const icons = {
 function CustomerTabs() {
   const insets = useSafeAreaInsets();
   const { theme, isDark } = useAppTheme();
+  const { state: authState } = useAuth();
   const c = theme.colors;
 
   // Spinny-like floating bottom bar positioning:
@@ -58,6 +60,7 @@ function CustomerTabs() {
 
   return (
     <Tab.Navigator
+      initialRouteName={authState === 'signed-in' ? 'Home' : 'Explore'}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarHideOnKeyboard: true,

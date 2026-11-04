@@ -25,62 +25,62 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 const vehicleCreateSchema = z.object({
   make: z.string().trim().min(1).max(80),
   model: z.string().trim().min(1).max(80),
-  year: z.number().int().min(1980).max(new Date().getFullYear() + 1),
-  variant: z.string().trim().max(100).optional(),
-  fuelType: z.string().trim().min(2).max(30),
-  transmission: z.string().trim().min(2).max(30),
-  color: z.string().trim().max(50).optional(),
-  registrationNumber: z.string().trim().max(30).optional(),
-  odometerKm: z.number().int().min(0).max(2_000_000).optional(),
-  vin: z.string().trim().max(50).optional(),
-  declaredOwnership: z.enum(['OWNER', 'FAMILY', 'LEASED', 'AUTHORIZED_USER']).default('OWNER'),
-  photoUrls: z.array(z.string().trim().url().or(z.string().startsWith('/'))).max(10).optional(),
-  notes: z.string().trim().max(1000).optional(),
-  isPreferred: z.boolean().optional(),
-}).strict();
+  year: z.coerce.number().int().min(1900).max(new Date().getFullYear() + 2),
+  variant: z.string().trim().max(100).optional().nullable(),
+  fuelType: z.string().trim().min(1).max(50),
+  transmission: z.string().trim().min(1).max(50),
+  color: z.string().trim().max(50).optional().nullable(),
+  registrationNumber: z.string().trim().max(30).optional().nullable(),
+  odometerKm: z.coerce.number().int().min(0).max(2_000_000).optional().nullable(),
+  vin: z.string().trim().max(50).optional().nullable(),
+  declaredOwnership: z.string().optional().nullable().default('OWNER'),
+  photoUrls: z.array(z.string()).max(20).optional().nullable(),
+  notes: z.string().trim().max(1000).optional().nullable(),
+  isPreferred: z.boolean().optional().nullable(),
+}).passthrough();
 
 const vehicleUpdateSchema = z.object({
-  variant: z.string().trim().max(100).optional(),
-  color: z.string().trim().max(50).optional(),
-  registrationNumber: z.string().trim().max(30).optional(),
-  odometerKm: z.number().int().min(0).max(2_000_000).optional(),
-  vin: z.string().trim().max(50).optional(),
-  declaredOwnership: z.enum(['OWNER', 'FAMILY', 'LEASED', 'AUTHORIZED_USER']).optional(),
-  photoUrls: z.array(z.string().trim().url().or(z.string().startsWith('/'))).max(10).optional(),
-  notes: z.string().trim().max(1000).optional(),
-  isPreferred: z.boolean().optional(),
-  lastServiceDate: z.string().datetime().optional(),
-  nextServiceDueKm: z.number().int().min(0).max(2_000_000).optional(),
-  nextServiceDueDate: z.string().datetime().optional(),
-}).strict();
+  variant: z.string().trim().max(100).optional().nullable(),
+  color: z.string().trim().max(50).optional().nullable(),
+  registrationNumber: z.string().trim().max(30).optional().nullable(),
+  odometerKm: z.coerce.number().int().min(0).max(2_000_000).optional().nullable(),
+  vin: z.string().trim().max(50).optional().nullable(),
+  declaredOwnership: z.string().optional().nullable(),
+  photoUrls: z.array(z.string()).max(20).optional().nullable(),
+  notes: z.string().trim().max(1000).optional().nullable(),
+  isPreferred: z.boolean().optional().nullable(),
+  lastServiceDate: z.string().optional().nullable(),
+  nextServiceDueKm: z.coerce.number().int().min(0).max(2_000_000).optional().nullable(),
+  nextServiceDueDate: z.string().optional().nullable(),
+}).passthrough();
 
 const addressSchema = z.object({
-  line1: z.string().trim().min(5).max(200),
-  line2: z.string().trim().max(200).optional(),
-  city: z.string().trim().min(2).max(100),
-  pincode: z.string().regex(/^\d{6}$/),
-  instructions: z.string().trim().max(500).optional(),
-}).strict();
+  line1: z.string().trim().min(1).max(200),
+  line2: z.string().trim().max(200).optional().nullable(),
+  city: z.string().trim().min(1).max(100),
+  pincode: z.string().trim().transform(v => v.replace(/\s+/g, '')).pipe(z.string().regex(/^\d{6}$/)).or(z.string().trim().max(20)),
+  instructions: z.string().trim().max(500).optional().nullable(),
+}).passthrough();
 
 const serviceRequestCreateSchema = z.object({
   vehicleId: uuid,
   hubId: uuid,
-  categoryKey: z.string().trim().min(2).max(50),
-  customerSymptoms: z.string().trim().min(3).max(2000),
-  questionAnswers: z.record(z.string(), z.unknown()),
-  mediaUrls: z.array(z.string().trim().url().or(z.string().startsWith('/'))).max(10).optional(),
-  fulfillmentType: z.enum(['PICKUP_AND_RETURN', 'SELF_DROP_AT_HUB']),
-  scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  scheduledTimeSlot: z.string().trim().min(5).max(30),
-  pickupAddress: addressSchema.optional(),
-  returnAddress: addressSchema.optional(),
-  paymentPlanId: z.enum(['ZERO_UPFRONT', 'ADVANCE_25', 'FULL_100', 'DIAGNOSTIC_FEE']).optional(),
-  paymentGateway: z.string().trim().max(50).optional(),
-  gatewayOrderId: z.string().trim().max(100).optional(),
-  gatewayPaymentId: z.string().trim().max(100).optional(),
-  gatewaySignature: z.string().trim().max(256).optional(),
-}).strict().superRefine((val, ctx) => {
-  if (val.fulfillmentType === 'PICKUP_AND_RETURN' && !val.pickupAddress) {
+  categoryKey: z.string().trim().min(1).max(50),
+  customerSymptoms: z.string().trim().min(1).max(2000),
+  questionAnswers: z.record(z.string(), z.unknown()).default({}),
+  mediaUrls: z.array(z.string()).max(20).optional().nullable(),
+  fulfillmentType: z.enum(['PICKUP_AND_RETURN', 'SELF_DROP_AT_HUB']).default('SELF_DROP_AT_HUB'),
+  scheduledDate: z.string().min(8).max(30),
+  scheduledTimeSlot: z.string().trim().min(1).max(50),
+  pickupAddress: addressSchema.optional().nullable(),
+  returnAddress: addressSchema.optional().nullable(),
+  paymentPlanId: z.string().trim().max(50).optional().nullable(),
+  paymentGateway: z.string().trim().max(50).optional().nullable(),
+  gatewayOrderId: z.string().trim().max(100).optional().nullable(),
+  gatewayPaymentId: z.string().trim().max(100).optional().nullable(),
+  gatewaySignature: z.string().trim().max(256).optional().nullable(),
+}).passthrough().superRefine((val, ctx) => {
+  if (val.fulfillmentType === 'PICKUP_AND_RETURN' && (!val.pickupAddress || !val.pickupAddress.line1)) {
     ctx.addIssue({ code: 'custom', path: ['pickupAddress'], message: 'Pickup address required for PICKUP_AND_RETURN' });
   }
 });
@@ -272,7 +272,7 @@ export function createServiceCustomerRouter(deps: {
     try {
       const identity = res.locals.identity as Identity;
       const input = parse(vehicleCreateSchema, req.body);
-      const vehicle = await deps.store.createCustomerVehicle(identity.uid, input, identity);
+      const vehicle = await deps.store.createCustomerVehicle(identity.uid, input as any, identity);
       res.status(201).json(vehicle);
     } catch (e) {
       next(e);
@@ -283,7 +283,7 @@ export function createServiceCustomerRouter(deps: {
     try {
       const identity = res.locals.identity as Identity;
       const input = parse(vehicleUpdateSchema, req.body);
-      const vehicle = await deps.store.updateCustomerVehicle(identity.uid, uuid.parse(req.params.id), input);
+      const vehicle = await deps.store.updateCustomerVehicle(identity.uid, uuid.parse(req.params.id), input as any);
       res.json(vehicle);
     } catch (e) {
       next(e);

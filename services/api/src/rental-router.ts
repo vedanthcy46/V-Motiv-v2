@@ -50,20 +50,20 @@ const checkoutSchema = z.object({
 
 const verifyPaymentSchema = z.object({
   paymentGateway: z.string().trim().default('RAZORPAY'),
-  gatewayOrderId: z.string().trim().min(3),
-  gatewayPaymentId: z.string().trim().min(3),
-  gatewaySignature: z.string().trim().min(3),
-});
+  gatewayOrderId: z.string().trim().min(1),
+  gatewayPaymentId: z.string().trim().min(1),
+  gatewaySignature: z.string().trim().min(1),
+}).passthrough();
 
 const driverKycSchema = z.object({
-  licenseNumber: z.string().trim().min(5).max(30),
-  licenseExpiry: z.string().datetime().or(z.string().min(10)),
-  licenseCategory: z.string().trim().max(20).default('LMV'),
-  dateOfBirth: z.string().datetime().or(z.string().min(10)),
-  drivingExperienceYears: z.number().int().min(1).max(60),
-  licenseFrontUrl: z.string().trim().min(5),
-  licenseBackUrl: z.string().trim().min(5),
-});
+  licenseNumber: z.string().trim().min(3).max(50),
+  licenseExpiry: z.string().min(8),
+  licenseCategory: z.string().trim().max(30).default('LMV'),
+  dateOfBirth: z.string().min(8),
+  drivingExperienceYears: z.coerce.number().int().min(0).max(80).default(3),
+  licenseFrontUrl: z.string().trim().min(1),
+  licenseBackUrl: z.string().trim().min(1),
+}).passthrough();
 
 const kycReviewSchema = z.object({
   decision: z.enum(['APPROVE', 'REJECT']),
@@ -251,7 +251,7 @@ export function createRentalCustomerRouter(deps: {
   router.post('/holds', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const input = parse(holdCreateSchema, req.body);
       const isTest = req.headers['x-test-immediate-booking'] === 'true';
       const hold = await deps.store.createHold(userId, input as any, isTest);
@@ -265,7 +265,7 @@ export function createRentalCustomerRouter(deps: {
   router.post('/holds/:id/checkout', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const holdId = uuid.parse(req.params.id);
       const input = parse(checkoutSchema, req.body);
       const ipAddress = (req.headers['x-forwarded-for'] as string) || req.socket.remoteAddress;
@@ -286,7 +286,7 @@ export function createRentalCustomerRouter(deps: {
   router.post('/bookings/:id/verify-payment', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookingId = uuid.parse(req.params.id);
       const input = parse(verifyPaymentSchema, req.body);
       const result = await deps.store.verifyPayment(userId, bookingId, input);
@@ -322,7 +322,7 @@ export function createRentalCustomerRouter(deps: {
   router.get('/bookings/:id/payment-summary', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookingId = uuid.parse(req.params.id);
       const summary = await deps.store.getPaymentSummary(bookingId, userId);
       res.json(summary);
@@ -335,7 +335,7 @@ export function createRentalCustomerRouter(deps: {
   router.get('/bookings/:id/payment-schedule', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookingId = uuid.parse(req.params.id);
       const schedule = await deps.store.getPaymentSchedule(bookingId, userId);
       res.json(schedule);
@@ -348,7 +348,7 @@ export function createRentalCustomerRouter(deps: {
   router.post('/bookings/:id/pay-balance', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookingId = uuid.parse(req.params.id);
       const order = await deps.store.createBalancePaymentOrder(userId, bookingId);
       res.status(201).json(order);
@@ -361,7 +361,7 @@ export function createRentalCustomerRouter(deps: {
   router.post('/bookings/:id/verify-balance-payment', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookingId = uuid.parse(req.params.id);
       const input = parse(verifyPaymentSchema, req.body);
       const result = await deps.store.verifyBalancePayment(userId, bookingId, input);
@@ -375,7 +375,7 @@ export function createRentalCustomerRouter(deps: {
   router.get('/bookings/:id/payment-history', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookingId = uuid.parse(req.params.id);
       const history = await deps.store.getPaymentHistory(bookingId, userId);
       res.json(history);
@@ -388,7 +388,7 @@ export function createRentalCustomerRouter(deps: {
   router.get('/bookings/:id/pickup-readiness', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookingId = uuid.parse(req.params.id);
       const readiness = await deps.store.getPickupReadiness(bookingId, userId);
       res.json(readiness);
@@ -401,7 +401,7 @@ export function createRentalCustomerRouter(deps: {
   router.post('/bookings/:id/driver-kyc', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookingId = uuid.parse(req.params.id);
       const input = parse(driverKycSchema, req.body);
       const result = await deps.store.submitDriverKyc(userId, bookingId, input as any);
@@ -415,7 +415,7 @@ export function createRentalCustomerRouter(deps: {
   router.get('/bookings', authMiddleware, async (_req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookings = await deps.store.getCustomerRentals(userId);
       res.json(bookings);
     } catch (e) {
@@ -427,7 +427,7 @@ export function createRentalCustomerRouter(deps: {
   router.get('/bookings/:id', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookingId = uuid.parse(req.params.id);
       const booking = await deps.store.getBookingDetails(bookingId, userId);
       res.json(booking);
@@ -440,7 +440,7 @@ export function createRentalCustomerRouter(deps: {
   router.post('/bookings/:id/cancel', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookingId = uuid.parse(req.params.id);
       const input = parse(cancelBookingSchema, req.body);
       const result = await deps.store.cancelBooking(userId, bookingId, input.reason, false);
@@ -454,7 +454,7 @@ export function createRentalCustomerRouter(deps: {
   router.post('/bookings/:id/extension-requests', authMiddleware, async (req, res, next) => {
     try {
       const identity = res.locals.identity as Identity;
-      const userId = await deps.store.resolveUserId(identity.uid);
+      const userId = await deps.store.resolveUserId(identity.uid, identity);
       const bookingId = uuid.parse(req.params.id);
       const input = parse(extensionRequestSchema, req.body);
       const extension = await deps.store.requestExtension(userId, bookingId, input as any);

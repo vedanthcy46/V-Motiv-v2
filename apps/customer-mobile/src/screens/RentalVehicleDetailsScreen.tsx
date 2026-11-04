@@ -33,6 +33,7 @@ import {
   createRentalHold,
   type RentalFleetVehicle,
 } from '../services/rental-api';
+import { useAuth } from '../auth/AuthProvider';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalVehicleDetails'>;
@@ -41,6 +42,7 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
   const { vehicleId, startTime, endTime } = route.params;
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
+  const { state: authState } = useAuth();
 
   const [vehicle, setVehicle] = useState<RentalFleetVehicle | null>(null);
   const [loading, setLoading] = useState(true);
@@ -70,6 +72,10 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
 
   const handleReserve = async () => {
     if (!vehicle) return;
+    if (authState !== 'signed-in') {
+      navigation.navigate('Tabs', { screen: 'Account' });
+      return;
+    }
     try {
       setReserving(true);
       const hubId = vehicle.hub?.id || vehicle.hubId;
