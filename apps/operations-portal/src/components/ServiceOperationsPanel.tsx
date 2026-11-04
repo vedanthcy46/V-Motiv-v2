@@ -146,7 +146,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
 
   // QC
   const [qcPassed, setQcPassed] = useState(true);
-  const [qcNotes, setQcNotes] = useState('All 24 safety checkpoints and fluids checked. Road test verified.');
+  const [qcNotes, setQcNotes] = useState('');
 
   // Payment
   const [paymentAmountRupees, setPaymentAmountRupees] = useState<number>(0);
@@ -452,12 +452,15 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const handleQcSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!activeJob) return;
+    if (!qcPassed && !qcNotes.trim()) {
+      onError('Describe what needs rework so the technician knows what to fix.');
+      return;
+    }
     setActionBusy(true);
     try {
       await api.recordServiceQc(user, activeJob.id, {
-        result: qcPassed ? 'PASSED' : 'REWORK_REQUIRED',
-        roadTestNotes: qcNotes,
-        technicianNotes: qcNotes,
+        result: qcPassed ? 'PASS' : 'REWORK_REQUIRED',
+        notes: qcNotes.trim() || undefined,
       });
       onSuccess(`QC ${qcPassed ? 'PASSED' : 'REWORK MARKED'} for ${activeJob.requestNumber}`);
       await refreshActiveJob(activeJob.id);

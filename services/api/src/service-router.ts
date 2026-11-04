@@ -715,14 +715,12 @@ export function createServiceOperationsRouter(deps: {
     try {
       const employee = res.locals.employee;
       const raw = req.body || {};
-      const resVal = raw.result || (raw.isPassed === false ? 'REWORK_REQUIRED' : 'PASS');
-      const checklist = raw.checklistResults || {
-        'visual_safety_inspection': true,
-        'fluids_and_filters_check': true,
-        'brake_and_tyre_inspection': true,
-        'road_test_verified': true,
-      };
-      const notes = raw.notes || raw.checklistNotes || 'All 24 safety checkpoints and fluids verified.';
+      // Accept the legacy 'PASSED' spelling sent by older portal builds.
+      const rawResult = raw.result === 'PASSED' ? 'PASS' : raw.result;
+      const resVal = rawResult || (raw.isPassed === false ? 'REWORK_REQUIRED' : 'PASS');
+      // Never invent QC evidence: record only the checks and notes the inspector actually supplied.
+      const checklist = raw.checklistResults || { manual_signoff_by_qc_inspector: true };
+      const notes = raw.notes || raw.checklistNotes || raw.roadTestNotes || raw.technicianNotes || 'QC sign-off recorded without additional notes.';
       const rework = raw.reworkReason || (resVal === 'REWORK_REQUIRED' ? (notes || 'Requires technician rework.') : undefined);
 
       const normalizedBody = {
