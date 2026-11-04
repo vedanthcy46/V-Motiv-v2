@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { IDLE_STOP_MS, MAX_BACKOFF_MS, decideRefresh, joinTokens, nextDelayMs, shouldRunTick } from './autoRefresh';
+import { effectiveIntervalMs, IDLE_STOP_MS, MAX_BACKOFF_MS, decideRefresh, idleMultiplier, joinTokens, nextDelayMs, shouldRunTick } from './autoRefresh';
 
 describe('auto refresh scheduling', () => {
   it('uses the normal interval, backs off per failure and caps the delay', () => {
@@ -35,5 +35,27 @@ describe('change detection', () => {
   });
   it('joins per-domain tokens in a stable order', () => {
     expect(joinTokens({ b: '2', a: '1' }, ['a', 'b', 'c'])).toBe('1|2|');
+  });
+});
+
+describe('adaptive slow-down', () => {
+  it('checks less and less often while nothing changes, and is capped', () => {
+    expect([0, 2, 3, 5, 6, 9, 10, 50].map(idleMultiplier)).toEqual([1, 1, 2, 2, 4, 4, 8, 8]);
+    expect(nextDelayMs(30_000, 0, 0)).toBe(30_000);
+    expect(nextDelayMs(30_000, 0, 6)).toBe(120_000);
+    expect(nextDelayMs(30_000, 0, 20)).toBe(240_000);
+    expect(nextDelayMs(60_000, 0, 20)).toBe(MAX_BACKOFF_MS);
+  });
+  it('failure back-off still stacks on top and stays capped', () => {
+    expect(nextDelayMs(30_000, 2, 0)).toBe(120_000);
+    expect(nextDelayMs(30_000, 5, 20)).toBe(MAX_BACKOFF_MS);
+  });
+});
+
+describe('realtime backup polling', () => {
+  it('slows polling to a safety net only while the realtime listener is connected', () => {
+    expect(effectiveIntervalMs(30_000, { connected: false, signalPending: false })).toBe(30_000);
+    expect(effectiveIntervalMs(30_000, { connected: true, signalPending: false })).toBe(300_000);
+    expect(effectiveIntervalMs(30_000, { connected: true, signalPending: true })).toBe(30_000);
   });
 });

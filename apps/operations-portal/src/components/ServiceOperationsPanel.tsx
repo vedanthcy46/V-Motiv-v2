@@ -196,7 +196,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   };
 
   // New bookings and customer estimate decisions appear without a manual refresh; paused while a job drawer or dialog is open.
-  useAutoRefresh(() => loadQueue({ silent: true }), { intervalMs: 30_000, pauseWhen: () => modalIsOpen() || activeJob !== null, pulse: { domains: ['service'], fetchTokens: domains => api.pulse(user, domains) } });
+  useAutoRefresh(() => loadQueue({ silent: true }), { intervalMs: 30_000, pauseWhen: () => modalIsOpen() || activeJob !== null, pulse: { domains: ['service'], live: true, fetchTokens: (domains, fresh) => api.pulse(user, domains, fresh) } });
 
   useEffect(() => {
     void loadQueue();

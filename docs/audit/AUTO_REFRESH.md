@@ -51,3 +51,39 @@ Heavy reloads happen only after a real change.
 - The 8 s cache means a change can take up to ~8 s plus one poll interval to appear.
 - Counts are over whole tables; if a table becomes very large, add an index on its `updatedAt` or switch that probe to a maintained "last change" row.
 - Not built: push-triggered refresh and Durable Objects/SSE for true real time.
+
+## Third pass: keep Cloudflare requests low (free plan: 100,000 requests/day for the whole API)
+- **Adaptive slow-down** (all portals and the app): after 3 checks with no change the check interval doubles, after 6 it quadruples, after 10 it is x8 (capped at 5 min). The first interaction (click, key press, returning to the tab/app) snaps it back to normal. A portal left open on a quiet screen therefore drops from about 2 requests/min to about 0.25/min.
+- **Push first for customers:** the API already pushes customer-facing service and rental events. The app now reloads the visible screen as soon as a notification arrives (`services/refresh-bus.ts`, debounced 0.8 s), and once push is registered the backup change-check on those screens only runs every 5 minutes instead of every 30-45 s. Without push (permission denied, no EAS project id, simulators) the normal intervals still apply.
+- Admin notification badge poll: 20 s -> 60 s.
+- Estimated steady load (30 staff, 6 h open, mostly quiet): about 3-5k requests/day instead of about 22k; customers with push: about 1 request per 5 min per open screen.
+- Limits: push covers events the server already notifies about; anything else is picked up by the 5-minute backup check or a pull-to-refresh. Staff portals still poll (Firebase Realtime Database signals would remove that, see earlier option 3; needs Realtime Database enabled in the Firebase console).
+
+## Realtime Database signals (staff portals) — optional, off until configured
+
+**What it does.** When rows in a watched table change, the API writes a timestamp to
+`/pulse/<domain>` in Firebase Realtime Database (REST, from the Worker via `ctx.waitUntil`, coalesced to one write per
+domain per 1.5 s). Portals listen to that path over Firebase's own connection (no Cloudflare requests), and on a change
+do **one** `GET /pulse?...&fresh=1` and reload only if the token differs. While the listener is connected the normal
+polling drops to a 5-minute safety net. The signal carries no data; permissions still come from the API.
+
+**Not configured → nothing changes.** Without `FIREBASE_DATABASE_URL` the API installs no hook; without
+`VITE_FIREBASE_DATABASE_URL` the portals keep the adaptive polling described above.
+
+**Code:** `services/api/src/rtdb-signal.ts` (signaler, model→domain map from `STAFF_DOMAINS`), the Prisma `$extends`
+hook in `services/api/src/worker-cf.ts`, `apps/*/src/liveSignal.ts` + `live` option in each `autoRefresh.ts`,
+`database.rules.json` (read: signed-in users only; write: nobody from clients), `firebase.json`.
+Tests: `services/api/test/rtdb-signal.test.ts`, `PulseCache fresh reads` in `pulse.test.ts`, `effectiveIntervalMs`.
+
+**Limits to know:** writes made outside the Worker (scripts, migrations, another service) do not signal; the 5-minute
+backup poll still catches them. Customer mobile uses push notifications instead (no RTDB listener).
+
+### Turning it on (console actions only you can do)
+1. Firebase console → project **v-motiv** → Build → **Realtime Database** → Create database (pick a region; it shows a URL like
+   `https://v-motiv-default-rtdb.<region>.firebasedatabase.app`).
+2. Deploy the rules: `firebase deploy --only database` (uses `database.rules.json`).
+3. Worker secrets: `FIREBASE_DATABASE_URL` = that URL and `FIREBASE_SERVICE_ACCOUNT_JSON` = the service-account JSON
+   (the same one the API already uses for Firebase Admin, if it is provided as a secret). The service account needs the
+   *Firebase Realtime Database Admin* / Editor role.
+4. Portals: set `VITE_FIREBASE_DATABASE_URL` to the same URL in each portal's environment and rebuild/redeploy.
+5. Check: change a rental in the ops portal; another open ops tab should refresh within ~2–3 s.

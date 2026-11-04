@@ -1,7 +1,9 @@
 import { useEffect, useRef } from 'react';
 import { AppState } from 'react-native';
 import { useIsFocused } from '@react-navigation/native';
-import { decideRefresh, joinTokens, nextDelayMs, shouldRunTick } from '../services/auto-refresh';
+import { decideRefresh, effectiveIntervalMs, joinTokens, nextDelayMs, shouldRunTick } from '../services/auto-refresh';
+import { isPushActive } from '../services/notifications';
+import { onRefreshSignal } from '../services/refresh-bus';
 
 export interface PulseOptions {
   domains: string[];
@@ -37,11 +39,13 @@ export function useAutoRefresh(
     let lastRun = Date.now();
     let lastFullRunAt = Date.now();
     let lastToken: string | null = null;
+    let unchanged = 0; // consecutive checks where nothing changed (drives the slow-down)
 
     const schedule = () => {
       if (stopped) return;
       if (timer) clearTimeout(timer);
-      timer = setTimeout(() => void tick(), nextDelayMs(intervalMs, failures));
+      // With push active the server announces changes, so this is only a slow safety check.
+      timer = setTimeout(() => void tick(), nextDelayMs(effectiveIntervalMs(intervalMs, isPushActive()), failures, unchanged));
     };
 
     const first = pulseRef.current;
@@ -60,11 +64,13 @@ export function useAutoRefresh(
         const p = pulseRef.current;
         if (p) {
           const next = joinTokens(await p.fetchTokens(p.domains), p.domains);
+          const changed = lastToken !== null && next !== lastToken;
           if (decideRefresh({ previous: lastToken, next, lastFullRunAt, now: Date.now() }) === 'refresh') {
             await taskRef.current();
             lastFullRunAt = Date.now();
           }
           lastToken = next;
+          unchanged = changed ? 0 : unchanged + 1;
         } else {
           await taskRef.current();
         }
@@ -78,12 +84,39 @@ export function useAutoRefresh(
       }
     };
     const sub = AppState.addEventListener('change', state => {
-      if (state === 'active' && Date.now() - lastRun > intervalMs / 2) void tick();
+      if (state === 'active') {
+        unchanged = 0;
+        if (Date.now() - lastRun > intervalMs / 2) void tick();
+      }
     });
+
+    // A push notification arrived: reload right away (debounced), then re-baseline the change token.
+    let pushTimer: ReturnType<typeof setTimeout> | undefined;
+    const offPush = onRefreshSignal(() => {
+      if (pushTimer) clearTimeout(pushTimer);
+      pushTimer = setTimeout(async () => {
+        if (stopped || AppState.currentState !== 'active' || pausedRef.current || running) return;
+        running = true;
+        try {
+          await taskRef.current();
+          lastFullRunAt = Date.now();
+          lastToken = null;
+          unchanged = 0;
+          failures = 0;
+        } catch {
+          failures += 1;
+        } finally {
+          running = false;
+        }
+      }, 800);
+    });
+
     schedule();
     return () => {
       stopped = true;
       if (timer) clearTimeout(timer);
+      if (pushTimer) clearTimeout(pushTimer);
+      offPush();
       sub.remove();
     };
   }, [enabled, focused, intervalMs]);

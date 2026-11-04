@@ -437,7 +437,7 @@ export function App() {
   useAutoRefresh(() => loadQueue(user, sortOrder, statusFilter, search, { silent: true }), {
     enabled: Boolean(user),
     intervalMs: 30_000,
-    pulse: user ? { domains: ['review'], fetchTokens: async domains => (await api<{ tokens: Record<string, string> }>(user, `/pulse?domains=${domains.join(',')}`)).tokens } : undefined,
+    pulse: user ? { domains: ['review'], live: true, fetchTokens: async (domains, fresh) => (await api<{ tokens: Record<string, string> }>(user, `/pulse?domains=${domains.join(',')}${fresh ? '&fresh=1' : ''}`)).tokens } : undefined,
   });
 
   const loadNotifications = async (activeUser = user) => {

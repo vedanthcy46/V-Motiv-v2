@@ -835,7 +835,7 @@ function NotificationBell({ user }: { user: User }) {
     loadNotifs();
   }, [loadNotifs]);
   // Poll for new notifications only while the tab is visible (and back off if the API is failing).
-  useAutoRefresh(() => Promise.resolve(loadNotifs()), { intervalMs: 20_000, pauseWhen: () => false });
+  useAutoRefresh(() => Promise.resolve(loadNotifs()), { intervalMs: 60_000, pauseWhen: () => false });
 
   const markAllRead = async () => {
     try {

@@ -3,10 +3,18 @@ import Constants from 'expo-constants';
 import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { api } from '../api';
+import { emitRefreshSignal } from './refresh-bus';
 
 export const CONNECT_CALL_NOTIFICATION_CATEGORY = 'connect-call-actions';
 export const CONNECT_CALL_ACCEPT_ACTION = 'CONNECT_CALL_ACCEPT';
 export const CONNECT_CALL_DECLINE_ACTION = 'CONNECT_CALL_DECLINE';
+
+// Push is the primary "something changed" signal: when a notification arrives, screens reload what they show,
+// and the periodic backup check slows right down (see hooks/useAutoRefresh.ts).
+let pushActive = false;
+export const isPushActive = () => pushActive;
+Notifications.addNotificationReceivedListener(() => emitRefreshSignal('push'));
+Notifications.addNotificationResponseReceivedListener(() => emitRefreshSignal('push-open'));
 
 // Configure foreground notification behavior
 Notifications.setNotificationHandler({
@@ -130,6 +138,7 @@ export async function registerForPushNotificationsAsync(
       console.warn('[PUSH_REGISTRATION_BACKEND_WARNING]', err?.message || err);
     });
 
+    pushActive = true;
     return token;
   } catch (err: any) {
     console.warn('[PUSH_REGISTRATION_EXCEPTION]', err?.message || err);

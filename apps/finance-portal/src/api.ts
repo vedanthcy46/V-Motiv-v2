@@ -448,9 +448,9 @@ export interface AuditLogEntry {
 }
 
 /** Cheap change tokens (outside the /finance prefix); see services/api/src/pulse.ts. */
-async function pulseTokens(user: User, domains: string[]): Promise<Record<string, string>> {
+async function pulseTokens(user: User, domains: string[], fresh = false): Promise<Record<string, string>> {
   const token = await user.getIdToken();
-  const response = await fetch(`${base}/pulse?domains=${domains.join(',')}`, { headers: { Authorization: `Bearer ${token}` } });
+  const response = await fetch(`${base}/pulse?domains=${domains.join(',')}${fresh ? '&fresh=1' : ''}`, { headers: { Authorization: `Bearer ${token}` } });
   if (!response.ok) throw new ApiError('PULSE_FAILED');
   return ((await response.json()) as { tokens: Record<string, string> }).tokens;
 }

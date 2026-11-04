@@ -2,8 +2,26 @@
 export const MAX_BACKOFF_MS = 5 * 60_000;
 export const FORCE_FULL_REFRESH_MS = 5 * 60_000;
 
-export function nextDelayMs(intervalMs: number, failures: number): number {
-  return Math.min(intervalMs * 2 ** Math.min(Math.max(failures, 0), 6), MAX_BACKOFF_MS);
+/**
+ * How much slower to check after N consecutive checks where nothing changed. A screen nobody is acting on costs
+ * less and less: x1 for the first 2 quiet checks, x2, x4, then x8 (capped by MAX_BACKOFF_MS).
+ */
+export function idleMultiplier(unchangedStreak: number): number {
+  if (unchangedStreak < 3) return 1;
+  if (unchangedStreak < 6) return 2;
+  if (unchangedStreak < 10) return 4;
+  return 8;
+}
+
+/** Delay before the next attempt: the interval, slowed while nothing changes, doubled per failure, capped. */
+export function nextDelayMs(intervalMs: number, failures: number, unchangedStreak = 0): number {
+  return Math.min(intervalMs * idleMultiplier(unchangedStreak) * 2 ** Math.min(Math.max(failures, 0), 6), MAX_BACKOFF_MS);
+}
+
+/** With push notifications active the server tells us about changes, so the backup check can be much slower. */
+export const PUSH_BACKUP_INTERVAL_MS = 5 * 60_000;
+export function effectiveIntervalMs(intervalMs: number, pushActive: boolean): number {
+  return pushActive ? Math.max(intervalMs, PUSH_BACKUP_INTERVAL_MS) : intervalMs;
 }
 
 export function shouldRunTick(state: { appActive: boolean; focused: boolean; paused: boolean; running: boolean }): boolean {

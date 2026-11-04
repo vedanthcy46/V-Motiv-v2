@@ -557,7 +557,7 @@ function App() {
   }, [user, page, statusFilter, unassignedFilter]);
 
   // Quiet refresh of the current page (pauses when hidden, idle, or a dialog is open).
-  useAutoRefresh(() => loadData(user, { silent: true }), { enabled: Boolean(user), intervalMs: 30_000, pulse: user ? { domains: ['sales'], fetchTokens: domains => salesApi.pulse(user, domains) } : undefined });
+  useAutoRefresh(() => loadData(user, { silent: true }), { enabled: Boolean(user), intervalMs: 30_000, pulse: user ? { domains: ['sales'], live: true, fetchTokens: (domains, fresh) => salesApi.pulse(user, domains, fresh) } : undefined });
 
   if (!user) return <SignIn />;
   if (loading) return <div className="auth-screen"><p className="eyebrow">INITIALIZING WORKSPACE…</p></div>;

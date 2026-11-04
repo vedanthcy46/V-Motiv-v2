@@ -75,3 +75,17 @@ describe('GET /pulse', () => {
     await request(appWith(makeDb({ user: { ...staff, status: 'SUSPENDED' } }).db)).get('/pulse?domains=me').set('Authorization', 'Bearer s1').expect(403);
   });
 });
+
+describe('PulseCache fresh reads', () => {
+  it('serves a tight max-age right after a realtime signal while still sharing one load between simultaneous clients', async () => {
+    let now = 0;
+    const cache = new PulseCache(8000, () => now);
+    const load = vi.fn(async () => `v${now}`);
+    expect(await cache.get('k', load)).toBe('v0');
+    now = 3000;
+    expect(await cache.get('k', load)).toBe('v0'); // normal read: still inside the 8 s window
+    const [a, b] = await Promise.all([cache.get('k', load, 1500), cache.get('k', load, 1500)]);
+    expect([a, b]).toEqual(['v3000', 'v3000']); // fresh read reloads once, shared
+    expect(load).toHaveBeenCalledTimes(2);
+  });
+});

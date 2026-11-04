@@ -36,8 +36,11 @@ import { PrismaRentalStore } from './rental-store.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
 import { PrismaConnectStore } from './connect-store.js';
 import { createEdgeTokenVerifier } from './edge-auth.js';
+import { domainsForModel, isWriteOperation, signalerFromEnv } from './rtdb-signal.js';
 
 let expressApp: Express | null = null;
+// The invocation context of the request being served, so background signal writes can outlive the response.
+let currentWaitUntil: ((promise: Promise<unknown>) => void) | undefined;
 let dbClient: PrismaClient | null = null;
 
 function getOrCreateApp(): Express {
@@ -92,6 +95,21 @@ function getOrCreateApp(): Express {
       datasourceUrl: config.DATABASE_URL,
       transactionOptions: { timeout: 15000, maxWait: 5000 },
     });
+  }
+  // Realtime signals for the staff portals (Firebase Realtime Database). No-op unless FIREBASE_DATABASE_URL is set.
+  const signaler = signalerFromEnv(process.env, () => currentWaitUntil);
+  if (signaler) {
+    db = (db as any).$extends({
+      query: {
+        $allModels: {
+          async $allOperations({ model, operation, args, query }: { model: string; operation: string; args: unknown; query: (a: unknown) => Promise<unknown> }) {
+            const result = await query(args);
+            if (isWriteOperation(operation)) signaler.signal(domainsForModel(model));
+            return result;
+          },
+        },
+      },
+    }) as unknown as PrismaClient;
   }
   dbClient = db;
 
@@ -330,6 +348,7 @@ export default {
       });
     }
 
+    currentWaitUntil = ctx?.waitUntil?.bind(ctx);
     try {
       // 2. Populate process.env from Cloudflare Worker env/secrets bindings
       if (env && typeof env === 'object') {

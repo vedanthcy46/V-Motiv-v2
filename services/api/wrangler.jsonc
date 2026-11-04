@@ -15,6 +15,7 @@
     "OPERATIONS_WEB_ORIGIN": "https://ops.vmotiv.in",
     "FINANCE_WEB_ORIGIN": "https://finance.vmotiv.in",
     "FIREBASE_PROJECT_ID": "v-motiv",
+    "FIREBASE_DATABASE_URL": "https://v-motiv-default-rtdb.asia-southeast1.firebasedatabase.app",
     "EMAIL_DELIVERY_ENABLED": "false"
   },
   "env": {
@@ -30,6 +31,7 @@
         "OPERATIONS_WEB_ORIGIN": "https://ops.vmotiv.in",
         "FINANCE_WEB_ORIGIN": "https://finance.vmotiv.in",
         "FIREBASE_PROJECT_ID": "v-motiv",
+        "FIREBASE_DATABASE_URL": "https://v-motiv-default-rtdb.asia-southeast1.firebasedatabase.app",
         "EMAIL_DELIVERY_ENABLED": "false"
       }
     }

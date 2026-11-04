@@ -302,7 +302,7 @@ function App() {
   };
 
   // Receipts, settlements and reconciliation update on their own; paused while a finance dialog is open.
-  useAutoRefresh(() => loadFinanceData(user as User, true), { enabled: Boolean(user && actor), intervalMs: 45_000, pauseWhen: () => modalIsOpen() || activeModal !== null, pulse: user ? { domains: ['finance'], fetchTokens: domains => financeApi.pulse(user, domains) } : undefined });
+  useAutoRefresh(() => loadFinanceData(user as User, true), { enabled: Boolean(user && actor), intervalMs: 45_000, pauseWhen: () => modalIsOpen() || activeModal !== null, pulse: user ? { domains: ['finance'], live: true, fetchTokens: (domains, fresh) => financeApi.pulse(user, domains, fresh) } : undefined });
 
   useEffect(() => {
     if (!auth) return;

@@ -88,18 +88,19 @@ export async function computeToken(db: PrismaClient, probes: Probe[]): Promise<s
 
 /** Tiny in-memory cache with in-flight de-duplication: N clients polling the same domain share one DB round. */
 export class PulseCache {
-  private readonly entries = new Map<string, { value: string; expires: number }>();
+  private readonly entries = new Map<string, { value: string; expires: number; storedAt: number }>();
   private readonly inflight = new Map<string, Promise<string>>();
   constructor(private readonly ttlMs: number, private readonly now: () => number = Date.now) {}
 
-  async get(key: string, load: () => Promise<string>): Promise<string> {
+  /** `maxAgeMs` tightens the freshness for this call only (used right after a realtime signal). */
+  async get(key: string, load: () => Promise<string>, maxAgeMs?: number): Promise<string> {
     const hit = this.entries.get(key);
-    if (hit && hit.expires > this.now()) return hit.value;
+    if (hit && hit.expires > this.now() && (maxAgeMs === undefined || this.now() - hit.storedAt < maxAgeMs)) return hit.value;
     const pending = this.inflight.get(key);
     if (pending) return pending;
     const promise = load()
       .then(value => {
-        this.entries.set(key, { value, expires: this.now() + this.ttlMs });
+        this.entries.set(key, { value, expires: this.now() + this.ttlMs, storedAt: this.now() });
         if (this.entries.size > 2000) this.entries.clear();
         return value;
       })
@@ -109,6 +110,7 @@ export class PulseCache {
   }
 }
 
+export const FRESH_MAX_AGE_MS = 1_500;
 export const PULSE_DOMAINS = [...Object.keys(STAFF_DOMAINS), 'me'] as const;
 
 export function createPulseRouter(deps: { verify: VerifyToken; db: PrismaClient; ttlMs?: number }) {
@@ -131,15 +133,17 @@ export function createPulseRouter(deps: { verify: VerifyToken; db: PrismaClient;
       });
       if (!user || user.status !== 'ACTIVE') throw new HttpError(403, 'ACCOUNT_INACTIVE');
       const isStaff = Boolean(user.employee?.active && user.employee.status === 'ACTIVE');
+      // fresh=1: a realtime signal just said something changed, so accept at most ~1.5 s old data (simultaneous clients still share one query).
+      const maxAge = req.query.fresh === '1' ? FRESH_MAX_AGE_MS : undefined;
       const tokens: Record<string, string> = {};
       await Promise.all(
         requested.map(async domain => {
           if (domain === 'me') {
-            tokens[domain] = await cache.get(`me:${user.id}`, () => computeToken(deps.db, customerProbes(user.id)));
+            tokens[domain] = await cache.get(`me:${user.id}`, () => computeToken(deps.db, customerProbes(user.id)), maxAge);
             return;
           }
           if (!isStaff) throw new HttpError(403, 'EMPLOYEE_ACCESS_REQUIRED');
-          tokens[domain] = await cache.get(`staff:${domain}`, () => computeToken(deps.db, STAFF_DOMAINS[domain]!));
+          tokens[domain] = await cache.get(`staff:${domain}`, () => computeToken(deps.db, STAFF_DOMAINS[domain]!), maxAge);
         }),
       );
       res.setHeader('Cache-Control', 'private, no-store');

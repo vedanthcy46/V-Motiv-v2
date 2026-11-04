@@ -489,7 +489,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   };
 
   // Bookings, payments and fleet status update on their own; paused while a booking drawer or dialog is open.
-  useAutoRefresh(() => loadData({ silent: true }), { intervalMs: 30_000, pauseWhen: () => modalIsOpen() || activeBooking !== null || walkInModalOpen || onboardModalOpen, pulse: { domains: ['rentals'], fetchTokens: domains => api.pulse(user, domains) } });
+  useAutoRefresh(() => loadData({ silent: true }), { intervalMs: 30_000, pauseWhen: () => modalIsOpen() || activeBooking !== null || walkInModalOpen || onboardModalOpen, pulse: { domains: ['rentals'], live: true, fetchTokens: (domains, fresh) => api.pulse(user, domains, fresh) } });
 
   useEffect(() => {
     void loadData();

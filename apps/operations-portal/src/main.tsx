@@ -605,7 +605,7 @@ export const App: FC = () => {
   };
 
   // Keep the dispatch board, acquisitions and inventory current without a manual refresh.
-  useAutoRefresh(() => loadAllData(user, true), { enabled: Boolean(user) && !loading, intervalMs: 30_000, pauseWhen: () => modalIsOpen(), pulse: user ? { domains: ['dispatch'], fetchTokens: domains => api.pulse(user, domains) } : undefined });
+  useAutoRefresh(() => loadAllData(user, true), { enabled: Boolean(user) && !loading, intervalMs: 30_000, pauseWhen: () => modalIsOpen(), pulse: user ? { domains: ['dispatch'], live: true, fetchTokens: (domains, fresh) => api.pulse(user, domains, fresh) } : undefined });
 
   // Removed auto-refresh interval per user request - user manually refreshes via refresh button
 
