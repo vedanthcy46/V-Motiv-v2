@@ -47,7 +47,9 @@ export function resolveRequestUrl(path: string) {
 }
 
 export class ApiError extends Error {
-  constructor(readonly status: number, readonly code: string) { super(code); }
+  constructor(readonly status: number, readonly code: string, message?: string) {
+    super(message || code);
+  }
 }
 
 export async function api<T>(path: string, init: RequestInit = {}, forceRefresh = false): Promise<T> {
@@ -106,7 +108,8 @@ export async function api<T>(path: string, init: RequestInit = {}, forceRefresh 
           : response.status === 409
           ? 'RESOURCE_CONFLICT'
           : 'REQUEST_FAILED');
-      throw new ApiError(response.status, code);
+      const message = (typeof body?.message === 'string' && body.message.trim()) ? body.message.trim() : code;
+      throw new ApiError(response.status, code, message);
     }
     if (body === undefined && rawText.trim()) {
       throw new ApiError(response.status, 'INVALID_API_RESPONSE');

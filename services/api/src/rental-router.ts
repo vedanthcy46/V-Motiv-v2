@@ -6,7 +6,19 @@ import { HttpError } from './errors.js';
 import { PrismaClient, type EmployeeRole } from '@prisma/client';
 import crypto from 'node:crypto';
 
-const uuid = z.string().uuid();
+const uuid = z.string().trim().min(1);
+
+const flexibleDateSchema = z.preprocess((val) => {
+  if (val instanceof Date) return val.toISOString();
+  if (typeof val === 'number') return new Date(val).toISOString();
+  if (typeof val === 'string') {
+    const trimmed = val.trim();
+    const d = new Date(trimmed);
+    if (!isNaN(d.getTime())) return d.toISOString();
+    return trimmed;
+  }
+  return val;
+}, z.string().min(8));
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   try {
@@ -14,7 +26,13 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   } catch (error) {
     if (error instanceof ZodError) {
       console.error('RENTAL_ROUTER_INVALID_INPUT', JSON.stringify(error.issues));
-      throw new HttpError(400, 'INVALID_INPUT');
+      const firstIssue = error.issues[0];
+      const issueMessage = firstIssue?.message && firstIssue.message !== 'Required'
+        ? firstIssue.message
+        : firstIssue?.path?.length
+        ? `Invalid ${firstIssue.path.join('.')}`
+        : 'INVALID_INPUT';
+      throw new HttpError(400, 'INVALID_INPUT', issueMessage);
     }
     throw error;
   }
@@ -26,27 +44,27 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 const searchFilterSchema = z.object({
   hubId: uuid.optional(),
   city: z.string().trim().max(80).optional(),
-  startTime: z.string().datetime().or(z.string().min(10)),
-  endTime: z.string().datetime().or(z.string().min(10)),
+  startTime: flexibleDateSchema.optional().default(() => new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()),
+  endTime: flexibleDateSchema.optional().default(() => new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString()),
   fuelType: z.string().trim().max(30).optional(),
   transmission: z.string().trim().max(30).optional(),
   seats: z.coerce.number().int().min(2).max(12).optional(),
-});
+}).passthrough();
 
 const holdCreateSchema = z.object({
   vehicleId: uuid,
-  hubId: uuid,
-  startTime: z.string().datetime().or(z.string().min(10)),
-  endTime: z.string().datetime().or(z.string().min(10)),
-});
+  hubId: uuid.optional(),
+  startTime: flexibleDateSchema,
+  endTime: flexibleDateSchema,
+}).passthrough();
 
 const checkoutSchema = z.object({
   returnHubId: uuid.optional(),
   customerNotes: z.string().trim().max(1000).optional(),
-  acceptTerms: z.literal(true),
+  acceptTerms: z.preprocess((val) => val === true || val === 'true' || val === 1 || val === '1', z.literal(true)),
   termsVersion: z.string().trim().default('VMR-TERMS-V2026.1'),
   paymentPlanId: z.enum(['FULL_100', 'ADVANCE_25', 'ADVANCE_50']).default('FULL_100'),
-});
+}).passthrough();
 
 const verifyPaymentSchema = z.object({
   paymentGateway: z.string().trim().default('RAZORPAY'),

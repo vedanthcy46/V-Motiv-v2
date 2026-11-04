@@ -629,9 +629,13 @@ export function createApp(deps: {
         typeof (error as any).code === 'string');
 
     if (isHttpError) {
-      res.status((error as any).status).json({
+      const payload: Record<string, any> = {
         code: (error as any).code,
-      });
+      };
+      if ((error as any).message && (error as any).message !== (error as any).code) {
+        payload.message = (error as any).message;
+      }
+      res.status((error as any).status).json(payload);
       return;
     }
 

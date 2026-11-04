@@ -5,7 +5,7 @@ import { PrismaServiceStore } from './service-store.js';
 import { HttpError } from './errors.js';
 import { PrismaClient, type EmployeeRole } from '@prisma/client';
 
-const uuid = z.string().uuid();
+const uuid = z.string().trim().min(1);
 
 function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   try {
@@ -13,7 +13,13 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   } catch (error) {
     if (error instanceof ZodError) {
       console.error('SERVICE_ROUTER_INVALID_INPUT', JSON.stringify(error.issues));
-      throw new HttpError(400, 'INVALID_INPUT');
+      const firstIssue = error.issues[0];
+      const issueMessage = firstIssue?.message && firstIssue.message !== 'Required'
+        ? firstIssue.message
+        : firstIssue?.path?.length
+        ? `Invalid ${firstIssue.path.join('.')}`
+        : 'INVALID_INPUT';
+      throw new HttpError(400, 'INVALID_INPUT', issueMessage);
     }
     throw error;
   }

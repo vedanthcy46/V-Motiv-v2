@@ -78,14 +78,10 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
     }
     try {
       setReserving(true);
-      const hubId = vehicle.hub?.id || vehicle.hubId;
-      if (!hubId) {
-        Alert.alert('Hub Required', 'This rental vehicle has no assigned pickup hub.');
-        return;
-      }
+      const hubId = vehicle.hub?.id || vehicle.hubId || '';
 
-      const st = startTime || new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-      const et = endTime || new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
+      const st = startTime ? new Date(startTime).toISOString() : new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+      const et = endTime ? new Date(endTime).toISOString() : new Date(Date.now() + 72 * 60 * 60 * 1000).toISOString();
 
       const hold = await createRentalHold({
         vehicleId: vehicle.id,
@@ -104,10 +100,11 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
         hubName: vehicle.hub?.name || 'Local Hub',
       });
     } catch (e: any) {
-      Alert.alert(
-        'Reservation Unavailable',
-        e?.message || 'Unable to create 15-minute checkout hold on this vehicle. Please choose another date or car.'
-      );
+      const errMsg =
+        e?.message && e.message !== 'INVALID_INPUT'
+          ? e.message
+          : 'Unable to reserve this vehicle. It may be currently booked or the selected time slot is unavailable. Please choose another date or car.';
+      Alert.alert('Reservation Unavailable', errMsg);
     } finally {
       setReserving(false);
     }

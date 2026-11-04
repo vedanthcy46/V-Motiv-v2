@@ -362,7 +362,7 @@ export class PrismaRentalStore {
     customerId: string,
     input: {
       vehicleId: string;
-      hubId: string;
+      hubId?: string;
       startTime: string | Date;
       endTime: string | Date;
     },
@@ -384,8 +384,7 @@ export class PrismaRentalStore {
       if (
         !vehicle.isEligibleForRental ||
         vehicle.status !== RentalVehicleStatus.AVAILABLE ||
-        !vehicle.hub.isActive ||
-        vehicle.hubId !== input.hubId
+        !vehicle.hub.isActive
       ) {
         throw new HttpError(400, 'VEHICLE_NOT_ELIGIBLE_FOR_RENTAL');
       }
@@ -440,13 +439,14 @@ export class PrismaRentalStore {
       const quote = this.calculateQuote(vehicle, start, end);
       const holdCode = `HLD-${Date.now().toString(36).toUpperCase()}-${crypto.randomBytes(2).toString('hex').toUpperCase()}`;
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 mins TTL
+      const effectiveHubId = vehicle.hubId || input.hubId || vehicle.hub?.id;
 
       const hold = await tx.rentalBookingHold.create({
         data: {
           holdCode,
           vehicleId: vehicle.id,
           customerId,
-          hubId: input.hubId,
+          hubId: effectiveHubId,
           startTime: start,
           endTime: end,
           expiresAt,
