@@ -1,5 +1,7 @@
 import { PrismaClient, Prisma, RentalVehicleStatus, RentalBlockReason, RentalBookingStatus, RentalDriverKycStatus, RentalExtensionStatus, RentalHoldStatus, RentalPaymentType, RentalPaymentStatus } from '@prisma/client';
 import { HttpError } from './errors.js';
+import { assertGatewayPaymentSignature } from './payment-signature.js';
+import { assertCapturedAmount } from './razorpay-gateway.js';
 import type { NotificationService } from './notification/notification-service.js';
 import crypto from 'node:crypto';
 import { currentCalendarYear } from './calendar.js';
@@ -701,24 +703,7 @@ export class PrismaRentalStore {
       }
 
       // Signature verification
-      const secret = process.env.RAZORPAY_KEY_SECRET || 'dev_secret_key_12345';
-      const generatedSignature = crypto
-        .createHmac('sha256', secret)
-        .update(`${input.gatewayOrderId}|${input.gatewayPaymentId}`)
-        .digest('hex');
-
-      const isDemoPayment =
-        input.paymentGateway === 'DEMO' ||
-        input.paymentGateway === 'TEST' ||
-        input.paymentGateway === 'CASH' ||
-        input.paymentGateway === 'OFFLINE' ||
-        input.gatewayPaymentId?.startsWith('pay_demo_') ||
-        input.gatewayPaymentId?.startsWith('pay_bal_') ||
-        input.gatewaySignature === 'demo_sig_verified_vmotiv' ||
-        input.gatewaySignature?.startsWith('demo_');
-      if (!isDemoPayment && generatedSignature !== input.gatewaySignature && process.env.NODE_ENV === 'production') {
-        throw new HttpError(400, 'INVALID_PAYMENT_SIGNATURE');
-      }
+      assertGatewayPaymentSignature(input);
 
       // Check if hold had expired before payment completion
       if (booking.hold && booking.hold.expiresAt.getTime() < Date.now()) {
@@ -817,6 +802,7 @@ export class PrismaRentalStore {
         ? BigInt((booking.paymentPlanSnapshot as any).balancePaise || 0)
         : 0n;
       const nextRentalPaymentStatus = isPartial ? 'PARTIALLY_PAID' : 'PAID_IN_FULL';
+      await assertCapturedAmount(input, advancePaise);
 
       // Update booking to CONFIRMED
       const updatedBooking = await tx.rentalBooking.update({
@@ -3392,30 +3378,14 @@ export class PrismaRentalStore {
       }
 
       // Signature verification
-      const secret = process.env.RAZORPAY_KEY_SECRET || 'dev_secret_key_12345';
-      const generatedSignature = crypto
-        .createHmac('sha256', secret)
-        .update(`${input.gatewayOrderId}|${input.gatewayPaymentId}`)
-        .digest('hex');
-
-      const isDemo =
-        input.paymentGateway === 'DEMO' ||
-        input.paymentGateway === 'TEST' ||
-        input.paymentGateway === 'CASH' ||
-        input.paymentGateway === 'OFFLINE' ||
-        input.gatewayPaymentId?.startsWith('pay_demo_') ||
-        input.gatewayPaymentId?.startsWith('pay_bal_') ||
-        input.gatewaySignature === 'demo_sig_verified_vmotiv' ||
-        input.gatewaySignature?.startsWith('demo_');
-      if (!isDemo && generatedSignature !== input.gatewaySignature && process.env.NODE_ENV === 'production') {
-        throw new HttpError(400, 'INVALID_PAYMENT_SIGNATURE');
-      }
+      assertGatewayPaymentSignature(input);
 
       const totalRental = booking.baseFarePaise + booking.taxPaise;
       const verifiedBefore = booking.payments
         .filter(p => p.status === RentalPaymentStatus.VERIFIED)
         .reduce((acc, p) => acc + p.amountPaise, 0n);
       const balanceAmount = totalRental > verifiedBefore ? totalRental - verifiedBefore : totalRental;
+      await assertCapturedAmount(input, balanceAmount);
 
       await tx.rentalPaymentRecord.upsert({
         where: { idempotencyKey: input.gatewayPaymentId },

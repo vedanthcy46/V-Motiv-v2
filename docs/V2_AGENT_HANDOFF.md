@@ -64,3 +64,7 @@ npm run start
 cd services/api
 npx vitest run test/service-api.test.ts
 ```
+
+---
+## Audit update 2026-11-04
+See `docs/audit/` (MASTER_AUDIT_REPORT, REMEDIATION_LOG, CODEBASE_INVENTORY). Payment signature checks go through `services/api/src/payment-signature.ts`; production has no demo-payment shortcuts. Webhooks verify the raw body (`req.rawBody`, set in `app.ts` and `worker-cf.ts`). Required production secrets: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `CONNECT_WEBHOOK_SECRET`.

@@ -238,7 +238,11 @@ export function createApp(deps: {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin'],
     credentials: false,
   }));
-  const jsonBodyParser = express.json({ limit: '50mb' });
+  const jsonBodyParser = express.json({
+    limit: '50mb',
+    // Keep the exact bytes so webhook HMACs are verified against what the provider signed.
+    verify: (req, _res, buf) => { (req as any).rawBody = buf.toString('utf8'); },
+  });
   const formBodyParser = express.urlencoded({ limit: '50mb', extended: true });
   // The Cloudflare bridge has already materialized JSON request bodies. Do not
   // consume its completed stream a second time; ordinary Node/Vercel requests

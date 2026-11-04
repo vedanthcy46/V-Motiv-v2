@@ -117,9 +117,8 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
     setBusy(true);
     setError(null);
     try {
-      // Simulate/call service booking endpoint
-      const bookingId = `SRV-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
-      setBookingSuccess(bookingId);
+      // No website booking endpoint is wired yet. Never fabricate a booking reference.
+      throw new Error('Online service booking from the website is not available yet. Please book in the V MOTIV mobile app or contact V MOTIV; no appointment has been created.');
     } catch (err: any) {
       setError(err?.message || 'Failed to submit service booking. Please try again.');
     } finally {

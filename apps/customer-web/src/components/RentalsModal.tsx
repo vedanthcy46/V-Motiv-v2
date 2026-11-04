@@ -130,8 +130,8 @@ export const RentalsModal: React.FC<RentalsModalProps> = ({
     setBusy(true);
     setError(null);
     try {
-      const bookingCode = `RNT-${new Date().getFullYear()}-${Math.floor(10000 + Math.random() * 90000)}`;
-      setReservationSuccess(bookingCode);
+      // No website reservation endpoint is wired yet. Never fabricate a reservation code.
+      throw new Error('Online rental reservation from the website is not available yet. Please reserve in the V MOTIV mobile app or contact V MOTIV; no vehicle has been held.');
     } catch (err: any) {
       setError(err?.message || 'Failed to submit rental reservation. Please try again.');
     } finally {

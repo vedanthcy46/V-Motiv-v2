@@ -3,6 +3,7 @@ import { z, ZodError } from 'zod';
 import { authentication, type Identity, type VerifyToken } from './auth.js';
 import { PrismaRentalStore } from './rental-store.js';
 import { HttpError } from './errors.js';
+import { assertWebhookSignature } from './payment-signature.js';
 import { PrismaClient, type EmployeeRole } from '@prisma/client';
 import crypto from 'node:crypto';
 import { currentCalendarYear } from './calendar.js';
@@ -973,19 +974,9 @@ export function createRentalWebhookRouter(deps: {
 
   router.post('/razorpay', async (req, res, next) => {
     try {
-      const secret = process.env.RAZORPAY_WEBHOOK_SECRET || 'dev_webhook_secret_key_12345';
-      const signature = req.headers['x-razorpay-signature'] as string;
-
-      if (!signature) {
-        throw new HttpError(400, 'MISSING_WEBHOOK_SIGNATURE');
-      }
-
-      const bodyRaw = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
-      const expectedSignature = crypto.createHmac('sha256', secret).update(bodyRaw).digest('hex');
-
-      if (signature !== expectedSignature && process.env.NODE_ENV === 'production') {
-        throw new HttpError(400, 'INVALID_WEBHOOK_SIGNATURE');
-      }
+      const signature = req.headers['x-razorpay-signature'] as string | undefined;
+      const bodyRaw: string = (req as any).rawBody ?? (typeof req.body === 'string' ? req.body : JSON.stringify(req.body));
+      assertWebhookSignature(bodyRaw, signature, process.env.RAZORPAY_WEBHOOK_SECRET);
 
       const payload = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
       const event = payload.event;
@@ -1009,7 +1000,10 @@ export function createRentalWebhookRouter(deps: {
               {
                 gatewayOrderId: orderId,
                 gatewayPaymentId: paymentId,
-                gatewaySignature: signature,
+                gatewaySignature: crypto
+                  .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET || '')
+                  .update(`${orderId}|${paymentId}`)
+                  .digest('hex'),
               }
             );
           }

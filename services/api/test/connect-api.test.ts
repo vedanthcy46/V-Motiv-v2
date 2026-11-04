@@ -404,7 +404,8 @@ describe('V MOTIV V2 — Connect Integration API Suite', () => {
       visitorIp: '198.51.100.42',
     };
 
-    const secret = 'vmotiv_connect_secret_default';
+    const secret = 'test_connect_webhook_secret';
+    process.env.CONNECT_WEBHOOK_SECRET = secret;
     const signature = crypto.createHmac('sha256', secret).update(JSON.stringify(payload)).digest('hex');
 
     // Reject forged signature
@@ -412,7 +413,7 @@ describe('V MOTIV V2 — Connect Integration API Suite', () => {
       .post('/api/v2/webhooks/connect')
       .set('x-connect-signature', 'bad-signature-hex')
       .send(payload);
-    expect(badRes.status).toBe(401);
+    expect(badRes.status).toBe(400);
 
     // Accept valid signed webhook
     const goodRes = await request(app)

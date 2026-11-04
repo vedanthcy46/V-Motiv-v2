@@ -291,7 +291,8 @@ export async function fetchToExpress(app: Express, webReq: Request): Promise<Res
           const contentType = String(req.headers['content-type'] || '');
           if (contentType.toLowerCase().includes('application/json')) {
             try {
-              (req as any).body = JSON.parse(requestBody.toString('utf8'));
+              (req as any).rawBody = requestBody.toString('utf8');
+              (req as any).body = JSON.parse((req as any).rawBody);
             } catch {
               // Leave req.body undefined; the normal Express parser will
               // produce the appropriate invalid-JSON response.

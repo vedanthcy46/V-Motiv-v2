@@ -25,6 +25,8 @@ import {
 import { currentCalendarYear } from './calendar.js';
 import crypto from 'node:crypto';
 import { HttpError } from './errors.js';
+import { assertGatewayPaymentSignature } from './payment-signature.js';
+import { assertCapturedAmount } from './razorpay-gateway.js';
 import type { Identity } from './auth.js';
 import type { NotificationService } from './notification/index.js';
 
@@ -1629,24 +1631,8 @@ export class PrismaServiceStore {
 
       let isPaidNow = false;
       if (payNowPaise > 0n && input.gatewayPaymentId && input.gatewayOrderId) {
-        const secret = process.env.RAZORPAY_KEY_SECRET || 'dev_secret_key_12345';
-        const generatedSignature = crypto
-          .createHmac('sha256', secret)
-          .update(`${input.gatewayOrderId}|${input.gatewayPaymentId}`)
-          .digest('hex');
-        const isDemo =
-          input.paymentGateway === 'DEMO' ||
-          input.paymentGateway === 'TEST' ||
-          input.paymentGateway === 'CASH' ||
-          input.paymentGateway === 'OFFLINE' ||
-          input.gatewayPaymentId?.startsWith('pay_demo_') ||
-          input.gatewayPaymentId?.startsWith('pay_srv_') ||
-          input.gatewayOrderId?.startsWith('order_srv_') ||
-          input.gatewaySignature === 'demo_sig_verified_vmotiv' ||
-          (typeof input.gatewaySignature === 'string' && input.gatewaySignature.startsWith('demo_'));
-        if (!isDemo && input.gatewaySignature !== generatedSignature && process.env.NODE_ENV === 'production') {
-          throw new HttpError(400, 'INVALID_PAYMENT_SIGNATURE');
-        }
+        assertGatewayPaymentSignature(input);
+        await assertCapturedAmount(input, payNowPaise, { exact: true });
         isPaidNow = true;
       }
 
@@ -3538,28 +3524,21 @@ export class PrismaServiceStore {
     }
 
     // Signature verification
-    const secret = process.env.RAZORPAY_KEY_SECRET || 'dev_secret_key_12345';
-    const generatedSignature = crypto
-      .createHmac('sha256', secret)
-      .update(`${input.gatewayOrderId}|${input.gatewayPaymentId}`)
-      .digest('hex');
-
-    const isDemoPayment =
-      input.paymentGateway === 'DEMO' ||
-      input.paymentGateway === 'TEST' ||
-      input.paymentGateway === 'CASH' ||
-      input.paymentGateway === 'OFFLINE' ||
-      input.gatewayPaymentId?.startsWith('pay_demo_') ||
-      input.gatewayPaymentId?.startsWith('pay_srv_') ||
-      input.gatewayOrderId?.startsWith('order_srv_') ||
-      input.gatewaySignature === 'demo_sig_verified_vmotiv' ||
-      (typeof input.gatewaySignature === 'string' && input.gatewaySignature.startsWith('demo_'));
-    if (!isDemoPayment && generatedSignature !== input.gatewaySignature && process.env.NODE_ENV === 'production') {
-      throw new HttpError(400, 'INVALID_PAYMENT_SIGNATURE');
-    }
+    assertGatewayPaymentSignature(input);
 
     // Determine amount
-    const amountPaise = input.amountPaise ? BigInt(input.amountPaise) : (sr.outstandingBalancePaise > 0n ? sr.outstandingBalancePaise : 0n);
+    const claimedPaise = input.amountPaise ? BigInt(input.amountPaise) : null;
+    // Production: the recorded amount is what the gateway actually captured, never the client claim.
+    const capturedPaise = await assertCapturedAmount(input, claimedPaise, { exact: claimedPaise !== null });
+    const amountPaise = capturedPaise ?? claimedPaise ?? (sr.outstandingBalancePaise > 0n ? sr.outstandingBalancePaise : 0n);
+
+    // A gateway payment id can settle exactly one service request.
+    const reused = await this.db.servicePaymentRecord.findFirst({
+      where: { gatewayPaymentId: input.gatewayPaymentId, serviceRequestId: { not: sr.id } },
+      select: { id: true },
+    });
+    if (reused) throw new HttpError(409, 'PAYMENT_ALREADY_USED');
+
 
     return this.db.$transaction(async tx => {
       const payment = await tx.servicePaymentRecord.create({

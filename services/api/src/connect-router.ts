@@ -3,6 +3,7 @@ import { z, ZodError } from 'zod';
 import { authentication, type Identity, type VerifyToken } from './auth.js';
 import { PrismaConnectStore, verifyConnectSignature } from './connect-store.js';
 import { HttpError } from './errors.js';
+import { assertWebhookSignature } from './payment-signature.js';
 
 const uuid = z.string().uuid();
 
@@ -287,13 +288,10 @@ export function createConnectWebhookRouter(deps: {
 
   router.post('/', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const secret = deps.webhookSecret || process.env.CONNECT_WEBHOOK_SECRET || 'vmotiv_connect_secret_default';
+      const secret = deps.webhookSecret || process.env.CONNECT_WEBHOOK_SECRET;
       const signature = req.headers['x-connect-signature'] as string | undefined;
-
-      // In production or when signature is present, verify
-      if (signature && !verifyConnectSignature(JSON.stringify(req.body), signature, secret)) {
-        throw new HttpError(401, 'INVALID_WEBHOOK_SIGNATURE');
-      }
+      const bodyRaw: string = (req as any).rawBody ?? JSON.stringify(req.body);
+      assertWebhookSignature(bodyRaw, signature, secret);
 
       const result = await deps.store.processConnectWebhook(req.body);
       res.status(200).json(result);
