@@ -92,6 +92,8 @@ export const adminApi = {
   proposePrivilegedInvitation: (user: User, input: { email: string; fullName: string; designation?: string; roleId: string; branchIds: string[]; expiresInHours: number; reason: string }) => call(user, '/admin/approvals/privileged-invitations', { method: 'POST', body: JSON.stringify(input) }),
   approvals: (user: User, page = 1, status?: string) => call<ApprovalPage>(user, `/admin/approvals?${new URLSearchParams({ page: String(page), limit: '25', ...(status ? { status } : {}) })}`),
   decideApproval: (user: User, id: string, input: { version: number; decision: 'APPROVE' | 'REJECT'; reason: string }) => call(user, `/admin/approvals/${id}/decision`, { method: 'POST', body: JSON.stringify(input) }),
+  updateEmployeeAccess: (user: User, id: string, input: { roleId?: string; branchIds?: string[]; designation?: string | null; reason: string }) =>
+    call<{ userId: string; roles: string[]; branchIds: string[]; designation: string | null }>(user, `/admin/employees/${id}/access`, { method: 'PATCH', body: JSON.stringify(input) }),
   status: (user: User, id: string, status: string, reason: string) => call<void>(user, `/admin/employees/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, reason }) }),
   audit: (user: User, page = 1) => call<AuditPage>(user, `/admin/audit?page=${page}&limit=25`),
   acceptInvitation: (user: User, token: string) => call<AdminActor>(user, '/staff/invitations/accept', { method: 'POST', body: JSON.stringify({ token }) }),

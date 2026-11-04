@@ -43,6 +43,12 @@ const rentalKmPolicyInput = z.object({
   includedKmPerDay: z.number().int().min(1).max(1000).nullable().optional(),
   extraKmRatePaise: z.number().int().min(100).max(100000).nullable().optional(),
 }).strict().refine(value => Object.keys(value).length > 0);
+const employeeAccessInput = z.object({
+  roleId: z.string().uuid().optional(),
+  branchIds: z.array(z.string().uuid()).min(1).max(20).optional(),
+  designation: z.string().trim().max(120).nullable().optional(),
+  reason: z.string().trim().min(8).max(500),
+}).strict().refine(value => value.roleId !== undefined || value.branchIds !== undefined || value.designation !== undefined, { message: 'Nothing to change' });
 const serviceAreaCreateInput = z.object({ name: z.string().trim().min(2).max(120) }).strict();
 const serviceAreaUpdateInput = z.object({ active: z.boolean() }).strict();
 const supportQuery = pagination.extend({ status: z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']).optional(), search: z.string().trim().max(120).optional() });
@@ -210,6 +216,7 @@ export function createAdminRouter(deps: {
     if (deps.drainEmails) void deps.drainEmails().catch(() => undefined);
     res.json(result);
   });
+  router.patch('/admin/employees/:id/access', async (req, res) => res.json(await deps.store.updateEmployeeAccess(res.locals.adminActor as AdminActor, parse(uuid, req.params.id), parse(employeeAccessInput, req.body))));
   router.patch('/admin/employees/:id/status', async (req, res) => {
     const employeeId = parse(uuid, req.params.id);
     const body = parse(statusInput, req.body);

@@ -65,6 +65,8 @@ export type CreateExportJobInput = { resourceType: string; scope?: string; filte
 /** null clears the hub value so vehicles fall back to their own km settings. */
 export type RentalKmPolicyInput = { includedKmPerDay?: number | null; extraKmRatePaise?: number | null };
 
+export type EmployeeAccessInput = { roleId?: string; branchIds?: string[]; designation?: string | null; reason: string };
+
 export interface AdminStore {
   actor(uid: string): Promise<AdminActor>;
   touchAccess(userId: string, mfaCompliant: boolean): Promise<void>;
@@ -96,6 +98,7 @@ export interface AdminStore {
   decideApproval(actor: AdminActor, id: string, input: ApprovalDecisionInput): Promise<unknown>;
   acceptInvitation(identity: Identity, token: string): Promise<AdminActor>;
   setEmployeeStatus(actor: AdminActor, employeeId: string, status: EmployeeStatus, reason: string): Promise<{ firebaseUid: string }>;
+  updateEmployeeAccess(actor: AdminActor, employeeId: string, input: EmployeeAccessInput): Promise<unknown>;
   audit(actor: AdminActor, page: number, limit: number): Promise<unknown>;
   businessSelling(actor: AdminActor, query: BusinessSellingQuery): Promise<unknown>;
   businessBuying(actor: AdminActor, query: BusinessBuyingQuery): Promise<unknown>;
@@ -955,6 +958,80 @@ export class PrismaAdminStore implements AdminStore {
     });
     const employee = await this.db.employee.findUniqueOrThrow({ where: { userId: employeeId }, include: actorInclude });
     return normalizeEmployee(employee);
+  }
+
+  /**
+   * Change an existing employee's role (non-privileged only), branch access and designation.
+   * Privileged roles keep going through the approval flow; nobody can change their own access.
+   */
+  async updateEmployeeAccess(actor: AdminActor, employeeId: string, input: EmployeeAccessInput) {
+    requirePermission(actor, 'employee.update');
+    if (input.roleId !== undefined) requirePermission(actor, 'role.assign');
+    if (actor.userId === employeeId) throw new HttpError(409, 'SELF_ACCESS_CHANGE_DENIED');
+    const isSuper = actor.roles.includes('SUPER_ADMIN');
+    const inScope = (branchId: string) => isSuper || actor.branches.some(branch => branch.id === branchId);
+    return this.db.$transaction(async tx => {
+      const target = await tx.employee.findUnique({
+        where: { userId: employeeId },
+        include: { roleAssignments: { include: { role: true } }, branchAssignments: true },
+      });
+      if (!target) throw new HttpError(404, 'EMPLOYEE_NOT_FOUND');
+      if (target.branchAssignments.some(item => !inScope(item.branchId))) throw new HttpError(403, 'BRANCH_SCOPE_DENIED');
+      if (target.roleAssignments.some(item => item.role.privileged)) throw new HttpError(403, 'PRIVILEGED_ROLE_CHANGE_REQUIRES_APPROVAL');
+
+      let nextRole: { id: string; key: string } | null = null;
+      if (input.roleId !== undefined) {
+        const role = await tx.role.findUnique({ where: { id: input.roleId } });
+        if (!role?.active) throw new HttpError(400, 'ROLE_NOT_AVAILABLE');
+        if (role.privileged) throw new HttpError(403, 'PRIVILEGED_ROLE_APPROVAL_REQUIRED');
+        nextRole = { id: role.id, key: role.key };
+      }
+
+      let nextBranchIds: string[] | null = null;
+      if (input.branchIds !== undefined) {
+        const unique = [...new Set(input.branchIds)];
+        if (unique.length === 0) throw new HttpError(400, 'AT_LEAST_ONE_BRANCH_REQUIRED');
+        if (unique.some(id => !inScope(id))) throw new HttpError(403, 'BRANCH_SCOPE_DENIED');
+        const branches = await tx.branch.findMany({ where: { id: { in: unique }, active: true }, select: { id: true } });
+        if (branches.length !== unique.length) throw new HttpError(400, 'BRANCH_NOT_AVAILABLE');
+        nextBranchIds = unique;
+      }
+
+      const before = {
+        roles: target.roleAssignments.map(item => item.role.key),
+        branchIds: target.branchAssignments.map(item => item.branchId),
+        designation: target.designation,
+      };
+
+      if (nextRole) {
+        await tx.employeeRoleAssignment.deleteMany({ where: { employeeId } });
+        await tx.employeeRoleAssignment.create({ data: { employeeId, roleId: nextRole.id, assignedById: actor.userId } });
+      }
+      if (nextBranchIds) {
+        await tx.employeeBranchAssignment.deleteMany({ where: { employeeId, branchId: { notIn: nextBranchIds } } });
+        const existing = new Set(target.branchAssignments.map(item => item.branchId));
+        const toAdd = nextBranchIds.filter(id => !existing.has(id));
+        if (toAdd.length) await tx.employeeBranchAssignment.createMany({ data: toAdd.map(branchId => ({ employeeId, branchId })) });
+      }
+      const updated = await tx.employee.update({
+        where: { userId: employeeId },
+        data: {
+          ...(nextRole ? { role: nextRole.key as never } : {}),
+          ...(input.designation !== undefined ? { designation: input.designation?.trim() || null } : {}),
+        },
+        select: { userId: true, designation: true },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'EMPLOYEE_ACCESS_UPDATED',
+          entityType: 'Employee',
+          entityId: employeeId,
+          details: { reason: input.reason, before, after: { roles: nextRole ? [nextRole.key] : before.roles, branchIds: nextBranchIds ?? before.branchIds, designation: updated.designation } },
+        },
+      });
+      return { userId: updated.userId, roles: nextRole ? [nextRole.key] : before.roles, branchIds: nextBranchIds ?? before.branchIds, designation: updated.designation };
+    });
   }
 
   async setEmployeeStatus(actor: AdminActor, employeeId: string, status: EmployeeStatus, reason: string) {
