@@ -120,7 +120,7 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
-        behavior="padding"
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
@@ -168,6 +168,7 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
           showsVerticalScrollIndicator={false}
         >
           {/* Original Case Inquiry Card */}
@@ -257,7 +258,9 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
             placeholderTextColor={color.muted}
             value={body}
             onChangeText={setBody}
-            onFocus={() => scrollViewRef.current?.scrollToEnd({ animated: true })}
+            onFocus={() => requestAnimationFrame(() => {
+              setTimeout(() => scrollViewRef.current?.scrollToEnd({ animated: true }), Platform.OS === 'android' ? 180 : 0);
+            })}
             multiline
             maxLength={2000}
           />
@@ -297,9 +300,12 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       borderBottomColor: colors.border,
     },
     backBtn: {
-      padding: space.xs,
+      width: 44,
+      height: 44,
       borderRadius: 20,
       backgroundColor: colors.surfaceSecondary,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     headerTitleWrap: {
       flex: 1,

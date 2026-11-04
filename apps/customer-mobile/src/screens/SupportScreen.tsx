@@ -114,7 +114,7 @@ export function SupportScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
-        behavior="padding"
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
@@ -189,6 +189,7 @@ export function SupportScreen() {
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
+          automaticallyAdjustKeyboardInsets
           showsVerticalScrollIndicator={false}
         >
           {successMsg ? (
@@ -333,6 +334,7 @@ export function SupportScreen() {
                 placeholderTextColor={color.muted}
                 value={subject}
                 onChangeText={setSubject}
+                onFocus={() => requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }))}
                 maxLength={120}
               />
 
@@ -345,6 +347,7 @@ export function SupportScreen() {
                 placeholderTextColor={color.muted}
                 value={description}
                 onChangeText={setDescription}
+                onFocus={() => requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }))}
                 maxLength={2000}
               />
 
@@ -393,9 +396,12 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       borderBottomColor: colors.border,
     },
     backBtn: {
-      padding: space.xs,
+      width: 44,
+      height: 44,
       borderRadius: 20,
       backgroundColor: colors.surfaceSecondary,
+      alignItems: 'center',
+      justifyContent: 'center',
     },
     headerTitleWrap: {
       flex: 1,
