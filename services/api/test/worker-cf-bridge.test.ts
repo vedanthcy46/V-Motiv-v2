@@ -5,7 +5,8 @@ import { fetchToExpress } from '../src/worker-cf.js';
 describe('Cloudflare Worker to Express bridge', () => {
   it.each([undefined, '0'])('preserves a JSON mutation body when Cloudflare sends Content-Length %s', async (contentLength) => {
     const app = express();
-    app.use(express.json());
+    const jsonBodyParser = express.json();
+    app.use((req, res, next) => req.body !== undefined ? next() : jsonBodyParser(req, res, next));
     app.post('/echo', (req, res) => res.status(201).json({ body: req.body }));
 
     const headers = new Headers({ 'content-type': 'application/json' });

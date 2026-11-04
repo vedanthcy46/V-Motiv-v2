@@ -237,8 +237,13 @@ export function createApp(deps: {
     allowedHeaders: ['Content-Type', 'Authorization', 'Accept', 'X-Requested-With', 'Origin'],
     credentials: false,
   }));
-  app.use(express.json({ limit: '50mb' }));
-  app.use(express.urlencoded({ limit: '50mb', extended: true }));
+  const jsonBodyParser = express.json({ limit: '50mb' });
+  const formBodyParser = express.urlencoded({ limit: '50mb', extended: true });
+  // The Cloudflare bridge has already materialized JSON request bodies. Do not
+  // consume its completed stream a second time; ordinary Node/Vercel requests
+  // still use Express's normal parsers below.
+  app.use((req, res, next) => req.body !== undefined ? next() : jsonBodyParser(req, res, next));
+  app.use((req, res, next) => req.body !== undefined ? next() : formBodyParser(req, res, next));
   if (__dirname) {
     try {
       const brandPath = path.resolve(__dirname, '../assets/brand');

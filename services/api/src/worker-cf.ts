@@ -267,7 +267,7 @@ export async function fetchToExpress(app: Express, webReq: Request): Promise<Res
       };
 
       let requestBody: Buffer | undefined;
-      if (webReq.body && webReq.method !== 'GET' && webReq.method !== 'HEAD') {
+      if (webReq.method !== 'GET' && webReq.method !== 'HEAD') {
         const arrayBuffer = await webReq.arrayBuffer();
         requestBody = Buffer.from(arrayBuffer);
 
@@ -282,6 +282,21 @@ export async function fetchToExpress(app: Express, webReq: Request): Promise<Res
           // body-parser skip the bytes we are about to push into the bridge.
           req.headers['content-length'] = String(requestBody.length);
           delete req.headers['transfer-encoding'];
+
+          // Cloudflare has already supplied the complete byte sequence. Give
+          // Express the parsed JSON object directly, rather than depending on
+          // its Node-stream body detection inside the Worker compatibility
+          // layer. Invalid JSON deliberately falls through to Express's parser
+          // so it retains the standard INVALID_JSON response.
+          const contentType = String(req.headers['content-type'] || '');
+          if (contentType.toLowerCase().includes('application/json')) {
+            try {
+              (req as any).body = JSON.parse(requestBody.toString('utf8'));
+            } catch {
+              // Leave req.body undefined; the normal Express parser will
+              // produce the appropriate invalid-JSON response.
+            }
+          }
         }
       }
       if (requestBody?.length) {
