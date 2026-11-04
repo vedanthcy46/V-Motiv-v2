@@ -1,4 +1,5 @@
 import { api, jsonBody } from '../api';
+import type { InventoryFacets } from './inventory-facets';
 import type { ActivityPage, CustomerAddress, InventoryPage, Profile, PurchaseEnquiry, SavedSearch, SellingRequest, SupportedCity, SupportCase, SupportCaseDetail, SupportReply, TestDrive, VehicleSummary } from '../types';
 
 export type InstantValuationSummary = {
@@ -31,6 +32,8 @@ export const customer = {
     maxOdometerKm?: number;
     minPricePaise?: number;
     maxPricePaise?: number;
+    /** Pipe-separated feature names exactly as listed by inventoryFacets. */
+    features?: string;
     sort?: 'newest' | 'price_asc' | 'price_desc' | 'year_desc';
     page?: number;
     limit?: number;
@@ -38,6 +41,11 @@ export const customer = {
     const values = typeof filters === 'string' ? { search: filters } : filters;
     const query = Object.entries(values).filter(([, value]) => value !== undefined && value !== '').map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join('&');
     return api<InventoryPage>(`/inventory${query ? `?${query}` : ''}`);
+  },
+  /** Real option lists, counts and ranges for the filters, computed over the whole inventory with the given filters applied. */
+  inventoryFacets(filters: Record<string, string | number | undefined> = {}) {
+    const query = Object.entries(filters).filter(([, value]) => value !== undefined && value !== '').map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join('&');
+    return api<InventoryFacets>(`/inventory/facets${query ? `?${query}` : ''}`);
   },
   masterData(category?: string) {
     return api<Array<{ id: string; category: string; code: string; name: string; parentCode: string | null }>>(`/master-data${category ? `?category=${encodeURIComponent(category)}` : ''}`);

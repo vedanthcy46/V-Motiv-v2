@@ -1,3 +1,4 @@
+import { computeInventoryFacets, makeSpellings, type FacetFilters, type FacetRow } from './inventory-facets.js';
 import { dropOrphanedChildren, normalizeMasterDataCategory } from './master-data-rules.js';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
@@ -51,11 +52,14 @@ export type InventoryFilters = {
   maxOdometerKm?: number;
   minPricePaise?: number;
   maxPricePaise?: number;
+  /** Pipe-separated feature names (exactly as returned by inventoryFacets). */
+  features?: string;
   sort?: 'newest' | 'price_asc' | 'price_desc' | 'year_desc';
 };
 
 export interface CustomerStore {
   inventory(uid: string | undefined, filters?: InventoryFilters): Promise<unknown>;
+  inventoryFacets(filters?: InventoryFilters): Promise<unknown>;
   vehicle(uid: string | undefined, id: string): Promise<unknown>;
   masterData(category?: string): Promise<unknown>;
   wishlist(uid: string): Promise<unknown>;
@@ -511,17 +515,20 @@ export class PrismaCustomerStore implements CustomerStore {
     return city.name;
   }
   async inventory(uid: string | undefined, filters: InventoryFilters = {}) {
-    const { search = '', page = 1, limit = 20, city, fuelType, transmission, make, model, bodyType, color, minYear, maxYear, maxOdometerKm, minPricePaise, maxPricePaise, sort = 'newest' } = filters;
+    const { search = '', page = 1, limit = 20, city, fuelType, transmission, make, model, bodyType, color, minYear, maxYear, maxOdometerKm, minPricePaise, maxPricePaise, features, sort = 'newest' } = filters;
     const user = uid ? await this.user(uid) : null;
     const makes = make ? make.split(',').map(m => m.trim()).filter(Boolean) : [];
     const models = model ? model.split(',').map(m => m.trim()).filter(Boolean) : [];
+    const featureList = features ? features.split('|').map(f => f.trim()).filter(Boolean) : [];
     const vehicleFilters: Prisma.VehicleWhereInput = {
       ...(city ? { city: { equals: city, mode: 'insensitive' } } : {}),
       ...(fuelType ? { fuelType: { equals: fuelType, mode: 'insensitive' } } : {}),
       ...(transmission ? { transmission: { equals: transmission, mode: 'insensitive' } } : {}),
-      ...(makes.length === 1 ? { make: { equals: makes[0], mode: 'insensitive' } } : makes.length > 1 ? { make: { in: makes, mode: 'insensitive' } } : {}),
+      // 'Maruti Suzuki' also matches stock entered as 'Maruti' or 'Suzuki' (and similar aliases).
+      ...(makes.length ? { make: { in: makeSpellings(makes), mode: 'insensitive' } } : {}),
       ...(models.length === 1 ? { model: { equals: models[0], mode: 'insensitive' } } : models.length > 1 ? { model: { in: models, mode: 'insensitive' } } : {}),
       ...(bodyType ? { bodyType: { equals: bodyType, mode: 'insensitive' } } : {}),
+      ...(featureList.length ? { features: { hasEvery: featureList } } : {}),
       ...(color ? { color: { equals: color, mode: 'insensitive' } } : {}),
       ...(minYear || maxYear ? { manufacturingYear: { ...(minYear ? { gte: minYear } : {}), ...(maxYear ? { lte: maxYear } : {}) } } : {}),
       ...(maxOdometerKm ? { odometerKm: { lte: maxOdometerKm } } : {}),
@@ -544,6 +551,49 @@ export class PrismaCustomerStore implements CustomerStore {
     }
     const wished = user ? new Set((await this.db.wishlistItem.findMany({ where: { userId: user.id, listingId: { in: items.map(item => item.id) } }, select: { listingId: true } })).map(item => item.listingId)) : new Set<string>();
     return { items: items.map(item => listingJson(item, wished.has(item.id))), total, page, limit, totalPages: Math.ceil(total / limit) };
+  }
+  /** Filter-aware option lists, counts and ranges over the whole published inventory (see inventory-facets.ts). */
+  async inventoryFacets(filters: InventoryFilters = {}) {
+    const rows = await this.db.vehicleListing.findMany({
+      where: { status: { in: ['PUBLISHED', 'RESERVED'] } },
+      select: {
+        title: true,
+        pricePaise: true,
+        vehicle: { select: { make: true, model: true, fuelType: true, transmission: true, bodyType: true, color: true, city: true, manufacturingYear: true, odometerKm: true, features: true } },
+      },
+      take: 5000,
+    });
+    const facetRows: FacetRow[] = rows.map((row: any) => ({
+      title: row.title ?? '',
+      pricePaise: Number(row.pricePaise),
+      make: row.vehicle?.make ?? '',
+      model: row.vehicle?.model ?? '',
+      fuelType: row.vehicle?.fuelType ?? null,
+      transmission: row.vehicle?.transmission ?? null,
+      bodyType: row.vehicle?.bodyType ?? null,
+      color: row.vehicle?.color ?? null,
+      city: row.vehicle?.city ?? null,
+      year: row.vehicle?.manufacturingYear ?? null,
+      odometerKm: row.vehicle?.odometerKm ?? null,
+      features: Array.isArray(row.vehicle?.features) ? row.vehicle.features : [],
+    }));
+    const f: FacetFilters = {
+      search: filters.search || undefined,
+      city: filters.city,
+      fuelType: filters.fuelType,
+      transmission: filters.transmission,
+      bodyType: filters.bodyType,
+      color: filters.color,
+      makes: filters.make ? filters.make.split(',').map(m => m.trim()).filter(Boolean) : undefined,
+      models: filters.model ? filters.model.split(',').map(m => m.trim()).filter(Boolean) : undefined,
+      features: filters.features ? filters.features.split('|').map(x => x.trim()).filter(Boolean) : undefined,
+      minYear: filters.minYear,
+      maxYear: filters.maxYear,
+      maxOdometerKm: filters.maxOdometerKm,
+      minPricePaise: filters.minPricePaise,
+      maxPricePaise: filters.maxPricePaise,
+    };
+    return computeInventoryFacets(facetRows, f);
   }
   async vehicle(uid: string | undefined, id: string) {
     const user = uid ? await this.user(uid) : null;

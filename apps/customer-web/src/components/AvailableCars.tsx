@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
 import type { ListingItem } from '../types';
-import { fetchInventory, fetchUserDrives, formatLakh } from '../api';
+import { fetchInventory, fetchInventoryFacets, fetchUserDrives, formatLakh } from '../api';
 
 interface AvailableCarsProps {
   user?: User | null;
@@ -21,6 +21,22 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [fuelFilter, setFuelFilter] = useState<string>('ALL');
   const [transmissionFilter, setTransmissionFilter] = useState<string>('ALL');
+  // Filter chips come from what is really in stock (falls back to the classic three if the request fails).
+  const [fuelChips, setFuelChips] = useState<string[]>(['Petrol', 'Diesel']);
+  const [transmissionChips, setTransmissionChips] = useState<string[]>(['Automatic']);
+  useEffect(() => {
+    let active = true;
+    fetchInventoryFacets()
+      .then((facets) => {
+        if (!active) return;
+        if (facets.fuelTypes.length) setFuelChips(facets.fuelTypes.map((f) => f.value));
+        if (facets.transmissions.length) setTransmissionChips(facets.transmissions.map((t) => t.value));
+      })
+      .catch(() => undefined);
+    return () => {
+      active = false;
+    };
+  }, []);
   const [internalBookedListingIds, setInternalBookedListingIds] = useState<Set<string>>(new Set());
 
   // Use external if provided by parent, otherwise fallback to internal
@@ -120,33 +136,26 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({
             >
               All Cars
             </button>
-            <button
-              type="button"
-              className={`chip ${fuelFilter === 'PETROL' ? 'active' : ''}`}
-              onClick={() => {
-                setFuelFilter(fuelFilter === 'PETROL' ? 'ALL' : 'PETROL');
-              }}
-            >
-              Petrol
-            </button>
-            <button
-              type="button"
-              className={`chip ${fuelFilter === 'DIESEL' ? 'active' : ''}`}
-              onClick={() => {
-                setFuelFilter(fuelFilter === 'DIESEL' ? 'ALL' : 'DIESEL');
-              }}
-            >
-              Diesel
-            </button>
-            <button
-              type="button"
-              className={`chip ${transmissionFilter === 'AUTOMATIC' ? 'active' : ''}`}
-              onClick={() => {
-                setTransmissionFilter(transmissionFilter === 'AUTOMATIC' ? 'ALL' : 'AUTOMATIC');
-              }}
-            >
-              Automatic
-            </button>
+            {fuelChips.map((fuel) => (
+              <button
+                key={fuel}
+                type="button"
+                className={`chip ${fuelFilter.toLowerCase() === fuel.toLowerCase() ? 'active' : ''}`}
+                onClick={() => setFuelFilter(fuelFilter.toLowerCase() === fuel.toLowerCase() ? 'ALL' : fuel)}
+              >
+                {fuel}
+              </button>
+            ))}
+            {transmissionChips.map((transmission) => (
+              <button
+                key={transmission}
+                type="button"
+                className={`chip ${transmissionFilter.toLowerCase() === transmission.toLowerCase() ? 'active' : ''}`}
+                onClick={() => setTransmissionFilter(transmissionFilter.toLowerCase() === transmission.toLowerCase() ? 'ALL' : transmission)}
+              >
+                {transmission}
+              </button>
+            ))}
           </div>
         </div>
 

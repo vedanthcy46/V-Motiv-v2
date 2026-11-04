@@ -12,6 +12,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStack } from '../navigation/types';
 import { useAppTheme } from '../theme';
+import { distinctUpper, nextFilterValue } from '../services/filter-cycle';
 import { RentalAvailabilityPill } from '../components/RentalAvailabilityPill';
 import { availabilityDetail } from '../services/rental-availability';
 import {
@@ -74,6 +75,10 @@ export function RentalSearchResultsScreen({ route, navigation }: Props) {
     };
   }, [hubId, city, startTime, endTime]);
 
+  // Filter options come from the cars actually returned for these dates, not a fixed list.
+  const fuelOptions = distinctUpper(vehicles.map(v => v.fuelType));
+  const transOptions = distinctUpper(vehicles.map(v => v.transmission));
+
   const filteredVehicles = vehicles.filter(v => {
     if (fuelFilter !== 'ALL' && v.fuelType.toUpperCase() !== fuelFilter) return false;
     if (transFilter !== 'ALL' && v.transmission.toUpperCase() !== transFilter) return false;
@@ -113,7 +118,7 @@ export function RentalSearchResultsScreen({ route, navigation }: Props) {
         {/* Filter Chips */}
         <View style={styles.filtersScroll}>
           <Pressable
-            onPress={() => setFuelFilter(f => (f === 'ALL' ? 'PETROL' : f === 'PETROL' ? 'DIESEL' : f === 'DIESEL' ? 'EV' : 'ALL'))}
+            onPress={() => setFuelFilter(f => nextFilterValue(f, fuelOptions))}
             style={[
               styles.filterChip,
               {
@@ -142,7 +147,7 @@ export function RentalSearchResultsScreen({ route, navigation }: Props) {
           </Pressable>
 
           <Pressable
-            onPress={() => setTransFilter(t => (t === 'ALL' ? 'AUTOMATIC' : t === 'AUTOMATIC' ? 'MANUAL' : 'ALL'))}
+            onPress={() => setTransFilter(t => nextFilterValue(t, transOptions))}
             style={[
               styles.filterChip,
               {

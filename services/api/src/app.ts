@@ -113,6 +113,8 @@ const inventoryQuery = z.object({
   minYear: z.coerce.number().int().min(1980).max(currentCalendarYear() + 1).optional(),
   maxYear: z.coerce.number().int().min(1980).max(currentCalendarYear() + 1).optional(),
   maxOdometerKm: z.coerce.number().int().min(0).max(2_000_000).optional(),
+  // Pipe-separated feature names exactly as returned by /inventory/facets.
+  features: z.string().trim().max(1000).optional(),
   minPricePaise: z.coerce.number().int().min(0).max(10_000_000_000).optional(),
   maxPricePaise: z.coerce.number().int().min(0).max(10_000_000_000).optional(),
   sort: z.enum(['newest', 'price_asc', 'price_desc', 'year_desc']).default('newest'),
@@ -459,6 +461,10 @@ export function createApp(deps: {
   // Published inventory is deliberately public.
   if (deps.customer) {
     unifiedApiRouter.get('/inventory', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.inventory((res.locals.identity as Identity | undefined)?.uid, parsed(inventoryQuery, req.query))));
+    unifiedApiRouter.get('/inventory/facets', async (req, res) => {
+      res.setHeader('Cache-Control', 'public, max-age=30');
+      res.json(await deps.customer!.inventoryFacets(parsed(inventoryQuery, req.query)));
+    });
     unifiedApiRouter.get('/inventory/:id', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.vehicle((res.locals.identity as Identity | undefined)?.uid, parsed(uuid, req.params.id))));
     unifiedApiRouter.get('/cities', async (_req, res) => res.json(await deps.customer!.cities()));
     unifiedApiRouter.get('/master-data', async (req, res) => {

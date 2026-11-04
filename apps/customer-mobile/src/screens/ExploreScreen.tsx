@@ -38,6 +38,7 @@ import { customer } from '../services/customer';
 import type { RootStack, Tabs } from '../navigation/types';
 import type { SupportedCity, VehicleSummary } from '../types';
 import { useAppTheme, radius, space } from '../theme';
+import { buildKmOptions, buildPriceOptions, buildYearOptions, priceBoundsFromKey, type InventoryFacets } from '../services/inventory-facets';
 import { useTabScreenBottomPadding, safeBottom } from '../layout/safe-layout';
 import { friendlyError } from '../format';
 import { useAuth } from '../auth/AuthProvider';
@@ -174,6 +175,8 @@ const FEATURE_OPTIONS = [
 ];
 
 function getPriceBounds(range: string): { minPricePaise?: number; maxPricePaise?: number } {
+  // Buckets built from the real stock range carry their bounds in the key ('P:min:max').
+  if (range.startsWith('P:')) return priceBoundsFromKey(range);
   switch (range) {
     case 'UNDER_3L':
       return { maxPricePaise: 30000000 };
@@ -233,7 +236,11 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
 
   const [cities, setCities] = useState<SupportedCity[]>([]);
   const [masterDataList, setMasterDataList] = useState<Array<{ id: string; category: string; code: string; name: string; parentCode: string | null }>>([]);
-  const [baseInventory, setBaseInventory] = useState<VehicleSummary[]>([]);
+  // Real option lists, counts and ranges from the whole inventory (not just the first page).
+  const [facets, setFacets] = useState<InventoryFacets | null>(null);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [activeDriveIds, setActiveDriveIds] = useState<Set<string>>(new Set());
   const [saveMessage, setSaveMessage] = useState('');
   const requestId = useRef(0);
@@ -245,36 +252,22 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   // Live Inventory Counts by Brand & Model (matching available inventory)
   const inventoryBrandCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    baseInventory.forEach((item) => {
-      const make = item.vehicle?.make?.trim();
-      if (make) {
-        const key = make.toLowerCase();
-        counts[key] = (counts[key] || 0) + 1;
-      }
-    });
+    (facets?.makes ?? []).forEach((m) => { counts[m.value.toLowerCase()] = m.count; });
     return counts;
-  }, [baseInventory]);
+  }, [facets]);
 
   const inventoryModelCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    baseInventory.forEach((item) => {
-      const model = item.vehicle?.model?.trim();
-      if (model) {
-        const key = model.toLowerCase();
-        counts[key] = (counts[key] || 0) + 1;
-      }
-    });
+    (facets?.models ?? []).forEach((m) => { counts[m.value.toLowerCase()] = (counts[m.value.toLowerCase()] || 0) + m.count; });
     return counts;
-  }, [baseInventory]);
+  }, [facets]);
 
   // Dynamic Master Data matching Admin Portal + Available Inventory
   const availableBrands = useMemo(() => {
     const fromMaster = masterDataList
       .filter((i) => i.category === 'MAKE')
       .map((i) => i.name.trim());
-    const fromInventory = baseInventory
-      .map((i) => i.vehicle?.make?.trim())
-      .filter((m): m is string => Boolean(m));
+    const fromInventory = (facets?.makes ?? []).map((m) => m.value);
     const combined = Array.from(new Set([...fromInventory, ...(fromMaster.length > 0 ? fromMaster : POPULAR_BRANDS)]));
     // Prioritize brands with available cars in inventory
     return combined.sort((a, b) => {
@@ -285,24 +278,21 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
       if (countA !== countB) return countB - countA;
       return a.localeCompare(b);
     });
-  }, [masterDataList, baseInventory, inventoryBrandCounts]);
+  }, [masterDataList, facets, inventoryBrandCounts]);
 
   const availableModels = useMemo(() => {
     const map: Record<string, string[]> = {};
-    Object.entries(DEFAULT_MODELS_BY_BRAND).forEach(([k, list]) => {
-      map[k] = [...list];
-    });
-    // Dynamically insert models present in active inventory
-    baseInventory.forEach((item) => {
-      const make = item.vehicle?.make?.trim();
-      const model = item.vehicle?.model?.trim();
-      if (make && model) {
-        const brandKey = Object.keys(map).find((k) => k.toLowerCase() === make.toLowerCase()) || make;
-        if (!map[brandKey]) map[brandKey] = [];
-        if (!map[brandKey].some((m) => m.toLowerCase() === model.toLowerCase())) {
-          map[brandKey].unshift(model);
-        }
-      }
+    // The bundled model list is only a fallback for when the Admin portal has no models yet.
+    if (!masterDataList.some((i) => i.category === 'MODEL')) {
+      Object.entries(DEFAULT_MODELS_BY_BRAND).forEach(([k, list]) => {
+        map[k] = [...list];
+      });
+    }
+    // Models present in active inventory (real counts come from the facets endpoint)
+    (facets?.models ?? []).forEach(({ make, value: model }) => {
+      const brandKey = Object.keys(map).find((k) => k.toLowerCase() === make.toLowerCase()) || make;
+      if (!map[brandKey]) map[brandKey] = [];
+      if (!map[brandKey].some((m) => m.toLowerCase() === model.toLowerCase())) map[brandKey].unshift(model);
     });
     // Merge master data
     masterDataList
@@ -315,7 +305,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
         if (!map[parentMake].includes(m.name)) map[parentMake].push(m.name);
       });
     return map;
-  }, [masterDataList, baseInventory]);
+  }, [masterDataList, facets]);
 
   const availableBodyTypes = useMemo(() => {
     const fromMaster = masterDataList.filter((i) => i.category === 'BODY_TYPE');
@@ -354,8 +344,34 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
     ];
   }, [masterDataList]);
 
+  // Filter options built from what is really in stock (ranges, features, colours) with the old fixed lists only as a fallback.
+  const priceOptions = useMemo(() => {
+    const built = buildPriceOptions(facets?.ranges.price ?? null).filter((o) => o.minPricePaise !== undefined || o.maxPricePaise !== undefined);
+    return built.length > 0 ? built.map((o) => ({ key: o.key, label: o.label, sub: '' })) : PRICE_PRESETS;
+  }, [facets]);
+  const yearOptions = useMemo(() => {
+    const built = buildYearOptions(facets?.ranges.year ?? null);
+    return built.length > 0 ? built : YEAR_OPTIONS;
+  }, [facets]);
+  const kmOptions = useMemo(() => {
+    const built = buildKmOptions(facets?.ranges.odometerKm ?? null);
+    return built.length > 0 ? built : KMS_OPTIONS;
+  }, [facets]);
+  const featureOptions = useMemo(() => {
+    const names = (facets?.features ?? []).map((x) => x.value);
+    return names.length > 0 ? names : FEATURE_OPTIONS;
+  }, [facets]);
+  const colorOptions = useMemo(() => {
+    const inStock = facets?.colors ?? [];
+    if (inStock.length === 0) return COLOR_OPTIONS;
+    return inStock.map((entry) => {
+      const known = COLOR_OPTIONS.find((o) => o.name.toLowerCase() === entry.value.toLowerCase());
+      return known ?? { name: entry.value, hex: '#9CA3AF', border: '#6B7280' };
+    });
+  }, [facets]);
+
   const load = useCallback(
-    async (term = search) => {
+    async (term = search, pageToLoad = 1) => {
       const current = ++requestId.current;
       try {
         setError('');
@@ -372,9 +388,18 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
           color: color || undefined,
           minYear: minYear || undefined,
           maxOdometerKm: maxKm || undefined,
+          features: selectedFeatures.length > 0 ? selectedFeatures.join('|') : undefined,
+          page: pageToLoad,
+          limit: 20,
           ...priceBounds,
         });
-        if (current === requestId.current) setItems(result.items);
+        if (current === requestId.current) {
+          setItems((prev) =>
+            pageToLoad === 1 ? result.items : [...prev, ...result.items.filter((next) => !prev.some((p) => p.id === next.id))],
+          );
+          setPage(result.page);
+          setHasMore(result.page < result.totalPages);
+        }
       } catch (e) {
         if (current === requestId.current) setError(friendlyError(e));
       } finally {
@@ -384,18 +409,62 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
         }
       }
     },
-    [search, sort, city, priceRange, brands, models, minYear, maxKm, fuelType, bodyType, transmission, color]
+    [search, sort, city, priceRange, brands, models, minYear, maxKm, fuelType, bodyType, transmission, color, selectedFeatures]
   );
+
+  const loadMore = useCallback(async () => {
+    if (loading || loadingMore || !hasMore) return;
+    setLoadingMore(true);
+    try {
+      await load(search, page + 1);
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [loading, loadingMore, hasMore, load, search, page]);
+
+  // Facets follow the filters being edited (staged while the filter sheet is open, applied otherwise).
+  const facetParams = useMemo(() => {
+    const open = filterModalVisible;
+    const price = getPriceBounds(open ? stagedPriceRange : priceRange);
+    const list = (staged: string[], applied: string[]) => (open ? staged : applied);
+    const feats = list(stagedFeatures, selectedFeatures);
+    const makeList = list(stagedBrands, brands);
+    const modelList = list(stagedModels, models);
+    return {
+      search: open ? undefined : search || undefined,
+      city: city || undefined,
+      fuelType: (open ? stagedFuelType : fuelType) || undefined,
+      transmission: (open ? stagedTransmission : transmission) || undefined,
+      bodyType: (open ? stagedBodyType : bodyType) || undefined,
+      color: (open ? stagedColor : color) || undefined,
+      make: makeList.length > 0 ? makeList.join(',') : undefined,
+      model: modelList.length > 0 ? modelList.join(',') : undefined,
+      features: feats.length > 0 ? feats.join('|') : undefined,
+      minYear: (open ? stagedMinYear : minYear) || undefined,
+      maxOdometerKm: (open ? stagedMaxKm : maxKm) || undefined,
+      ...price,
+    };
+  }, [filterModalVisible, stagedPriceRange, priceRange, stagedFeatures, selectedFeatures, stagedBrands, brands, stagedModels, models, stagedFuelType, fuelType, stagedTransmission, transmission, stagedBodyType, bodyType, stagedColor, color, stagedMinYear, minYear, stagedMaxKm, maxKm, city, search]);
+
+  useEffect(() => {
+    let active = true;
+    const timer = setTimeout(() => {
+      void customer.inventoryFacets(facetParams as Record<string, string | number | undefined>).then((result) => { if (active) setFacets(result); }).catch(() => undefined);
+    }, 250);
+    return () => {
+      active = false;
+      clearTimeout(timer);
+    };
+  }, [facetParams]);
 
   useEffect(() => {
     const timer = setTimeout(() => void load(search), search ? 300 : 0);
     return () => clearTimeout(timer);
-  }, [load, search, sort, city, priceRange, brands, models, minYear, maxKm, fuelType, bodyType, transmission, color]);
+  }, [load, search, sort, city, priceRange, brands, models, minYear, maxKm, fuelType, bodyType, transmission, color, selectedFeatures]);
 
   useEffect(() => {
     void customer.cities().then(setCities).catch(() => undefined);
     void customer.masterData().then(setMasterDataList).catch(() => undefined);
-    void customer.inventory({ limit: 50 }).then((res) => setBaseInventory(res.items)).catch(() => undefined);
   }, []);
 
   useFocusEffect(
@@ -607,57 +676,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   }, [stagedBrands, availableModels, brandSearch, inventoryModelCounts]);
 
   // Live matching count based on available inventory while in filter modal
-  const stagedMatchingCount = useMemo(() => {
-    if (baseInventory.length === 0) return items.length;
-    const priceBounds = getPriceBounds(stagedPriceRange);
-    return baseInventory.filter((item) => {
-      const v = item.vehicle;
-      if (!v) return false;
-      if (city && v.city && v.city.toLowerCase() !== city.toLowerCase()) return false;
-      if (stagedBrands.length > 0) {
-        const matchBrand = stagedBrands.some(
-          (b) => b.toLowerCase() === (v.make || '').toLowerCase()
-        );
-        if (!matchBrand) return false;
-      }
-      if (stagedModels.length > 0) {
-        const matchModel = stagedModels.some(
-          (m) => m.toLowerCase() === (v.model || '').toLowerCase()
-        );
-        if (!matchModel) return false;
-      }
-      if (stagedMinYear && (v.manufacturingYear || 0) < stagedMinYear) return false;
-      if (stagedMaxKm && (v.odometerKm || 0) > stagedMaxKm) return false;
-      if (stagedFuelType && (v.fuelType || '').toLowerCase() !== stagedFuelType.toLowerCase())
-        return false;
-      if (stagedBodyType && (v.bodyType || '').toLowerCase() !== stagedBodyType.toLowerCase())
-        return false;
-      if (
-        stagedTransmission &&
-        (v.transmission || '').toLowerCase() !== stagedTransmission.toLowerCase()
-      )
-        return false;
-      if (stagedColor && (v.color || '').toLowerCase() !== stagedColor.toLowerCase())
-        return false;
-      const price = Number(item.pricePaise);
-      if (priceBounds.minPricePaise && price < priceBounds.minPricePaise) return false;
-      if (priceBounds.maxPricePaise && price > priceBounds.maxPricePaise) return false;
-      return true;
-    }).length;
-  }, [
-    baseInventory,
-    items.length,
-    city,
-    stagedPriceRange,
-    stagedBrands,
-    stagedModels,
-    stagedMinYear,
-    stagedMaxKm,
-    stagedFuelType,
-    stagedBodyType,
-    stagedTransmission,
-    stagedColor,
-  ]);
+  const stagedMatchingCount = useMemo(() => facets?.total ?? items.length, [facets, items.length]);
 
   return (
     <View style={[styles.container, { backgroundColor: c.background, paddingTop: insets.top }]}>
@@ -792,7 +811,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
               activeOpacity={0.75}
             >
               <Text style={[styles.pillText, { color: c.textSecondary }, Boolean(priceRange) && [styles.pillTextActive, { color: '#8B5CF6' }]]}>
-                {priceRange ? PRICE_PRESETS.find((p) => p.key === priceRange)?.label || 'Price' : 'Price Range'}
+                {priceRange ? priceOptions.find((p) => p.key === priceRange)?.label || 'Price' : 'Price Range'}
               </Text>
               <ChevronDown size={13} color={priceRange ? '#8B5CF6' : c.textMuted} />
             </TouchableOpacity>
@@ -942,6 +961,9 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
       <FlatList
         data={loading ? [] : items}
         keyExtractor={(item) => item.id}
+        onEndReached={() => void loadMore()}
+        onEndReachedThreshold={0.4}
+        ListFooterComponent={loadingMore ? <Loading label="Loading more cars…" /> : null}
         contentContainerStyle={[
           styles.content,
           { paddingBottom: tabBottomPadding },
@@ -1104,7 +1126,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                   {activeCategory === 'PRICE' && (
                     <View style={styles.paneSection}>
                       <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Select Price Range</Text>
-                      {PRICE_PRESETS.map((p) => {
+                      {priceOptions.map((p) => {
                         const selected = stagedPriceRange === p.key;
                         return (
                           <TouchableOpacity
@@ -1245,7 +1267,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                   {activeCategory === 'YEAR' && (
                     <View style={styles.paneSection}>
                       <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Manufacturing Year</Text>
-                      {YEAR_OPTIONS.map((y) => {
+                      {yearOptions.map((y) => {
                         const selected = stagedMinYear === y.value;
                         return (
                           <TouchableOpacity
@@ -1273,7 +1295,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                   {activeCategory === 'KMS' && (
                     <View style={styles.paneSection}>
                       <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Kilometres Driven</Text>
-                      {KMS_OPTIONS.map((k) => {
+                      {kmOptions.map((k) => {
                         const selected = stagedMaxKm === k.value;
                         return (
                           <TouchableOpacity
@@ -1421,7 +1443,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                   {activeCategory === 'COLOR' && (
                     <View style={styles.paneSection}>
                       <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Exterior Color</Text>
-                      {COLOR_OPTIONS.map((col) => {
+                      {colorOptions.map((col) => {
                         const selected = stagedColor === col.name;
                         return (
                           <TouchableOpacity
@@ -1452,7 +1474,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                   {activeCategory === 'FEATURES' && (
                     <View style={styles.paneSection}>
                       <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>Features & Equipment</Text>
-                      {FEATURE_OPTIONS.map((feat) => {
+                      {featureOptions.map((feat) => {
                         const selected = stagedFeatures.includes(feat);
                         return (
                           <TouchableOpacity

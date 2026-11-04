@@ -21,6 +21,16 @@ function publicApiBase() {
 }
 const API_BASE = publicApiBase();
 
+export type InventoryFacetCount = { value: string; count: number };
+
+/** Fuel types and transmissions that exist in published stock, with counts. */
+export async function fetchInventoryFacets(): Promise<{ fuelTypes: InventoryFacetCount[]; transmissions: InventoryFacetCount[] }> {
+  const response = await fetch(`${API_BASE}/inventory/facets`);
+  if (!response.ok) throw new Error('Failed to load inventory filters');
+  const body = await response.json();
+  return { fuelTypes: body.fuelTypes ?? [], transmissions: body.transmissions ?? [] };
+}
+
 export function formatInrPaise(paise: string | number): string {
   const amount = typeof paise === 'string' ? parseInt(paise, 10) : paise;
   if (isNaN(amount) || amount <= 0) return '₹0';

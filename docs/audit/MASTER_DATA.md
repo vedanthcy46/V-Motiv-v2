@@ -17,3 +17,18 @@ Status: implemented; API 244 tests pass, mobile 37 tests pass, API/mobile/Admin 
 - Rental search chips (rental fuel codes use `EV`, master data uses `ELECTRIC`; needs a code mapping), Service add-vehicle, Inspector forms (document types), website filters, Sales/Operations portal dropdowns.
 - Server-side validation that submitted makes/models exist in master data ("needs review" flag), a CSV bulk import, a variants seed, and a rename action in Admin.
 - Cities come from the separate supported-cities table; `ServiceHomeScreen` still falls back to a literal 'Bengaluru'.
+
+## Inventory search and filters (second pass)
+Problems found in the Buy/Explore screen (`ExploreScreen.tsx`) and the API search:
+- Results were never paged (first 20 cars only) and brand/model counts were computed from the first 50 listings, so counts were wrong once stock grew.
+- Price buckets, year and km options were fixed lists unrelated to the stock; the Features filter (Sunroof, Airbags...) was a static list that was **never sent to the server**, so it did nothing; the "show N cars" count in the filter sheet was computed client-side from those 50 cars.
+- A make filter for "Maruti Suzuki" missed stock entered as "Maruti" or "Suzuki".
+
+Now:
+- **`GET /inventory/facets`** (`services/api/src/inventory-facets.ts`): option lists with counts (make, model, fuel, transmission, body type, colour, city, feature) plus real min/max price, year and odometer, computed over the whole published inventory with the usual faceted-search rule (each list ignores its own filter, so choosing a brand does not hide the others). Alias spellings are folded into one make.
+- **Search** now supports a `features` filter (all selected features must be present) and matches make aliases.
+- **App Explore**: options, counts and the "show N cars" number come from facets (staged filters while the sheet is open); price, year and km options are built from the real stock range (`services/inventory-facets.ts`); feature and colour options come from stock; features are sent to the server; results page in 20s with infinite scroll. The old fixed lists remain only as a fallback if the facets request fails.
+- **Rental search chips** (fuel/transmission) cycle through values that exist in the returned cars, so CNG/hybrid/EV cars can be filtered. **Website chips** come from `/inventory/facets`.
+- Tests: `inventory-facets.test.ts` (API), `inventory-facets.test.ts` and `filter-cycle.test.ts` (app).
+
+Still open: server-side check that a submitted make/model exists in master data, Service add-vehicle, Inspector document types, Sales/Operations dropdowns, cities as a single source, and a fuel-code mapping between rental (`EV`) and master data (`ELECTRIC`).
