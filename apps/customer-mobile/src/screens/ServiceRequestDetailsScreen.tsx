@@ -11,6 +11,7 @@ import {
   RefreshControl,
   ScrollView,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -36,6 +37,7 @@ import {
   XCircle,
 } from 'lucide-react-native';
 import { useAppTheme, radius, space } from '../theme';
+import { SandboxPaymentBanner } from '../components/SandboxPaymentBanner';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 import {
   cancelServiceRequest,
@@ -45,6 +47,8 @@ import {
   type ServiceRequestDetails,
 } from '../services/service-api';
 import { KeyboardAwareSheet } from '../components/KeyboardAwareSheet';
+import type { EstimateDeclineReason } from '../services/service-api';
+import { previewApprovedTotals } from '../services/estimate-totals';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardScrollView } from '../components/KeyboardScrollView';
 
@@ -69,6 +73,9 @@ export function ServiceRequestDetailsScreen() {
   const [estimateModalVisible, setEstimateModalVisible] = useState(false);
   const [respondingToEstimate, setRespondingToEstimate] = useState(false);
   const [estimateNotes, setEstimateNotes] = useState('');
+  const [declineReason, setDeclineReason] = useState<EstimateDeclineReason | null>(null);
+  // Optional (recommended) estimate items the customer chooses to defer while approving.
+  const [deferredItemIds, setDeferredItemIds] = useState<string[]>([]);
 
   // Cancel Modal State
   const [cancelModalVisible, setCancelModalVisible] = useState(false);
@@ -109,20 +116,31 @@ export function ServiceRequestDetailsScreen() {
   }, [loadDetails]);
 
   const handleEstimateDecision = async (decision: 'APPROVE' | 'DECLINE') => {
-    const activeEstimate = request?.estimates.find(e => e.status === 'SENT_TO_CUSTOMER');
-    if (!activeEstimate) return;
+    // The live estimate: awaiting the customer, or declined and still open for reconsideration.
+    const activeEstimate =
+      request?.estimates.find(e => e.status === 'SENT_TO_CUSTOMER') ||
+      (request?.status === 'ESTIMATE_REJECTED' ? request.estimates.find(e => e.status === 'DECLINED') : undefined);
+    if (!activeEstimate || request?.status === 'CANCELLED') return;
 
     setRespondingToEstimate(true);
     try {
-      await respondToServiceEstimate(activeEstimate.id, decision, estimateNotes);
+      await respondToServiceEstimate(
+        activeEstimate.id,
+        decision,
+        estimateNotes,
+        decision === 'DECLINE' ? declineReason ?? undefined : undefined,
+        decision === 'APPROVE' ? deferredItemIds : undefined,
+      );
       Alert.alert(
         decision === 'APPROVE' ? 'Estimate Approved' : 'Estimate Declined',
         decision === 'APPROVE'
           ? 'Work will now proceed. Our service advisor will keep you updated.'
-          : 'Our service advisor has been notified and will contact you.'
+          : 'Our service advisor has been notified. You can reconsider anytime, or they may send you a revised estimate.'
       );
       setEstimateModalVisible(false);
       setEstimateNotes('');
+      setDeclineReason(null);
+      setDeferredItemIds([]);
       void loadDetails();
     } catch (err: any) {
       Alert.alert('Error', err?.message || 'Failed to submit estimate response.');
@@ -217,7 +235,22 @@ export function ServiceRequestDetailsScreen() {
   }
 
   const activeEstimate = request.estimates.find(e => e.status === 'SENT_TO_CUSTOMER') || request.estimates[0];
-  const canCancel = ['SUBMITTED', 'APPOINTMENT_SCHEDULED'].includes(request.status);
+  // Estimate workflow state. A cancelled job never offers review/approval, a declined estimate can be
+  // reconsidered until the workshop sends a revised one, and an expired estimate needs a new version.
+  const isRequestCancelled = request.status === 'CANCELLED';
+  const isNegotiating = !isRequestCancelled && request.status === 'ESTIMATE_REJECTED' && activeEstimate?.status === 'DECLINED';
+  const isEstimateExpired = Boolean(activeEstimate && new Date(activeEstimate.validUntil).getTime() < Date.now());
+  const canRespondToEstimate =
+    !isRequestCancelled && !isEstimateExpired && Boolean(activeEstimate) &&
+    (activeEstimate!.status === 'SENT_TO_CUSTOMER' || isNegotiating);
+  const estimateStatusLabel = isRequestCancelled
+    ? 'WITHDRAWN'
+    : isEstimateExpired && activeEstimate?.status === 'SENT_TO_CUSTOMER'
+      ? 'EXPIRED'
+      : activeEstimate?.status === 'DECLINED'
+        ? 'DECLINED'
+        : (activeEstimate?.status || '').replace(/_/g, ' ');
+  const canCancel = ['SUBMITTED', 'APPOINTMENT_SCHEDULED', 'ESTIMATE_PENDING_APPROVAL', 'ESTIMATE_REJECTED'].includes(request.status);
 
   return (
     <View style={[styles.container, { backgroundColor: c.background, paddingTop: insets.top }]}>
@@ -318,7 +351,7 @@ export function ServiceRequestDetailsScreen() {
               </View>
               <View style={[styles.estStatusPill, { backgroundColor: activeEstimate.status === 'APPROVED' ? '#E8F5E9' : '#FFF9E6' }]}>
                 <Text style={[styles.estStatusText, { color: activeEstimate.status === 'APPROVED' ? '#10B981' : '#F7B503' }]}>
-                  {activeEstimate.status.replace(/_/g, ' ')}
+                  {estimateStatusLabel}
                 </Text>
               </View>
             </View>
@@ -336,7 +369,28 @@ export function ServiceRequestDetailsScreen() {
               </Text>
             )}
 
-            {activeEstimate.status === 'SENT_TO_CUSTOMER' ? (
+            {isRequestCancelled ? (
+              <Text style={[styles.estNotes, { color: c.textMuted }]}>
+                This service was cancelled, so the estimate was withdrawn. No action is needed.
+              </Text>
+            ) : isEstimateExpired && activeEstimate.status === 'SENT_TO_CUSTOMER' ? (
+              <Text style={[styles.estNotes, { color: '#B45309' }]}>
+                This estimate has expired. Your service advisor will send an updated estimate.
+              </Text>
+            ) : isNegotiating ? (
+              <View style={{ gap: 10 }}>
+                <Text style={[styles.estNotes, { color: c.text }]}>
+                  You declined this estimate{activeEstimate.responseNotes ? ` (${activeEstimate.responseNotes})` : ''}. Our service advisor will contact you to discuss options or send a revised estimate. You can also change your mind below.
+                </Text>
+                <TouchableOpacity
+                  onPress={() => setEstimateModalVisible(true)}
+                  style={[styles.reviewEstBtn, { backgroundColor: c.accent }]}
+                >
+                  <Text style={styles.reviewEstBtnText}>Reconsider & Approve</Text>
+                  <ChevronRight size={16} color="#061A38" />
+                </TouchableOpacity>
+              </View>
+            ) : activeEstimate.status === 'SENT_TO_CUSTOMER' ? (
               <TouchableOpacity
                 onPress={() => setEstimateModalVisible(true)}
                 style={[styles.reviewEstBtn, { backgroundColor: c.accent }]}
@@ -631,7 +685,7 @@ export function ServiceRequestDetailsScreen() {
         locked={respondingToEstimate}
         title="Itemized Estimate Review"
         footer={
-          activeEstimate && activeEstimate.status === 'SENT_TO_CUSTOMER' ? (
+          activeEstimate && canRespondToEstimate ? (
             <View style={styles.decisionBtnsRow}>
               <TouchableOpacity
                 onPress={() => handleEstimateDecision('APPROVE')}
@@ -659,19 +713,41 @@ export function ServiceRequestDetailsScreen() {
           <>
         {/* Items Table */}
         <View style={[styles.itemsTable, { borderColor: c.border }]}>
-          {activeEstimate.items.map((item, idx) => (
-            <View key={item.id} style={[styles.tableRow, { borderBottomColor: c.border }]}>
-              <View style={{ flex: 1 }}>
-                <Text style={[styles.itemName, { color: c.text }]}>{item.description}</Text>
-                <Text style={[styles.itemCat, { color: c.textMuted }]}>
-                  {item.category} {item.quantity > 1 ? `· Qty: ${item.quantity}` : ''}
-                </Text>
+          {activeEstimate.items.map((item) => {
+            const optional = !item.isMandatory;
+            const deferred = canRespondToEstimate ? deferredItemIds.includes(item.id) : item.isApprovedByCustomer === false;
+            return (
+              <View key={item.id} style={[styles.tableRow, { borderBottomColor: c.border, opacity: deferred ? 0.55 : 1 }]}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.itemName, { color: c.text, textDecorationLine: deferred ? 'line-through' : 'none' }]}>{item.description}</Text>
+                  <Text style={[styles.itemCat, { color: c.textMuted }]}>
+                    {item.category} {item.quantity > 1 ? `· Qty: ${item.quantity}` : ''}
+                    {' · '}
+                    {deferred && !canRespondToEstimate ? 'Deferred by you' : optional ? 'Recommended (optional)' : 'Required'}
+                  </Text>
+                </View>
+                {canRespondToEstimate && optional ? (
+                  <View style={{ alignItems: 'flex-end' }}>
+                    <Switch
+                      accessibilityLabel={`Include ${item.description}`}
+                      value={!deferred}
+                      onValueChange={(include) =>
+                        setDeferredItemIds((prev) => (include ? prev.filter((id) => id !== item.id) : [...prev, item.id]))
+                      }
+                      trackColor={{ false: '#9CA3AF', true: c.accent }}
+                    />
+                    <Text style={[styles.itemPrice, { color: c.text }]}>
+                      ₹{(Number(item.totalPricePaise) / 100).toLocaleString('en-IN')}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={[styles.itemPrice, { color: c.text }]}>
+                    ₹{(Number(item.totalPricePaise) / 100).toLocaleString('en-IN')}
+                  </Text>
+                )}
               </View>
-              <Text style={[styles.itemPrice, { color: c.text }]}>
-                ₹{(Number(item.totalPricePaise) / 100).toLocaleString('en-IN')}
-              </Text>
-            </View>
-          ))}
+            );
+          })}
         </View>
 
         {/* Subtotals & Taxes */}
@@ -700,16 +776,53 @@ export function ServiceRequestDetailsScreen() {
           </View>
 
           <View style={[styles.totalRow, { borderTopColor: c.border }]}>
-            <Text style={[styles.totalLabel, { color: c.text }]}>Total Amount</Text>
+            <Text style={[styles.totalLabel, { color: c.text }]}>
+              {canRespondToEstimate && deferredItemIds.length > 0 ? 'Your Total' : 'Total Amount'}
+            </Text>
             <Text style={[styles.totalVal, { color: c.accent }]}>
-              ₹{(Number(activeEstimate.totalAmountPaise) / 100).toLocaleString('en-IN')}
+              ₹{(
+                canRespondToEstimate && deferredItemIds.length > 0
+                  ? Number(previewApprovedTotals(activeEstimate.items, new Set(deferredItemIds), activeEstimate.pickupDropFeePaise, activeEstimate.diagnosticFeePaise, activeEstimate.discountPaise).totalPaise) / 100
+                  : Number(activeEstimate.totalAmountPaise) / 100
+              ).toLocaleString('en-IN')}
             </Text>
           </View>
         </View>
 
-            {activeEstimate.status === 'SENT_TO_CUSTOMER' && (
+            {canRespondToEstimate && (
               <View style={styles.decisionWrap}>
-                <Text style={[styles.decisionPrompt, { color: c.text }]}>Customer Decision:</Text>
+                <Text style={[styles.decisionPrompt, { color: c.text }]}>Your decision</Text>
+                <Text style={{ fontSize: 12, color: c.textMuted, marginBottom: 6 }}>
+                  If you decline, tell us why so the workshop can offer a better option.
+                </Text>
+                <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 10 }}>
+                  {([
+                    ['TOO_EXPENSIVE', 'Too expensive'],
+                    ['WANT_SECOND_OPINION', 'Want a second opinion'],
+                    ['NOT_NEEDED_NOW', 'Not needed now'],
+                    ['OTHER', 'Other'],
+                  ] as Array<[EstimateDeclineReason, string]>).map(([code, label]) => {
+                    const active = declineReason === code;
+                    return (
+                      <TouchableOpacity
+                        key={code}
+                        accessibilityRole="button"
+                        accessibilityState={{ selected: active }}
+                        onPress={() => setDeclineReason(active ? null : code)}
+                        style={{
+                          paddingHorizontal: 12,
+                          paddingVertical: 7,
+                          borderRadius: 999,
+                          borderWidth: 1,
+                          borderColor: active ? c.accent : c.border,
+                          backgroundColor: active ? 'rgba(247, 181, 3, 0.15)' : 'transparent',
+                        }}
+                      >
+                        <Text style={{ fontSize: 12, fontWeight: active ? '700' : '500', color: c.text }}>{label}</Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
                 <TextInput
                   value={estimateNotes}
                   onChangeText={setEstimateNotes}
@@ -802,6 +915,7 @@ export function ServiceRequestDetailsScreen() {
           </TouchableOpacity>
         }
       >
+        <SandboxPaymentBanner />
         <Text style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>
           Make an immediate secure payment via Razorpay UPI, Card, or Net Banking to settle your service balance.
         </Text>

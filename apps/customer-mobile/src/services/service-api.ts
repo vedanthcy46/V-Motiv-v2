@@ -232,6 +232,7 @@ export interface ServiceEstimate {
   customerNotes?: string;
   validUntil: string;
   respondedAt?: string | null;
+  responseNotes?: string | null;
   items: ServiceEstimateItem[];
   createdAt: string;
 }
@@ -472,14 +473,23 @@ export async function fetchCustomerServiceRequest(requestId: string): Promise<Se
   return api<ServiceRequestDetails>(`/api/v2/service/requests/${requestId}`);
 }
 
+export type EstimateDeclineReason = 'TOO_EXPENSIVE' | 'WANT_SECOND_OPINION' | 'NOT_NEEDED_NOW' | 'OTHER';
+
 export async function respondToServiceEstimate(
   estimateId: string,
   decision: 'APPROVE' | 'DECLINE',
-  notes?: string
+  notes?: string,
+  reasonCode?: EstimateDeclineReason,
+  declinedItemIds?: string[]
 ): Promise<{ success: boolean; status: string }> {
   return api<{ success: boolean; status: string }>(`/api/v2/service/estimates/${estimateId}/respond`, {
     method: 'POST',
-    body: JSON.stringify({ decision, notes }),
+    body: JSON.stringify({
+      decision,
+      notes: notes || undefined,
+      reasonCode,
+      declinedItemIds: declinedItemIds && declinedItemIds.length > 0 ? declinedItemIds : undefined,
+    }),
   });
 }
 

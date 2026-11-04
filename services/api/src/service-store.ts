@@ -26,6 +26,7 @@ import { currentCalendarYear } from './calendar.js';
 import crypto from 'node:crypto';
 import { HttpError } from './errors.js';
 import { assertGatewayPaymentSignature } from './payment-signature.js';
+import { calculateEstimateTotals, formatApprovedScope } from './estimate-totals.js';
 import { assertCapturedAmount } from './razorpay-gateway.js';
 import type { Identity } from './auth.js';
 import type { NotificationService } from './notification/index.js';
@@ -708,6 +709,17 @@ export function resolveEffectiveCategoryPricing(
     hubPricing,
   };
 }
+
+/** Request states in which estimate actions are meaningless (job ended or already billed/returned). */
+export const ESTIMATE_LOCKED_STATUSES: ServiceRequestStatus[] = [
+  ServiceRequestStatus.CANCELLED,
+  ServiceRequestStatus.COMPLETED,
+  ServiceRequestStatus.PAID,
+  ServiceRequestStatus.RETURN_DISPATCHED,
+  ServiceRequestStatus.READY_FOR_COLLECTION,
+];
+
+export const ESTIMATE_DECLINE_REASONS = ['TOO_EXPENSIVE', 'WANT_SECOND_OPINION', 'NOT_NEEDED_NOW', 'OTHER'] as const;
 
 export class PrismaServiceStore {
   private seedPromise: Promise<void> | null = null;
@@ -1882,6 +1894,7 @@ export class PrismaServiceStore {
         sgstPaise: e.sgstPaise.toString(),
         totalAmountPaise: e.totalAmountPaise.toString(),
         customerNotes: e.customerNotes,
+        responseNotes: e.responseNotes,
         validUntil: e.validUntil.toISOString(),
         respondedAt: e.respondedAt?.toISOString() || null,
         items: e.items.map(i => ({
@@ -1957,24 +1970,58 @@ export class PrismaServiceStore {
     firebaseUid: string,
     estimateId: string,
     decision: 'APPROVE' | 'DECLINE',
-    notes?: string
+    notes?: string,
+    reasonCode?: (typeof ESTIMATE_DECLINE_REASONS)[number],
+    declinedItemIds?: string[]
   ) {
     const user = await this.db.user.findUnique({ where: { firebaseUid } });
     if (!user) throw new HttpError(404, 'USER_NOT_FOUND');
 
     const estimate = await this.db.serviceEstimate.findUnique({
       where: { id: estimateId },
-      include: { serviceRequest: true },
+      include: { serviceRequest: true, items: true },
     });
     if (!estimate || estimate.serviceRequest.customerId !== user.id) {
       throw new HttpError(404, 'ESTIMATE_NOT_FOUND');
     }
-    if (estimate.status !== ServiceEstimateStatus.SENT_TO_CUSTOMER) {
+    if (ESTIMATE_LOCKED_STATUSES.includes(estimate.serviceRequest.status)) {
+      throw new HttpError(409, 'SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION');
+    }
+    // A declined estimate can be reconsidered until the workshop issues a revised one
+    // (which supersedes it) or the request moves on.
+    const reconsidering =
+      estimate.status === ServiceEstimateStatus.DECLINED &&
+      estimate.serviceRequest.status === ServiceRequestStatus.ESTIMATE_REJECTED;
+    if (estimate.status !== ServiceEstimateStatus.SENT_TO_CUSTOMER && !reconsidering) {
       throw new HttpError(409, 'ESTIMATE_ALREADY_RESPONDED');
+    }
+    if (estimate.validUntil.getTime() < Date.now()) {
+      throw new HttpError(409, 'ESTIMATE_EXPIRED_ASK_FOR_REVISED_ESTIMATE');
+    }
+
+    // Per-line approval: the customer may defer optional (recommended) items but never required ones.
+    const declinedIds = new Set(decision === 'APPROVE' ? declinedItemIds ?? [] : []);
+    let approvedTotals: ReturnType<typeof calculateEstimateTotals> | null = null;
+    if (declinedIds.size > 0) {
+      const known = new Set(estimate.items.map(i => i.id));
+      if ([...declinedIds].some(id => !known.has(id))) throw new HttpError(400, 'UNKNOWN_ESTIMATE_ITEM');
+      if (estimate.items.some(i => declinedIds.has(i.id) && i.isMandatory)) {
+        throw new HttpError(409, 'REQUIRED_ESTIMATE_ITEMS_CANNOT_BE_DEFERRED');
+      }
+      const kept = estimate.items.filter(i => !declinedIds.has(i.id));
+      if (kept.length === 0) throw new HttpError(400, 'USE_DECLINE_TO_REJECT_ALL_ITEMS');
+      approvedTotals = calculateEstimateTotals({
+        items: kept,
+        pickupDropFeePaise: estimate.pickupDropFeePaise,
+        diagnosticFeePaise: estimate.diagnosticFeePaise,
+        discountPaise: estimate.discountPaise,
+      });
     }
 
     const nextEstimateStatus = decision === 'APPROVE' ? ServiceEstimateStatus.APPROVED : ServiceEstimateStatus.DECLINED;
     const nextRequestStatus = decision === 'APPROVE' ? ServiceRequestStatus.ESTIMATE_APPROVED : ServiceRequestStatus.ESTIMATE_REJECTED;
+    const reasonText = decision === 'DECLINE' && reasonCode ? `Reason: ${reasonCode.replace(/_/g, ' ').toLowerCase()}. ` : '';
+    const storedNotes = `${reasonText}${notes?.trim() || ''}`.trim() || null;
 
     return this.db.$transaction(async tx => {
       await tx.serviceEstimate.update({
@@ -1982,9 +2029,17 @@ export class PrismaServiceStore {
         data: {
           status: nextEstimateStatus,
           respondedAt: new Date(),
-          responseNotes: notes?.trim() || null,
+          responseNotes: storedNotes,
+          // Approved scope only: invoices and balances are built from these stored totals.
+          ...(approvedTotals ? { ...approvedTotals } : {}),
         },
       });
+      if (decision === 'APPROVE') {
+        await tx.serviceEstimateItem.updateMany({ where: { estimateId }, data: { isApprovedByCustomer: true } });
+        if (declinedIds.size > 0) {
+          await tx.serviceEstimateItem.updateMany({ where: { estimateId, id: { in: [...declinedIds] } }, data: { isApprovedByCustomer: false } });
+        }
+      }
 
       await tx.serviceRequest.update({
         where: { id: estimate.serviceRequestId },
@@ -1994,12 +2049,14 @@ export class PrismaServiceStore {
       await tx.serviceHistoryEvent.create({
         data: {
           serviceRequestId: estimate.serviceRequestId,
-          fromStatus: ServiceRequestStatus.ESTIMATE_PENDING_APPROVAL,
+          fromStatus: estimate.serviceRequest.status,
           toStatus: nextRequestStatus,
-          title: decision === 'APPROVE' ? 'Estimate Approved by Customer' : 'Estimate Declined by Customer',
+          title: decision === 'APPROVE' ? (reconsidering ? 'Customer Reconsidered and Approved Estimate' : 'Estimate Approved by Customer') : 'Estimate Declined by Customer',
           description: decision === 'APPROVE'
-            ? `Customer approved estimate v${estimate.version} totaling ₹${(Number(estimate.totalAmountPaise) / 100).toLocaleString('en-IN')}. Work proceeding.`
-            : `Customer declined estimate v${estimate.version}. Notes: ${notes || 'No reason provided'}.`,
+            ? approvedTotals
+              ? `Customer approved ${estimate.items.length - declinedIds.size} of ${estimate.items.length} items of estimate v${estimate.version}; deferred ${declinedIds.size} optional item(s). Approved total ₹${(Number(approvedTotals.totalAmountPaise) / 100).toLocaleString('en-IN')} (quoted ₹${(Number(estimate.totalAmountPaise) / 100).toLocaleString('en-IN')}). Work proceeding.`
+              : `Customer approved estimate v${estimate.version} totaling ₹${(Number(estimate.totalAmountPaise) / 100).toLocaleString('en-IN')}. Work proceeding.`
+            : `Customer declined estimate v${estimate.version}. ${storedNotes || 'No reason provided'}. Contact the customer to negotiate, issue a revised estimate or cancel the service.`,
           actorRole: 'CUSTOMER',
           actorId: user.id,
         },
@@ -2012,7 +2069,7 @@ export class PrismaServiceStore {
           referenceId: estimate.serviceRequestId,
           entityType: 'ServiceEstimate',
           title: decision === 'APPROVE' ? 'Service Estimate Approved' : 'Service Estimate Declined',
-          body: `Customer ${decision === 'APPROVE' ? 'approved' : 'declined'} estimate for request ${estimate.serviceRequest.requestNumber}.`,
+          body: `Customer ${decision === 'APPROVE' ? 'approved' : 'declined'} estimate for request ${estimate.serviceRequest.requestNumber}.${decision === 'DECLINE' && storedNotes ? ' ' + storedNotes : ''}`,
           category: 'SERVICE',
           recipientRoles: ['SERVICE_ADVISOR', 'HUB_MANAGER'],
         });
@@ -2038,6 +2095,9 @@ export class PrismaServiceStore {
       ServiceRequestStatus.DRAFT,
       ServiceRequestStatus.SUBMITTED,
       ServiceRequestStatus.APPOINTMENT_SCHEDULED,
+      // Declining or hesitating over an estimate must never trap the customer in the job.
+      ServiceRequestStatus.ESTIMATE_PENDING_APPROVAL,
+      ServiceRequestStatus.ESTIMATE_REJECTED,
     ];
     if (!cancellableStatuses.includes(sr.status)) {
       throw new HttpError(409, 'CANNOT_CANCEL_REQUEST_AFTER_DISPATCH');
@@ -2060,6 +2120,12 @@ export class PrismaServiceStore {
           data: { bookedCount: { decrement: 1 } },
         });
       }
+
+      // The job is over: a live estimate must not stay open for review or approval.
+      await tx.serviceEstimate.updateMany({
+        where: { serviceRequestId: sr.id, status: ServiceEstimateStatus.SENT_TO_CUSTOMER },
+        data: { status: ServiceEstimateStatus.SUPERSEDED, respondedAt: new Date(), responseNotes: 'Voided: service request cancelled' },
+      });
 
       const updated = await tx.serviceRequest.update({
         where: { id: requestId },
@@ -2332,6 +2398,13 @@ export class PrismaServiceStore {
     if (!estimate || estimate.serviceRequestId !== requestId) {
       throw new HttpError(404, 'ESTIMATE_NOT_FOUND');
     }
+    if (ESTIMATE_LOCKED_STATUSES.includes(estimate.serviceRequest.status)) {
+      throw new HttpError(409, 'SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION');
+    }
+    // Only the live estimate can be answered: awaiting the customer, or declined and being negotiated.
+    if (estimate.status !== ServiceEstimateStatus.SENT_TO_CUSTOMER && estimate.status !== ServiceEstimateStatus.DECLINED) {
+      throw new HttpError(409, 'ESTIMATE_NOT_ACTIVE');
+    }
 
     const nextEstimateStatus = input.decision === 'APPROVE' ? ServiceEstimateStatus.APPROVED : ServiceEstimateStatus.DECLINED;
     const nextRequestStatus = input.decision === 'APPROVE' ? ServiceRequestStatus.ESTIMATE_APPROVED : ServiceRequestStatus.ESTIMATE_REJECTED;
@@ -2402,6 +2475,12 @@ export class PrismaServiceStore {
           data: { bookedCount: { decrement: 1 } },
         });
       }
+
+      // The job is over: a live estimate must not stay open for review or approval.
+      await tx.serviceEstimate.updateMany({
+        where: { serviceRequestId: sr.id, status: ServiceEstimateStatus.SENT_TO_CUSTOMER },
+        data: { status: ServiceEstimateStatus.SUPERSEDED, respondedAt: new Date(), responseNotes: 'Voided: service request cancelled' },
+      });
 
       const updated = await tx.serviceRequest.update({
         where: { id: requestId },
@@ -2852,33 +2931,32 @@ export class PrismaServiceStore {
   async createEstimate(actorId: string, requestId: string, input: EstimateInput) {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
-
-    // Calculate subtotal from items
-    let subtotalPaise = 0n;
-    for (const item of input.items) {
-      const qty = BigInt(item.quantity || 1);
-      const unit = BigInt(item.unitPricePaise);
-      subtotalPaise += qty * unit;
+    if (ESTIMATE_LOCKED_STATUSES.includes(sr.status)) {
+      throw new HttpError(409, 'SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION');
+    }
+    if (!input.items || input.items.length === 0) {
+      throw new HttpError(400, 'ESTIMATE_REQUIRES_AT_LEAST_ONE_LINE_ITEM');
     }
 
     const pickupDrop = BigInt(input.pickupDropFeePaise || 0);
     const diagnostic = BigInt(input.diagnosticFeePaise || 0);
     const discount = BigInt(input.discountPaise || 0);
-
-    const taxableBase = subtotalPaise + pickupDrop + diagnostic - discount;
-    // 18% GST = 9% CGST + 9% SGST
-    const cgstPaise = (taxableBase * 9n) / 100n;
-    const sgstPaise = (taxableBase * 9n) / 100n;
-    const totalAmountPaise = taxableBase + cgstPaise + sgstPaise;
+    // Same arithmetic is used when a customer defers optional items (estimate-totals.ts).
+    const { subtotalPaise, cgstPaise, sgstPaise, totalAmountPaise } = calculateEstimateTotals({
+      items: input.items,
+      pickupDropFeePaise: pickupDrop,
+      diagnosticFeePaise: diagnostic,
+      discountPaise: discount,
+    });
 
     const existingCount = await this.db.serviceEstimate.count({ where: { serviceRequestId: requestId } });
     const version = existingCount + 1;
     const validUntil = new Date(Date.now() + (input.validDays || 7) * 24 * 60 * 60 * 1000);
 
     return this.db.$transaction(async tx => {
-      // Mark previous estimates as SUPERSEDED
+      // A revised estimate replaces the live one, whether it is awaiting the customer or was declined.
       await tx.serviceEstimate.updateMany({
-        where: { serviceRequestId: requestId, status: ServiceEstimateStatus.SENT_TO_CUSTOMER },
+        where: { serviceRequestId: requestId, status: { in: [ServiceEstimateStatus.SENT_TO_CUSTOMER, ServiceEstimateStatus.DECLINED] } },
         data: { status: ServiceEstimateStatus.SUPERSEDED },
       });
 
@@ -2928,7 +3006,7 @@ export class PrismaServiceStore {
           serviceRequestId: sr.id,
           fromStatus: sr.status,
           toStatus: ServiceRequestStatus.ESTIMATE_PENDING_APPROVAL,
-          title: `Service Estimate (v${version}) Issued to Customer`,
+          title: sr.status === ServiceRequestStatus.ESTIMATE_REJECTED ? `Revised Service Estimate (v${version}) Issued to Customer` : `Service Estimate (v${version}) Issued to Customer`,
           description: `Total amount: ₹${(Number(totalAmountPaise) / 100).toLocaleString('en-IN')} with ${input.items.length} items. Awaiting approval.`,
           actorRole: 'SERVICE_ADVISOR',
           actorId,
@@ -2958,11 +3036,18 @@ export class PrismaServiceStore {
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
 
     return this.db.$transaction(async tx => {
+      // Technicians must only see work the customer approved; deferred lines are marked do-not-perform.
+      const approved = await tx.serviceEstimate.findFirst({
+        where: { serviceRequestId: requestId, status: ServiceEstimateStatus.APPROVED },
+        orderBy: { version: 'desc' },
+        include: { items: true },
+      });
+      const scope = approved ? formatApprovedScope(approved.items) : '';
       const wo = await tx.serviceWorkOrder.create({
         data: {
           serviceRequestId: requestId,
           status: ServiceWorkOrderStatus.IN_PROGRESS,
-          instructions: input.instructions.trim(),
+          instructions: input.instructions.trim() + scope,
           assignedTechnicianId: input.assignedTechnicianId,
           startedAt: new Date(),
         },

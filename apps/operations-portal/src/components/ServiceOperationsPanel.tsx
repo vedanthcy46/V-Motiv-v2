@@ -138,13 +138,11 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
 
   // Estimate
   const [estimateLines, setEstimateLines] = useState<
-    Array<{ itemType: string; description: string; quantity: number; unitRateRupees: number }>
-  >([
-    { itemType: 'LABOUR', description: 'Standard Periodic Inspection & Labor', quantity: 1, unitRateRupees: 1500 },
-    { itemType: 'PART', description: 'Synthetic Engine Oil (3.5L)', quantity: 1, unitRateRupees: 2800 },
-    { itemType: 'PART', description: 'OEM Oil Filter Cartridge', quantity: 1, unitRateRupees: 450 },
-  ]);
+    Array<{ itemType: string; description: string; quantity: number; unitRateRupees: number; isMandatory: boolean }>
+  >([{ itemType: 'LABOUR', description: '', quantity: 1, unitRateRupees: 0, isMandatory: true }]);
   const [estimateNotes, setEstimateNotes] = useState('');
+  // Revising a declined (or pending) estimate: opens the line editor prefilled with the last version.
+  const [reviseMode, setReviseMode] = useState(false);
 
   // QC
   const [qcPassed, setQcPassed] = useState(true);
@@ -367,6 +365,10 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const handleEstimateSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!activeJob) return;
+    if (estimateLines.every(l => !(l.unitRateRupees > 0)) || estimateLines.some(l => !l.description.trim())) {
+      onError('Every estimate line needs a description, and at least one line must have a price.');
+      return;
+    }
     setActionBusy(true);
     try {
       const items = estimateLines.map(line => {
@@ -378,7 +380,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
           quantity: qty,
           unitPricePaise: unitPaise,
           totalPricePaise: qty * unitPaise,
-          isMandatory: true,
+          // Required work cannot be deferred by the customer; recommended work can.
+          isMandatory: line.isMandatory,
         };
       });
 
@@ -393,11 +396,13 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         cgstPaise,
         sgstPaise,
         totalAmountPaise,
-        customerNotes: estimateNotes || 'Approved OEM genuine replacement parts and standard workshop labor.',
+        customerNotes: estimateNotes.trim() || undefined,
         validDays: 7,
       });
 
-      onSuccess(`Estimate created and sent to customer for ${activeJob.requestNumber}.`);
+      onSuccess(`${reviseMode ? 'Revised estimate' : 'Estimate'} sent to customer for ${activeJob.requestNumber}.`);
+      setReviseMode(false);
+      setEstimateNotes('');
       await refreshActiveJob(activeJob.id);
     } catch (err: any) {
       onError(err?.message || 'Failed to create service estimate');
@@ -406,14 +411,34 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     }
   };
 
-  const handleApproveEstimateInPerson = async (estimateId: string) => {
+  /** Open the line editor prefilled with the latest estimate so the advisor can adjust price/scope. */
+  const startRevision = () => {
+    const latest = activeJob?.estimates?.[0] as any;
+    if (latest && Array.isArray(latest.items) && latest.items.length > 0) {
+      setEstimateLines(
+        latest.items.map((it: any) => ({
+          itemType: String(it.category || it.itemType || 'PART').replace(/S$/, '') === 'PART' ? 'PART' : String(it.category || 'LABOUR').toUpperCase().startsWith('CONSUMABLE') ? 'CONSUMABLE' : 'LABOUR',
+          description: String(it.description || ''),
+          quantity: Number(it.quantity || 1),
+          unitRateRupees: Math.round(Number(it.unitPricePaise || 0) / 100),
+          isMandatory: it.isMandatory !== false,
+        })),
+      );
+    }
+    setEstimateNotes('');
+    setReviseMode(true);
+  };
+
+  const handleApproveEstimateInPerson = async (estimateId: string, negotiated = false) => {
     if (!activeJob) return;
     setActionBusy(true);
     try {
       await api.approveServiceEstimateByStaff(user, activeJob.id, estimateId, {
         decision: 'APPROVE',
-        notes: 'Estimate approved in-person by customer at workshop service counter.',
-        channel: 'WORKSHOP_COUNTER',
+        notes: negotiated
+          ? 'Customer agreed to the estimate after negotiation with the service advisor (phone / in person).'
+          : 'Estimate approved in-person by customer at workshop service counter.',
+        channel: negotiated ? 'NEGOTIATION' : 'WORKSHOP_COUNTER',
       });
       onSuccess(`Estimate approved on behalf of customer. Work authorization granted for ${activeJob.requestNumber}.`);
       await refreshActiveJob(activeJob.id);
@@ -849,14 +874,16 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                   <td style={{ padding: '0.75rem 1rem' }}>
                     {(() => {
                       const est = job.activeEstimate || job.estimates?.[0];
+                      if (job.status === 'CANCELLED') return <span style={{ color: 'var(--muted)', fontSize: '0.75rem' }}>Withdrawn (cancelled)</span>;
                       if (!est) return <span style={{ color: 'var(--muted)' }}>—</span>;
+                      const declined = est.status === 'DECLINED';
                       return (
                         <div>
                           <div style={{ fontWeight: 700, color: 'var(--accent)' }}>
                             {formatRupees(est.totalAmountPaise)}
                           </div>
-                          <div style={{ fontSize: '0.68rem', color: est.status === 'APPROVED' ? '#10b981' : '#f59e0b' }}>
-                            {est.status === 'APPROVED' ? '✓ APPROVED' : est.status.replace(/_/g, ' ')}
+                          <div style={{ fontSize: '0.68rem', color: est.status === 'APPROVED' ? '#10b981' : declined ? '#ef4444' : '#f59e0b' }}>
+                            {est.status === 'APPROVED' ? '✓ APPROVED' : declined ? '✕ DECLINED — negotiate' : est.status.replace(/_/g, ' ')}
                           </div>
                         </div>
                       );
@@ -1509,7 +1536,16 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: 0, color: '#ef4444' }}>Estimate Creation Locked — Job Cancelled</h4>
+                    <h4 style={{ margin: 0, color: '#ef4444' }}>Estimate Locked — Job Cancelled</h4>
+                    {activeJob.custodyRecord && (
+                      <div role="alert" style={{ margin: '0.75rem auto 0', maxWidth: 520, textAlign: 'left', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid #f59e0b', borderRadius: 8, padding: '0.6rem 0.8rem', fontSize: '0.85rem' }}>
+                        <strong style={{ color: '#f59e0b' }}>Vehicle return required.</strong> This car was checked in at the workshop before the job was cancelled. Arrange its return and confirm handover with the customer.
+                      </div>
+                    )}
+                    <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
+                      Any open estimate was withdrawn automatically. The customer can no longer review or approve it.
+                      {(activeJob as any).cancellationReason ? ` Reason: ${(activeJob as any).cancellationReason}.` : ''}
+                    </p>
                   </div>
                 ) : (
                   <div>
@@ -1540,7 +1576,48 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       )}
                     </div>
 
-                    {activeJob.estimates?.[0] ? (
+                    {/* NEGOTIATION: customer declined the latest estimate */}
+                    {activeJob.estimates?.[0]?.status === 'DECLINED' && !reviseMode && (
+                      <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.45)', borderLeft: '4px solid #ef4444', padding: '0.9rem 1rem', borderRadius: '8px', marginBottom: '1.25rem' }}>
+                        <div style={{ fontWeight: 800, color: '#ef4444', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                          Customer declined estimate v{(activeJob.estimates[0] as any).version ?? ''}
+                        </div>
+                        <div style={{ fontSize: '0.9rem', marginTop: '0.35rem' }}>
+                          {(activeJob.estimates[0] as any).responseNotes || 'No reason was given. Call the customer to understand their concern.'}
+                        </div>
+                        <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: '0.35rem' }}>
+                          Next step: call the customer, then send a revised estimate, record their agreement, or cancel the service.
+                        </div>
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', marginTop: '0.75rem' }}>
+                          <button type="button" className="btn-primary btn-gold button primary" disabled={actionBusy} onClick={startRevision}>
+                            ✎ Revise & Resend Estimate
+                          </button>
+                          <button type="button" className="btn-secondary button secondary" disabled={actionBusy} onClick={() => handleApproveEstimateInPerson(activeJob.estimates![0].id, true)}>
+                            ✓ Customer Agreed (Record Approval)
+                          </button>
+                          <button type="button" className="button secondary" style={{ color: '#ef4444', borderColor: '#ef4444' }} disabled={actionBusy} onClick={() => setCancelPromptOpen(true)}>
+                            ✕ Cancel Service
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Estimate version history */}
+                    {(activeJob.estimates?.length || 0) > 1 && !reviseMode && (
+                      <div style={{ marginBottom: '1rem', fontSize: '0.8rem' }}>
+                        <div style={{ fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', fontSize: '0.7rem', marginBottom: '0.25rem' }}>Estimate history</div>
+                        {activeJob.estimates!.map((e: any) => (
+                          <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', padding: '3px 0', borderBottom: '1px solid var(--border)' }}>
+                            <span>v{e.version ?? '?'} · {formatRupees(e.totalAmountPaise)}</span>
+                            <span style={{ color: e.status === 'APPROVED' ? '#10b981' : e.status === 'DECLINED' ? '#ef4444' : 'var(--muted)' }}>
+                              {String(e.status).replace(/_/g, ' ')}{e.responseNotes ? ` — ${e.responseNotes}` : ''}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    {activeJob.estimates?.[0] && !reviseMode ? (
                   <div style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '0.5rem' }}>
                       <div>
@@ -1556,16 +1633,21 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       </div>
 
                       {/* IN-PERSON / STAFF APPROVAL BUTTON */}
-                      {activeJob.estimates[0].status !== 'APPROVED' && (
-                        <button
-                          type="button"
-                          className="btn-primary btn-gold button primary"
-                          disabled={actionBusy}
-                          onClick={() => handleApproveEstimateInPerson(activeJob.estimates![0].id)}
-                          style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
-                        >
-                          <span>✓</span> Approve Estimate (In-Person / Phone)
-                        </button>
+                      {activeJob.estimates[0].status === 'SENT_TO_CUSTOMER' && (
+                        <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+                          <button
+                            type="button"
+                            className="btn-primary btn-gold button primary"
+                            disabled={actionBusy}
+                            onClick={() => handleApproveEstimateInPerson(activeJob.estimates![0].id)}
+                            style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
+                          >
+                            <span>✓</span> Approve Estimate (In-Person / Phone)
+                          </button>
+                          <button type="button" className="btn-secondary button secondary" disabled={actionBusy} onClick={startRevision}>
+                            ✎ Revise Estimate
+                          </button>
+                        </div>
                       )}
                     </div>
 
@@ -1580,6 +1662,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                               <th style={{ padding: '4px 8px' }}>DESCRIPTION</th>
                               <th style={{ padding: '4px 8px', textAlign: 'center' }}>QTY</th>
                               <th style={{ padding: '4px 8px', textAlign: 'right' }}>RATE</th>
+                              <th style={{ padding: '4px 8px', textAlign: 'center' }}>CUSTOMER CHOICE</th>
                               <th style={{ padding: '4px 8px', textAlign: 'right' }}>TOTAL</th>
                             </tr>
                           </thead>
@@ -1590,6 +1673,11 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                                 <td style={{ padding: '6px 8px' }}>{item.description}</td>
                                 <td style={{ padding: '6px 8px', textAlign: 'center' }}>{item.quantity}</td>
                                 <td style={{ padding: '6px 8px', textAlign: 'right' }}>{formatRupees(item.unitPricePaise || item.unitRatePaise)}</td>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: item.isApprovedByCustomer === false && activeJob.estimates![0].status === 'APPROVED' ? '#ef4444' : item.isMandatory === false ? '#f59e0b' : 'var(--muted)' }}>
+                                  {item.isApprovedByCustomer === false && activeJob.estimates![0].status === 'APPROVED'
+                                    ? 'DEFERRED BY CUSTOMER'
+                                    : item.isMandatory === false ? 'RECOMMENDED' : 'REQUIRED'}
+                                </td>
                                 <td style={{ padding: '6px 8px', textAlign: 'right', fontWeight: 700 }}>{formatRupees(item.totalPricePaise || item.lineTotalPaise)}</td>
                               </tr>
                             ))}
@@ -1601,7 +1689,9 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 ) : (
                   <form onSubmit={handleEstimateSubmit}>
                     <p style={{ fontSize: '0.875rem', color: 'var(--muted)' }}>
-                      Prepare itemized diagnostic estimate with required replacement spares and labor charges for customer approval.
+                      {reviseMode
+                        ? 'Adjust the lines below and resend. The customer is notified and the previous version is kept in history.'
+                        : 'Prepare itemized diagnostic estimate with required replacement spares and labor charges for customer approval.'}
                     </p>
 
                     <div style={{ marginTop: '1rem' }}>
@@ -1610,14 +1700,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         <button
                           type="button"
                           className="btn-sm btn-secondary button secondary small"
-                          onClick={() => setEstimateLines(prev => [...prev, { itemType: 'PART', description: '', quantity: 1, unitRateRupees: 500 }])}
+                          onClick={() => setEstimateLines(prev => [...prev, { itemType: 'PART', description: '', quantity: 1, unitRateRupees: 0, isMandatory: false }])}
                         >
                           + Add Line
                         </button>
                       </div>
 
                       {estimateLines.map((line, idx) => (
-                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '120px 2fr 80px 120px 36px', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
+                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '120px 2fr 80px 120px 140px 36px', gap: '0.5rem', marginBottom: '0.5rem', alignItems: 'center' }}>
                           <select
                             className="select"
                             value={line.itemType}
@@ -1664,6 +1754,18 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                               setEstimateLines(prev => prev.map((l, i) => i === idx ? { ...l, unitRateRupees: val } : l));
                             }}
                           />
+                          <select
+                            className="select"
+                            title="Required work cannot be deferred by the customer. Recommended work can."
+                            value={line.isMandatory ? 'REQUIRED' : 'RECOMMENDED'}
+                            onChange={e => {
+                              const required = e.target.value === 'REQUIRED';
+                              setEstimateLines(prev => prev.map((l, i) => i === idx ? { ...l, isMandatory: required } : l));
+                            }}
+                          >
+                            <option value="REQUIRED">Required</option>
+                            <option value="RECOMMENDED">Recommended</option>
+                          </select>
                           {estimateLines.length > 1 && (
                             <button
                               type="button"
@@ -1679,9 +1781,13 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     </div>
 
                     <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                      <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Close</button>
+                      {reviseMode ? (
+                        <button type="button" className="btn-secondary button secondary" onClick={() => setReviseMode(false)}>Back</button>
+                      ) : (
+                        <button type="button" className="btn-secondary button secondary" onClick={() => setActiveJob(null)}>Close</button>
+                      )}
                       <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
-                        {actionBusy ? 'Creating…' : 'Issue Estimate to Customer'}
+                        {actionBusy ? 'Sending…' : reviseMode ? 'Send Revised Estimate' : 'Issue Estimate to Customer'}
                       </button>
                     </div>
                   </form>

@@ -95,6 +95,9 @@ const serviceRequestCreateSchema = z.object({
 const estimateResponseSchema = z.object({
   decision: z.enum(['APPROVE', 'DECLINE']),
   notes: z.string().trim().max(1000).optional(),
+  reasonCode: z.enum(['TOO_EXPENSIVE', 'WANT_SECOND_OPINION', 'NOT_NEEDED_NOW', 'OTHER']).optional(),
+  // Optional (non-required) estimate items the customer chooses to defer when approving.
+  declinedItemIds: z.array(z.string().uuid()).max(50).optional(),
 }).strict();
 
 const cancellationSchema = z.object({
@@ -378,7 +381,7 @@ export function createServiceCustomerRouter(deps: {
     try {
       const identity = res.locals.identity as Identity;
       const input = parse(estimateResponseSchema, req.body);
-      res.json(await deps.store.respondToEstimate(identity.uid, uuid.parse(req.params.id), input.decision, input.notes));
+      res.json(await deps.store.respondToEstimate(identity.uid, uuid.parse(req.params.id), input.decision, input.notes, input.reasonCode, input.declinedItemIds));
     } catch (e) {
       next(e);
     }
@@ -647,13 +650,7 @@ export function createServiceOperationsRouter(deps: {
       });
 
       const normalizedBody = {
-        items: normalizedItems.length > 0 ? normalizedItems : [{
-          category: 'LABOUR',
-          description: 'Periodic Inspection and General Service',
-          quantity: 1,
-          unitPricePaise: 150000,
-          isMandatory: true,
-        }],
+        items: normalizedItems,
         pickupDropFeePaise: Number(raw.pickupDropFeePaise || 0),
         diagnosticFeePaise: Number(raw.diagnosticFeePaise || 0),
         discountPaise: Number(raw.discountPaise || 0),
