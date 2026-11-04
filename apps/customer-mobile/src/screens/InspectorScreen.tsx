@@ -65,6 +65,7 @@ import {
   uriToBase64,
   type DraftPayload,
 } from '../services/inspector-sync';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 type Assignment = {
   id: string;
@@ -1162,7 +1163,7 @@ export function InspectorScreen() {
 
         {/* Tab Content */}
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
           style={{ flex: 1 }}
         >
@@ -1734,7 +1735,7 @@ export function InspectorScreen() {
           }}
         >
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+            behavior={KEYBOARD_AVOIDING_BEHAVIOR}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
             style={[
               styles.modalBackdrop,

@@ -56,6 +56,7 @@ import {
   type RentalPaymentSchedule,
 } from '../services/rental-api';
 import { CarBrandLogo } from '../components/CarBrandLogo';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalBookingDetails'>;
 
@@ -1098,7 +1099,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
         onRequestClose={() => setExtensionModalVisible(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
           style={styles.modalBackdrop}
         >
           <Pressable
@@ -1330,7 +1331,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
         onRequestClose={() => setPayBalanceModalVisible(false)}
       >
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
           style={styles.modalBackdrop}
         >
           <View

@@ -26,6 +26,7 @@ import {
   type WebRtcSignal,
 } from '../services/connect-api';
 import { radius, space, useAppTheme } from '../theme';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 interface Props {
   call: IncomingConnectCall;
@@ -279,7 +280,7 @@ export function ConnectChatModal({ call, onClose }: Props) {
 
         {/* Message Thread */}
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
           style={styles.keyboardAvoid}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
         >

@@ -25,6 +25,7 @@ import {
 import { SafeAreaView, useSafeAreaInsets, type Edge } from 'react-native-safe-area-context';
 import { AlertCircle } from 'lucide-react-native';
 import { color, radius, space, useAppTheme } from '../theme';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 // ============================================================
 // 1. KeyboardAwareFormScreen
@@ -77,7 +78,7 @@ export const KeyboardAwareFormScreen = forwardRef<ScrollView, KeyboardAwareFormS
         <KeyboardAvoidingView
           // Android must reduce available height; padding alone leaves a
           // bottom CTA and the active field underneath the soft keyboard.
-          behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
           keyboardVerticalOffset={keyboardVerticalOffset}
           style={styles.keyboardAvoid}
         >
@@ -472,7 +473,7 @@ export function KeyboardResizeContainer({
 }: KeyboardResizeContainerProps) {
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+      behavior={KEYBOARD_AVOIDING_BEHAVIOR}
       keyboardVerticalOffset={keyboardVerticalOffset}
       style={[{ flex: 1 }, style]}
     >

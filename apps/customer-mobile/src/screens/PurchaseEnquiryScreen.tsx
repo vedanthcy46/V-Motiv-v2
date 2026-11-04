@@ -18,6 +18,7 @@ import { customer } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'PurchaseEnquiry'>;
 
@@ -107,7 +108,7 @@ export function PurchaseEnquiryScreen({ route, navigation }: Props) {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >

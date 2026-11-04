@@ -36,12 +36,14 @@ import { useAuth } from '../auth/AuthProvider';
 import { BrandLogo } from '../components/BrandLogo';
 import { AuthScreen } from './AuthScreen';
 import { useAppTheme, radius, space } from '../theme';
+import { useTabScreenBottomPadding } from '../layout/safe-layout';
 import { formatPaise, friendlyError } from '../format';
 import type { ActivityItem, PurchaseEnquiry, SellingRequest, SupportCase, TestDrive } from '../types';
 
 type FilterTab = 'ALL' | 'CONNECT' | 'SERVICE' | 'RENTAL' | 'SELLING' | 'TEST_DRIVES' | 'PURCHASES' | 'SUPPORT';
 
 export function RequestsScreen() {
+  const tabBottomPadding = useTabScreenBottomPadding();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { state } = useAuth();
@@ -290,7 +292,7 @@ export function RequestsScreen() {
         </View>
       ) : filter === 'ALL' ? (
         <FlatList
-          contentContainerStyle={[styles.list, { paddingBottom: Math.max(insets.bottom, 20) + 96 }]}
+          contentContainerStyle={[styles.list, { paddingBottom: tabBottomPadding }]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}
@@ -378,7 +380,7 @@ export function RequestsScreen() {
         />
       ) : (
         <FlatList
-          contentContainerStyle={[styles.list, { paddingBottom: Math.max(insets.bottom, 20) + 96 }]}
+          contentContainerStyle={[styles.list, { paddingBottom: tabBottomPadding }]}
           refreshControl={
             <RefreshControl
               refreshing={refreshing}

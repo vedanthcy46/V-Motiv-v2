@@ -18,6 +18,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 import type { SupportedCity } from '../types';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'CitySelection'>;
 
@@ -71,7 +72,7 @@ export function CitySelectionScreen({ navigation }: Props) {
       </View>
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >

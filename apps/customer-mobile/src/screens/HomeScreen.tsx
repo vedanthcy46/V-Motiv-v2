@@ -42,6 +42,7 @@ import {
 } from '../services/notifications';
 import { useAuth } from '../auth/AuthProvider';
 import { useAppTheme } from '../theme';
+import { useTabScreenBottomPadding } from '../layout/safe-layout';
 import { formatPrice } from '../format';
 import type { Tabs } from '../navigation/types';
 import type { VehicleSummary } from '../types';
@@ -53,6 +54,7 @@ const SECONDARY_SERVICES = [
 ];
 
 export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
+  const tabBottomPadding = useTabScreenBottomPadding();
   const { state, profile } = useAuth();
   const { openSidebar } = useSidebar();
   const { theme, isDark } = useAppTheme();
@@ -135,7 +137,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top', 'left', 'right']}>
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        contentContainerStyle={[styles.scroll, { paddingBottom: tabBottomPadding }]}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} tintColor={c.brandAccent} />}
         showsVerticalScrollIndicator={false}
       >

@@ -28,6 +28,7 @@ import { customer } from '../services/customer';
 import type { SupportCase } from '../types';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 const CATEGORIES = [
   { key: 'BUYING', label: 'Buying Enquiry' },
@@ -114,7 +115,7 @@ export function SupportScreen() {
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >

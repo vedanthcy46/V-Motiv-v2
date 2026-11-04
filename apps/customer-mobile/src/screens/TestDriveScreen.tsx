@@ -28,6 +28,7 @@ import { customer } from '../services/customer';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
 import type { CustomerAddress, SupportedCity } from '../types';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 const SLOTS = ['10:00-12:00', '12:00-14:00', '15:00-17:00'] as const;
 
@@ -106,7 +107,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >

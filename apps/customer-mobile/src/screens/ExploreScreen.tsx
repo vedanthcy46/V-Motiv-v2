@@ -39,8 +39,10 @@ import { customer } from '../services/customer';
 import type { RootStack, Tabs } from '../navigation/types';
 import type { SupportedCity, VehicleSummary } from '../types';
 import { useAppTheme, radius, space } from '../theme';
+import { useTabScreenBottomPadding } from '../layout/safe-layout';
 import { friendlyError } from '../format';
 import { useAuth } from '../auth/AuthProvider';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<Tabs, 'Explore'>,
@@ -189,6 +191,7 @@ function getPriceBounds(range: string): { minPricePaise?: number; maxPricePaise?
 }
 
 export function ExploreScreen({ navigation }: { navigation: Nav }) {
+  const tabBottomPadding = useTabScreenBottomPadding();
   const insets = useSafeAreaInsets();
   const { state } = useAuth();
   const { theme, isDark } = useAppTheme();
@@ -941,7 +944,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
         keyExtractor={(item) => item.id}
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: Math.max(insets.bottom, 20) + 84 },
+          { paddingBottom: tabBottomPadding },
         ]}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -1022,7 +1025,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
           ]}
         >
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+            behavior={KEYBOARD_AVOIDING_BEHAVIOR}
             style={{ flex: 1 }}
           >
             {/* Modal Header */}

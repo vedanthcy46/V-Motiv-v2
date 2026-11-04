@@ -62,6 +62,7 @@ import {
   type ServicePaymentOption,
   type SlotCapacity,
 } from '../services/service-api';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 const CATEGORY_ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
   REGULAR_SERVICE: Wrench,
@@ -1306,7 +1307,7 @@ export function ServiceHomeScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
       >
         <ScrollView

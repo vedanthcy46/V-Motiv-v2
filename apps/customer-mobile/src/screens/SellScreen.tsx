@@ -36,6 +36,7 @@ import { friendlyError } from '../format';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 import type { CustomerAddress, SupportedCity } from '../types';
 import { CURRENT_YEAR } from '../utils/calendar';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 // ─── Draft ─────────────────────────────────────────────────────────────────
 const DRAFT_KEY = 'vmotiv.v2.sell-draft';
@@ -783,7 +784,7 @@ export function SellScreen() {
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]} edges={['top', 'left', 'right']}>
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >

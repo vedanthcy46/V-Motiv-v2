@@ -50,6 +50,7 @@ import {
   Zap,
 } from 'lucide-react-native';
 import { useAppTheme, radius, space } from '../theme';
+import { useTabScreenBottomPadding } from '../layout/safe-layout';
 import { useAuth } from '../auth/AuthProvider';
 import { AuthScreen } from './AuthScreen';
 import { BrandLogo } from '../components/BrandLogo';
@@ -82,8 +83,10 @@ import {
   TRANSMISSIONS,
 } from '../constants/car-catalog';
 import { CURRENT_YEAR } from '../utils/calendar';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 export function MyGarageScreen() {
+  const tabBottomPadding = useTabScreenBottomPadding();
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { theme, isDark } = useAppTheme();
@@ -609,7 +612,7 @@ export function MyGarageScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: 110 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBottomPadding }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />}
         showsVerticalScrollIndicator={false}
       >
@@ -881,7 +884,7 @@ export function MyGarageScreen() {
             onPress={() => setModalVisible(false)}
           />
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+            behavior={KEYBOARD_AVOIDING_BEHAVIOR}
             keyboardVerticalOffset={0}
             style={[
               styles.keyboardAvoidWrap,
@@ -1335,7 +1338,7 @@ export function MyGarageScreen() {
           onPress={() => setConnectModalVisible(false)}
         />
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
           keyboardVerticalOffset={0}
           style={[
             styles.keyboardAvoidWrap,

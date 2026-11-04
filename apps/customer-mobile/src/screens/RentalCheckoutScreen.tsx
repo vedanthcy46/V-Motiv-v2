@@ -49,6 +49,7 @@ import {
 } from '../services/rental-api';
 import { useAuth } from '../auth/AuthProvider';
 import { AuthScreen } from './AuthScreen';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalCheckout'>;
 
@@ -409,7 +410,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+      behavior={KEYBOARD_AVOIDING_BEHAVIOR}
       style={[styles.container, { backgroundColor: colors.background }]}
     >
       {/* Header */}
@@ -461,6 +462,8 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
       <ScrollView
         contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 120 }]}
         showsVerticalScrollIndicator={false}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         {/* Vehicle & Trip Summary Card */}
         {vehicle && (

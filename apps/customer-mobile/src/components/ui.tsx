@@ -14,6 +14,7 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BrandLogo } from './BrandLogo';
 import { color, radius, space, useAppTheme } from '../theme';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 export {
   KeyboardAwareFormScreen,
@@ -70,7 +71,7 @@ export function Screen({
     >
       {keyboardAvoiding ? (
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
           keyboardVerticalOffset={keyboardVerticalOffset}
           style={{ flex: 1 }}
         >

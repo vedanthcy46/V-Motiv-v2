@@ -46,6 +46,7 @@ import {
   startConnectCallAudio,
   stopConnectCallAudio,
 } from '../services/call-audio';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
@@ -403,7 +404,7 @@ export function ConnectVoiceCall({
     <Modal visible transparent animationType="fade" onRequestClose={handleEndCall}>
       <KeyboardAvoidingView
         style={styles.root}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
         <ScrollView

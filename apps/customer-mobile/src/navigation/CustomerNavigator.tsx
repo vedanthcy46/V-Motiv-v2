@@ -1,6 +1,4 @@
 import React from 'react';
-import { Platform } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { Bookmark, CarFront, CircleUserRound, ClipboardList, House, Warehouse } from 'lucide-react-native';
@@ -35,6 +33,7 @@ import { RentalVehicleDetailsScreen } from '../screens/RentalVehicleDetailsScree
 import { RentalCheckoutScreen } from '../screens/RentalCheckoutScreen';
 import { RentalBookingDetailsScreen } from '../screens/RentalBookingDetailsScreen';
 import { useAppTheme } from '../theme';
+import { useTabBarBottomOffset } from '../layout/safe-layout';
 import { useAuth } from '../auth/AuthProvider';
 import type { RootStack, Tabs } from './types';
 
@@ -49,7 +48,6 @@ const icons = {
 };
 
 function CustomerTabs() {
-  const insets = useSafeAreaInsets();
   const { theme, isDark } = useAppTheme();
   const { state: authState } = useAuth();
   const c = theme.colors;
@@ -59,10 +57,7 @@ function CustomerTabs() {
   // On some Android devices transparent system navigation reports a zero
   // bottom inset. Keep the floating tab bar clear of three-button navigation
   // as well as gesture navigation in that case.
-  const bottomFloatingInset = Math.max(
-    insets.bottom + 8,
-    Platform.OS === 'android' ? 48 : 12,
-  );
+  const bottomFloatingInset = useTabBarBottomOffset();
 
   return (
     <Tab.Navigator

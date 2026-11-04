@@ -5,7 +5,6 @@ import {
   AppState,
   type AppStateStatus,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -45,6 +44,7 @@ import {
   verifyServicePayment,
   type ServiceRequestDetails,
 } from '../services/service-api';
+import { useKeyboard } from '../components/KeyboardAwareFormScreen';
 
 export function ServiceRequestDetailsScreen() {
   const insets = useSafeAreaInsets();
@@ -65,6 +65,8 @@ export function ServiceRequestDetailsScreen() {
     insets.bottom + space.md,
     Platform.OS === 'android' ? 48 : 20,
   );
+  const { keyboardHeight } = useKeyboard();
+  const focusedInputBottomInset = sheetBottomInset + keyboardHeight;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -87,6 +89,7 @@ export function ServiceRequestDetailsScreen() {
   const [payMethod, setPayMethod] = useState<'RAZORPAY_UPI' | 'RAZORPAY_CARD' | 'NET_BANKING'>('RAZORPAY_UPI');
   const estimateScrollRef = useRef<ScrollView>(null);
   const paymentScrollRef = useRef<ScrollView>(null);
+  const cancelScrollRef = useRef<ScrollView>(null);
 
   const revealFocusedField = (scrollRef: React.RefObject<ScrollView | null>) => {
     // Allow Android's resize animation to settle before bringing the field and
@@ -625,11 +628,6 @@ export function ServiceRequestDetailsScreen() {
         statusBarTranslucent
       >
         <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
-            style={styles.keyboardAvoidWrap}
-            contentContainerStyle={styles.keyboardAvoidContent}
-          >
           <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: sheetBottomInset }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: c.text }]}>Itemized Estimate Review</Text>
@@ -642,7 +640,7 @@ export function ServiceRequestDetailsScreen() {
               <ScrollView
                 ref={estimateScrollRef}
                 style={styles.modalScroll}
-                contentContainerStyle={styles.modalScrollContent}
+                contentContainerStyle={[styles.modalScrollContent, { paddingBottom: focusedInputBottomInset }]}
                 showsVerticalScrollIndicator={false}
                 keyboardShouldPersistTaps="handled"
                 keyboardDismissMode="on-drag"
@@ -739,7 +737,6 @@ export function ServiceRequestDetailsScreen() {
               </ScrollView>
             )}
           </View>
-          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -766,12 +763,7 @@ export function ServiceRequestDetailsScreen() {
               }
             }}
           />
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
-            style={styles.keyboardAvoidWrap}
-            contentContainerStyle={styles.keyboardAvoidContent}
-          >
-            <View
+          <View
               style={[
                 styles.cancelSheet,
                 {
@@ -780,6 +772,14 @@ export function ServiceRequestDetailsScreen() {
                 },
               ]}
             >
+            <ScrollView
+              ref={cancelScrollRef}
+              style={styles.cancelScroll}
+              contentContainerStyle={{ paddingBottom: focusedInputBottomInset }}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              automaticallyAdjustKeyboardInsets
+            >
               <Text style={[styles.modalTitle, { color: c.text }]}>Cancel Service Booking?</Text>
               <Text style={[styles.cancelPromptText, { color: c.textMuted }]}>
                 Please provide a brief reason for cancelling. Your vehicle slot will be released.
@@ -787,6 +787,7 @@ export function ServiceRequestDetailsScreen() {
               <TextInput
                 value={cancelReason}
                 onChangeText={setCancelReason}
+                onFocus={() => revealFocusedField(cancelScrollRef)}
                 returnKeyType="done"
                 onSubmitEditing={Keyboard.dismiss}
                 placeholder="e.g. Schedule changed / Will book next week"
@@ -815,8 +816,8 @@ export function ServiceRequestDetailsScreen() {
                   <Text style={[styles.cancelDismissText, { color: c.text }]}>Keep Booking</Text>
                 </TouchableOpacity>
               </View>
+            </ScrollView>
             </View>
-          </KeyboardAvoidingView>
         </View>
       </Modal>
       {/* Pay Balance Modal */}
@@ -828,11 +829,6 @@ export function ServiceRequestDetailsScreen() {
         statusBarTranslucent
       >
         <View style={styles.modalOverlay}>
-          <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
-            style={styles.keyboardAvoidWrap}
-            contentContainerStyle={styles.keyboardAvoidContent}
-          >
           <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: sheetBottomInset }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: c.text }]}>Settle Outstanding Balance</Text>
@@ -844,7 +840,7 @@ export function ServiceRequestDetailsScreen() {
             <ScrollView
               ref={paymentScrollRef}
               style={styles.paymentScroll}
-              contentContainerStyle={styles.paymentScrollContent}
+              contentContainerStyle={[styles.paymentScrollContent, { paddingBottom: focusedInputBottomInset }]}
               keyboardShouldPersistTaps="handled"
               keyboardDismissMode="on-drag"
               showsVerticalScrollIndicator={false}
@@ -926,7 +922,6 @@ export function ServiceRequestDetailsScreen() {
               </TouchableOpacity>
             </ScrollView>
           </View>
-          </KeyboardAvoidingView>
         </View>
       </Modal>
     </View>
@@ -1390,14 +1385,10 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderBottomWidth: 0,
     borderColor: 'rgba(255, 255, 255, 0.1)',
+    maxHeight: '55%',
   },
-  keyboardAvoidWrap: {
-    flex: 1,
-    width: '100%',
-  },
-  keyboardAvoidContent: {
-    flex: 1,
-    justifyContent: 'flex-end',
+  cancelScroll: {
+    flexGrow: 0,
   },
   cancelPromptText: {
     fontSize: 13,

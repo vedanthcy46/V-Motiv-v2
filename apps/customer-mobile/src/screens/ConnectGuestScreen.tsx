@@ -66,6 +66,7 @@ import {
   stopConnectCallAudio,
 } from '../services/call-audio';
 import { radius, space, useAppTheme } from '../theme';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 const ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -595,7 +596,7 @@ export function ConnectGuestScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
       >
         <ScrollView
           contentContainerStyle={[

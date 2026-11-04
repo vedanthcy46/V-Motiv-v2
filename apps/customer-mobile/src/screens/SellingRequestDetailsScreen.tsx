@@ -37,6 +37,7 @@ import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { useKeyboard } from '../components/KeyboardAwareFormScreen';
 import type { RootStack } from '../navigation/types';
 import type { AcquisitionOffer, SellingRequest } from '../types';
+import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'SellingRequestDetails'>;
 
@@ -558,7 +559,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
             }}
           />
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+            behavior={KEYBOARD_AVOIDING_BEHAVIOR}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
             style={[
               styles.keyboardAvoidWrap,
@@ -729,7 +730,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
             }}
           />
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
+            behavior={KEYBOARD_AVOIDING_BEHAVIOR}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
             style={[
               styles.keyboardAvoidWrap,
