@@ -36,6 +36,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { BrandLogo } from '../components/BrandLogo';
 import { AuthScreen } from './AuthScreen';
 import { useAppTheme, radius, space } from '../theme';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { useTabScreenBottomPadding } from '../layout/safe-layout';
 import { formatPaise, friendlyError } from '../format';
 import type { ActivityItem, PurchaseEnquiry, SellingRequest, SupportCase, TestDrive } from '../types';
@@ -90,10 +91,11 @@ export function RequestsScreen() {
     return entries.sort((x, y) => y.ts - x.ts);
   }, [activityItems, serviceRequests, rentals, connectAlerts]);
 
-  const loadData = useCallback(async () => {
+  // silent = background refresh: no spinner, keeps what is on screen, throws on failure so the refresher can back off.
+  const loadData = useCallback(async (silent = false) => {
     if (state !== 'signed-in') return;
     try {
-      setError('');
+      if (!silent) setError('');
       const [d, s, p, cs, activity, sr, ca, rnt] = await Promise.all([
         customer.testDrives(),
         customer.sellingRequests(),
@@ -116,12 +118,16 @@ export function RequestsScreen() {
       setActivityPage(activity.page);
       setActivityPages(activity.totalPages);
     } catch (e) {
+      if (silent) throw e;
       setError(friendlyError(e));
     } finally {
       setLoading(false);
       setRefreshing(false);
     }
   }, [state]);
+
+  // Status changes (confirmations, estimates, payments) appear on their own while the Activity tab is open.
+  useAutoRefresh(() => loadData(true), { enabled: state === 'signed-in' && !loading, intervalMs: 45_000, pulse: { domains: ['me'], fetchTokens: customer.pulse } });
 
   async function loadOlderActivity() {
     if (loadingOlder || activityPage >= activityPages) return;

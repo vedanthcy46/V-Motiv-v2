@@ -1,3 +1,4 @@
+import { useAutoRefresh } from './autoRefresh';
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getApp, getApps, initializeApp } from 'firebase/app';
@@ -404,10 +405,13 @@ export function App() {
   const [error, setError] = useState<string>('');
   const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null);
 
-  const loadQueue = async (activeUser = user, sort = sortOrder, status = statusFilter, query = search) => {
+  const loadQueue = async (activeUser = user, sort = sortOrder, status = statusFilter, query = search, opts: { silent?: boolean } = {}) => {
     if (!activeUser) return;
-    setBusy(true);
-    setError('');
+    const silent = opts.silent === true;
+    if (!silent) {
+      setBusy(true);
+      setError('');
+    }
     try {
       const params = new URLSearchParams();
       if (sort) params.set('sort', sort);
@@ -417,6 +421,7 @@ export function App() {
       const queue = await api<QueueItem[]>(activeUser, `/inspection-review/queue${qs}`);
       setItems(queue);
     } catch (e: any) {
+      if (silent) throw e;
       const code = e?.code || e?.message || '';
       if (code === 'INSPECTION_ACCESS_DENIED' || e?.status === 403) {
         setError('Access Restricted: Your account does not have Inspection Reviewer privileges. Please sign in with an authorized Reviewer or Administrator account (e.g. vmotiv.v@gmail.com).');
@@ -424,9 +429,16 @@ export function App() {
         setError(e instanceof Error ? e.message : 'Unable to load review queue.');
       }
     } finally {
-      setBusy(false);
+      if (!silent) setBusy(false);
     }
   };
+
+  // New submitted reports reach the review queue without a manual refresh.
+  useAutoRefresh(() => loadQueue(user, sortOrder, statusFilter, search, { silent: true }), {
+    enabled: Boolean(user),
+    intervalMs: 30_000,
+    pulse: user ? { domains: ['review'], fetchTokens: async domains => (await api<{ tokens: Record<string, string> }>(user, `/pulse?domains=${domains.join(',')}`)).tokens } : undefined,
+  });
 
   const loadNotifications = async (activeUser = user) => {
     if (!activeUser) return;

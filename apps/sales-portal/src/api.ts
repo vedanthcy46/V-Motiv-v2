@@ -582,6 +582,9 @@ export type AcquisitionOfferItem = {
 };
 
 export const salesApi = {
+  /** Cheap change tokens (outside the /sales prefix); see services/api/src/pulse.ts. */
+  pulse: async (u: User, domains: string[]) =>
+    (await callDirect<{ tokens: Record<string, string> }>(u, `/pulse?domains=${domains.join(',')}`)).tokens,
   me: (user: User) => call<Actor>(user, '/me'),
   dashboard: (user: User) => call<DashboardData>(user, '/dashboard'),
   notifications: (user: User) => call<NotificationData>(user, '/notifications'),

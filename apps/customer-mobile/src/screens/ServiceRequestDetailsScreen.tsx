@@ -37,6 +37,8 @@ import {
   XCircle,
 } from 'lucide-react-native';
 import { useAppTheme, radius, space } from '../theme';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { customer } from '../services/customer';
 import { SandboxPaymentBanner } from '../components/SandboxPaymentBanner';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 import {
@@ -91,7 +93,8 @@ export function ServiceRequestDetailsScreen() {
   const paymentScrollRef = useRef<ScrollView>(null);
   const cancelScrollRef = useRef<ScrollView>(null);
 
-  const loadDetails = useCallback(async (isSilent = false) => {
+  // rethrow = let a failure reach the auto-refresher so it can back off (other callers keep the old swallow-and-warn behaviour).
+  const loadDetails = useCallback(async (isSilent = false, rethrow = false) => {
     if (!requestId) return;
     try {
       if (!isSilent) setLoading(true);
@@ -99,6 +102,7 @@ export function ServiceRequestDetailsScreen() {
       setRequest(data);
     } catch (err: any) {
       console.warn('[SERVICE_DETAILS_ERROR]', err?.message || err);
+      if (isSilent && rethrow) throw err;
       if (!isSilent) Alert.alert('Error', 'Could not load service request details.');
     } finally {
       if (!isSilent) setLoading(false);
@@ -114,6 +118,14 @@ export function ServiceRequestDetailsScreen() {
     setRefreshing(true);
     void loadDetails();
   }, [loadDetails]);
+
+  // Estimate, work and payment status update on their own; paused while an estimate/cancel/pay sheet is open.
+  useAutoRefresh(() => loadDetails(true, true), {
+    enabled: Boolean(requestId) && !loading,
+    intervalMs: 30_000,
+    paused: estimateModalVisible || cancelModalVisible || payBalanceModalVisible,
+    pulse: { domains: ['me'], fetchTokens: customer.pulse },
+  });
 
   const handleEstimateDecision = async (decision: 'APPROVE' | 'DECLINE') => {
     // The live estimate: awaiting the customer, or declined and still open for reconsideration.

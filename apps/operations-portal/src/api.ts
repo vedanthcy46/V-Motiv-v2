@@ -370,6 +370,9 @@ export const api = {
   updateServicePaymentPolicy: (u: User, body: Record<string, any>) =>
     call<any>(u, '/operations/service/payment-policy', { method: 'PUT', body: JSON.stringify(body) }),
 
+  /** Cheap change tokens per data domain (see services/api/src/pulse.ts). */
+  pulse: async (u: User, domains: string[]) =>
+    (await call<{ tokens: Record<string, string> }>(u, `/pulse?domains=${domains.join(',')}`)).tokens,
   // --- Car Rental Operations ---
   rentalHubs: (u: User) =>
     call<Array<{ id: string; name: string; city: string; address: string; code: string; isActive: boolean }>>(u, '/rentals/hubs'),

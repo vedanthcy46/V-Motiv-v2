@@ -1,4 +1,5 @@
 import React, { useState, useEffect, type FC, type FormEvent } from 'react';
+import { modalIsOpen, useAutoRefresh } from '../autoRefresh';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
 import type { Branch, ServiceJobItem, ServiceJobStatus } from '../types';
@@ -175,8 +176,9 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     return () => { active = false; };
   }, [user]);
 
-  const loadQueue = async () => {
-    setLoading(true);
+  const loadQueue = async (opts: { silent?: boolean } = {}) => {
+    const silent = opts.silent === true;
+    if (!silent) setLoading(true);
     try {
       const res = await api.serviceQueue(user, {
         status: statusFilter !== 'ALL' ? statusFilter : undefined,
@@ -186,11 +188,15 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
       setJobs(res.items || []);
       setTotal(res.total || 0);
     } catch (err: any) {
+      if (silent) throw err;
       onError(err?.message || 'Failed to load service queue');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
+
+  // New bookings and customer estimate decisions appear without a manual refresh; paused while a job drawer or dialog is open.
+  useAutoRefresh(() => loadQueue({ silent: true }), { intervalMs: 30_000, pauseWhen: () => modalIsOpen() || activeJob !== null, pulse: { domains: ['service'], fetchTokens: domains => api.pulse(user, domains) } });
 
   useEffect(() => {
     void loadQueue();

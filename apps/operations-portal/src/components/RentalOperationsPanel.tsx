@@ -1,4 +1,5 @@
 import React, { useState, useEffect, type FC, type FormEvent } from 'react';
+import { modalIsOpen, useAutoRefresh } from '../autoRefresh';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
 import { CURRENT_YEAR } from '../calendar';
@@ -446,8 +447,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     return () => { cancelled = true; };
   }, [walkInModalOpen, walkInStartDate, walkInStartTime, walkInDays]);
 
-  const loadData = async () => {
-    setLoading(true);
+  // opts.silent = background refresh (no spinner, throws on failure so the refresher can back off).
+  const loadData = async (opts: { silent?: boolean } = {}) => {
+    const silent = opts.silent === true;
+    if (!silent) setLoading(true);
     try {
       const isPaymentFilter = ['PARTIALLY_PAID', 'PAID_IN_FULL', 'OVERDUE'].includes(bookingStatusFilter);
       const isBookingFilter = ['CONFIRMED', 'TRIP_ACTIVE', 'RETURN_INSPECTED', 'SETTLED', 'CANCELLED'].includes(bookingStatusFilter);
@@ -478,11 +481,15 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         setOnboardHubId(hubsList?.[0]?.id || branches[0]?.id || '');
       }
     } catch (err: any) {
+      if (silent) throw err;
       onError(err?.message || 'Failed to load rental operations data');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
+
+  // Bookings, payments and fleet status update on their own; paused while a booking drawer or dialog is open.
+  useAutoRefresh(() => loadData({ silent: true }), { intervalMs: 30_000, pauseWhen: () => modalIsOpen() || activeBooking !== null || walkInModalOpen || onboardModalOpen, pulse: { domains: ['rentals'], fetchTokens: domains => api.pulse(user, domains) } });
 
   useEffect(() => {
     void loadData();

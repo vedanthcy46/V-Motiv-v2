@@ -17,6 +17,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { adminApi, ApiError } from './api.js';
+import { useAutoRefresh } from './autoRefresh.js';
 import { auth, firebaseConfigured } from './firebase.js';
 import type {
   RentalKmPolicy,
@@ -832,9 +833,9 @@ function NotificationBell({ user }: { user: User }) {
 
   useEffect(() => {
     loadNotifs();
-    const interval = setInterval(loadNotifs, 15000);
-    return () => clearInterval(interval);
   }, [loadNotifs]);
+  // Poll for new notifications only while the tab is visible (and back off if the API is failing).
+  useAutoRefresh(() => Promise.resolve(loadNotifs()), { intervalMs: 20_000, pauseWhen: () => false });
 
   const markAllRead = async () => {
     try {

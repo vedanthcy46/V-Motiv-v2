@@ -447,7 +447,16 @@ export interface AuditLogEntry {
   createdAt: string;
 }
 
+/** Cheap change tokens (outside the /finance prefix); see services/api/src/pulse.ts. */
+async function pulseTokens(user: User, domains: string[]): Promise<Record<string, string>> {
+  const token = await user.getIdToken();
+  const response = await fetch(`${base}/pulse?domains=${domains.join(',')}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw new ApiError('PULSE_FAILED');
+  return ((await response.json()) as { tokens: Record<string, string> }).tokens;
+}
+
 export const financeApi = {
+  pulse: pulseTokens,
   me: (u: User) => call<FinanceActor>(u, '/me'),
   dashboard: async (u: User) => normaliseDashboard(await call<FinanceDashboardResponse>(u, '/dashboard')),
 

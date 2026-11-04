@@ -20,6 +20,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStack } from '../navigation/types';
 import { useAppTheme } from '../theme';
+import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { customer } from '../services/customer';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -89,7 +91,8 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
   const [balancePaymentMethod, setBalancePaymentMethod] = useState<'UPI' | 'CARD' | 'NETBANKING' | 'DEMO'>('UPI');
   const [payingBalance, setPayingBalance] = useState(false);
 
-  const loadDetails = useCallback(async (isSilent = false) => {
+  // rethrow = let a failure reach the auto-refresher so it can back off.
+  const loadDetails = useCallback(async (isSilent = false, rethrow = false) => {
     try {
       if (!isSilent) setLoading(true);
       const [bookingData, summaryData, scheduleData] = await Promise.all([
@@ -101,11 +104,20 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
       setPaymentSummary(summaryData);
       setPaymentSchedule(scheduleData);
     } catch (e: any) {
+      if (isSilent && rethrow) throw e;
       if (!isSilent) Alert.alert('Booking Error', e?.message || 'Could not load rental booking.');
     } finally {
       if (!isSilent) setLoading(false);
     }
   }, [bookingId]);
+
+  // Payment, handover and return status update on their own; paused while a pay/extension sheet is open.
+  useAutoRefresh(() => loadDetails(true, true), {
+    enabled: Boolean(bookingId) && !loading,
+    intervalMs: 30_000,
+    paused: payBalanceModalVisible || extensionModalVisible,
+    pulse: { domains: ['me'], fetchTokens: customer.pulse },
+  });
 
   const handlePayBalance = async () => {
     if (!booking) return;

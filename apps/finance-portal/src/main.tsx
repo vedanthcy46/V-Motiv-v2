@@ -1,3 +1,4 @@
+import { modalIsOpen, useAutoRefresh } from './autoRefresh';
 import { Component, useEffect, useRef, useState, type FC, type FormEvent, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -228,11 +229,13 @@ function App() {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<any>(null);
 
-  const loadFinanceData = async (currentUser: User) => {
+  // silent = background refresh: keeps the current data if a request fails and throws so the refresher can back off.
+  const loadFinanceData = async (currentUser: User, silent = false) => {
     try {
       const unavailable: string[] = [];
       const load = <T,>(label: string, request: Promise<T>, fallback: T) =>
         request.catch(loadError => {
+          if (silent) throw loadError;
           console.warn(`[FINANCE PORTAL] ${label} unavailable`, loadError);
           unavailable.push(label);
           return fallback;
@@ -293,9 +296,13 @@ function App() {
         ? `${unavailable.join(', ')} could not be loaded. Confirm the assigned finance permissions, then refresh.`
         : '');
     } catch (e: any) {
+      if (silent) throw e;
       setError(errorMessage(e));
     }
   };
+
+  // Receipts, settlements and reconciliation update on their own; paused while a finance dialog is open.
+  useAutoRefresh(() => loadFinanceData(user as User, true), { enabled: Boolean(user && actor), intervalMs: 45_000, pauseWhen: () => modalIsOpen() || activeModal !== null, pulse: user ? { domains: ['finance'], fetchTokens: domains => financeApi.pulse(user, domains) } : undefined });
 
   useEffect(() => {
     if (!auth) return;

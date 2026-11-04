@@ -53,6 +53,7 @@ import {
 } from './icons';
 import { ServiceOperationsPanel } from './components/ServiceOperationsPanel';
 import { RentalOperationsPanel } from './components/RentalOperationsPanel';
+import { modalIsOpen, useAutoRefresh } from './autoRefresh';
 import './styles.css';
 
 type TabKey =
@@ -559,17 +560,21 @@ export const App: FC = () => {
     });
   }, []);
 
-  const loadAllData = async (u = user) => {
+  // silent = background refresh: no spinner, keeps what is on screen, and throws on failure so the refresher can back off.
+  const loadAllData = async (u = user, silent = false) => {
     if (!u) return;
-    setLoading(true);
-    setError(null);
-    setLoadWarning(null);
+    if (!silent) {
+      setLoading(true);
+      setError(null);
+      setLoadWarning(null);
+    }
     try {
       const unavailable: string[] = [];
       const load = async <T,>(label: string, request: Promise<T>, fallback: T): Promise<T> => {
         try {
           return await request;
-        } catch {
+        } catch (loadError) {
+          if (silent) throw loadError;
           unavailable.push(label);
           return fallback;
         }
@@ -592,11 +597,15 @@ export const App: FC = () => {
       setBranches(br || []);
       if (unavailable.length) setLoadWarning(`Some live data could not be loaded: ${unavailable.join(', ')}. Retry after checking the API connection.`);
     } catch (err) {
+      if (silent) throw err;
       setError(err instanceof Error ? err.message : 'Failed to load operations data');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
+
+  // Keep the dispatch board, acquisitions and inventory current without a manual refresh.
+  useAutoRefresh(() => loadAllData(user, true), { enabled: Boolean(user) && !loading, intervalMs: 30_000, pauseWhen: () => modalIsOpen(), pulse: user ? { domains: ['dispatch'], fetchTokens: domains => api.pulse(user, domains) } : undefined });
 
   // Removed auto-refresh interval per user request - user manually refreshes via refresh button
 

@@ -47,6 +47,10 @@ export const customer = {
     const query = Object.entries(filters).filter(([, value]) => value !== undefined && value !== '').map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join('&');
     return api<InventoryFacets>(`/inventory/facets${query ? `?${query}` : ''}`);
   },
+  /** Cheap change tokens for this customer's own records; the app only reloads a screen when its token changes. */
+  async pulse(domains: string[] = ['me']) {
+    return (await api<{ tokens: Record<string, string> }>(`/pulse?domains=${domains.join(',')}`)).tokens;
+  },
   masterData(category?: string) {
     return api<Array<{ id: string; category: string; code: string; name: string; parentCode: string | null }>>(`/master-data${category ? `?category=${encodeURIComponent(category)}` : ''}`);
   },

@@ -24,6 +24,7 @@ const __filename = typeof import.meta !== 'undefined' && typeof import.meta.url 
 const __dirname = __filename ? path.dirname(__filename) : (typeof process !== 'undefined' && process.cwd ? process.cwd() : '');
 import { rateLimit } from 'express-rate-limit';
 import { withMfaStatusSync } from './mfa-sync.js';
+import { createPulseRouter } from './pulse.js';
 import { isSandboxPaymentsEnabled } from './payment-signature.js';
 import { authentication, optionalAuthentication, type Identity, type VerifyToken } from './auth.js';
 import type { IdentityStore } from './identity-store.js';
@@ -404,6 +405,8 @@ export function createApp(deps: {
 
   // Unified API Router (serves /api/v2, /api/v1, and /api seamlessly)
   const unifiedApiRouter = express.Router();
+  // Cheap change detection so clients can poll one tiny endpoint instead of re-running list queries.
+  if (deps.db) unifiedApiRouter.use('/pulse', createPulseRouter({ verify: deps.verify, db: deps.db }));
 
   if (deps.notificationRouter) {
     unifiedApiRouter.use(deps.notificationRouter);

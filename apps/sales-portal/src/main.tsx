@@ -1,3 +1,4 @@
+import { useAutoRefresh } from './autoRefresh';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -416,12 +417,14 @@ function App() {
   }, []);
 
   // Main data loader
-  const loadData = async (currentUser = user) => {
+  const loadData = async (currentUser = user, opts: { silent?: boolean } = {}) => {
     if (!currentUser) return;
-    setError('');
+    const silent = opts.silent === true;
+    if (!silent) setError('');
     try {
       const unavailable: string[] = [];
       const optional = <T,>(label: string, request: Promise<T>, fallback: T) => request.catch(loadError => {
+        if (silent) throw loadError;
         console.warn(`[SALES PORTAL] ${label} unavailable`, loadError);
         unavailable.push(label);
         return fallback;
@@ -525,6 +528,7 @@ function App() {
         setError(`${unavailable.join(', ')} could not be loaded. Your saved work is intact; check sales permissions and refresh.`);
       }
     } catch (err: any) {
+      if (silent) throw err;
       if (err instanceof ApiError && err.status === 403 && !actor) {
         setDenied(true);
       } else {
@@ -552,11 +556,8 @@ function App() {
     if (user) void loadData(user);
   }, [user, page, statusFilter, unassignedFilter]);
 
-  useEffect(() => {
-    if (!user || page !== 'inspections') return;
-    const refresh = window.setInterval(() => void loadData(user), 30_000);
-    return () => window.clearInterval(refresh);
-  }, [user, page, statusFilter]);
+  // Quiet refresh of the current page (pauses when hidden, idle, or a dialog is open).
+  useAutoRefresh(() => loadData(user, { silent: true }), { enabled: Boolean(user), intervalMs: 30_000, pulse: user ? { domains: ['sales'], fetchTokens: domains => salesApi.pulse(user, domains) } : undefined });
 
   if (!user) return <SignIn />;
   if (loading) return <div className="auth-screen"><p className="eyebrow">INITIALIZING WORKSPACE…</p></div>;
