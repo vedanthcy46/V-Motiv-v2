@@ -356,6 +356,22 @@ describe('V MOTIV V2 — Advance Car Rental Platform API Suite', () => {
   // -------------------------------------------------------------
   // 2. Hubs & Vehicle Details
   // -------------------------------------------------------------
+  it('2a. GET /api/v2/rentals/hubs reads only backwards-compatible hub fields', async () => {
+    const { app, mockDb } = setupApp('CUSTOMER');
+
+    const res = await request(app)
+      .get('/api/v2/rentals/hubs')
+      .expect(200);
+
+    expect(res.body).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: HUB_ID, name: 'Indiranagar Hub', supportsRentals: true }),
+    ]));
+    expect(mockDb.serviceHub.findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { isActive: true },
+      select: { id: true, name: true, city: true, address: true, code: true, isActive: true },
+    }));
+  });
+
   it('2. GET /api/v2/rentals/vehicles/:id returns vehicle specs and dynamic quote', async () => {
     const { app, mockRentalStore } = setupApp('CUSTOMER');
 

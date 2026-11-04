@@ -108,7 +108,14 @@ export async function api<T>(path: string, init: RequestInit = {}, forceRefresh 
           : response.status === 409
           ? 'RESOURCE_CONFLICT'
           : 'REQUEST_FAILED');
-      const message = (typeof body?.message === 'string' && body.message.trim()) ? body.message.trim() : code;
+      const firstIssue = Array.isArray(body?.issues) ? body.issues[0] : undefined;
+      const issuePath = Array.isArray(firstIssue?.path) && firstIssue.path.length ? String(firstIssue.path[0]) : '';
+      const issueMessage = typeof firstIssue?.message === 'string' ? firstIssue.message : '';
+      const message = (typeof body?.message === 'string' && body.message.trim())
+        ? body.message.trim()
+        : issueMessage
+          ? `${issuePath ? `${issuePath}: ` : ''}${issueMessage}`
+          : code;
       throw new ApiError(response.status, code, message);
     }
     if (body === undefined && rawText.trim()) {

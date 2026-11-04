@@ -124,7 +124,14 @@ function parsed<T>(schema: z.ZodType<T>, value: unknown): T {
     if (error instanceof ZodError) {
       const issues = Array.isArray(error.issues) ? error.issues : Array.isArray((error as any).errors) ? (error as any).errors : [];
       console.error('INVALID_INPUT_FIELDS', JSON.stringify(issues.map((e: any) => ({ path: e.path, message: e.message }))));
-      throw new HttpError(400, 'INVALID_INPUT');
+      const first = issues[0] as { path?: Array<string | number>; message?: string } | undefined;
+      const field = first?.path?.length ? String(first.path[0]).replace(/([A-Z])/g, ' $1').toLowerCase() : '';
+      const message = first?.message && first.message !== 'Invalid input'
+        ? (field ? `${field.charAt(0).toUpperCase()}${field.slice(1)}: ${first.message}` : first.message)
+        : field
+          ? `Please review ${field}.`
+          : 'Please review the submitted details.';
+      throw new HttpError(400, 'INVALID_INPUT', message);
     }
     throw error;
   }
@@ -554,7 +561,7 @@ export function createApp(deps: {
   unifiedApiRouter.post('/media/upload', auth, express.json({ limit: '50mb' }), async (req, res, next) => {
     try {
       const input = z.object({
-        base64Data: z.string().min(1),
+        base64Data: z.string().trim().min(1).transform(value => value.replace(/^data:[^;]+;base64,/i, '').replace(/\s/g, '')),
         mimeType: z.string().trim().min(3).max(100).default('image/jpeg'),
         folder: z.string().trim().max(100).optional(),
         filename: z.string().trim().max(100).optional(),
@@ -562,6 +569,7 @@ export function createApp(deps: {
       }).parse(req.body);
 
       const buffer = Buffer.from(input.base64Data, 'base64');
+      if (!buffer.length) throw new HttpError(400, 'INVALID_INPUT', 'The selected media file could not be read. Please choose it again.');
       const identity = res.locals.identity as Identity;
 
       if (isCloudinaryConfigured()) {

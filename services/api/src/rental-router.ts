@@ -186,10 +186,10 @@ const fleetCreateSchema = z.object({
   make: z.string().trim().min(1).max(50),
   model: z.string().trim().min(1).max(50),
   variant: z.string().trim().max(50).optional(),
-  year: z.number().int().min(2010).max(new Date().getFullYear() + 1),
+  year: z.coerce.number().int().min(2010).max(new Date().getFullYear() + 1),
   transmission: z.enum(['MANUAL', 'AUTOMATIC']),
   fuelType: z.enum(['PETROL', 'DIESEL', 'EV', 'HYBRID', 'CNG']),
-  seats: z.number().int().min(2).max(10).default(5),
+  seats: z.coerce.number().int().min(2).max(10).default(5),
   color: z.string().trim().min(2).max(40),
   hubId: uuid,
   images: z.array(z.string().trim()).optional().default([]),
@@ -198,12 +198,12 @@ const fleetCreateSchema = z.object({
   insurancePolicyNumber: z.string().trim().min(3).optional(),
   insuranceExpiry: z.string().datetime().or(z.string().min(10)).optional(),
   fitnessCertExpiry: z.string().datetime().or(z.string().min(10)).optional(),
-  baseDailyRatePaise: z.number().int().positive(),
-  baseHourlyRatePaise: z.number().int().positive().optional(),
-  securityDepositPaise: z.number().int().min(0).default(500000),
-  includedKmPerDay: z.number().int().min(50).default(250).optional(),
-  includedDailyKm: z.number().int().min(50).optional(),
-  extraKmRatePaise: z.number().int().positive().default(1200).optional(),
+  baseDailyRatePaise: z.coerce.number().int().positive(),
+  baseHourlyRatePaise: z.coerce.number().int().positive().optional(),
+  securityDepositPaise: z.coerce.number().int().min(0).default(500000),
+  includedKmPerDay: z.coerce.number().int().min(50).default(250).optional(),
+  includedDailyKm: z.coerce.number().int().min(50).optional(),
+  extraKmRatePaise: z.coerce.number().int().positive().default(1200).optional(),
   features: z.array(z.string().trim()).optional(),
 });
 
@@ -256,14 +256,17 @@ export function createRentalCustomerRouter(deps: {
   // Public: Hubs list
   router.get('/hubs', async (_req, res, next) => {
     try {
+      // Select only the stable hub fields. This keeps the public booking surface
+      // available while a production database is receiving the rentals migration
+      // that adds ServiceHub.supportsRentals.
       const hubs = await deps.db.serviceHub.findMany({
         where: {
           isActive: true,
-          supportsRentals: true,
         },
+        select: { id: true, name: true, city: true, address: true, code: true, isActive: true },
         orderBy: { city: 'asc' },
       });
-      res.json(hubs);
+      res.json(hubs.map(hub => ({ ...hub, supportsRentals: true })));
     } catch (e) {
       next(e);
     }
