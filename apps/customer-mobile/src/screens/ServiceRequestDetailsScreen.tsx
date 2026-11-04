@@ -619,8 +619,9 @@ export function ServiceRequestDetailsScreen() {
       >
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
             style={styles.keyboardAvoidWrap}
+            contentContainerStyle={styles.keyboardAvoidContent}
           >
           <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: Math.max(insets.bottom, 16) }]}>
             <View style={styles.modalHeader}>
@@ -759,8 +760,9 @@ export function ServiceRequestDetailsScreen() {
             }}
           />
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
             style={styles.keyboardAvoidWrap}
+            contentContainerStyle={styles.keyboardAvoidContent}
           >
             <View
               style={[
@@ -820,8 +822,9 @@ export function ServiceRequestDetailsScreen() {
       >
         <View style={styles.modalOverlay}>
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
             style={styles.keyboardAvoidWrap}
+            contentContainerStyle={styles.keyboardAvoidContent}
           >
           <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: Math.max(insets.bottom, 16) }]}>
             <View style={styles.modalHeader}>
@@ -1384,6 +1387,9 @@ const styles = StyleSheet.create({
   keyboardAvoidWrap: {
     flex: 1,
     width: '100%',
+  },
+  keyboardAvoidContent: {
+    flex: 1,
     justifyContent: 'flex-end',
   },
   cancelPromptText: {

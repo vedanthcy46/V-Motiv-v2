@@ -881,7 +881,7 @@ export function MyGarageScreen() {
             onPress={() => setModalVisible(false)}
           />
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
             keyboardVerticalOffset={0}
             style={[
               styles.keyboardAvoidWrap,
@@ -1335,7 +1335,7 @@ export function MyGarageScreen() {
           onPress={() => setConnectModalVisible(false)}
         />
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
           keyboardVerticalOffset={0}
           style={[
             styles.keyboardAvoidWrap,

@@ -595,7 +595,7 @@ export function ConnectGuestScreen() {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
       >
         <ScrollView
           contentContainerStyle={[

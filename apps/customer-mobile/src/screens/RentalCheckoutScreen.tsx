@@ -409,7 +409,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
 
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
       style={[styles.container, { backgroundColor: colors.background }]}
     >
       {/* Header */}

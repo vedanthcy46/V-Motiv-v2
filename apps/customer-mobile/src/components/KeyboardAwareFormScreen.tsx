@@ -77,7 +77,7 @@ export const KeyboardAwareFormScreen = forwardRef<ScrollView, KeyboardAwareFormS
         <KeyboardAvoidingView
           // Android must reduce available height; padding alone leaves a
           // bottom CTA and the active field underneath the soft keyboard.
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
           keyboardVerticalOffset={keyboardVerticalOffset}
           style={styles.keyboardAvoid}
         >
@@ -472,7 +472,7 @@ export function KeyboardResizeContainer({
 }: KeyboardResizeContainerProps) {
   return (
     <KeyboardAvoidingView
-      behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
       keyboardVerticalOffset={keyboardVerticalOffset}
       style={[{ flex: 1 }, style]}
     >

@@ -1162,7 +1162,7 @@ export function InspectorScreen() {
 
         {/* Tab Content */}
         <KeyboardAvoidingView
-          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
           style={{ flex: 1 }}
         >
@@ -1734,7 +1734,7 @@ export function InspectorScreen() {
           }}
         >
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
             style={[
               styles.modalBackdrop,

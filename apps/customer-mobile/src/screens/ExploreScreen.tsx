@@ -1022,7 +1022,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
           ]}
         >
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'position'}
             style={{ flex: 1 }}
           >
             {/* Modal Header */}
