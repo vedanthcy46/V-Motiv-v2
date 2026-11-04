@@ -53,6 +53,7 @@
     "@types/supertest": "^6.0.3",
     "supertest": "^7.1.4",
     "tsx": "^4.20.0",
-    "vitest": "4.1.12"
+    "vitest": "4.1.12",
+    "wrangler": "^4.157.0"
   }
 }
