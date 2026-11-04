@@ -122,6 +122,14 @@ function formatRupees(paise?: string | number | null): string {
   return new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR', maximumFractionDigits: 0 }).format(rupees);
 }
 
+/** An appointment date is a calendar date stored at midnight UTC; show just the date (the time slot is shown separately). */
+function formatAppointmentDate(dateStr?: string | null): string {
+  if (!dateStr) return '—';
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return dateStr;
+  return d.toLocaleDateString('en-IN', { timeZone: 'UTC', weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' });
+}
+
 function formatDate(dateStr?: string | null): string {
   if (!dateStr) return '—';
   try {
@@ -221,7 +229,7 @@ function MfaChallengeDialog({
 
   return (
     <div className="modal-overlay">
-      <div className="modal-dialog">
+      <div className="modal-dialog modal-dialog-md">
         <div className="modal-header">
           <div>
             <span className="eyebrow">2-STEP VERIFICATION</span>
@@ -436,6 +444,10 @@ export const App: FC = () => {
   // Modals
   const [assignModal, setAssignModal] = useState<{ open: boolean; request?: InspectionRequest }>({ open: false });
   const [assignInspectorId, setAssignInspectorId] = useState('');
+  // Same rule the API enforces: only inspectors assigned to the request's branch can take it.
+  const assignableInspectors = inspectors.filter(
+    ins => !assignModal.request?.branchId || ins.branches.some(b => b.id === assignModal.request?.branchId),
+  );
   const [assignDate, setAssignDate] = useState('');
   const [assignLocationType, setAssignLocationType] = useState<'HUB' | 'HOME'>('HUB');
   const [assignAddress, setAssignAddress] = useState('');
@@ -3057,7 +3069,7 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {assignModal.open && assignModal.request ? (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Assign Field Inspector</h3>
               <button className="btn-close" onClick={() => setAssignModal({ open: false })}>✕</button>
@@ -3084,7 +3096,7 @@ export const App: FC = () => {
                     </span>
                   </div>
                   <div style={{ fontSize: '0.875rem', fontWeight: 700, color: 'var(--text)' }}>
-                    📅 {(assignModal.request.requestedDate || assignModal.request.lead.inspectionDate) ? formatDate(assignModal.request.requestedDate || assignModal.request.lead.inspectionDate) : 'Date not finalized'}
+                    📅 {(assignModal.request.requestedDate || assignModal.request.lead.inspectionDate) ? formatAppointmentDate(assignModal.request.requestedDate || assignModal.request.lead.inspectionDate) : 'Date not finalized'}
                   </div>
                   <div style={{ fontSize: '0.8rem', color: 'var(--muted)' }}>
                     📍 {((assignModal.request.locationType || assignModal.request.lead.inspectionLocationType) === 'HOME')
@@ -3123,12 +3135,17 @@ export const App: FC = () => {
                     required
                   >
                     <option value="">Select an inspector...</option>
-                    {inspectors.map(ins => (
+                    {assignableInspectors.map(ins => (
                       <option key={ins.userId} value={ins.userId}>
                         {ins.displayName || ins.email} ({ins.activeLoadCount} active jobs)
                       </option>
                     ))}
                   </select>
+                  {assignableInspectors.length === 0 && (
+                    <div role="alert" style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: '#fbbf24', fontWeight: 600 }}>
+                      No active inspector is assigned to this request's branch{assignModal.request.lead.city ? ` (${assignModal.request.lead.city})` : ''}. Add an inspector to that branch in the Admin portal, then reopen this dialog.
+                    </div>
+                  )}
                 </div>
 
                 <div className="form-group">
@@ -3182,7 +3199,7 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {docModal.open ? (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-lg">
             <div className="modal-header">
               <h3>Verify Document: {docModal.docType?.replace(/_/g, ' ')}</h3>
               <button className="btn-close" onClick={() => setDocModal({ open: false })}>✕</button>
@@ -3229,7 +3246,7 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {handoverModal.open && handoverModal.caseItem ? (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Record Physical Handover & Custody</h3>
               <button className="btn-close" onClick={() => setHandoverModal({ open: false })}>✕</button>
@@ -3356,7 +3373,7 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {stockInwardModal.open && stockInwardModal.caseItem ? (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Establish Acquired Vehicle Stock</h3>
               <button className="btn-close" onClick={() => setStockInwardModal({ open: false })}>✕</button>
@@ -3417,7 +3434,7 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {specsModal.open && specsModal.stockItem ? (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Edit Vehicle Specs & Registration Plate</h3>
               <button className="btn-close" onClick={() => setSpecsModal({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 })}>✕</button>
@@ -3498,7 +3515,7 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {workOrderModal.open && workOrderModal.stockItem ? (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Create Refurbishment Work Order</h3>
               <button className="btn-close" onClick={() => setWorkOrderModal({ open: false })}>✕</button>
@@ -3575,7 +3592,7 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {editCostModal.open && editCostModal.wo ? (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Edit &amp; Resubmit Cost Estimate</h3>
               <button className="btn-close" onClick={() => setEditCostModal({ open: false })}>✕</button>
@@ -3639,7 +3656,7 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {qcModal.open && qcModal.stockItem ? (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Independent Quality Control Sign-Off</h3>
               <button className="btn-close" onClick={() => setQcModal({ open: false })}>✕</button>
@@ -3693,7 +3710,7 @@ export const App: FC = () => {
         const isStudioListed = studioModal.stockItem.status === 'LISTED';
         return (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-lg">
             <div className="modal-header">
               <h3>Listing Studio Specifications {isStudioListed ? '🔒 (Locked)' : ''}</h3>
               <button className="btn-close" onClick={closeStudioModal}>✕</button>
@@ -3894,7 +3911,7 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {publishModal.open && publishModal.stockItem ? (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Approve Retail Price & Publish</h3>
               <button className="btn-close" onClick={() => setPublishModal({ open: false })}>✕</button>
@@ -3969,7 +3986,7 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {deliveryModal.open && deliveryModal.stockItem ? (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Customer Delivery Handover</h3>
               <button className="btn-close" onClick={() => setDeliveryModal({ open: false })}>✕</button>
@@ -4031,7 +4048,7 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {viewBuyerModal.open && viewBuyerModal.stockItem ? (
         <div className="modal-overlay">
-          <div className="modal-dialog">
+          <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Buyer & Handover Information</h3>
               <button className="btn-close" onClick={() => setViewBuyerModal({ open: false })}>✕</button>

@@ -1485,6 +1485,17 @@ input[type="datetime-local"].input {
   animation: slideUp 0.15s ease-out;
 }
 
+/* Standard form dialog width: stays centred and readable instead of stretching to the viewport. */
+.modal-dialog.modal-dialog-md {
+  width: 100%;
+  max-width: 640px;
+}
+
+.modal-dialog.modal-dialog-lg {
+  width: 100%;
+  max-width: 960px;
+}
+
 @keyframes slideUp {
   from { transform: translateY(12px); opacity: 0; }
   to { transform: translateY(0); opacity: 1; }

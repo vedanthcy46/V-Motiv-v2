@@ -1,5 +1,6 @@
 import { type InspectionAnswerStatus, type InspectionDefectSeverity, Prisma, PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
+import { INSPECTOR_INELIGIBILITY_MESSAGES, inspectorIneligibility } from './inspector-eligibility.js';
 import { knownTemplateItem, templateFor, currentTemplate, isItemApplicable, type InspectionTemplateItem } from './inspection-template.js';
 import { InspectionMediaService } from './inspection-media.js';
 import type { NotificationService } from './notification/index.js';
@@ -2022,6 +2023,7 @@ export class PrismaInspectionStore {
       where: {
         active: true,
         status: 'ACTIVE',
+        user: { status: 'ACTIVE' },
         OR: [{ role: 'INSPECTOR' }, { roleAssignments: { some: { role: { key: 'INSPECTOR' } } } }],
         ...(targetBranchIds ? { branchAssignments: { some: { branchId: { in: targetBranchIds } } } } : {}),
       },
@@ -2067,15 +2069,21 @@ export class PrismaInspectionStore {
       include: { user: true, roleAssignments: { include: { role: true } }, branchAssignments: true },
     });
 
-    if (
-      !inspector ||
-      inspector.user.status !== 'ACTIVE' ||
-      !inspector.active ||
-      inspector.status !== 'ACTIVE' ||
-      ![inspector.role, ...inspector.roleAssignments.map(item => item.role.key)].includes('INSPECTOR') ||
-      (request.branchId && !inspector.branchAssignments.some(item => item.branchId === request.branchId))
-    ) {
-      throw new HttpError(400, 'INSPECTOR_NOT_ELIGIBLE');
+    const reason = inspectorIneligibility(
+      inspector
+        ? {
+            userStatus: inspector.user.status,
+            active: inspector.active,
+            status: inspector.status,
+            roleKeys: [inspector.role, ...inspector.roleAssignments.map(item => item.role.key)],
+            branchIds: inspector.branchAssignments.map(item => item.branchId),
+          }
+        : null,
+      request.branchId,
+    );
+    if (reason) {
+      // Keep the stable code clients already handle; the message says exactly what to fix.
+      throw new HttpError(400, 'INSPECTOR_NOT_ELIGIBLE', INSPECTOR_INELIGIBILITY_MESSAGES[reason]);
     }
 
     const scheduledAt = input.scheduledAt ?? new Date();
