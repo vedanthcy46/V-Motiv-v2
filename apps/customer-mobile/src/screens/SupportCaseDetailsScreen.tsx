@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -26,7 +25,8 @@ import type { SupportCaseDetail } from '../types';
 import type { RootStack } from '../navigation/types';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 type Props = NativeStackScreenProps<RootStack, 'SupportCaseDetails'>;
 
@@ -120,8 +120,7 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView
-        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+      <KeyboardAvoider
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
@@ -250,7 +249,7 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
         <View
           style={[
             styles.composerBar,
-            { paddingBottom: Math.max(insets.bottom, space.md) },
+            { paddingBottom: safeBottom(insets.bottom, space.md) },
           ]}
         >
           <TextInput
@@ -281,7 +280,7 @@ export function SupportCaseDetailsScreen({ route, navigation }: Props) {
             )}
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </SafeAreaView>
   );
 }

@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -37,7 +36,8 @@ import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { useKeyboard } from '../components/KeyboardAwareFormScreen';
 import type { RootStack } from '../navigation/types';
 import type { AcquisitionOffer, SellingRequest } from '../types';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 type Props = NativeStackScreenProps<RootStack, 'SellingRequestDetails'>;
 
@@ -246,7 +246,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
         contentContainerStyle={[
           styles.content,
           {
-            paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 48,
+            paddingBottom: safeBottom(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 48,
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -558,15 +558,13 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
               }
             }}
           />
-          <KeyboardAvoidingView
-            behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+          <KeyboardAvoider
             keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
             style={[
               styles.keyboardAvoidWrap,
               isKeyboardVisible
                 ? {
                     justifyContent: 'flex-end',
-                    marginBottom: Platform.OS === 'android' ? keyboardHeight : 0,
                     paddingBottom: 12,
                   }
                 : {
@@ -702,7 +700,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                 </TouchableOpacity>
               </View>
             </View>
-          </KeyboardAvoidingView>
+          </KeyboardAvoider>
         </View>
       </Modal>
 
@@ -729,15 +727,13 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
               }
             }}
           />
-          <KeyboardAvoidingView
-            behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+          <KeyboardAvoider
             keyboardVerticalOffset={Platform.OS === 'ios' ? 10 : 0}
             style={[
               styles.keyboardAvoidWrap,
               isKeyboardVisible
                 ? {
                     justifyContent: 'flex-end',
-                    marginBottom: Platform.OS === 'android' ? keyboardHeight : 0,
                     paddingBottom: 12,
                   }
                 : {
@@ -833,7 +829,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                 </TouchableOpacity>
               </View>
             </View>
-          </KeyboardAvoidingView>
+          </KeyboardAvoider>
         </View>
       </Modal>
     </SafeAreaView>

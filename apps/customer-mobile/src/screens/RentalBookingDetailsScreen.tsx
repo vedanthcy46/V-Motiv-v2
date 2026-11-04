@@ -12,7 +12,6 @@ import {
   type AppStateStatus,
   Modal,
   TextInput,
-  KeyboardAvoidingView,
   Platform,
   TouchableOpacity,
   Keyboard,
@@ -56,7 +55,8 @@ import {
   type RentalPaymentSchedule,
 } from '../services/rental-api';
 import { CarBrandLogo } from '../components/CarBrandLogo';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalBookingDetails'>;
 
@@ -290,7 +290,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 100 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: safeBottom(insets.bottom) + 100 }]}
         showsVerticalScrollIndicator={false}
       >
         {/* Driver KYC Status Banner */}
@@ -1098,8 +1098,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
         animationType="slide"
         onRequestClose={() => setExtensionModalVisible(false)}
       >
-        <KeyboardAvoidingView
-          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+        <KeyboardAvoider
           style={styles.modalBackdrop}
         >
           <Pressable
@@ -1115,7 +1114,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
               styles.modalContent,
               {
                 backgroundColor: colors.surface,
-                paddingBottom: Math.max(insets.bottom + 12, 28),
+                paddingBottom: Math.max(safeBottom(insets.bottom) + 12, 28),
                 borderTopColor: colors.border,
                 borderTopWidth: 1,
               },
@@ -1320,7 +1319,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
               </View>
             </ScrollView>
           </View>
-        </KeyboardAvoidingView>
+        </KeyboardAvoider>
       </Modal>
 
       {/* Pay Remaining Balance Modal Sheet */}
@@ -1330,8 +1329,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
         animationType="slide"
         onRequestClose={() => setPayBalanceModalVisible(false)}
       >
-        <KeyboardAvoidingView
-          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+        <KeyboardAvoider
           style={styles.modalBackdrop}
         >
           <View
@@ -1339,7 +1337,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
               styles.modalContent,
               {
                 backgroundColor: colors.surface,
-                paddingBottom: Math.max(insets.bottom + 12, 28),
+                paddingBottom: Math.max(safeBottom(insets.bottom) + 12, 28),
                 borderTopColor: colors.border,
                 borderTopWidth: 1,
               },
@@ -1457,7 +1455,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
               </TouchableOpacity>
             </View>
           </View>
-        </KeyboardAvoidingView>
+        </KeyboardAvoider>
       </Modal>
 
       {/* Fullscreen Document & Inspection Image Preview Modal */}
@@ -1493,7 +1491,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
               />
             </View>
 
-            <View style={[styles.previewModalFooter, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={[styles.previewModalFooter, { paddingBottom: safeBottom(insets.bottom, 20) }]}>
               <TouchableOpacity
                 onPress={() => setPreviewDocModal(null)}
                 style={styles.previewDoneBtn}

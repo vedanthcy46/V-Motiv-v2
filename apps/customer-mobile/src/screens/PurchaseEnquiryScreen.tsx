@@ -2,7 +2,6 @@ import React, { useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -18,7 +17,8 @@ import { customer } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 type Props = NativeStackScreenProps<RootStack, 'PurchaseEnquiry'>;
 
@@ -107,8 +107,7 @@ export function PurchaseEnquiryScreen({ route, navigation }: Props) {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView
-        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+      <KeyboardAvoider
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
@@ -125,7 +124,7 @@ export function PurchaseEnquiryScreen({ route, navigation }: Props) {
           contentContainerStyle={[
             styles.content,
             {
-              paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 40,
+              paddingBottom: safeBottom(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 40,
             },
           ]}
           keyboardShouldPersistTaps="handled"
@@ -222,7 +221,7 @@ export function PurchaseEnquiryScreen({ route, navigation }: Props) {
             )}
           </TouchableOpacity>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </SafeAreaView>
   );
 }

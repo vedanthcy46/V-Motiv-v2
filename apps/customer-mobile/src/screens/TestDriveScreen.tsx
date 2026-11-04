@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -28,7 +27,8 @@ import { customer } from '../services/customer';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
 import type { CustomerAddress, SupportedCity } from '../types';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 const SLOTS = ['10:00-12:00', '12:00-14:00', '15:00-17:00'] as const;
 
@@ -106,8 +106,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView
-        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+      <KeyboardAvoider
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
@@ -383,7 +382,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
         <View
           style={[
             styles.bottomBar,
-            { paddingBottom: Math.max(insets.bottom, space.md) },
+            { paddingBottom: safeBottom(insets.bottom, space.md) },
           ]}
         >
           <TouchableOpacity
@@ -402,7 +401,7 @@ export function TestDriveScreen({ route, navigation }: NativeStackScreenProps<Ro
             )}
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </SafeAreaView>
   );
 }

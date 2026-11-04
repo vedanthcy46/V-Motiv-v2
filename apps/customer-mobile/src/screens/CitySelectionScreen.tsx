@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   FlatList,
-  KeyboardAvoidingView,
   Platform,
   StyleSheet,
   Text,
@@ -11,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useStackScreenBottomPadding } from '../layout/safe-layout';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, Check, MapPin, Search } from 'lucide-react-native';
 import { customer } from '../services/customer';
@@ -18,11 +18,12 @@ import { useAuth } from '../auth/AuthProvider';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 import type { SupportedCity } from '../types';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 type Props = NativeStackScreenProps<RootStack, 'CitySelection'>;
 
 export function CitySelectionScreen({ navigation }: Props) {
+  const bottomPadding = useStackScreenBottomPadding();
   const { user, refreshProfile } = useAuth();
   const { colors, isDark } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
@@ -71,8 +72,7 @@ export function CitySelectionScreen({ navigation }: Props) {
         <View style={{ width: 40 }} />
       </View>
 
-      <KeyboardAvoidingView
-        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+      <KeyboardAvoider
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
@@ -97,7 +97,7 @@ export function CitySelectionScreen({ navigation }: Props) {
             keyExtractor={(item) => item.id}
             keyboardShouldPersistTaps="handled"
             keyboardDismissMode="on-drag"
-            contentContainerStyle={styles.list}
+            contentContainerStyle={[styles.list, { paddingBottom: bottomPadding }]}
             renderItem={({ item }) => {
               const isSelected = user?.preferredCity?.toLowerCase() === item.name.toLowerCase();
               return (
@@ -127,7 +127,7 @@ export function CitySelectionScreen({ navigation }: Props) {
             }
           />
         )}
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </SafeAreaView>
   );
 }

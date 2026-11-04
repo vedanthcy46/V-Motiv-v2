@@ -8,6 +8,7 @@ import {
   LOGO_VIEWBOX, PATH_YELLOW_ARM, PATH_WHITE_BODY, PATH_CAR_ROOF,
   PATH_HEADLIGHT_LEFT, PATH_HEADLIGHT_RIGHT, WORDMARK_VIEWBOX, PATH_EXACT_WORDMARK,
 } from './brand/official-logo-paths';
+import { safeBottom } from '../layout/safe-layout';
 
 const DURATION = 7000;
 
@@ -112,7 +113,7 @@ export function BrandRevealScreen({ onFinish }: { onFinish: () => void }) {
       </View>
 
       <Pressable accessibilityRole="button" accessibilityLabel="Skip V MOTIV introduction" onPress={finish}
-        style={({ pressed }) => [styles.skip, { right: Math.max(insets.right, space.xl), bottom: Math.max(insets.bottom, space.xl), opacity: pressed ? 0.65 : 1 }]}>
+        style={({ pressed }) => [styles.skip, { right: Math.max(insets.right, space.xl), bottom: safeBottom(insets.bottom, space.xl), opacity: pressed ? 0.65 : 1 }]}>
         <Text style={styles.skipText}>Skip</Text>
       </Pressable>
     </View>

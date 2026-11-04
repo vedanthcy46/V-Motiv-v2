@@ -44,7 +44,8 @@ import {
   verifyServicePayment,
   type ServiceRequestDetails,
 } from '../services/service-api';
-import { useKeyboard } from '../components/KeyboardAwareFormScreen';
+import { KeyboardAwareSheet } from '../components/KeyboardAwareSheet';
+import { safeBottom } from '../layout/safe-layout';
 
 export function ServiceRequestDetailsScreen() {
   const insets = useSafeAreaInsets();
@@ -58,15 +59,6 @@ export function ServiceRequestDetailsScreen() {
     textMuted: theme.colors.textSecondary,
     accent: theme.colors.brandAccent,
   };
-  // A transparent modal does not reliably receive Android's three-button
-  // navigation inset. Reserve a minimum 48dp touch-clearance as well as the
-  // device safe inset so primary actions never sit behind system navigation.
-  const sheetBottomInset = Math.max(
-    insets.bottom + space.md,
-    Platform.OS === 'android' ? 48 : 20,
-  );
-  const { keyboardHeight } = useKeyboard();
-  const focusedInputBottomInset = sheetBottomInset + keyboardHeight;
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -258,7 +250,7 @@ export function ServiceRequestDetailsScreen() {
       </View>
 
       <ScrollView
-        contentContainerStyle={styles.scrollContent}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: safeBottom(insets.bottom, space.md) + space.xl }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -620,310 +612,241 @@ export function ServiceRequestDetailsScreen() {
       </ScrollView>
 
       {/* Estimate Breakdown & Approval Modal */}
-      <Modal
+      <KeyboardAwareSheet
+        ref={estimateScrollRef}
         visible={estimateModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setEstimateModalVisible(false)}
-        statusBarTranslucent
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: sheetBottomInset }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: c.text }]}>Itemized Estimate Review</Text>
-              <TouchableOpacity onPress={() => setEstimateModalVisible(false)}>
-                <Text style={[styles.modalClose, { color: c.accent }]}>Close</Text>
+        onClose={() => setEstimateModalVisible(false)}
+        locked={respondingToEstimate}
+        title="Itemized Estimate Review"
+        footer={
+          activeEstimate && activeEstimate.status === 'SENT_TO_CUSTOMER' ? (
+            <View style={styles.decisionBtnsRow}>
+              <TouchableOpacity
+                onPress={() => handleEstimateDecision('APPROVE')}
+                disabled={respondingToEstimate}
+                style={[styles.approveBtn, { backgroundColor: '#10B981' }]}
+              >
+                {respondingToEstimate ? (
+                  <ActivityIndicator size="small" color="#FFFFFF" />
+                ) : (
+                  <Text style={styles.approveBtnText}>Approve & Proceed</Text>
+                )}
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={() => handleEstimateDecision('DECLINE')}
+                disabled={respondingToEstimate}
+                style={[styles.declineBtn, { borderColor: '#EF4444' }]}
+              >
+                <Text style={styles.declineBtnText}>Decline</Text>
               </TouchableOpacity>
             </View>
+          ) : undefined
+        }
+      >
+        {activeEstimate && (
+          <>
+        {/* Items Table */}
+        <View style={[styles.itemsTable, { borderColor: c.border }]}>
+          {activeEstimate.items.map((item, idx) => (
+            <View key={item.id} style={[styles.tableRow, { borderBottomColor: c.border }]}>
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.itemName, { color: c.text }]}>{item.description}</Text>
+                <Text style={[styles.itemCat, { color: c.textMuted }]}>
+                  {item.category} {item.quantity > 1 ? `· Qty: ${item.quantity}` : ''}
+                </Text>
+              </View>
+              <Text style={[styles.itemPrice, { color: c.text }]}>
+                ₹{(Number(item.totalPricePaise) / 100).toLocaleString('en-IN')}
+              </Text>
+            </View>
+          ))}
+        </View>
 
-            {activeEstimate && (
-              <ScrollView
-                ref={estimateScrollRef}
-                style={styles.modalScroll}
-                contentContainerStyle={[styles.modalScrollContent, { paddingBottom: focusedInputBottomInset }]}
-                showsVerticalScrollIndicator={false}
-                keyboardShouldPersistTaps="handled"
-                keyboardDismissMode="on-drag"
-                automaticallyAdjustKeyboardInsets
-              >
-                {/* Items Table */}
-                <View style={[styles.itemsTable, { borderColor: c.border }]}>
-                  {activeEstimate.items.map((item, idx) => (
-                    <View key={item.id} style={[styles.tableRow, { borderBottomColor: c.border }]}>
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.itemName, { color: c.text }]}>{item.description}</Text>
-                        <Text style={[styles.itemCat, { color: c.textMuted }]}>
-                          {item.category} {item.quantity > 1 ? `· Qty: ${item.quantity}` : ''}
-                        </Text>
-                      </View>
-                      <Text style={[styles.itemPrice, { color: c.text }]}>
-                        ₹{(Number(item.totalPricePaise) / 100).toLocaleString('en-IN')}
-                      </Text>
-                    </View>
-                  ))}
-                </View>
+        {/* Subtotals & Taxes */}
+        <View style={styles.breakdownBox}>
+          <View style={styles.breakdownRow}>
+            <Text style={[styles.breakdownLabel, { color: c.textMuted }]}>Parts & Labour Subtotal</Text>
+            <Text style={[styles.breakdownVal, { color: c.text }]}>
+              ₹{(Number(activeEstimate.subtotalPaise) / 100).toLocaleString('en-IN')}
+            </Text>
+          </View>
 
-                {/* Subtotals & Taxes */}
-                <View style={styles.breakdownBox}>
-                  <View style={styles.breakdownRow}>
-                    <Text style={[styles.breakdownLabel, { color: c.textMuted }]}>Parts & Labour Subtotal</Text>
-                    <Text style={[styles.breakdownVal, { color: c.text }]}>
-                      ₹{(Number(activeEstimate.subtotalPaise) / 100).toLocaleString('en-IN')}
-                    </Text>
-                  </View>
+          {Number(activeEstimate.pickupDropFeePaise) > 0 && (
+            <View style={styles.breakdownRow}>
+              <Text style={[styles.breakdownLabel, { color: c.textMuted }]}>Doorstep Logistics Fee</Text>
+              <Text style={[styles.breakdownVal, { color: c.text }]}>
+                ₹{(Number(activeEstimate.pickupDropFeePaise) / 100).toLocaleString('en-IN')}
+              </Text>
+            </View>
+          )}
 
-                  {Number(activeEstimate.pickupDropFeePaise) > 0 && (
-                    <View style={styles.breakdownRow}>
-                      <Text style={[styles.breakdownLabel, { color: c.textMuted }]}>Doorstep Logistics Fee</Text>
-                      <Text style={[styles.breakdownVal, { color: c.text }]}>
-                        ₹{(Number(activeEstimate.pickupDropFeePaise) / 100).toLocaleString('en-IN')}
-                      </Text>
-                    </View>
-                  )}
+          <View style={styles.breakdownRow}>
+            <Text style={[styles.breakdownLabel, { color: c.textMuted }]}>GST (18% Central + State)</Text>
+            <Text style={[styles.breakdownVal, { color: c.text }]}>
+              ₹{((Number(activeEstimate.cgstPaise) + Number(activeEstimate.sgstPaise)) / 100).toLocaleString('en-IN')}
+            </Text>
+          </View>
 
-                  <View style={styles.breakdownRow}>
-                    <Text style={[styles.breakdownLabel, { color: c.textMuted }]}>GST (18% Central + State)</Text>
-                    <Text style={[styles.breakdownVal, { color: c.text }]}>
-                      ₹{((Number(activeEstimate.cgstPaise) + Number(activeEstimate.sgstPaise)) / 100).toLocaleString('en-IN')}
-                    </Text>
-                  </View>
-
-                  <View style={[styles.totalRow, { borderTopColor: c.border }]}>
-                    <Text style={[styles.totalLabel, { color: c.text }]}>Total Amount</Text>
-                    <Text style={[styles.totalVal, { color: c.accent }]}>
-                      ₹{(Number(activeEstimate.totalAmountPaise) / 100).toLocaleString('en-IN')}
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Response Actions if Pending */}
-                {activeEstimate.status === 'SENT_TO_CUSTOMER' && (
-                  <View style={styles.decisionWrap}>
-                    <Text style={[styles.decisionPrompt, { color: c.text }]}>Customer Decision:</Text>
-                    <TextInput
-                      value={estimateNotes}
-                      onChangeText={setEstimateNotes}
-                      onFocus={() => revealFocusedField(estimateScrollRef)}
-                      returnKeyType="done"
-                      onSubmitEditing={Keyboard.dismiss}
-                      placeholder="Optional notes or questions for service advisor..."
-                      placeholderTextColor={c.textMuted}
-                      style={[styles.notesInput, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
-                    />
-
-                    <View style={styles.decisionBtnsRow}>
-                      <TouchableOpacity
-                        onPress={() => handleEstimateDecision('APPROVE')}
-                        disabled={respondingToEstimate}
-                        style={[styles.approveBtn, { backgroundColor: '#10B981' }]}
-                      >
-                        {respondingToEstimate ? (
-                          <ActivityIndicator size="small" color="#FFFFFF" />
-                        ) : (
-                          <Text style={styles.approveBtnText}>Approve & Proceed</Text>
-                        )}
-                      </TouchableOpacity>
-
-                      <TouchableOpacity
-                        onPress={() => handleEstimateDecision('DECLINE')}
-                        disabled={respondingToEstimate}
-                        style={[styles.declineBtn, { borderColor: '#EF4444' }]}
-                      >
-                        <Text style={styles.declineBtnText}>Decline</Text>
-                      </TouchableOpacity>
-                    </View>
-                  </View>
-                )}
-              </ScrollView>
-            )}
+          <View style={[styles.totalRow, { borderTopColor: c.border }]}>
+            <Text style={[styles.totalLabel, { color: c.text }]}>Total Amount</Text>
+            <Text style={[styles.totalVal, { color: c.accent }]}>
+              ₹{(Number(activeEstimate.totalAmountPaise) / 100).toLocaleString('en-IN')}
+            </Text>
           </View>
         </View>
-      </Modal>
+
+            {activeEstimate.status === 'SENT_TO_CUSTOMER' && (
+              <View style={styles.decisionWrap}>
+                <Text style={[styles.decisionPrompt, { color: c.text }]}>Customer Decision:</Text>
+                <TextInput
+                  value={estimateNotes}
+                  onChangeText={setEstimateNotes}
+                  onFocus={() => revealFocusedField(estimateScrollRef)}
+                  returnKeyType="done"
+                  onSubmitEditing={Keyboard.dismiss}
+                  placeholder="Optional notes or questions for service advisor..."
+                  placeholderTextColor={c.textMuted}
+                  style={[styles.notesInput, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
+                />
+              </View>
+            )}
+          </>
+        )}
+      </KeyboardAwareSheet>
 
       {/* Cancellation Modal */}
-      <Modal
+      <KeyboardAwareSheet
+        ref={cancelScrollRef}
         visible={cancelModalVisible}
+        onClose={() => setCancelModalVisible(false)}
+        locked={cancelling}
         animationType="fade"
-        transparent={true}
-        onRequestClose={() => {
-          if (!cancelling) {
-            Keyboard.dismiss();
-            setCancelModalVisible(false);
-          }
-        }}
-        statusBarTranslucent
-      >
-        <View style={styles.modalOverlay}>
-          <Pressable
-            style={StyleSheet.absoluteFill}
-            onPress={() => {
-              if (!cancelling) {
+        title="Cancel Service Booking?"
+        closeLabel="Keep"
+        footer={
+          <View style={styles.decisionBtnsRow}>
+            <TouchableOpacity
+              onPress={handleCancelRequest}
+              disabled={cancelling}
+              style={[styles.confirmCancelBtn, { backgroundColor: '#EF4444' }]}
+            >
+              {cancelling ? (
+                <ActivityIndicator size="small" color="#FFFFFF" />
+              ) : (
+                <Text style={styles.confirmCancelBtnText}>Yes, Cancel</Text>
+              )}
+            </TouchableOpacity>
+            <TouchableOpacity
+              onPress={() => {
                 Keyboard.dismiss();
                 setCancelModalVisible(false);
-              }
-            }}
-          />
-          <View
-              style={[
-                styles.cancelSheet,
-                {
-                  backgroundColor: c.surface,
-                  paddingBottom: sheetBottomInset,
-                },
-              ]}
+              }}
+              style={[styles.cancelDismissBtn, { borderColor: c.border }]}
             >
-            <ScrollView
-              ref={cancelScrollRef}
-              style={styles.cancelScroll}
-              contentContainerStyle={{ paddingBottom: focusedInputBottomInset }}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              automaticallyAdjustKeyboardInsets
-            >
-              <Text style={[styles.modalTitle, { color: c.text }]}>Cancel Service Booking?</Text>
-              <Text style={[styles.cancelPromptText, { color: c.textMuted }]}>
-                Please provide a brief reason for cancelling. Your vehicle slot will be released.
-              </Text>
-              <TextInput
-                value={cancelReason}
-                onChangeText={setCancelReason}
-                onFocus={() => revealFocusedField(cancelScrollRef)}
-                returnKeyType="done"
-                onSubmitEditing={Keyboard.dismiss}
-                placeholder="e.g. Schedule changed / Will book next week"
-                placeholderTextColor={c.textMuted}
-                style={[styles.notesInput, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
-              />
-              <View style={styles.decisionBtnsRow}>
-                <TouchableOpacity
-                  onPress={handleCancelRequest}
-                  disabled={cancelling}
-                  style={[styles.confirmCancelBtn, { backgroundColor: '#EF4444' }]}
-                >
-                  {cancelling ? (
-                    <ActivityIndicator size="small" color="#FFFFFF" />
-                  ) : (
-                    <Text style={styles.confirmCancelBtnText}>Yes, Cancel</Text>
-                  )}
-                </TouchableOpacity>
-                <TouchableOpacity
-                  onPress={() => {
-                    Keyboard.dismiss();
-                    setCancelModalVisible(false);
-                  }}
-                  style={[styles.cancelDismissBtn, { borderColor: c.border }]}
-                >
-                  <Text style={[styles.cancelDismissText, { color: c.text }]}>Keep Booking</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
-            </View>
-        </View>
-      </Modal>
-      {/* Pay Balance Modal */}
-      <Modal
-        visible={payBalanceModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setPayBalanceModalVisible(false)}
-        statusBarTranslucent
-      >
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: sheetBottomInset }]}>
-            <View style={styles.modalHeader}>
-              <Text style={[styles.modalTitle, { color: c.text }]}>Settle Outstanding Balance</Text>
-              <TouchableOpacity onPress={() => setPayBalanceModalVisible(false)}>
-                <Text style={[styles.modalClose, { color: c.accent }]}>Close</Text>
-              </TouchableOpacity>
-            </View>
-
-            <ScrollView
-              ref={paymentScrollRef}
-              style={styles.paymentScroll}
-              contentContainerStyle={[styles.paymentScrollContent, { paddingBottom: focusedInputBottomInset }]}
-              keyboardShouldPersistTaps="handled"
-              keyboardDismissMode="on-drag"
-              showsVerticalScrollIndicator={false}
-              automaticallyAdjustKeyboardInsets
-            >
-              <Text style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>
-                Make an immediate secure payment via Razorpay UPI, Card, or Net Banking to settle your service balance.
-              </Text>
-
-              <Text style={{ fontSize: 12, fontWeight: '700', color: c.textMuted, marginBottom: 4 }}>
-                Amount to Pay (₹)
-              </Text>
-              <TextInput
-                style={{
-                  backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F3F4F6',
-                  color: c.text,
-                  borderWidth: 1,
-                  borderColor: c.border,
-                  borderRadius: 8,
-                  padding: 12,
-                  fontSize: 16,
-                  fontWeight: '700',
-                  marginBottom: 16,
-                }}
-                keyboardType="numeric"
-                value={String(customPayAmountRupees)}
-                onChangeText={t => setCustomPayAmountRupees(Number(t) || 0)}
-                onFocus={() => revealFocusedField(paymentScrollRef)}
-                returnKeyType="done"
-                onSubmitEditing={Keyboard.dismiss}
-              />
-
-              <View style={{ gap: 8, marginBottom: 20 }}>
-                {[
-                  { id: 'RAZORPAY_UPI', label: 'UPI (GPay / PhonePe / Paytm)' },
-                  { id: 'RAZORPAY_CARD', label: 'Credit / Debit Card' },
-                  { id: 'NET_BANKING', label: 'Net Banking' },
-                ].map(opt => (
-                  <TouchableOpacity
-                    key={opt.id}
-                    onPress={() => setPayMethod(opt.id as any)}
-                    style={{
-                      flexDirection: 'row',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: 12,
-                      borderRadius: 8,
-                      borderWidth: 1,
-                      borderColor: payMethod === opt.id ? c.accent : c.border,
-                      backgroundColor: payMethod === opt.id ? 'rgba(247, 181, 3, 0.1)' : 'transparent',
-                    }}
-                  >
-                    <Text style={{ fontSize: 14, fontWeight: payMethod === opt.id ? '700' : '500', color: c.text }}>
-                      {opt.label}
-                    </Text>
-                    {payMethod === opt.id && <CheckCircle size={16} color={c.accent} />}
-                  </TouchableOpacity>
-                ))}
-              </View>
-
-              <TouchableOpacity
-                onPress={handlePayBalance}
-                disabled={payingBalance || customPayAmountRupees <= 0}
-                style={{
-                  backgroundColor: c.accent,
-                  paddingVertical: 14,
-                  borderRadius: 8,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                {payingBalance ? (
-                  <ActivityIndicator size="small" color="#061A38" />
-                ) : (
-                  <Text style={{ color: '#061A38', fontWeight: '800', fontSize: 15 }}>
-                    Authorize & Pay ₹{customPayAmountRupees.toLocaleString('en-IN')}
-                  </Text>
-                )}
-              </TouchableOpacity>
-            </ScrollView>
+              <Text style={[styles.cancelDismissText, { color: c.text }]}>Keep Booking</Text>
+            </TouchableOpacity>
           </View>
+        }
+      >
+        <Text style={[styles.cancelPromptText, { color: c.textMuted }]}>
+          Please provide a brief reason for cancelling. Your vehicle slot will be released.
+        </Text>
+        <TextInput
+          value={cancelReason}
+          onChangeText={setCancelReason}
+          onFocus={() => revealFocusedField(cancelScrollRef)}
+          returnKeyType="done"
+          onSubmitEditing={Keyboard.dismiss}
+          placeholder="e.g. Schedule changed / Will book next week"
+          placeholderTextColor={c.textMuted}
+          style={[styles.notesInput, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
+        />
+      </KeyboardAwareSheet>
+
+      {/* Pay Balance Modal */}
+      <KeyboardAwareSheet
+        ref={paymentScrollRef}
+        visible={payBalanceModalVisible}
+        onClose={() => setPayBalanceModalVisible(false)}
+        locked={payingBalance}
+        title="Settle Outstanding Balance"
+        footer={
+          <TouchableOpacity
+            onPress={handlePayBalance}
+            disabled={payingBalance || customPayAmountRupees <= 0}
+            style={{
+              backgroundColor: c.accent,
+              paddingVertical: 14,
+              borderRadius: 8,
+              alignItems: 'center',
+              justifyContent: 'center',
+            }}
+          >
+            {payingBalance ? (
+              <ActivityIndicator size="small" color="#061A38" />
+            ) : (
+              <Text style={{ color: '#061A38', fontWeight: '800', fontSize: 15 }}>
+                Authorize & Pay ₹{customPayAmountRupees.toLocaleString('en-IN')}
+              </Text>
+            )}
+          </TouchableOpacity>
+        }
+      >
+        <Text style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>
+          Make an immediate secure payment via Razorpay UPI, Card, or Net Banking to settle your service balance.
+        </Text>
+
+        <Text style={{ fontSize: 12, fontWeight: '700', color: c.textMuted, marginBottom: 4 }}>
+          Amount to Pay (₹)
+        </Text>
+        <TextInput
+          style={{
+            backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#F3F4F6',
+            color: c.text,
+            borderWidth: 1,
+            borderColor: c.border,
+            borderRadius: 8,
+            padding: 12,
+            fontSize: 16,
+            fontWeight: '700',
+            marginBottom: 16,
+          }}
+          keyboardType="numeric"
+          value={String(customPayAmountRupees)}
+          onChangeText={t => setCustomPayAmountRupees(Number(t) || 0)}
+          onFocus={() => revealFocusedField(paymentScrollRef)}
+          returnKeyType="done"
+          onSubmitEditing={Keyboard.dismiss}
+        />
+
+        <View style={{ gap: 8, marginBottom: 20 }}>
+          {[
+            { id: 'RAZORPAY_UPI', label: 'UPI (GPay / PhonePe / Paytm)' },
+            { id: 'RAZORPAY_CARD', label: 'Credit / Debit Card' },
+            { id: 'NET_BANKING', label: 'Net Banking' },
+          ].map(opt => (
+            <TouchableOpacity
+              key={opt.id}
+              onPress={() => setPayMethod(opt.id as any)}
+              style={{
+                flexDirection: 'row',
+                alignItems: 'center',
+                justifyContent: 'space-between',
+                padding: 12,
+                borderRadius: 8,
+                borderWidth: 1,
+                borderColor: payMethod === opt.id ? c.accent : c.border,
+                backgroundColor: payMethod === opt.id ? 'rgba(247, 181, 3, 0.1)' : 'transparent',
+              }}
+            >
+              <Text style={{ fontSize: 14, fontWeight: payMethod === opt.id ? '700' : '500', color: c.text }}>
+                {opt.label}
+              </Text>
+              {payMethod === opt.id && <CheckCircle size={16} color={c.accent} />}
+            </TouchableOpacity>
+          ))}
         </View>
-      </Modal>
+      </KeyboardAwareSheet>
     </View>
   );
 }

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -14,7 +13,8 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { BrandLogo } from './BrandLogo';
 import { color, radius, space, useAppTheme } from '../theme';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from './KeyboardAvoider';
 
 export {
   KeyboardAwareFormScreen,
@@ -51,7 +51,7 @@ export function Screen({
     <ScrollView
       contentContainerStyle={[
         styles.scroll,
-        { paddingBottom: Math.max(insets.bottom, 20) + 72 },
+        { paddingBottom: safeBottom(insets.bottom, 20) + 72 },
         contentStyle,
       ]}
       showsVerticalScrollIndicator={false}
@@ -70,13 +70,12 @@ export function Screen({
       ]}
     >
       {keyboardAvoiding ? (
-        <KeyboardAvoidingView
-          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+        <KeyboardAvoider
           keyboardVerticalOffset={keyboardVerticalOffset}
           style={{ flex: 1 }}
         >
           {content}
-        </KeyboardAvoidingView>
+        </KeyboardAvoider>
       ) : (
         content
       )}

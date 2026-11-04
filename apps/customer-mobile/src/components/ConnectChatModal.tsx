@@ -4,7 +4,6 @@ import {
   Alert,
   FlatList,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -26,7 +25,8 @@ import {
   type WebRtcSignal,
 } from '../services/connect-api';
 import { radius, space, useAppTheme } from '../theme';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from './KeyboardAvoider';
 
 interface Props {
   call: IncomingConnectCall;
@@ -279,8 +279,7 @@ export function ConnectChatModal({ call, onClose }: Props) {
         )}
 
         {/* Message Thread */}
-        <KeyboardAvoidingView
-          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+        <KeyboardAvoider
           style={styles.keyboardAvoid}
           keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
         >
@@ -360,7 +359,7 @@ export function ConnectChatModal({ call, onClose }: Props) {
                 {
                   backgroundColor: theme.colors.surface,
                   borderTopColor: theme.colors.border,
-                  paddingBottom: isKeyboardVisible ? space.xs : Math.max(insets.bottom, space.sm),
+                  paddingBottom: isKeyboardVisible ? space.xs : safeBottom(insets.bottom, space.sm),
                 },
               ]}
             >
@@ -397,7 +396,7 @@ export function ConnectChatModal({ call, onClose }: Props) {
                 {
                   backgroundColor: theme.colors.surface,
                   justifyContent: 'center',
-                  paddingBottom: Math.max(insets.bottom, space.md),
+                  paddingBottom: safeBottom(insets.bottom, space.md),
                 },
               ]}
             >
@@ -406,7 +405,7 @@ export function ConnectChatModal({ call, onClose }: Props) {
               </TouchableOpacity>
             </View>
           )}
-        </KeyboardAvoidingView>
+        </KeyboardAvoider>
       </SafeAreaView>
     </Modal>
   );

@@ -9,7 +9,6 @@ import React, { forwardRef, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -25,7 +24,8 @@ import {
 import { SafeAreaView, useSafeAreaInsets, type Edge } from 'react-native-safe-area-context';
 import { AlertCircle } from 'lucide-react-native';
 import { color, radius, space, useAppTheme } from '../theme';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from './KeyboardAvoider';
 
 // ============================================================
 // 1. KeyboardAwareFormScreen
@@ -71,14 +71,13 @@ export const KeyboardAwareFormScreen = forwardRef<ScrollView, KeyboardAwareFormS
     // Extra bottom padding for scroll content so the last field can scroll fully above footers/keyboards
     const contentBottomPadding = stickyFooter
       ? space.xl
-      : Math.max(insets.bottom, space.md) + (footer ? space.md : space.xl);
+      : safeBottom(insets.bottom, space.md) + (footer ? space.md : space.xl);
 
     return (
       <SafeAreaView style={[styles.container, { backgroundColor: colors.background }, containerStyle]} edges={edges}>
-        <KeyboardAvoidingView
+        <KeyboardAvoider
           // Android must reduce available height; padding alone leaves a
           // bottom CTA and the active field underneath the soft keyboard.
-          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
           keyboardVerticalOffset={keyboardVerticalOffset}
           style={styles.keyboardAvoid}
         >
@@ -115,14 +114,14 @@ export const KeyboardAwareFormScreen = forwardRef<ScrollView, KeyboardAwareFormS
                 {
                   backgroundColor: colors.surface,
                   borderTopColor: colors.border,
-                  paddingBottom: Math.max(insets.bottom, space.md),
+                  paddingBottom: safeBottom(insets.bottom, space.md),
                 },
               ]}
             >
               {footer}
             </View>
           ) : null}
-        </KeyboardAvoidingView>
+        </KeyboardAvoider>
       </SafeAreaView>
     );
   }
@@ -472,13 +471,12 @@ export function KeyboardResizeContainer({
   keyboardVerticalOffset = Platform.OS === 'ios' ? 12 : 0,
 }: KeyboardResizeContainerProps) {
   return (
-    <KeyboardAvoidingView
-      behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+    <KeyboardAvoider
       keyboardVerticalOffset={keyboardVerticalOffset}
       style={[{ flex: 1 }, style]}
     >
       {children}
-    </KeyboardAvoidingView>
+    </KeyboardAvoider>
   );
 }
 

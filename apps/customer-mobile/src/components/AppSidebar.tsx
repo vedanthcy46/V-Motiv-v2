@@ -49,6 +49,7 @@ import { useAppTheme } from '../theme';
 import { useAuth } from '../auth/AuthProvider';
 import { navigate, navigateToTab } from '../navigation/navigationRef';
 import type { Tabs, RootStack } from '../navigation/types';
+import { safeBottom } from '../layout/safe-layout';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DRAWER_WIDTH = Math.min(320, SCREEN_WIDTH * 0.82);
@@ -323,7 +324,7 @@ export function SidebarProvider({ children }: SidebarProviderProps) {
                     borderRightColor: isDark ? 'rgba(247, 181, 3, 0.2)' : 'rgba(226, 232, 240, 0.95)',
                     transform: [{ translateX: drawerTranslateX }],
                     paddingTop: Math.max(insets.top, 16),
-                    paddingBottom: Math.max(insets.bottom, 16),
+                    paddingBottom: safeBottom(insets.bottom, 16),
                   },
                 ]}
               >

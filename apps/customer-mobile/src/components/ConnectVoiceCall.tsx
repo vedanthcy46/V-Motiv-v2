@@ -4,7 +4,6 @@ import {
   Alert,
   AppState,
   Keyboard,
-  KeyboardAvoidingView,
   Linking,
   Modal,
   PermissionsAndroid,
@@ -46,7 +45,7 @@ import {
   startConnectCallAudio,
   stopConnectCallAudio,
 } from '../services/call-audio';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { KeyboardAvoider } from './KeyboardAvoider';
 
 const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
@@ -402,9 +401,8 @@ export function ConnectVoiceCall({
 
   return (
     <Modal visible transparent animationType="fade" onRequestClose={handleEndCall}>
-      <KeyboardAvoidingView
+      <KeyboardAvoider
         style={styles.root}
-        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
       >
         <ScrollView
@@ -540,7 +538,7 @@ export function ConnectVoiceCall({
             </View>
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </Modal>
   );
 }

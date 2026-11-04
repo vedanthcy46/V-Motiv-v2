@@ -10,6 +10,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useStackScreenBottomPadding } from '../layout/safe-layout';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, Bell, Mail, ShieldCheck } from 'lucide-react-native';
 import { customer } from '../services/customer';
@@ -20,6 +21,7 @@ import type { RootStack } from '../navigation/types';
 type Props = NativeStackScreenProps<RootStack, 'MarketingPreferences'>;
 
 export function MarketingPreferencesScreen({ navigation }: Props) {
+  const bottomPadding = useStackScreenBottomPadding();
   const { user, refreshProfile } = useAuth();
   const { colors, isDark } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
@@ -51,7 +53,7 @@ export function MarketingPreferencesScreen({ navigation }: Props) {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }]}>
         <View style={styles.card}>
           <View style={styles.row}>
             <View style={styles.iconContainer}>

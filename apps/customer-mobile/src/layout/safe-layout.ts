@@ -2,7 +2,7 @@
 // the system navigation area and the soft keyboard.
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { stackScreenBottomPadding, tabBarBottomOffset, tabScreenBottomPadding } from './insets-math';
+import { safeBottomInset as safeBottomInsetFor, stackScreenBottomPadding, tabBarBottomOffset, tabScreenBottomPadding } from './insets-math';
 
 export { TAB_BAR_HEIGHT, CONTENT_GAP } from './insets-math';
 
@@ -26,4 +26,12 @@ export function useTabScreenBottomPadding(): number {
 /** Dynamic bottom padding for scroll content inside a stack screen (no tab bar). */
 export function useStackScreenBottomPadding(): number {
   return stackScreenBottomPadding(useSafeAreaInsets().bottom, Platform.OS);
+}
+
+/**
+ * Bottom inset for sticky footers and scroll content on any screen. Pass the raw
+ * `insets.bottom` and an optional visual minimum. Replaces ad-hoc Math.max(insets.bottom, N).
+ */
+export function safeBottom(insetBottom: number, min = 0): number {
+  return safeBottomInsetFor(insetBottom, Platform.OS, min);
 }

@@ -4,7 +4,6 @@ import {
   Alert,
   Image,
   Keyboard,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -65,7 +64,8 @@ import {
   uriToBase64,
   type DraftPayload,
 } from '../services/inspector-sync';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 type Assignment = {
   id: string;
@@ -1162,8 +1162,7 @@ export function InspectorScreen() {
         </View>
 
         {/* Tab Content */}
-        <KeyboardAvoidingView
-          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+        <KeyboardAvoider
           keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
           style={{ flex: 1 }}
         >
@@ -1721,7 +1720,7 @@ export function InspectorScreen() {
             </View>
           )}
         </ScrollView>
-        </KeyboardAvoidingView>
+        </KeyboardAvoider>
 
         {/* Modal: Add Defect */}
         <Modal
@@ -1734,12 +1733,10 @@ export function InspectorScreen() {
             setDefectModalVisible(false);
           }}
         >
-          <KeyboardAvoidingView
-            behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+          <KeyboardAvoider
             keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : 0}
             style={[
               styles.modalBackdrop,
-              Platform.OS === 'android' && isKeyboardVisible ? { paddingBottom: keyboardHeight } : null,
             ]}
           >
             {/* Backdrop Dismiss Area */}
@@ -1909,7 +1906,7 @@ export function InspectorScreen() {
               </ScrollView>
 
               {/* Modal Footer CTA */}
-              <View style={[styles.defectModalFooter, { paddingBottom: isKeyboardVisible ? 10 : Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 14) + space.xs }]}>
+              <View style={[styles.defectModalFooter, { paddingBottom: isKeyboardVisible ? 10 : safeBottom(insets.bottom, Platform.OS === 'android' ? 20 : 14) + space.xs }]}>
                 <Pressable
                   style={styles.defectCancelBtn}
                   onPress={() => {
@@ -1978,7 +1975,7 @@ export function InspectorScreen() {
                 </Pressable>
               </View>
             </View>
-          </KeyboardAvoidingView>
+          </KeyboardAvoider>
         </Modal>
 
         {/* Fullscreen Photo Zoom Preview Modal */}
@@ -2021,7 +2018,7 @@ export function InspectorScreen() {
               style={[
                 styles.modalContent,
                 styles.photoModalContent,
-                { paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 16) + space.lg },
+                { paddingBottom: safeBottom(insets.bottom, Platform.OS === 'android' ? 20 : 16) + space.lg },
               ]}
               onPress={e => e.stopPropagation()}
             >
@@ -2224,7 +2221,7 @@ export function InspectorScreen() {
 
       {statusMessage ? <Text style={styles.statusToast}>{statusMessage}</Text> : null}
 
-      <ScrollView contentContainerStyle={[styles.jobsListScroll, { paddingBottom: Math.max(insets.bottom, 16) + 40 }]}>
+      <ScrollView contentContainerStyle={[styles.jobsListScroll, { paddingBottom: safeBottom(insets.bottom, 16) + 40 }]}>
         {busy && <ActivityIndicator color={color.yellow} size="small" style={{ marginVertical: space.md }} />}
 
         {jobs.length ? (
@@ -2405,7 +2402,7 @@ export function InspectorScreen() {
             style={[
               styles.modalContent,
               styles.notifModalContent,
-              { paddingBottom: Math.max(insets.bottom, 16) + space.md },
+              { paddingBottom: safeBottom(insets.bottom, 16) + space.md },
             ]}
             onPress={e => e.stopPropagation()}
           >

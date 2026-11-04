@@ -44,6 +44,7 @@ import {
   type RentalBookingDetails,
 } from '../services/rental-api';
 import { BrandLogo } from '../components/BrandLogo';
+import { safeBottom } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalHome'>;
 
@@ -343,7 +344,7 @@ export function RentalHomeScreen({ navigation }: Props) {
       <ScrollView
         contentContainerStyle={[
           styles.scrollContent,
-          { paddingBottom: insets.bottom + 100 },
+          { paddingBottom: safeBottom(insets.bottom) + 100 },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -699,7 +700,7 @@ export function RentalHomeScreen({ navigation }: Props) {
           {
             backgroundColor: colors.surface,
             borderTopColor: colors.border,
-            paddingBottom: Math.max(insets.bottom, 16),
+            paddingBottom: safeBottom(insets.bottom, 16),
           },
         ]}
       >
@@ -736,7 +737,7 @@ export function RentalHomeScreen({ navigation }: Props) {
               {
                 backgroundColor: colors.surface,
                 borderColor: colors.border,
-                paddingBottom: Math.max(insets.bottom, 20),
+                paddingBottom: safeBottom(insets.bottom, 20),
               },
             ]}
           >

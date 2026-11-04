@@ -33,6 +33,7 @@ import {
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 import type { CustomerVehicleProfile, InspectionAuditDetails, InspectionDefectItem } from '../types';
+import { safeBottom } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'InspectionHighlights'>;
 
@@ -96,7 +97,7 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
         contentContainerStyle={[
           styles.content,
           {
-            paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 40,
+            paddingBottom: safeBottom(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 40,
           },
         ]}
         showsVerticalScrollIndicator={false}
@@ -464,7 +465,7 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
               style={[
                 styles.photoModalFooter,
                 {
-                  paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + space.sm,
+                  paddingBottom: safeBottom(insets.bottom, Platform.OS === 'android' ? 24 : 16) + space.sm,
                 },
               ]}
             >

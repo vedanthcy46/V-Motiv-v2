@@ -35,6 +35,7 @@ import {
 } from '../services/rental-api';
 import { useAuth } from '../auth/AuthProvider';
 import { CarBrandLogo } from '../components/CarBrandLogo';
+import { safeBottom } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalVehicleDetails'>;
 
@@ -142,7 +143,7 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
       </Pressable>
 
       <ScrollView
-        contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}
+        contentContainerStyle={{ paddingBottom: safeBottom(insets.bottom) + 110 }}
         showsVerticalScrollIndicator={false}
       >
         {/* Hero Gallery */}
@@ -349,7 +350,7 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
           {
             backgroundColor: colors.surface,
             borderTopColor: colors.border,
-            paddingBottom: Math.max(insets.bottom, 16),
+            paddingBottom: safeBottom(insets.bottom, 16),
           },
         ]}
       >

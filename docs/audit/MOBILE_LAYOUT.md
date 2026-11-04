@@ -15,7 +15,26 @@ Status: IMPLEMENTED_NOT_VERIFIED on a device. Typecheck clean, 13 mobile unit te
 - Home, Garage, Explore, Activity, Account scroll content uses `useTabScreenBottomPadding()` (bar offset + 64 + 16pt gap).
 - `RentalCheckoutScreen` ScrollView: `keyboardShouldPersistTaps="handled"`, `keyboardDismissMode="on-drag"`.
 
-## Not changed / follow-ups
-- Stack screens with their own sticky footers and `insets.bottom + N` literals (Rental*, Service*, VehicleScreen `100`, InspectorScreen) were left as is; migrate to `useStackScreenBottomPadding()` after device checks.
-- `keyboardVerticalOffset` values (12 on iOS) were not re-derived per screen; verify on devices where a header sits above the KeyboardAvoidingView.
+## Second pass (stack screens)
+- `safeBottom(insets.bottom, min)` (in `safe-layout.ts`, maths in `insets-math.ts`) replaced every `Math.max(insets.bottom, N)` and `insets.bottom + N` in 27 screens/components (sticky footers, scroll content, modals). On Android a reported inset of 0 now falls back to 48 (3-button height); other insets and each site's existing minimum are unchanged. The only remaining raw use is arithmetic for the sidebar trigger position (`AppSidebar.tsx`).
+- CitySelection, MarketingPreferences, PrivacySettings and ProfileEditor scrolled to the screen bottom with no bottom inset (their `SafeAreaView` excludes the bottom edge), so the last item could sit under the navigation buttons. They now use `useStackScreenBottomPadding()`.
+- `keyboardVerticalOffset`: no change needed. React Native's `KeyboardAvoidingView` computes overlap as `frame.y + frame.height - (keyboard.screenY - offset)` with `frame.y` relative to its parent; every screen here has `headerShown: false` and a parent at the screen top, so the offset is not a header compensation. The existing 12pt on iOS only adds a small gap above the keyboard.
+- Tests: 15 mobile tests pass (5 layout tests), typecheck clean.
+
+## Remaining
 - Verify on: iPhone with home indicator, Android gesture nav, Android 3-button nav, small phone (iPhone SE class), large font scale, landscape locked off (`orientation: portrait`).
+
+## Third pass: Service Request Details and shared keyboard/sheet primitives
+Root causes found in `ServiceRequestDetailsScreen.tsx` (code inspection, not device-measured):
+- The main scroll view had no bottom padding, so the last action (Cancel Service Request) sat under the navigation buttons.
+- Its three modals were bottom sheets anchored under the keyboard with no `KeyboardAvoidingView`; they only added padding inside the scroll area (`sheetBottomInset + keyboardHeight`) and a `scrollToEnd` hack, so the sheet kept its full height and its actions stayed covered; `automaticallyAdjustKeyboardInsets` is iOS only.
+
+Fixes:
+- `components/KeyboardAwareSheet.tsx`: one sheet for all such modals. Lifts above the keyboard, `maxHeight` shrinks with the keyboard (`sheetMaxHeight`), header and action footer pinned, body scrolls, footer clears the nav buttons via `safeBottom`. The three Service Request modals (estimate review, cancel, pay balance) use it; the main scroll has dynamic bottom padding.
+- `components/KeyboardAvoider.tsx`: the single keyboard container for all 21 screens/components that used `KeyboardAvoidingView` (iOS: RN `padding`; Android edge-to-edge: measures the real overlap with the keyboard and pads by exactly that, 0 if the window already resized, so no double lift).
+- Removed five manual Android `marginBottom/paddingBottom: keyboardHeight` hacks (MyGarage x2, SellingRequestDetails x2, Inspector) that would have doubled the shared lift. Their sheet-height calculations (which shrink with the keyboard) were kept.
+- Tests: 17 pass (new: `sheetMaxHeight`, `keyboardOverlap`). Typecheck clean.
+
+Rule for every screen: root inside `KeyboardAvoider`; scroll content `keyboardShouldPersistTaps="handled"`; bottom padding from `safeBottom` / `useTabScreenBottomPadding` / `useStackScreenBottomPadding`; modals with inputs use `KeyboardAwareSheet` (existing hand-built sheets in MyGarage, RentalBookingDetails, SellingRequestDetails, Inspector keep their own layout but now share the same keyboard container).
+
+Not verified on a device. The Android overlap path is the riskiest change: if a keyboard still covers an input on a real Android device, capture the device, OS version and navigation mode.

@@ -28,6 +28,7 @@ import {
   type RentalFleetVehicle,
 } from '../services/rental-api';
 import { CarBrandLogo } from '../components/CarBrandLogo';
+import { safeBottom } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalSearchResults'>;
 
@@ -200,7 +201,7 @@ export function RentalSearchResultsScreen({ route, navigation }: Props) {
         <FlatList
           data={filteredVehicles}
           keyExtractor={item => item.id}
-          contentContainerStyle={[styles.listContent, { paddingBottom: insets.bottom + 24 }]}
+          contentContainerStyle={[styles.listContent, { paddingBottom: safeBottom(insets.bottom) + 24 }]}
           showsVerticalScrollIndicator={false}
           renderItem={({ item }) => {
             const photoUrl = item.images?.[0];

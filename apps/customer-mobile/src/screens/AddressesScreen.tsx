@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   Alert,
   Keyboard,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -29,7 +28,8 @@ import { useAuth } from '../auth/AuthProvider';
 import type { CustomerAddress } from '../types';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 const PRESET_LABELS = ['Home', 'Office', 'Other'] as const;
 
@@ -134,8 +134,7 @@ export function AddressesScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView
-        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+      <KeyboardAvoider
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
@@ -170,7 +169,7 @@ export function AddressesScreen() {
           ref={scrollRef}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: Math.max(insets.bottom, space.md) + 40 },
+            { paddingBottom: safeBottom(insets.bottom, space.md) + 40 },
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -341,7 +340,7 @@ export function AddressesScreen() {
             )}
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </SafeAreaView>
   );
 }

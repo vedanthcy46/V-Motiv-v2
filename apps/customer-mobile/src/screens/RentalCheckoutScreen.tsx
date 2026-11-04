@@ -7,7 +7,6 @@ import {
   TextInput,
   Pressable,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   Image,
   ActivityIndicator,
@@ -49,7 +48,8 @@ import {
 } from '../services/rental-api';
 import { useAuth } from '../auth/AuthProvider';
 import { AuthScreen } from './AuthScreen';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalCheckout'>;
 
@@ -409,8 +409,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
   };
 
   return (
-    <KeyboardAvoidingView
-      behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+    <KeyboardAvoider
       style={[styles.container, { backgroundColor: colors.background }]}
     >
       {/* Header */}
@@ -460,7 +459,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
       </View>
 
       <ScrollView
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 120 }]}
+        contentContainerStyle={[styles.scrollContent, { paddingBottom: safeBottom(insets.bottom) + 120 }]}
         showsVerticalScrollIndicator={false}
         keyboardShouldPersistTaps="handled"
         keyboardDismissMode="on-drag"
@@ -1081,7 +1080,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
           {
             backgroundColor: colors.surface,
             borderTopColor: colors.border,
-            paddingBottom: Math.max(insets.bottom, 16),
+            paddingBottom: safeBottom(insets.bottom, 16),
           },
         ]}
       >
@@ -1149,7 +1148,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
               />
             </View>
 
-            <View style={[styles.previewModalFooter, { paddingBottom: Math.max(insets.bottom, 20) }]}>
+            <View style={[styles.previewModalFooter, { paddingBottom: safeBottom(insets.bottom, 20) }]}>
               <TouchableOpacity
                 onPress={() => {
                   const type = previewModal.type;
@@ -1175,7 +1174,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
           </View>
         </Modal>
       )}
-    </KeyboardAvoidingView>
+    </KeyboardAvoider>
   );
 }
 

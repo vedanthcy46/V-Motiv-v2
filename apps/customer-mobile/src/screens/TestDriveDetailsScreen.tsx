@@ -38,6 +38,7 @@ import { formatPaise } from '../format';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 import type { TestDrive } from '../types';
+import { safeBottom } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'TestDriveDetails'>;
 
@@ -172,7 +173,7 @@ export function TestDriveDetailsScreen({ route, navigation }: Props) {
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 40 },
+          { paddingBottom: safeBottom(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 40 },
         ]}
         showsVerticalScrollIndicator={false}
       >

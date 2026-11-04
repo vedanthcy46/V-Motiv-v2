@@ -4,7 +4,6 @@ import {
   Alert,
   FlatList,
   Image,
-  KeyboardAvoidingView,
   Linking,
   PermissionsAndroid,
   Platform,
@@ -66,7 +65,8 @@ import {
   stopConnectCallAudio,
 } from '../services/call-audio';
 import { radius, space, useAppTheme } from '../theme';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 const ICE_SERVERS = [
   { urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] },
@@ -594,14 +594,13 @@ export function ConnectGuestScreen() {
         )}
       </View>
 
-      <KeyboardAvoidingView
+      <KeyboardAvoider
         style={{ flex: 1 }}
-        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
       >
         <ScrollView
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: Math.max(insets.bottom, 20) + 28 },
+            { paddingBottom: safeBottom(insets.bottom, 20) + 28 },
           ]}
           keyboardShouldPersistTaps="handled"
         >
@@ -1041,7 +1040,7 @@ export function ConnectGuestScreen() {
             </>
           ) : null}
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
 
       <ConnectQrScannerModal
         visible={scannerVisible}

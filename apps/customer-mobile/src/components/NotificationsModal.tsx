@@ -11,6 +11,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Bell, ChevronRight, X } from 'lucide-react-native';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { InAppNotification } from '../services/notifications';
+import { safeBottom } from '../layout/safe-layout';
 
 export interface NotificationsModalProps {
   visible: boolean;
@@ -57,7 +58,7 @@ export function NotificationsModal({
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
 
   // Safe bottom padding guarantees breathing space above Android navigation bar / iOS home bar
-  const bottomSafePadding = Math.max(insets.bottom, 16) + space.md;
+  const bottomSafePadding = safeBottom(insets.bottom, 16) + space.md;
 
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>

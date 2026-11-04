@@ -4,7 +4,6 @@ import {
   Alert,
   Dimensions,
   Image,
-  KeyboardAvoidingView,
   Linking,
   Modal,
   Platform,
@@ -50,7 +49,7 @@ import {
   Zap,
 } from 'lucide-react-native';
 import { useAppTheme, radius, space } from '../theme';
-import { useTabScreenBottomPadding } from '../layout/safe-layout';
+import { useTabScreenBottomPadding, safeBottom } from '../layout/safe-layout';
 import { useAuth } from '../auth/AuthProvider';
 import { AuthScreen } from './AuthScreen';
 import { BrandLogo } from '../components/BrandLogo';
@@ -83,7 +82,7 @@ import {
   TRANSMISSIONS,
 } from '../constants/car-catalog';
 import { CURRENT_YEAR } from '../utils/calendar';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 export function MyGarageScreen() {
   const tabBottomPadding = useTabScreenBottomPadding();
@@ -883,13 +882,11 @@ export function MyGarageScreen() {
             style={StyleSheet.absoluteFill}
             onPress={() => setModalVisible(false)}
           />
-          <KeyboardAvoidingView
-            behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+          <KeyboardAvoider
             keyboardVerticalOffset={0}
             style={[
               styles.keyboardAvoidWrap,
-              Platform.OS === 'android' && isKeyboardVisible ? { marginBottom: keyboardHeight } : null,
-            ]}
+              ]}
           >
             <View
               style={[
@@ -897,7 +894,7 @@ export function MyGarageScreen() {
                 {
                   backgroundColor: c.surface,
                   height: activeSheetHeight,
-                  paddingBottom: isKeyboardVisible ? 10 : Math.max(insets.bottom, 16),
+                  paddingBottom: isKeyboardVisible ? 10 : safeBottom(insets.bottom, 16),
                 },
               ]}
             >
@@ -1320,7 +1317,7 @@ export function MyGarageScreen() {
               </TouchableOpacity>
             </ScrollView>
           </View>
-        </KeyboardAvoidingView>
+        </KeyboardAvoider>
       </View>
     </Modal>
 
@@ -1337,12 +1334,10 @@ export function MyGarageScreen() {
           style={StyleSheet.absoluteFill}
           onPress={() => setConnectModalVisible(false)}
         />
-        <KeyboardAvoidingView
-          behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+        <KeyboardAvoider
           keyboardVerticalOffset={0}
           style={[
             styles.keyboardAvoidWrap,
-            Platform.OS === 'android' && isKeyboardVisible ? { marginBottom: keyboardHeight } : null,
           ]}
         >
           <View
@@ -1351,7 +1346,7 @@ export function MyGarageScreen() {
               {
                 backgroundColor: c.surface,
                 height: activeSheetHeight,
-                paddingBottom: isKeyboardVisible ? 10 : Math.max(insets.bottom, 16),
+                paddingBottom: isKeyboardVisible ? 10 : safeBottom(insets.bottom, 16),
               },
             ]}
           >
@@ -1741,7 +1736,7 @@ export function MyGarageScreen() {
               </ScrollView>
             )}
           </View>
-        </KeyboardAvoidingView>
+        </KeyboardAvoider>
       </View>
     </Modal>
 

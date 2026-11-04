@@ -34,6 +34,7 @@ import { formatPaise } from '../format';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 import type { PurchaseEnquiry } from '../types';
+import { safeBottom } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'PurchaseEnquiryDetails'>;
 
@@ -166,7 +167,7 @@ export function PurchaseEnquiryDetailsScreen({ route, navigation }: Props) {
         contentContainerStyle={[
           styles.content,
           {
-            paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 48,
+            paddingBottom: safeBottom(insets.bottom, Platform.OS === 'android' ? 24 : 16) + 48,
           },
         ]}
         showsVerticalScrollIndicator={false}

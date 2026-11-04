@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   FlatList,
-  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -39,10 +38,10 @@ import { customer } from '../services/customer';
 import type { RootStack, Tabs } from '../navigation/types';
 import type { SupportedCity, VehicleSummary } from '../types';
 import { useAppTheme, radius, space } from '../theme';
-import { useTabScreenBottomPadding } from '../layout/safe-layout';
+import { useTabScreenBottomPadding, safeBottom } from '../layout/safe-layout';
 import { friendlyError } from '../format';
 import { useAuth } from '../auth/AuthProvider';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<Tabs, 'Explore'>,
@@ -1024,8 +1023,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
             },
           ]}
         >
-          <KeyboardAvoidingView
-            behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+          <KeyboardAvoider
             style={{ flex: 1 }}
           >
             {/* Modal Header */}
@@ -1493,7 +1491,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                 {
                   borderTopColor: c.border,
                   backgroundColor: isDark ? '#0F172A' : '#FFFFFF',
-                  paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 20 : 12),
+                  paddingBottom: safeBottom(insets.bottom, Platform.OS === 'android' ? 20 : 12),
                 },
               ]}
             >
@@ -1507,7 +1505,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                 </Text>
               </TouchableOpacity>
             </View>
-          </KeyboardAvoidingView>
+          </KeyboardAvoider>
         </View>
       </Modal>
     </View>

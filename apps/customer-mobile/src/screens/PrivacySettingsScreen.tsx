@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Alert, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useStackScreenBottomPadding } from '../layout/safe-layout';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { ArrowLeft, Database, FileCheck, Lock, Shield } from 'lucide-react-native';
 import { useAuth } from '../auth/AuthProvider';
@@ -12,6 +13,7 @@ import { friendlyError } from '../format';
 type Props = NativeStackScreenProps<RootStack, 'PrivacySettings'>;
 
 export function PrivacySettingsScreen({ navigation }: Props) {
+  const bottomPadding = useStackScreenBottomPadding();
   const { user } = useAuth();
   const { colors, isDark } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
@@ -29,7 +31,7 @@ export function PrivacySettingsScreen({ navigation }: Props) {
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView contentContainerStyle={[styles.content, { paddingBottom: bottomPadding }]}>
         <View style={styles.card}>
           <View style={styles.iconRow}>
             <FileCheck size={20} color={colors.brandAccent} />

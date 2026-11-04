@@ -1,7 +1,6 @@
 import React, { useCallback, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -28,7 +27,8 @@ import { customer } from '../services/customer';
 import type { SupportCase } from '../types';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { friendlyError } from '../format';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 const CATEGORIES = [
   { key: 'BUYING', label: 'Buying Enquiry' },
@@ -114,8 +114,7 @@ export function SupportScreen() {
 
   return (
     <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView
-        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+      <KeyboardAvoider
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
@@ -186,7 +185,7 @@ export function SupportScreen() {
           ref={scrollRef}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: Math.max(insets.bottom, space.md) + 40 },
+            { paddingBottom: safeBottom(insets.bottom, space.md) + 40 },
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -377,7 +376,7 @@ export function SupportScreen() {
             </View>
           )}
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </SafeAreaView>
   );
 }

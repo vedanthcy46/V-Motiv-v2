@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   ActivityIndicator,
   Alert,
-  KeyboardAvoidingView,
   Platform,
   ScrollView,
   StyleSheet,
@@ -62,7 +61,8 @@ import {
   type ServicePaymentOption,
   type SlotCapacity,
 } from '../services/service-api';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 const CATEGORY_ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
   REGULAR_SERVICE: Wrench,
@@ -1305,16 +1305,15 @@ export function ServiceHomeScreen() {
         </View>
       </View>
 
-      <KeyboardAvoidingView
+      <KeyboardAvoider
         style={{ flex: 1 }}
-        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
       >
         <ScrollView
           ref={scrollRef}
           contentContainerStyle={[
             styles.scrollContent,
-            { paddingBottom: Math.max(insets.bottom + 96, 120) },
+            { paddingBottom: Math.max(safeBottom(insets.bottom) + 96, 120) },
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -1337,7 +1336,7 @@ export function ServiceHomeScreen() {
             </>
           )}
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </View>
   );
 }

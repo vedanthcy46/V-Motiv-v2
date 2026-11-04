@@ -1,7 +1,6 @@
 ﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
   Platform,
   Pressable,
   ScrollView,
@@ -36,7 +35,8 @@ import { friendlyError } from '../format';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 import type { CustomerAddress, SupportedCity } from '../types';
 import { CURRENT_YEAR } from '../utils/calendar';
-import { KEYBOARD_AVOIDING_BEHAVIOR } from '../layout/safe-layout';
+import { safeBottom } from '../layout/safe-layout';
+import { KeyboardAvoider } from '../components/KeyboardAvoider';
 
 // ─── Draft ─────────────────────────────────────────────────────────────────
 const DRAFT_KEY = 'vmotiv.v2.sell-draft';
@@ -783,8 +783,7 @@ export function SellScreen() {
   // ── Wizard ────────────────────────────────────────────────────────────────
   return (
     <SafeAreaView style={[styles.container, { backgroundColor: c.background }]} edges={['top', 'left', 'right']}>
-      <KeyboardAvoidingView
-        behavior={KEYBOARD_AVOIDING_BEHAVIOR}
+      <KeyboardAvoider
         keyboardVerticalOffset={Platform.OS === 'ios' ? 12 : 0}
         style={{ flex: 1 }}
       >
@@ -814,7 +813,7 @@ export function SellScreen() {
           ref={scrollRef}
           contentContainerStyle={[
             styles.content,
-            { paddingBottom: Math.max(insets.bottom, space.md) + 80 },
+            { paddingBottom: safeBottom(insets.bottom, space.md) + 80 },
           ]}
           keyboardShouldPersistTaps="handled"
           keyboardDismissMode="on-drag"
@@ -1848,7 +1847,7 @@ export function SellScreen() {
             </TouchableOpacity>
           </View>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </KeyboardAvoider>
     </SafeAreaView>
   );
 }

@@ -40,6 +40,7 @@ import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import { formatPaise } from '../format';
 import type { RootStack } from '../navigation/types';
 import type { VehicleSummary } from '../types';
+import { safeBottom } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'Vehicle'>;
 
@@ -163,7 +164,7 @@ export function VehicleScreen({ route, navigation }: Props) {
       <ScrollView
         contentContainerStyle={[
           styles.content,
-          { paddingBottom: Math.max(insets.bottom, space.md) + 84 },
+          { paddingBottom: safeBottom(insets.bottom, space.md) + 84 },
         ]}
         showsVerticalScrollIndicator={false}
       >
@@ -463,7 +464,7 @@ export function VehicleScreen({ route, navigation }: Props) {
         style={[
           styles.bottomBar,
           {
-            paddingBottom: Math.max(insets.bottom, space.md),
+            paddingBottom: safeBottom(insets.bottom, space.md),
           },
         ]}
       >
