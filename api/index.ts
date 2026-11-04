@@ -1,6 +1,16 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 
+// This function hands the native Node request to Express, which owns JSON
+// parsing (including the 50 MB media-upload limit) in services/api/src/app.ts.
+// Leaving Vercel's parser enabled can consume the stream before Express sees it,
+// resulting in req.body being undefined for every JSON mutation.
+export const config = {
+  api: {
+    bodyParser: false,
+  },
+};
+
 function preparePrismaEnvironment() {
   const cwd = process.cwd();
 
