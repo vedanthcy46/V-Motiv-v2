@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Platform, StatusBar as NativeStatusBar, View } from 'react-native';
 import { NavigationContainer, DarkTheme, DefaultTheme, type LinkingOptions } from '@react-navigation/native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
@@ -6,6 +6,9 @@ import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from './src/auth/AuthProvider';
 import { CustomerNavigator } from './src/navigation/CustomerNavigator';
 import { InspectorScreen } from './src/screens/InspectorScreen';
+import { InspectorMfaEnrollmentScreen } from './src/screens/InspectorMfaEnrollmentScreen';
+import { inspectorNeedsMfaEnrollment } from './src/auth/mfa-enrollment';
+import { readEnrolledFactorCount } from './src/auth/mfa-enrollment-service';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { ThemeProvider, useAppTheme } from './src/theme';
 import { BrandRevealScreen } from './src/components/BrandRevealScreen';
@@ -33,6 +36,21 @@ const linking: LinkingOptions<RootStack> = {
 function Root() {
   const { state, profile, isInspector, activeMode } = useAuth();
   const { theme } = useAppTheme();
+  // How many second factors the signed-in inspector has (null = not checked / unknown, which never blocks).
+  const [enrolledFactorCount, setEnrolledFactorCount] = useState<number | null>(null);
+  useEffect(() => {
+    let active = true;
+    if (state === 'signed-in' && isInspector) {
+      void readEnrolledFactorCount().then(count => {
+        if (active) setEnrolledFactorCount(count);
+      });
+    } else {
+      setEnrolledFactorCount(null);
+    }
+    return () => {
+      active = false;
+    };
+  }, [state, isInspector]);
 
   if (state === 'booting') {
     return (
@@ -40,6 +58,11 @@ function Root() {
         <ActivityIndicator accessibilityLabel="Restoring account" color={theme.colors.brandAccent} />
       </View>
     );
+  }
+
+  // First login of a field inspector: a phone second factor must be added before anything else.
+  if (inspectorNeedsMfaEnrollment({ signedIn: state === 'signed-in', isInspector, enrolledFactorCount })) {
+    return <InspectorMfaEnrollmentScreen />;
   }
 
   // If authenticated as an Inspector and in inspector mode, redirect to Inspector Portal

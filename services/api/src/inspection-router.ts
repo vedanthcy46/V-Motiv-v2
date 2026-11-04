@@ -1,5 +1,6 @@
 import express, { Router } from 'express';
 import { z } from 'zod';
+import { inspectorMfaGuard } from './inspector-mfa.js';
 import { authentication, type Identity, type VerifyToken } from './auth.js';
 import { PrismaInspectionStore } from './inspection-store.js';
 
@@ -173,6 +174,8 @@ function secured(store: PrismaInspectionStore, verify: VerifyToken) {
 
 export function createInspectorRouter(deps: { verify: VerifyToken; store: PrismaInspectionStore }) {
   const router = secured(deps.store, deps.verify);
+  // Second factor is mandatory for inspector sessions (see inspector-mfa.ts).
+  router.use(inspectorMfaGuard());
 
   router.get('/me', (_req, res) => res.json(res.locals.inspectionActor));
 
