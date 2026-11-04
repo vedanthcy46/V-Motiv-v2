@@ -62,6 +62,9 @@ export type CommunicationsOutboxQuery = { page: number; limit: number; state?: s
 export type PrivacyRequestListQuery = { page: number; limit: number; status?: string };
 export type CreateExportJobInput = { resourceType: string; scope?: string; filter?: Record<string, unknown>; format?: string; sensitive?: boolean; reason?: string };
 
+/** null clears the hub value so vehicles fall back to their own km settings. */
+export type RentalKmPolicyInput = { includedKmPerDay?: number | null; extraKmRatePaise?: number | null };
+
 export interface AdminStore {
   actor(uid: string): Promise<AdminActor>;
   touchAccess(userId: string, mfaCompliant: boolean): Promise<void>;
@@ -71,6 +74,8 @@ export interface AdminStore {
   manageBranches(actor: AdminActor): Promise<unknown[]>;
   createBranch(actor: AdminActor, input: { code: string; name: string; city: string; address?: string; supportsService?: boolean; supportsRentals?: boolean }): Promise<unknown>;
   updateBranch(actor: AdminActor, id: string, input: { name?: string; city?: string; address?: string | null; active?: boolean; supportsService?: boolean; supportsRentals?: boolean }): Promise<unknown>;
+  rentalKmPolicies(actor: AdminActor): Promise<unknown[]>;
+  updateRentalKmPolicy(actor: AdminActor, hubId: string, input: RentalKmPolicyInput): Promise<unknown>;
   serviceAreas(actor: AdminActor): Promise<unknown[]>;
   createServiceArea(actor: AdminActor, name: string): Promise<unknown>;
   updateServiceArea(actor: AdminActor, id: string, active: boolean): Promise<unknown>;
@@ -268,6 +273,73 @@ export class PrismaAdminStore implements AdminStore {
       }).catch(() => undefined);
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'BRANCH_CREATED', entityType: 'Branch', entityId: branch.id, details: { code: branch.code, city: branch.city, supportsService, supportsRentals } } });
       return branch;
+    });
+  }
+
+  /** Rental hubs with their administrator-set free km per day and excess km charge. */
+  async rentalKmPolicies(actor: AdminActor) {
+    requirePermission(actor, 'branch.manage');
+    const hubs = await this.db.serviceHub.findMany({
+      where: {
+        supportsRentals: true,
+        ...(actor.roles.includes('SUPER_ADMIN') ? {} : { branchId: { in: actor.branches.map(branch => branch.id) } }),
+      },
+      orderBy: [{ city: 'asc' }, { name: 'asc' }],
+      select: {
+        id: true, code: true, name: true, city: true, isActive: true,
+        rentalIncludedKmPerDay: true, rentalExtraKmRatePaise: true,
+        _count: { select: { rentalVehicles: true } },
+      },
+    });
+    return hubs.map(hub => ({
+      id: hub.id,
+      code: hub.code,
+      name: hub.name,
+      city: hub.city,
+      isActive: hub.isActive,
+      includedKmPerDay: hub.rentalIncludedKmPerDay,
+      extraKmRatePaise: hub.rentalExtraKmRatePaise === null ? null : hub.rentalExtraKmRatePaise.toString(),
+      vehicleCount: hub._count.rentalVehicles,
+    }));
+  }
+
+  async updateRentalKmPolicy(actor: AdminActor, hubId: string, input: RentalKmPolicyInput) {
+    requirePermission(actor, 'branch.manage');
+    return this.db.$transaction(async tx => {
+      const hub = await tx.serviceHub.findUnique({ where: { id: hubId } });
+      if (!hub) throw new HttpError(404, 'HUB_NOT_FOUND');
+      if (!actor.roles.includes('SUPER_ADMIN') && !(hub.branchId && actor.branches.some(branch => branch.id === hub.branchId))) {
+        throw new HttpError(403, 'BRANCH_SCOPE_DENIED');
+      }
+      const updated = await tx.serviceHub.update({
+        where: { id: hubId },
+        data: {
+          ...(input.includedKmPerDay !== undefined ? { rentalIncludedKmPerDay: input.includedKmPerDay } : {}),
+          ...(input.extraKmRatePaise !== undefined ? { rentalExtraKmRatePaise: input.extraKmRatePaise === null ? null : BigInt(input.extraKmRatePaise) } : {}),
+        },
+        select: { id: true, code: true, name: true, city: true, rentalIncludedKmPerDay: true, rentalExtraKmRatePaise: true },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'RENTAL_KM_POLICY_UPDATED',
+          entityType: 'ServiceHub',
+          entityId: hubId,
+          details: {
+            before: { includedKmPerDay: hub.rentalIncludedKmPerDay, extraKmRatePaise: hub.rentalExtraKmRatePaise?.toString() ?? null },
+            after: { includedKmPerDay: updated.rentalIncludedKmPerDay, extraKmRatePaise: updated.rentalExtraKmRatePaise?.toString() ?? null },
+          },
+        },
+      });
+      return {
+        id: updated.id,
+        code: updated.code,
+        name: updated.name,
+        city: updated.city,
+        includedKmPerDay: updated.rentalIncludedKmPerDay,
+        extraKmRatePaise: updated.rentalExtraKmRatePaise === null ? null : updated.rentalExtraKmRatePaise.toString(),
+        note: 'Applies to new quotes immediately. Existing bookings keep the km terms they were booked with.',
+      };
     });
   }
 

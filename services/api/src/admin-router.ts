@@ -38,6 +38,11 @@ const branchUpdateInput = z.object({
   supportsService: z.boolean().optional(),
   supportsRentals: z.boolean().optional(),
 }).strict().refine(value => Object.keys(value).length > 0);
+const rentalKmPolicyInput = z.object({
+  // Free kilometres included per rental day, and the charge per extra km in paise. null clears the hub value.
+  includedKmPerDay: z.number().int().min(1).max(1000).nullable().optional(),
+  extraKmRatePaise: z.number().int().min(100).max(100000).nullable().optional(),
+}).strict().refine(value => Object.keys(value).length > 0);
 const serviceAreaCreateInput = z.object({ name: z.string().trim().min(2).max(120) }).strict();
 const serviceAreaUpdateInput = z.object({ active: z.boolean() }).strict();
 const supportQuery = pagination.extend({ status: z.enum(['OPEN', 'IN_PROGRESS', 'RESOLVED', 'CLOSED']).optional(), search: z.string().trim().max(120).optional() });
@@ -168,6 +173,8 @@ export function createAdminRouter(deps: {
   router.get('/admin/branches/manage', async (_req, res) => res.json(await deps.store.manageBranches(res.locals.adminActor as AdminActor)));
   router.post('/admin/branches', async (req, res) => res.status(201).json(await deps.store.createBranch(res.locals.adminActor as AdminActor, parse(branchCreateInput, req.body))));
   router.patch('/admin/branches/:id', async (req, res) => res.json(await deps.store.updateBranch(res.locals.adminActor as AdminActor, parse(uuid, req.params.id), parse(branchUpdateInput, req.body))));
+  router.get('/admin/rental-km-policies', async (_req, res) => res.json(await deps.store.rentalKmPolicies(res.locals.adminActor as AdminActor)));
+  router.patch('/admin/rental-km-policies/:hubId', async (req, res) => res.json(await deps.store.updateRentalKmPolicy(res.locals.adminActor as AdminActor, parse(uuid, req.params.hubId), parse(rentalKmPolicyInput, req.body))));
   router.get('/admin/service-areas', async (_req, res) => res.json(await deps.store.serviceAreas(res.locals.adminActor as AdminActor)));
   router.post('/admin/service-areas', async (req, res) => res.status(201).json(await deps.store.createServiceArea(res.locals.adminActor as AdminActor, parse(serviceAreaCreateInput, req.body).name)));
   router.patch('/admin/service-areas/:id', async (req, res) => res.json(await deps.store.updateServiceArea(res.locals.adminActor as AdminActor, parse(uuid, req.params.id), parse(serviceAreaUpdateInput, req.body).active)));

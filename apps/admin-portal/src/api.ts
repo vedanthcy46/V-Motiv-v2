@@ -1,5 +1,6 @@
 import type { User } from 'firebase/auth';
 import type {
+  RentalKmPolicy,
   AdminActor,
   ApprovalPage,
   AuditPage,
@@ -68,6 +69,9 @@ export const adminApi = {
   managedBranches: (user: User) => call<ManagedBranch[]>(user, '/admin/branches/manage'),
   createBranch: (user: User, input: { code: string; name: string; city: string; address?: string; supportsService?: boolean; supportsRentals?: boolean }) => call<ManagedBranch>(user, '/admin/branches', { method: 'POST', body: JSON.stringify(input) }),
   updateBranch: (user: User, id: string, input: { name?: string; city?: string; address?: string | null; active?: boolean; supportsService?: boolean; supportsRentals?: boolean }) => call<ManagedBranch>(user, `/admin/branches/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
+  rentalKmPolicies: (user: User) => call<RentalKmPolicy[]>(user, '/admin/rental-km-policies'),
+  updateRentalKmPolicy: (user: User, hubId: string, input: { includedKmPerDay?: number | null; extraKmRatePaise?: number | null }) =>
+    call<RentalKmPolicy & { note: string }>(user, `/admin/rental-km-policies/${hubId}`, { method: 'PATCH', body: JSON.stringify(input) }),
   serviceAreas: (user: User) => call<ServiceArea[]>(user, '/admin/service-areas'),
   createServiceArea: (user: User, name: string) => call<ServiceArea>(user, '/admin/service-areas', { method: 'POST', body: JSON.stringify({ name }) }),
   updateServiceArea: (user: User, id: string, active: boolean) => call<ServiceArea>(user, `/admin/service-areas/${id}`, { method: 'PATCH', body: JSON.stringify({ active }) }),

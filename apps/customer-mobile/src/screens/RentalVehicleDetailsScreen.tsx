@@ -319,7 +319,7 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
               <View style={{ flex: 1 }}>
                 <Text style={[styles.policyHeading, { color: colors.textPrimary }]}>Kilometer Allowance</Text>
                 <Text style={[styles.policyDesc, { color: colors.textSecondary }]}>
-                  {quote?.includedKm || 250} km included. Additional driving is charged at ₹
+                  {quote?.includedKm ?? vehicle.includedKmPerDay} km included ({vehicle.includedKmPerDay} km per day). Additional driving is charged at ₹
                   {Math.round(Number(vehicle.extraKmRatePaise) / 100)}/km upon return.
                 </Text>
               </View>

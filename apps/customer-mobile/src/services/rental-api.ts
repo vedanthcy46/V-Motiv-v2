@@ -11,6 +11,8 @@ export interface RentalHub {
   operatingHours: string;
   phone?: string | null;
   isActive: boolean;
+  /** Administrator-set km policy for this hub; null when each car carries its own allowance. */
+  kmPolicy?: { includedKmPerDay: number | null; extraKmRatePaise: string | null } | null;
 }
 
 export interface RentalQuote {

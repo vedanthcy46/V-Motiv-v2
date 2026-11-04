@@ -3,6 +3,7 @@ import { HttpError } from './errors.js';
 import { assertGatewayPaymentSignature } from './payment-signature.js';
 import { assertCapturedAmount } from './razorpay-gateway.js';
 import { computeAvailability, type RentalAvailability } from './rental-availability.js';
+import { resolveKmPolicy, type KmPolicyHub } from './rental-km-policy.js';
 import type { NotificationService } from './notification/notification-service.js';
 import crypto from 'node:crypto';
 import { currentCalendarYear } from './calendar.js';
@@ -181,10 +182,13 @@ export class PrismaRentalStore {
       securityDepositPaise: bigint;
       includedKmPerDay: number;
       extraKmRatePaise: bigint;
+      /** When the vehicle's hub is loaded, the hub's km policy (set by an administrator) wins. */
+      hub?: KmPolicyHub | null;
     },
     startTime: Date,
     endTime: Date
   ): QuoteBreakdown {
+    const km = resolveKmPolicy(vehicle, vehicle.hub);
     const durationMs = endTime.getTime() - startTime.getTime();
     const totalHours = Math.ceil(durationMs / (1000 * 60 * 60));
     const billableDays = Math.floor(totalHours / 24);
@@ -201,7 +205,7 @@ export class PrismaRentalStore {
     const totalPayablePaise = baseFarePaise + taxPaise + securityDepositPaise;
 
     const daysCount = billableDays > 0 ? (remainderHours > 0 ? billableDays + 1 : billableDays) : 1;
-    const includedKm = daysCount * vehicle.includedKmPerDay;
+    const includedKm = daysCount * km.includedKmPerDay;
 
     const validUntil = new Date(Date.now() + 15 * 60 * 1000); // 15 mins
 
@@ -217,7 +221,7 @@ export class PrismaRentalStore {
       securityDepositPaise,
       totalPayablePaise,
       includedKm,
-      extraKmRatePaise: vehicle.extraKmRatePaise,
+      extraKmRatePaise: km.extraKmRatePaise,
       termsVersion: 'VMR-TERMS-V2026.1',
       validUntil,
       quoteVersion: 1,
@@ -319,6 +323,7 @@ export class PrismaRentalStore {
         bookings: undefined,
         quote: this.calculateQuote(v, start, end),
         availability,
+        ...this.effectiveKmFields(v),
       }));
   }
 
@@ -372,6 +377,16 @@ export class PrismaRentalStore {
       );
     }
     return result;
+  }
+
+  /** The km allowance and excess rate customers and staff should see for this vehicle (hub policy first). */
+  private effectiveKmFields(v: { includedKmPerDay: number; extraKmRatePaise: bigint; hub?: KmPolicyHub | null }) {
+    const km = resolveKmPolicy(v, v.hub);
+    return {
+      includedKmPerDay: km.includedKmPerDay,
+      extraKmRatePaise: km.extraKmRatePaise,
+      kmPolicySource: km.source,
+    };
   }
 
   /** Availability of one vehicle (with its blocks/holds/bookings loaded) for a requested interval. */
@@ -449,7 +464,7 @@ export class PrismaRentalStore {
     }
 
     const { blocks: _blocks, holds: _holds, bookings: _bookings, ...publicVehicle } = vehicle;
-    return { ...publicVehicle, quote, availability };
+    return { ...publicVehicle, quote, availability, ...this.effectiveKmFields(vehicle) };
   }
 
   /**
@@ -2216,7 +2231,7 @@ export class PrismaRentalStore {
         staleMaintenanceVehicleIds.push(v.id);
       }
 
-      return { ...v, status: effectiveStatus, activeBlock };
+      return { ...v, status: effectiveStatus, activeBlock, ...this.effectiveKmFields(v) };
     });
 
     // Auto-heal database records that were permanently stuck in MAINTENANCE
@@ -2820,8 +2835,9 @@ export class PrismaRentalStore {
     const taxPaise = (baseFarePaise * 18n) / 100n;
     const securityDepositPaise = BigInt(vehicle.securityDepositPaise);
     const totalPayablePaise = baseFarePaise + taxPaise + securityDepositPaise;
-    const includedKm = vehicle.includedKmPerDay * days;
-    const extraKmRatePaise = BigInt(vehicle.extraKmRatePaise);
+    const walkInKm = resolveKmPolicy(vehicle, vehicle.hub);
+    const includedKm = walkInKm.includedKmPerDay * days;
+    const extraKmRatePaise = walkInKm.extraKmRatePaise;
 
     return await this.db.$transaction(async tx => {
       const count = await tx.rentalBooking.count();

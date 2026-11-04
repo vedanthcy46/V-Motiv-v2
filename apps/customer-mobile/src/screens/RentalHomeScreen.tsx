@@ -43,6 +43,7 @@ import {
   type RentalHub,
   type RentalBookingDetails,
 } from '../services/rental-api';
+import { kmPackageSummary } from '../services/rental-km';
 import { BrandLogo } from '../components/BrandLogo';
 import { safeBottom } from '../layout/safe-layout';
 
@@ -501,7 +502,7 @@ export function RentalHomeScreen({ navigation }: Props) {
                 {rentalDays} {rentalDays === 1 ? 'Day' : 'Days'} of Rental
               </Text>
               <Text style={[styles.stepperSub, { color: colors.brandAccent }]}>
-                Includes {rentalDays * 250} km package (250 km/day)
+                {kmPackageSummary(selectedHub?.kmPolicy, rentalDays)}
               </Text>
             </View>
 
@@ -746,7 +747,7 @@ export function RentalHomeScreen({ navigation }: Props) {
               <View>
                 <Text style={[styles.modalTitle, { color: colors.textPrimary }]}>Choose Rental Dates & Times</Text>
                 <Text style={[styles.modalSubtitle, { color: colors.textSecondary }]}>
-                  {durationLabel} · {rentalDays * 250} km included
+                  {durationLabel}{selectedHub?.kmPolicy?.includedKmPerDay ? ` · ${rentalDays * selectedHub.kmPolicy.includedKmPerDay} km included` : ''}
                 </Text>
               </View>
               <Pressable

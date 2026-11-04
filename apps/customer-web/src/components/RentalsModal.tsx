@@ -56,7 +56,7 @@ export const RentalsModal: React.FC<RentalsModalProps> = ({
       seats: 5,
       transmission: 'Manual / Automatic',
       fuel: 'Petrol',
-      features: ['250 km/day included', 'Touchscreen infotainment & CarPlay', 'Reverse camera with guidelines', 'Dual front airbags & ABS'],
+      features: ['Free km per day set by hub, shown at booking', 'Touchscreen infotainment & CarPlay', 'Reverse camera with guidelines', 'Dual front airbags & ABS'],
     },
     {
       id: 'COMPACT_SUV',
@@ -67,7 +67,7 @@ export const RentalsModal: React.FC<RentalsModalProps> = ({
       seats: 5,
       transmission: 'Automatic / Manual',
       fuel: 'Petrol / Diesel',
-      features: ['250 km/day included', 'High ground clearance & cruise control', 'Panoramic sunroof (select variants)', 'Wireless phone charging & LED headlamps'],
+      features: ['Free km per day set by hub, shown at booking', 'High ground clearance & cruise control', 'Panoramic sunroof (select variants)', 'Wireless phone charging & LED headlamps'],
     },
     {
       id: 'EXECUTIVE_SEDAN',
@@ -78,7 +78,7 @@ export const RentalsModal: React.FC<RentalsModalProps> = ({
       seats: 5,
       transmission: 'Automatic (CVT / DCT)',
       fuel: 'Petrol',
-      features: ['250 km/day included', 'Class-leading rear seat legroom', '510L large boot for outstation luggage', 'ADAS Level 2 active safety'],
+      features: ['Free km per day set by hub, shown at booking', 'Class-leading rear seat legroom', '510L large boot for outstation luggage', 'ADAS Level 2 active safety'],
     },
     {
       id: 'PREMIUM_SUV_MPV',
@@ -89,7 +89,7 @@ export const RentalsModal: React.FC<RentalsModalProps> = ({
       seats: 7,
       transmission: 'Automatic / Manual',
       fuel: 'Diesel / Petrol',
-      features: ['250 km/day included', 'Captain seats with dual-zone AC', 'Rugged performance for hills & highways', 'Electronic stability & 6 airbags standard'],
+      features: ['Free km per day set by hub, shown at booking', 'Captain seats with dual-zone AC', 'Rugged performance for hills & highways', 'Electronic stability & 6 airbags standard'],
     },
   ];
 
@@ -161,7 +161,7 @@ export const RentalsModal: React.FC<RentalsModalProps> = ({
           <span className="modal-kicker">V MOTIV SELF-DRIVE FLEET</span>
           <h2 id="rentals-modal-title">Premium Self-Drive Car Rentals</h2>
           <p className="modal-subtitle">
-            Impeccably maintained fleet, transparent pricing, 250 km/day included, comprehensive commercial insurance, and instant 100% deposit refund.
+            Impeccably maintained fleet, transparent pricing, hub-specific free kilometres, comprehensive commercial insurance, and instant 100% deposit refund.
           </p>
 
           <div className="service-tab-switch">

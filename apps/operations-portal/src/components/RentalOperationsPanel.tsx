@@ -1269,7 +1269,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               ) : (
                 filteredFleet.map(veh => {
                   const isPublished = veh.isEligibleForRental !== false && veh.status === 'AVAILABLE';
-                  const includedKm = veh.includedKmPerDay ?? veh.includedDailyKm ?? 250;
+                  const includedKm = veh.includedKmPerDay ?? veh.includedDailyKm ?? 0;
                   return (
                     <tr key={veh.id}>
                       <td>
@@ -1326,7 +1326,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       </td>
                       <td>
                         <div>{veh.transmission} · {veh.fuelType}</div>
-                        <small style={{ color: 'var(--muted)' }}>{veh.seats} Seats · {includedKm} km/day</small>
+                        <small style={{ color: 'var(--muted)' }}>{veh.seats} Seats · {includedKm} km/day · ₹{Math.round(Number(veh.extraKmRatePaise || 0) / 100)}/extra km</small>
+                        {veh.kmPolicySource?.includedKm === 'HUB' || veh.kmPolicySource?.extraKmRate === 'HUB' ? (
+                          <small style={{ display: 'block', color: '#34d399', fontSize: '0.65rem' }} title="Set by an administrator for this hub in the Admin portal">Hub policy</small>
+                        ) : null}
                       </td>
                       <td className="money" style={{ color: 'var(--accent)', fontWeight: 700 }}>
                         {formatRupees(veh.baseDailyRatePaise)}/day
@@ -2446,7 +2449,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Included Daily Km *</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Included Daily Km * <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(used only if the hub has no policy)</span></label>
                       <input
                         type="number"
                         className="input"
@@ -2458,7 +2461,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Extra Km Rate (₹/km) *</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Extra Km Rate (₹/km) * <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(used only if the hub has no policy)</span></label>
                       <input
                         type="number"
                         className="input"

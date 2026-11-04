@@ -237,3 +237,16 @@ export type ExportJobPage = {
   total: number;
   items: ExportJob[];
 };
+
+export type RentalKmPolicy = {
+  id: string;
+  code: string;
+  name: string;
+  city: string;
+  isActive: boolean;
+  /** Free km included per rental day; null = hub has no policy (vehicles use their own value). */
+  includedKmPerDay: number | null;
+  /** Excess-km charge in paise per km; null = hub has no policy. */
+  extraKmRatePaise: string | null;
+  vehicleCount: number;
+};

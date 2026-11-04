@@ -2271,6 +2271,9 @@ model ServiceHub {
   pickupRadiusKm Float @default(25.0)
   pickupFeePaise BigInt @default(49900)
   diagnosticFeePaise BigInt @default(79900)
+  // Rental km policy set by an administrator for this hub/location. Null = fall back to the vehicle's own values.
+  rentalIncludedKmPerDay Int?
+  rentalExtraKmRatePaise BigInt?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 

@@ -626,6 +626,8 @@ export type RentalFleetItem = {
   } | null;
   /** Present only when the fleet was requested for an interval. */
   availability?: RentalFleetAvailability | null;
+  /** Where the km allowance / excess rate shown for this car come from (hub policy wins). */
+  kmPolicySource?: { includedKm: 'HUB' | 'VEHICLE'; extraKmRate: 'HUB' | 'VEHICLE' };
 };
 
 export type RentalBookingItem = {

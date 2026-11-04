@@ -261,14 +261,33 @@ export function createRentalCustomerRouter(deps: {
       // Select only the stable hub fields. This keeps the public booking surface
       // available while a production database is receiving the rentals migration
       // that adds ServiceHub.supportsRentals.
-      const hubs = await deps.db.serviceHub.findMany({
-        where: {
-          isActive: true,
-        },
-        select: { id: true, name: true, city: true, address: true, code: true, isActive: true },
-        orderBy: { city: 'asc' },
-      });
-      res.json(hubs.map(hub => ({ ...hub, supportsRentals: true })));
+      const stable = { id: true, name: true, city: true, address: true, code: true, isActive: true } as const;
+      let hubs: Array<Record<string, any>>;
+      try {
+        // Includes the administrator-set km policy (free km per day, excess-km rate) for this hub.
+        hubs = await deps.db.serviceHub.findMany({
+          where: { isActive: true },
+          select: { ...stable, rentalIncludedKmPerDay: true, rentalExtraKmRatePaise: true },
+          orderBy: { city: 'asc' },
+        });
+      } catch {
+        // Database not yet migrated with the km policy columns: serve the stable fields only.
+        hubs = await deps.db.serviceHub.findMany({ where: { isActive: true }, select: stable, orderBy: { city: 'asc' } });
+      }
+      res.json(
+        hubs.map(({ rentalIncludedKmPerDay, rentalExtraKmRatePaise, ...hub }) => ({
+          ...hub,
+          supportsRentals: true,
+          // null = no hub policy: free km per day is then set on each car and shown on its card.
+          kmPolicy:
+            rentalIncludedKmPerDay || rentalExtraKmRatePaise
+              ? {
+                  includedKmPerDay: rentalIncludedKmPerDay ?? null,
+                  extraKmRatePaise: rentalExtraKmRatePaise === null || rentalExtraKmRatePaise === undefined ? null : String(rentalExtraKmRatePaise),
+                }
+              : null,
+        })),
+      );
     } catch (e) {
       next(e);
     }

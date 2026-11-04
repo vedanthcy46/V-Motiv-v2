@@ -356,20 +356,30 @@ describe('V MOTIV V2 — Advance Car Rental Platform API Suite', () => {
   // -------------------------------------------------------------
   // 2. Hubs & Vehicle Details
   // -------------------------------------------------------------
-  it('2a. GET /api/v2/rentals/hubs reads only backwards-compatible hub fields', async () => {
+  it('2a. GET /api/v2/rentals/hubs returns the administrator km policy and stays compatible with an unmigrated database', async () => {
     const { app, mockDb } = setupApp('CUSTOMER');
+    const stable = { id: true, name: true, city: true, address: true, code: true, isActive: true };
 
-    const res = await request(app)
-      .get('/api/v2/rentals/hubs')
-      .expect(200);
-
-    expect(res.body).toEqual(expect.arrayContaining([
-      expect.objectContaining({ id: HUB_ID, name: 'Indiranagar Hub', supportsRentals: true }),
-    ]));
-    expect(mockDb.serviceHub.findMany).toHaveBeenCalledWith(expect.objectContaining({
+    // Migrated database: km policy columns are read and exposed as kmPolicy.
+    mockDb.serviceHub.findMany.mockResolvedValueOnce([
+      { id: HUB_ID, name: 'Indiranagar Hub', city: 'Bengaluru', address: 'x', code: 'BLR', isActive: true, rentalIncludedKmPerDay: 300, rentalExtraKmRatePaise: 1500n },
+      { id: 'hub-2', name: 'No Policy Hub', city: 'Mysuru', address: 'y', code: 'MYS', isActive: true, rentalIncludedKmPerDay: null, rentalExtraKmRatePaise: null },
+    ]);
+    const res = await request(app).get('/api/v2/rentals/hubs').expect(200);
+    expect(res.body[0]).toMatchObject({ id: HUB_ID, supportsRentals: true, kmPolicy: { includedKmPerDay: 300, extraKmRatePaise: '1500' } });
+    expect(res.body[1].kmPolicy).toBeNull();
+    expect(mockDb.serviceHub.findMany).toHaveBeenLastCalledWith(expect.objectContaining({
       where: { isActive: true },
-      select: { id: true, name: true, city: true, address: true, code: true, isActive: true },
+      select: { ...stable, rentalIncludedKmPerDay: true, rentalExtraKmRatePaise: true },
     }));
+
+    // Database that has not run the km migration yet: fall back to the stable fields only.
+    mockDb.serviceHub.findMany
+      .mockRejectedValueOnce(new Error('column does not exist'))
+      .mockResolvedValueOnce([{ id: HUB_ID, name: 'Indiranagar Hub', city: 'Bengaluru', address: 'x', code: 'BLR', isActive: true }]);
+    const legacy = await request(app).get('/api/v2/rentals/hubs').expect(200);
+    expect(legacy.body[0]).toMatchObject({ id: HUB_ID, supportsRentals: true, kmPolicy: null });
+    expect(mockDb.serviceHub.findMany).toHaveBeenLastCalledWith(expect.objectContaining({ select: stable }));
   });
 
   it('2. GET /api/v2/rentals/vehicles/:id returns vehicle specs and dynamic quote', async () => {

@@ -219,7 +219,7 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
   const pickupOdo = Number(booking.trip?.pickupOdometerKm ?? 0);
   const returnOdo = Number(booking.trip?.returnOdometerKm ?? 0);
   const totalDistanceKm = returnOdo > pickupOdo ? returnOdo - pickupOdo : 0;
-  const freeAllowanceKm = booking.includedKm || (booking.pricingSnapshot?.includedKm ?? 250);
+  const freeAllowanceKm = booking.includedKm || (booking.pricingSnapshot?.includedKm ?? 0);
   const excessKm = booking.trip?.excessKm ?? Math.max(0, totalDistanceKm - freeAllowanceKm);
 
   const securityDeposit = Math.round(Number(booking.securityDepositPaise || 0) / 100);

@@ -299,7 +299,7 @@ export function RentalSearchResultsScreen({ route, navigation }: Props) {
                         { color: isDark ? colors.textPrimary : colors.brandNavy },
                       ]}
                     >
-                      {item.quote?.includedKm || 250} km included · Extra km ₹{Math.round(Number(item.extraKmRatePaise) / 100)}/km
+                      {item.quote?.includedKm ?? item.includedKmPerDay} km included ({item.includedKmPerDay} km/day) · Extra km ₹{Math.round(Number(item.extraKmRatePaise) / 100)}/km
                     </Text>
                   </View>
 

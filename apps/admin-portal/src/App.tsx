@@ -19,6 +19,7 @@ import {
 import { adminApi, ApiError } from './api.js';
 import { auth, firebaseConfigured } from './firebase.js';
 import type {
+  RentalKmPolicy,
   AdminActor,
   Approval,
   ApprovalPage,
@@ -972,7 +973,7 @@ function Shell({ actor, user, route, onLogout }: { actor: AdminActor; user: User
           {route === '/master-data' && <MasterDataPage user={user} actor={actor}/>}
           {route === '/communications' && <CommunicationsPage user={user} actor={actor}/>}
           {route === '/reports' && <ReportsPage user={user} actor={actor}/>}
-          {route === '/branches' && <><BranchesPage user={user} actor={actor}/><PoliciesPanel user={user} actor={actor}/></>}
+          {route === '/branches' && <><BranchesPage user={user} actor={actor}/>{actor.permissions.includes('branch.manage') && <RentalKmPolicyPanel user={user} actor={actor}/>}<PoliciesPanel user={user} actor={actor}/></>}
           {route === '/audit' && <AuditPageView user={user}/>}
           {route === '/not-found' && <NotFound/>}
         </main>
@@ -3345,6 +3346,71 @@ function ApprovalDialog({ user, actor, approval, onClose, onDone }: { user: User
 
 function AuditPageView({ user }: { user: User }) { const [data, setData] = useState<AuditPage | null>(null); const [error, setError] = useState(''); const [page, setPage] = useState(1); useEffect(() => { adminApi.audit(user, page).then(setData).catch(error => setError(errorMessage(error))); }, [user, page]); return <><PageHeader eyebrow="Append-only history" title="Audit" description="Authorization-filtered security and governance events. Audit records cannot be edited from this portal."/>{error ? <ErrorState message={error}/> : !data ? <TableSkeleton/> : <section className="panel table-panel">{data.items.length ? <div className="table-scroll"><table><thead><tr><th>Time</th><th>Action</th><th>Target</th><th>Outcome</th></tr></thead><tbody>{data.items.map(event => <tr key={event.id}><td><time>{new Date(event.createdAt).toLocaleString()}</time></td><td><strong>{humanize(event.action)}</strong></td><td><span>{event.entityType}</span><small>{event.entityId}</small></td><td><StatusBadge value={event.outcome}/></td></tr>)}</tbody></table></div> : <EmptyState title="No audit events" text="No events are visible within your authorized scope."/>}<Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/></section>}</>; }
 function SystemHealthPanel({ user }: { user: User }) { const [data, setData] = useState<SystemHealth | null>(null); const [error, setError] = useState(''); useEffect(() => { adminApi.systemHealth(user).then(setData).catch(error => setError(errorMessage(error))); }, [user]); return <section className="panel"><div className="panel-heading"><div><h2>System health</h2><p>Safe operational diagnostics; no credentials or recipient data.</p></div></div>{error ? <ErrorState message={error}/> : !data ? <TableSkeleton/> : <><ul className="event-list">{data.services.map(service => <li key={service.key}><div><strong>{humanize(service.key)}</strong><span>{service.detail}</span></div><StatusBadge value={service.status}/></li>)}</ul><p className="helper">Outbox: {Object.entries(data.emailOutbox).map(([state, count]) => `${humanize(state)} ${count}`).join(' · ') || 'No queued messages'}</p></>}</section>; }
+function RentalKmPolicyPanel({ user, actor }: { user: User; actor: AdminActor }) {
+  const [hubs, setHubs] = useState<RentalKmPolicy[] | null>(null);
+  const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+  const [drafts, setDrafts] = useState<Record<string, { km: string; rate: string }>>({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [message, setMessage] = useState('');
+  const canManage = actor.permissions.includes('branch.manage');
+
+  useEffect(() => {
+    adminApi.rentalKmPolicies(user)
+      .then(items => {
+        setHubs(items);
+        setDrafts(Object.fromEntries(items.map(hub => [hub.id, {
+          km: hub.includedKmPerDay === null ? '' : String(hub.includedKmPerDay),
+          rate: hub.extraKmRatePaise === null ? '' : String(Number(hub.extraKmRatePaise) / 100),
+        }])));
+      })
+      .catch(err => setError(errorMessage(err)));
+  }, [user, reload]);
+
+  async function save(hub: RentalKmPolicy, clear: boolean) {
+    const draft = drafts[hub.id] ?? { km: '', rate: '' };
+    const km = clear || draft.km.trim() === '' ? null : Number(draft.km);
+    const rateRupees = clear || draft.rate.trim() === '' ? null : Number(draft.rate);
+    if (km !== null && (!Number.isInteger(km) || km < 1 || km > 1000)) { setError('Free km per day must be a whole number between 1 and 1000.'); return; }
+    if (rateRupees !== null && (!(rateRupees >= 1) || rateRupees > 1000)) { setError('Excess km charge must be between ₹1 and ₹1,000 per km.'); return; }
+    setSavingId(hub.id);
+    setError('');
+    setMessage('');
+    try {
+      const result = await adminApi.updateRentalKmPolicy(user, hub.id, {
+        includedKmPerDay: km,
+        extraKmRatePaise: rateRupees === null ? null : Math.round(rateRupees * 100),
+      });
+      setMessage(`${hub.name}: saved. ${result.note}`);
+      setReload(value => value + 1);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSavingId(null);
+    }
+  }
+
+  return <section className="panel table-panel" aria-label="Rental kilometre policy">
+    <div className="panel-heading"><div><h2>Rental kilometre policy by hub</h2><p>Free kilometres per day and the charge per extra kilometre. Customers see these in the app, and quotes and return settlement use them. Existing bookings keep the terms they were booked with.</p></div></div>
+    {error && <div className="alert error" role="alert">{error}</div>}
+    {message && <div className="alert success" role="status">{message}</div>}
+    {!hubs ? <TableSkeleton/> : hubs.length === 0 ? <EmptyState title="No rental hubs" text="Enable rentals on a branch to set its kilometre policy."/> :
+      <div className="table-scroll"><table><thead><tr><th>Hub</th><th>Cars</th><th>Free km per day</th><th>Excess km charge (₹/km)</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>
+        {hubs.map(hub => {
+          const draft = drafts[hub.id] ?? { km: '', rate: '' };
+          const usingHub = hub.includedKmPerDay !== null || hub.extraKmRatePaise !== null;
+          return <tr key={hub.id}>
+            <td><strong>{hub.name}</strong><span>{hub.city} · {hub.code}</span>{!usingHub && <small>Not set: cars use their own values</small>}</td>
+            <td>{hub.vehicleCount}</td>
+            <td><input type="number" min={1} max={1000} step={1} inputMode="numeric" aria-label={`Free km per day for ${hub.name}`} value={draft.km} placeholder="e.g. 250" disabled={!canManage} onChange={event => setDrafts(current => ({ ...current, [hub.id]: { ...draft, km: event.target.value } }))}/></td>
+            <td><input type="number" min={1} max={1000} step="0.5" inputMode="decimal" aria-label={`Excess km charge for ${hub.name}`} value={draft.rate} placeholder="e.g. 12" disabled={!canManage} onChange={event => setDrafts(current => ({ ...current, [hub.id]: { ...draft, rate: event.target.value } }))}/></td>
+            <td>{canManage && <><button className="button primary" disabled={savingId === hub.id} onClick={() => save(hub, false)}>{savingId === hub.id ? 'Saving…' : 'Save'}</button>{usingHub && <button className="text-button" disabled={savingId === hub.id} onClick={() => save(hub, true)}>Clear (use car values)</button>}</>}</td>
+          </tr>;
+        })}
+      </tbody></table></div>}
+  </section>;
+}
+
 function PoliciesPanel({ user, actor }: { user: User; actor: AdminActor }) {
   const [items, setItems] = useState<PolicyVersion[] | null>(null);
   const [error, setError] = useState('');
