@@ -2,6 +2,7 @@ import { PrismaClient, Prisma, RentalVehicleStatus, RentalBlockReason, RentalBoo
 import { HttpError } from './errors.js';
 import { assertGatewayPaymentSignature } from './payment-signature.js';
 import { assertCapturedAmount } from './razorpay-gateway.js';
+import { computeAvailability, type RentalAvailability } from './rental-availability.js';
 import type { NotificationService } from './notification/notification-service.js';
 import crypto from 'node:crypto';
 import { currentCalendarYear } from './calendar.js';
@@ -14,6 +15,8 @@ if (!('toJSON' in BigInt.prototype)) {
   });
 }
 
+const AVAILABILITY_QUERY_PADDING_MS = 24 * 60 * 60 * 1000;
+
 export interface RentalSearchFilter {
   hubId?: string;
   city?: string;
@@ -22,6 +25,8 @@ export interface RentalSearchFilter {
   fuelType?: string;
   transmission?: string;
   seats?: number;
+  /** Also return vehicles that cannot be booked for these dates, flagged via `availability`. */
+  includeUnavailable?: boolean | string;
 }
 
 export interface RentalPaymentPlanConfig {
@@ -234,12 +239,11 @@ export class PrismaRentalStore {
 
     const now = new Date();
 
-    // Base query for active, eligible fleet vehicles
+    // Base query for eligible fleet vehicles. Vehicles that are busy for the requested dates are still
+    // loaded so the app can show WHY (on hold / booked / in trip / maintenance) instead of hiding them.
     const where: Prisma.RentalFleetVehicleWhereInput = {
       isEligibleForRental: true,
-      // Public search must only include a vehicle dispatch explicitly marked
-      // available. A non-retired vehicle can still be on a trip or in service.
-      status: RentalVehicleStatus.AVAILABLE,
+      status: { not: RentalVehicleStatus.RETIRED },
       commercialPermitExpiry: { gte: end },
       insuranceExpiry: { gte: end },
       fitnessCertExpiry: { gte: end },
@@ -262,71 +266,141 @@ export class PrismaRentalStore {
       where.seats = { gte: Number(filter.seats) };
     }
 
+    // Query a day either side of the window; the exact per-vehicle turnaround buffer is applied below.
+    const queryStart = new Date(start.getTime() - AVAILABILITY_QUERY_PADDING_MS);
+    const queryEnd = new Date(end.getTime() + AVAILABILITY_QUERY_PADDING_MS);
+
     const candidateVehicles = await this.db.rentalFleetVehicle.findMany({
       where,
       include: {
         hub: true,
-        blocks: {
-          where: {
-            OR: [
-              { startTime: { lt: end }, endTime: { gt: start } },
-            ],
-          },
-        },
+        blocks: { where: { startTime: { lt: queryEnd }, endTime: { gt: queryStart } } },
         holds: {
           where: {
             status: RentalHoldStatus.ACTIVE,
             expiresAt: { gt: now },
-            OR: [
-              { startTime: { lt: end }, endTime: { gt: start } },
-            ],
+            startTime: { lt: queryEnd },
+            endTime: { gt: queryStart },
           },
         },
         bookings: {
           where: {
-            status: { in: [RentalBookingStatus.CONFIRMED, RentalBookingStatus.VEHICLE_COLLECTED, RentalBookingStatus.TRIP_ACTIVE] },
             OR: [
-              { startTime: { lt: end }, endTime: { gt: start } },
+              {
+                status: { in: [RentalBookingStatus.CONFIRMED, RentalBookingStatus.PENDING_PAYMENT] },
+                startTime: { lt: queryEnd },
+                endTime: { gt: queryStart },
+              },
+              // Cars currently out stay occupied even if the trip is overdue.
+              {
+                status: { in: [RentalBookingStatus.VEHICLE_COLLECTED, RentalBookingStatus.TRIP_ACTIVE] },
+                startTime: { lt: queryEnd },
+              },
             ],
           },
+          include: { hold: { select: { expiresAt: true } } },
         },
       },
     });
 
-    // Filter strictly by checking operational turnaround buffer
-    const availableVehicles = candidateVehicles.filter(v => {
-      const bufferMs = (v.cleaningBufferMinutes || 120) * 60 * 1000;
-      const windowStartWithBuffer = new Date(start.getTime() - bufferMs);
-      const windowEndWithBuffer = new Date(end.getTime() + bufferMs);
+    const withAvailability = candidateVehicles.map(v => ({
+      vehicle: v,
+      availability: this.availabilityFor(v, start, end, now),
+    }));
 
-      // Check maintenance / cleaning blocks
-      if (v.blocks.length > 0) return false;
-
-      // Check active unexpired holds
-      const hasConflictingHold = v.holds.some(h => {
-        return h.startTime < windowEndWithBuffer && h.endTime > windowStartWithBuffer;
-      });
-      if (hasConflictingHold) return false;
-
-      // Check confirmed bookings
-      const hasConflictingBooking = v.bookings.some(b => {
-        return b.startTime < windowEndWithBuffer && b.endTime > windowStartWithBuffer;
-      });
-      if (hasConflictingBooking) return false;
-
-      return true;
-    });
-
-    // Attach calculated quote to each vehicle
-    return availableVehicles.map(v => {
-      const quote = this.calculateQuote(v, start, end);
-      return {
+    const includeUnavailable = filter.includeUnavailable === true || filter.includeUnavailable === 'true';
+    return withAvailability
+      .filter(x => includeUnavailable || x.availability.bookable)
+      .sort((a, b) => Number(b.availability.bookable) - Number(a.availability.bookable))
+      .map(({ vehicle: v, availability }) => ({
         ...v,
         blocks: undefined,
         holds: undefined,
         bookings: undefined,
-        quote,
-      };
+        quote: this.calculateQuote(v, start, end),
+        availability,
+      }));
+  }
+
+  /**
+   * Availability of many vehicles for one interval, with three bounded queries (no per-vehicle N+1).
+   * Works with the base client or a transaction client.
+   */
+  private async loadAvailabilityFor(
+    client: Prisma.TransactionClient | PrismaClient,
+    vehicles: Array<{ id: string; status: string; cleaningBufferMinutes: number | null }>,
+    start: Date,
+    end: Date,
+    now = new Date(),
+  ): Promise<Map<string, RentalAvailability>> {
+    const result = new Map<string, RentalAvailability>();
+    if (vehicles.length === 0) return result;
+    const ids = vehicles.map(v => v.id);
+    const queryStart = new Date(start.getTime() - AVAILABILITY_QUERY_PADDING_MS);
+    const queryEnd = new Date(end.getTime() + AVAILABILITY_QUERY_PADDING_MS);
+    const [blocks, holds, bookings] = await Promise.all([
+      client.rentalVehicleBlock.findMany({ where: { vehicleId: { in: ids }, startTime: { lt: queryEnd }, endTime: { gt: queryStart } } }),
+      client.rentalBookingHold.findMany({
+        where: { vehicleId: { in: ids }, status: RentalHoldStatus.ACTIVE, expiresAt: { gt: now }, startTime: { lt: queryEnd }, endTime: { gt: queryStart } },
+      }),
+      client.rentalBooking.findMany({
+        where: {
+          vehicleId: { in: ids },
+          OR: [
+            { status: { in: [RentalBookingStatus.CONFIRMED, RentalBookingStatus.PENDING_PAYMENT] }, startTime: { lt: queryEnd }, endTime: { gt: queryStart } },
+            { status: { in: [RentalBookingStatus.VEHICLE_COLLECTED, RentalBookingStatus.TRIP_ACTIVE] }, startTime: { lt: queryEnd } },
+          ],
+        },
+        include: { hold: { select: { expiresAt: true } } },
+      }),
+    ]);
+    for (const v of vehicles) {
+      result.set(
+        v.id,
+        this.availabilityFor(
+          {
+            status: v.status,
+            cleaningBufferMinutes: v.cleaningBufferMinutes,
+            blocks: blocks.filter(b => b.vehicleId === v.id),
+            holds: holds.filter(h => h.vehicleId === v.id),
+            bookings: bookings.filter(b => b.vehicleId === v.id),
+          },
+          start,
+          end,
+          now,
+        ),
+      );
+    }
+    return result;
+  }
+
+  /** Availability of one vehicle (with its blocks/holds/bookings loaded) for a requested interval. */
+  private availabilityFor(
+    v: {
+      status: string;
+      cleaningBufferMinutes: number | null;
+      blocks: Array<{ startTime: Date; endTime: Date; reason: string }>;
+      holds: Array<{ startTime: Date; endTime: Date; expiresAt: Date; status: string }>;
+      bookings: Array<{ startTime: Date; endTime: Date; status: string; hold?: { expiresAt: Date } | null }>;
+    },
+    start: Date,
+    end: Date,
+    now: Date,
+  ): RentalAvailability {
+    return computeAvailability({
+      start,
+      end,
+      now,
+      bufferMinutes: v.cleaningBufferMinutes || 120,
+      vehicleStatus: v.status,
+      blocks: v.blocks,
+      holds: v.holds,
+      bookings: v.bookings.map(b => ({
+        startTime: b.startTime,
+        endTime: b.endTime,
+        status: b.status,
+        holdExpiresAt: b.hold?.expiresAt ?? null,
+      })),
     });
   }
 
@@ -334,26 +408,48 @@ export class PrismaRentalStore {
    * Fetches vehicle details by ID with calculated quote if dates provided.
    */
   async getVehicleDetails(vehicleId: string, startTime?: string | Date, endTime?: string | Date, allowImmediateForTest = false) {
+    const now = new Date();
+    const hasDates = Boolean(startTime && endTime);
+    const rangeStart = hasDates ? new Date(startTime as string | Date) : null;
+    const rangeEnd = hasDates ? new Date(endTime as string | Date) : null;
+    const queryStart = rangeStart ? new Date(rangeStart.getTime() - AVAILABILITY_QUERY_PADDING_MS) : now;
+    const queryEnd = rangeEnd ? new Date(rangeEnd.getTime() + AVAILABILITY_QUERY_PADDING_MS) : now;
+
     const vehicle = await this.db.rentalFleetVehicle.findUnique({
       where: { id: vehicleId },
-      include: { hub: true },
+      include: {
+        hub: true,
+        blocks: { where: { startTime: { lt: queryEnd }, endTime: { gt: queryStart } } },
+        holds: { where: { status: RentalHoldStatus.ACTIVE, expiresAt: { gt: now }, startTime: { lt: queryEnd }, endTime: { gt: queryStart } } },
+        bookings: {
+          where: {
+            OR: [
+              { status: { in: [RentalBookingStatus.CONFIRMED, RentalBookingStatus.PENDING_PAYMENT] }, startTime: { lt: queryEnd }, endTime: { gt: queryStart } },
+              { status: { in: [RentalBookingStatus.VEHICLE_COLLECTED, RentalBookingStatus.TRIP_ACTIVE] }, startTime: { lt: queryEnd } },
+            ],
+          },
+          include: { hold: { select: { expiresAt: true } } },
+        },
+      },
     });
     if (!vehicle) {
       throw new HttpError(404, 'RENTAL_VEHICLE_NOT_FOUND');
     }
-    if (!vehicle.isEligibleForRental || vehicle.status !== RentalVehicleStatus.AVAILABLE || !vehicle.hub.isActive) {
+    // A busy car is still viewable (the response says why); only ineligible/retired cars are hidden.
+    if (!vehicle.isEligibleForRental || vehicle.status === RentalVehicleStatus.RETIRED || !vehicle.hub.isActive) {
       throw new HttpError(404, 'RENTAL_VEHICLE_NOT_AVAILABLE');
     }
 
     let quote: QuoteBreakdown | null = null;
-    if (startTime && endTime) {
-      const start = new Date(startTime);
-      const end = new Date(endTime);
-      this.validateRentalInterval(start, end, allowImmediateForTest);
-      quote = this.calculateQuote(vehicle, start, end);
+    let availability: RentalAvailability | null = null;
+    if (rangeStart && rangeEnd) {
+      this.validateRentalInterval(rangeStart, rangeEnd, allowImmediateForTest);
+      quote = this.calculateQuote(vehicle, rangeStart, rangeEnd);
+      availability = this.availabilityFor(vehicle, rangeStart, rangeEnd, now);
     }
 
-    return { ...vehicle, quote };
+    const { blocks: _blocks, holds: _holds, bookings: _bookings, ...publicVehicle } = vehicle;
+    return { ...publicVehicle, quote, availability };
   }
 
   /**
@@ -384,59 +480,49 @@ export class PrismaRentalStore {
       if (!vehicle) {
         throw new HttpError(404, 'RENTAL_VEHICLE_NOT_FOUND');
       }
-      if (
-        !vehicle.isEligibleForRental ||
-        vehicle.status !== RentalVehicleStatus.AVAILABLE ||
-        !vehicle.hub.isActive
-      ) {
+      if (!vehicle.isEligibleForRental || vehicle.status === RentalVehicleStatus.RETIRED || !vehicle.hub.isActive) {
         throw new HttpError(400, 'VEHICLE_NOT_ELIGIBLE_FOR_RENTAL');
       }
       if (vehicle.insuranceExpiry < end || vehicle.commercialPermitExpiry < end) {
         throw new HttpError(400, 'VEHICLE_COMPLIANCE_EXPIRED_FOR_REQUESTED_DATES');
       }
 
-      const bufferMs = (vehicle.cleaningBufferMinutes || 120) * 60 * 1000;
-      const windowStartWithBuffer = new Date(start.getTime() - bufferMs);
-      const windowEndWithBuffer = new Date(end.getTime() + bufferMs);
+      // Serialize competing checkouts for the same car so two customers cannot both pass the
+      // availability check for overlapping dates. Best effort: never block booking if unsupported.
+      try {
+        await tx.$queryRaw`SELECT id FROM "RentalFleetVehicle" WHERE id = ${vehicle.id}::uuid FOR UPDATE`;
+      } catch (lockErr) {
+        console.warn('[RENTAL_HOLD_LOCK_UNAVAILABLE]', (lockErr as Error)?.message);
+      }
+
       const now = new Date();
-
-      // Check overlapping confirmed bookings
-      const conflictingBooking = await tx.rentalBooking.findFirst({
-        where: {
-          vehicleId: vehicle.id,
-          status: { in: [RentalBookingStatus.CONFIRMED, RentalBookingStatus.VEHICLE_COLLECTED, RentalBookingStatus.TRIP_ACTIVE] },
-          startTime: { lt: windowEndWithBuffer },
-          endTime: { gt: windowStartWithBuffer },
-        },
-      });
-      if (conflictingBooking) {
-        throw new HttpError(409, 'VEHICLE_UNAVAILABLE_OVERLAPPING_BOOKING');
-      }
-
-      // Check overlapping active holds
-      const conflictingHold = await tx.rentalBookingHold.findFirst({
-        where: {
-          vehicleId: vehicle.id,
-          status: RentalHoldStatus.ACTIVE,
-          expiresAt: { gt: now },
-          startTime: { lt: windowEndWithBuffer },
-          endTime: { gt: windowStartWithBuffer },
-        },
-      });
-      if (conflictingHold) {
-        throw new HttpError(409, 'VEHICLE_UNAVAILABLE_ACTIVE_CHECKOUT_HOLD');
-      }
-
-      // Check overlapping blocks
-      const conflictingBlock = await tx.rentalVehicleBlock.findFirst({
-        where: {
-          vehicleId: vehicle.id,
-          startTime: { lt: windowEndWithBuffer },
-          endTime: { gt: windowStartWithBuffer },
-        },
-      });
-      if (conflictingBlock) {
-        throw new HttpError(409, 'VEHICLE_UNAVAILABLE_MAINTENANCE_BLOCK');
+      const queryStart = new Date(start.getTime() - AVAILABILITY_QUERY_PADDING_MS);
+      const queryEnd = new Date(end.getTime() + AVAILABILITY_QUERY_PADDING_MS);
+      const [blocks, holds, bookings] = await Promise.all([
+        tx.rentalVehicleBlock.findMany({ where: { vehicleId: vehicle.id, startTime: { lt: queryEnd }, endTime: { gt: queryStart } } }),
+        tx.rentalBookingHold.findMany({
+          where: { vehicleId: vehicle.id, status: RentalHoldStatus.ACTIVE, expiresAt: { gt: now }, startTime: { lt: queryEnd }, endTime: { gt: queryStart } },
+        }),
+        tx.rentalBooking.findMany({
+          where: {
+            vehicleId: vehicle.id,
+            OR: [
+              { status: { in: [RentalBookingStatus.CONFIRMED, RentalBookingStatus.PENDING_PAYMENT] }, startTime: { lt: queryEnd }, endTime: { gt: queryStart } },
+              { status: { in: [RentalBookingStatus.VEHICLE_COLLECTED, RentalBookingStatus.TRIP_ACTIVE] }, startTime: { lt: queryEnd } },
+            ],
+          },
+          include: { hold: { select: { expiresAt: true } } },
+        }),
+      ]);
+      const availability = this.availabilityFor({ ...vehicle, blocks, holds, bookings }, start, end, now);
+      if (!availability.bookable) {
+        const code =
+          availability.state === 'ON_HOLD'
+            ? 'VEHICLE_UNAVAILABLE_ACTIVE_CHECKOUT_HOLD'
+            : availability.state === 'MAINTENANCE' || availability.state === 'CLEANING'
+              ? 'VEHICLE_UNAVAILABLE_MAINTENANCE_BLOCK'
+              : 'VEHICLE_UNAVAILABLE_OVERLAPPING_BOOKING';
+        throw new HttpError(409, code, availability.label);
       }
 
       const quote = this.calculateQuote(vehicle, start, end);
@@ -2088,7 +2174,7 @@ export class PrismaRentalStore {
   /**
    * Operations: Fleet vehicle listing with filters.
    */
-  async getFleet(filter?: { hubId?: string; status?: RentalVehicleStatus }) {
+  async getFleet(filter?: { hubId?: string; status?: RentalVehicleStatus; startTime?: Date; endTime?: Date }) {
     const now = new Date();
 
     const where: Prisma.RentalFleetVehicleWhereInput = {};
@@ -2142,10 +2228,14 @@ export class PrismaRentalStore {
     }
 
     // Apply status filter after deriving effective status
-    if (filter?.status) {
-      return mapped.filter(v => v.status === filter.status);
+    const filtered = filter?.status ? mapped.filter(v => v.status === filter.status) : mapped;
+
+    // Optional: availability for a requested interval (same rules customers see).
+    if (filter?.startTime && filter?.endTime) {
+      const availability = await this.loadAvailabilityFor(this.db, filtered, filter.startTime, filter.endTime, now);
+      return filtered.map(v => ({ ...v, availability: availability.get(v.id) ?? null }));
     }
-    return mapped;
+    return filtered;
   }
 
   /**
@@ -2690,6 +2780,11 @@ export class PrismaRentalStore {
     }
     if (vehicle.status !== RentalVehicleStatus.AVAILABLE) {
       throw new HttpError(409, `VEHICLE_NOT_AVAILABLE_FOR_RENTAL (Status: ${vehicle.status})`);
+    }
+    // The counter must respect future bookings, holds and blocks exactly like online customers do.
+    const walkInAvailability = (await this.loadAvailabilityFor(this.db, [vehicle], input.startTime, input.endTime)).get(vehicle.id);
+    if (walkInAvailability && !walkInAvailability.bookable) {
+      throw new HttpError(409, `VEHICLE_NOT_AVAILABLE_FOR_RENTAL (${walkInAvailability.label})`, walkInAvailability.label);
     }
 
     // Find or create customer

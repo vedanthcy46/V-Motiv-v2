@@ -375,10 +375,15 @@ export const api = {
     call<Array<{ id: string; name: string; city: string; address: string; code: string; isActive: boolean }>>(u, '/rentals/hubs'),
   rentalSummary: (u: User) =>
     call<RentalOperationsSummary>(u, '/operations/rentals/summary'),
-  rentalFleet: (u: User, query?: { hubId?: string; status?: string }) => {
+  rentalFleet: (u: User, query?: { hubId?: string; status?: string; startTime?: string; endTime?: string }) => {
     const params = new URLSearchParams();
     if (query?.hubId) params.set('hubId', query.hubId);
     if (query?.status) params.set('status', query.status);
+    // With an interval the API also returns per-vehicle availability (on hold / booked / in trip ...).
+    if (query?.startTime && query?.endTime) {
+      params.set('startTime', query.startTime);
+      params.set('endTime', query.endTime);
+    }
     const qs = params.toString() ? `?${params.toString()}` : '';
     return call<RentalFleetItem[]>(u, `/operations/rentals/fleet${qs}`);
   },

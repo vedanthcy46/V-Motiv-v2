@@ -69,6 +69,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [bookingStatusFilter, setBookingStatusFilter] = useState('ALL');
   const [selectedHubId, setSelectedHubId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
+  // Optional date check: shows which cars are free, on hold, booked or in trip for an interval.
+  const [availFrom, setAvailFrom] = useState('');
+  const [availTo, setAvailTo] = useState('');
+  const [availRange, setAvailRange] = useState<{ from: string; to: string } | null>(null);
+  const [availOnlyBookable, setAvailOnlyBookable] = useState(false);
 
   // Modals & Drawer
   const [onboardModalOpen, setOnboardModalOpen] = useState(false);
@@ -105,6 +110,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
   // Walk-In / Offline Hub Booking Form State
   const [walkInVehicleId, setWalkInVehicleId] = useState('');
+  // Availability of every fleet car for the walk-in dates (same rules customers see online).
+  const [walkInAvailability, setWalkInAvailability] = useState<Record<string, RentalFleetItem['availability']>>({});
   const [walkInCustomerName, setWalkInCustomerName] = useState('');
   const [walkInCustomerPhone, setWalkInCustomerPhone] = useState('');
   const [walkInCustomerEmail, setWalkInCustomerEmail] = useState('');
@@ -421,6 +428,24 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [returnDamageChargeRupees, setReturnDamageChargeRupees] = useState<number>(0);
   const [returnNotes, setReturnNotes] = useState('Vehicle returned in good condition. No visible damages.');
 
+  useEffect(() => {
+    if (!walkInModalOpen) return;
+    const start = new Date(`${walkInStartDate}T${walkInStartTime}:00`);
+    if (isNaN(start.getTime())) return;
+    const end = new Date(start.getTime() + walkInDays * 24 * 3600 * 1000);
+    let cancelled = false;
+    api
+      .rentalFleet(user, { startTime: start.toISOString(), endTime: end.toISOString() })
+      .then(list => {
+        if (cancelled) return;
+        const map: Record<string, RentalFleetItem['availability']> = {};
+        for (const v of list || []) map[v.id] = v.availability ?? null;
+        setWalkInAvailability(map);
+      })
+      .catch(() => { if (!cancelled) setWalkInAvailability({}); });
+    return () => { cancelled = true; };
+  }, [walkInModalOpen, walkInStartDate, walkInStartTime, walkInDays]);
+
   const loadData = async () => {
     setLoading(true);
     try {
@@ -430,7 +455,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       const [hubsList, sum, flt, bks, payDash] = await Promise.all([
         api.rentalHubs(user).catch(() => []),
         api.rentalSummary(user).catch(() => ({ activeFleet: 0, activeBookings: 0, pendingKyc: 0, returnsDueToday: 0 })),
-        api.rentalFleet(user, { hubId: selectedHubId || undefined }),
+        api.rentalFleet(user, {
+          hubId: selectedHubId || undefined,
+          startTime: availRange ? new Date(availRange.from).toISOString() : undefined,
+          endTime: availRange ? new Date(availRange.to).toISOString() : undefined,
+        }),
         api.rentalBookings(user, {
           hubId: selectedHubId || undefined,
           status: isBookingFilter ? bookingStatusFilter : undefined,
@@ -457,7 +486,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
   useEffect(() => {
     void loadData();
-  }, [selectedHubId, bookingStatusFilter]);
+  }, [selectedHubId, bookingStatusFilter, availRange]);
 
   // Load authoritative payment details & ledger whenever active booking changes
   useEffect(() => {
@@ -1044,6 +1073,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
   // Filtered lists
   const filteredFleet = fleet.filter(f => {
+    if (availRange && availOnlyBookable && f.availability && !f.availability.bookable) return false;
     if (!searchQuery) return true;
     const q = searchQuery.toLowerCase();
     return (
@@ -1174,6 +1204,40 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         </select>
       </div>
 
+      {/* Availability for a date range (fleet tab) */}
+      {subTab === 'fleet' && (
+        <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', alignItems: 'flex-end', marginBottom: '1.25rem', padding: '0.75rem 1rem', background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '8px' }}>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)' }}>
+            Check availability from
+            <input type="datetime-local" className="input" value={availFrom} onChange={e => setAvailFrom(e.target.value)} />
+          </label>
+          <label style={{ display: 'flex', flexDirection: 'column', gap: 4, fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)' }}>
+            to
+            <input type="datetime-local" className="input" value={availTo} min={availFrom || undefined} onChange={e => setAvailTo(e.target.value)} />
+          </label>
+          <button
+            type="button"
+            className="btn btn-primary"
+            disabled={!availFrom || !availTo || new Date(availTo) <= new Date(availFrom)}
+            onClick={() => setAvailRange({ from: availFrom, to: availTo })}
+          >
+            Check dates
+          </button>
+          {availRange && (
+            <>
+              <button type="button" className="btn" onClick={() => { setAvailRange(null); setAvailFrom(''); setAvailTo(''); }}>Clear</button>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: '0.8125rem' }}>
+                <input type="checkbox" checked={availOnlyBookable} onChange={e => setAvailOnlyBookable(e.target.checked)} />
+                Only show bookable
+              </label>
+              <span style={{ fontSize: '0.8125rem', color: 'var(--muted)' }}>
+                {fleet.filter(f => f.availability?.bookable).length} of {fleet.length} cars bookable for the selected dates
+              </span>
+            </>
+          )}
+        </div>
+      )}
+
       {/* VIEW A: FLEET INVENTORY */}
       {subTab === 'fleet' && (
         <div className="table-responsive" style={{ background: 'var(--surface)', borderRadius: '8px', border: '1px solid var(--border)' }}>
@@ -1275,7 +1339,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           <span
                             className={`badge ${
                               veh.status === 'AVAILABLE' ? 'badge-success' :
-                              veh.status === 'RENTED' ? 'badge-info' :
+                              veh.status === 'RENTED' || veh.status === 'ON_TRIP' || veh.status === 'RESERVED' ? 'badge-info' :
                               veh.status === 'MAINTENANCE' ? 'badge-warning' :
                               veh.status === 'CLEANING' ? 'badge-warning' : 'badge-danger'
                             }`}
@@ -1291,8 +1355,40 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           >
                             {veh.status === 'AVAILABLE' ? '● AVAILABLE' :
                              veh.status === 'MAINTENANCE' ? '● MAINTENANCE' :
-                             veh.status === 'CLEANING' ? '● CLEANING' : veh.status}
+                             veh.status === 'CLEANING' ? '● CLEANING' :
+                             veh.status === 'ON_TRIP' || veh.status === 'RENTED' ? '● ON TRIP' :
+                             veh.status === 'RESERVED' ? '● RESERVED' : veh.status}
                           </span>
+                          {veh.availability && !veh.availability.bookable && (
+                            <div style={{ marginTop: '4px' }}>
+                              <span
+                                className={`badge ${
+                                  veh.availability.state === 'BOOKED' ? 'badge-danger' :
+                                  veh.availability.state === 'IN_TRIP' ? 'badge-info' :
+                                  veh.availability.state === 'UNAVAILABLE' ? 'badge-neutral' : 'badge-warning'
+                                }`}
+                              >
+                                {veh.availability.state === 'ON_HOLD' ? '⏳ ON HOLD' :
+                                 veh.availability.state === 'BOOKED' ? '📅 BOOKED' :
+                                 veh.availability.state === 'IN_TRIP' ? '🚗 IN TRIP' :
+                                 veh.availability.state === 'MAINTENANCE' ? '🛠 MAINTENANCE' :
+                                 veh.availability.state === 'CLEANING' ? '🧽 CLEANING' : 'UNAVAILABLE'} for these dates
+                              </span>
+                              {veh.availability.availableFrom && (
+                                <div style={{ fontSize: '0.65rem', color: 'var(--muted)', marginTop: 2 }}>
+                                  Free from {formatDate(veh.availability.availableFrom)}
+                                </div>
+                              )}
+                              {veh.availability.state === 'ON_HOLD' && veh.availability.holdExpiresAt && (
+                                <div style={{ fontSize: '0.65rem', color: 'var(--muted)' }}>
+                                  Hold lapses {formatDate(veh.availability.holdExpiresAt)} if unpaid
+                                </div>
+                              )}
+                            </div>
+                          )}
+                          {veh.availability && veh.availability.bookable && (
+                            <span className="badge badge-success" style={{ marginTop: 4 }}>✓ Free for these dates</span>
+                          )}
                           {veh.activeBlock && (
                             <div style={{ marginTop: '2px' }}>
                               <span style={{ fontSize: '0.6875rem', color: '#fbbf24', fontWeight: 700 }}>
@@ -1695,12 +1791,26 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                     <option value="">-- Choose an Available Fleet Car --</option>
                     {fleet
                       .filter(v => v.status === 'AVAILABLE')
-                      .map(v => (
-                        <option key={v.id} value={v.id}>
-                          {v.make} {v.model} ({v.registrationNumber}) — {formatRupees(v.baseDailyRatePaise)}/day [{v.hub?.city || 'Local Hub'}]
-                        </option>
-                      ))}
+                      .map(v => {
+                        const av = walkInAvailability[v.id];
+                        const blocked = Boolean(av && !av.bookable);
+                        return (
+                          <option key={v.id} value={v.id} disabled={blocked}>
+                            {v.make} {v.model} ({v.registrationNumber}) — {formatRupees(v.baseDailyRatePaise)}/day [{v.hub?.city || 'Local Hub'}]
+                            {blocked ? ` — ${av!.state.replace('_', ' ')} for these dates` : ''}
+                          </option>
+                        );
+                      })}
                   </select>
+                  {(() => {
+                    const av = walkInAvailability[walkInVehicleId];
+                    if (!walkInVehicleId || !av || av.bookable) return null;
+                    return (
+                      <div role="alert" style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: '#fbbf24', fontWeight: 600 }}>
+                        {av.label}.{av.availableFrom ? ` Free from ${formatDate(av.availableFrom)}.` : ''} Pick another car or change the dates.
+                      </div>
+                    );
+                  })()}
                 </div>
 
                 {/* 2. CUSTOMER IDENTITY */}
@@ -2005,7 +2115,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 <button type="button" className="btn-secondary button secondary" onClick={() => setWalkInModalOpen(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="button primary" style={{ background: '#059669', color: '#fff', borderColor: '#059669', fontWeight: 700 }} disabled={actionBusy}>
+                <button type="submit" className="button primary" style={{ background: '#059669', color: '#fff', borderColor: '#059669', fontWeight: 700 }} disabled={actionBusy || Boolean(walkInAvailability[walkInVehicleId] && !walkInAvailability[walkInVehicleId]!.bookable)}>
                   {actionBusy ? 'Processing Booking…' : '⚡ Confirm On-Road Rental Booking'}
                 </button>
               </div>

@@ -628,7 +628,13 @@ export function createRentalOperationsRouter(deps: {
     try {
       const hubId = typeof req.query.hubId === 'string' ? req.query.hubId : undefined;
       const status = typeof req.query.status === 'string' ? (req.query.status as any) : undefined;
-      const fleet = await deps.store.getFleet({ hubId, status });
+      const startRaw = typeof req.query.startTime === 'string' ? new Date(req.query.startTime) : null;
+      const endRaw = typeof req.query.endTime === 'string' ? new Date(req.query.endTime) : null;
+      const interval =
+        startRaw && endRaw && !isNaN(startRaw.getTime()) && !isNaN(endRaw.getTime()) && endRaw > startRaw
+          ? { startTime: startRaw, endTime: endRaw }
+          : {};
+      const fleet = await deps.store.getFleet({ hubId, status, ...interval });
       res.json(fleet);
     } catch (e) {
       next(e);

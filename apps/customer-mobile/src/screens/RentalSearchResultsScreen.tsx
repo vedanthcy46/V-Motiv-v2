@@ -12,6 +12,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStack } from '../navigation/types';
 import { useAppTheme } from '../theme';
+import { RentalAvailabilityPill } from '../components/RentalAvailabilityPill';
+import { availabilityDetail } from '../services/rental-availability';
 import {
   ArrowLeft,
   Filter,
@@ -208,6 +210,7 @@ export function RentalSearchResultsScreen({ route, navigation }: Props) {
             const totalPaise = Number(item.quote?.totalPayablePaise || item.baseDailyRatePaise);
             const totalRupees = Math.round(totalPaise / 100);
             const depositRupees = Math.round(Number(item.securityDepositPaise) / 100);
+            const unavailable = item.availability ? !item.availability.bookable : false;
 
             return (
               <Pressable
@@ -222,7 +225,7 @@ export function RentalSearchResultsScreen({ route, navigation }: Props) {
                 }
                 style={[
                   styles.vehicleCard,
-                  { backgroundColor: colors.surface, borderColor: colors.border },
+                  { backgroundColor: colors.surface, borderColor: colors.border, opacity: unavailable ? 0.72 : 1 },
                 ]}
               >
                 {/* Image Section */}
@@ -234,6 +237,9 @@ export function RentalSearchResultsScreen({ route, navigation }: Props) {
                       <Text style={styles.noPhotoText}>Photo pending</Text>
                     </View>
                   )}
+                  {unavailable ? (
+                    <RentalAvailabilityPill availability={item.availability} style={{ position: 'absolute', top: 10, left: 10 }} />
+                  ) : null}
                   <View style={[styles.badgeOdometer, { backgroundColor: 'rgba(0,0,0,0.7)' }]}>
                     <Text style={styles.badgeOdometerText}>{item.year} Model</Text>
                   </View>
@@ -297,6 +303,12 @@ export function RentalSearchResultsScreen({ route, navigation }: Props) {
                     </Text>
                   </View>
 
+                  {unavailable ? (
+                    <Text style={{ color: colors.textSecondary, fontSize: 12, marginTop: 10, lineHeight: 17 }}>
+                      {availabilityDetail(item.availability)}
+                    </Text>
+                  ) : null}
+
                   {/* Divider */}
                   <View style={[styles.cardDivider, { backgroundColor: colors.border }]} />
 
@@ -324,18 +336,18 @@ export function RentalSearchResultsScreen({ route, navigation }: Props) {
                     <View
                       style={[
                         styles.reserveButton,
-                        { backgroundColor: isDark ? colors.brandAccent : colors.brandNavy },
+                        { backgroundColor: unavailable ? colors.surfaceSecondary : (isDark ? colors.brandAccent : colors.brandNavy) },
                       ]}
                     >
                       <Text
                         style={[
                           styles.reserveButtonText,
-                          { color: isDark ? colors.brandNavy : '#FFFFFF' },
+                          { color: unavailable ? colors.textSecondary : (isDark ? colors.brandNavy : '#FFFFFF') },
                         ]}
                       >
-                        View Details
+                        {unavailable ? 'Not available' : 'View Details'}
                       </Text>
-                      <ChevronRight size={16} color={isDark ? colors.brandNavy : '#FFFFFF'} />
+                      <ChevronRight size={16} color={unavailable ? colors.textSecondary : (isDark ? colors.brandNavy : '#FFFFFF')} />
                     </View>
                   </View>
                 </View>

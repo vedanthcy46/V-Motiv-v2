@@ -349,7 +349,7 @@ export type SellerLeadValuation = {
   otherCostsPaise: string | number;
   requiredMarginPaise: string | number;
   recommendedPurchasePaise: string | number;
-  status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+  status: ServiceEstimateStatus;
   notes?: string | null;
   createdById: string;
   approvedById?: string | null;
@@ -467,7 +467,11 @@ export type ServiceJobItem = {
   estimates?: {
     id: string;
     totalAmountPaise: string | number;
-    status: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+    status: ServiceEstimateStatus;
+    version?: number;
+    validUntil?: string;
+    respondedAt?: string | null;
+    responseNotes?: string | null;
     items?: {
       id: string;
       itemType: string;
@@ -475,6 +479,8 @@ export type ServiceJobItem = {
       quantity: number;
       unitRatePaise: string | number;
       lineTotalPaise: string | number;
+      isMandatory?: boolean;
+      isApprovedByCustomer?: boolean;
     }[];
   }[];
   custodyRecord?: {
@@ -556,6 +562,19 @@ export type ServiceQueueResponse = {
   totalPages: number;
 };
 
+/** Mirrors the API enum ServiceEstimateStatus. */
+export type ServiceEstimateStatus = 'DRAFT' | 'SENT_TO_CUSTOMER' | 'APPROVED' | 'DECLINED' | 'SUPERSEDED';
+
+export type RentalAvailabilityState = 'AVAILABLE' | 'ON_HOLD' | 'BOOKED' | 'IN_TRIP' | 'MAINTENANCE' | 'CLEANING' | 'UNAVAILABLE';
+
+export type RentalFleetAvailability = {
+  state: RentalAvailabilityState;
+  bookable: boolean;
+  label: string;
+  availableFrom: string | null;
+  holdExpiresAt: string | null;
+};
+
 export type RentalFleetItem = {
   id: string;
   fleetNumber: string;
@@ -605,6 +624,8 @@ export type RentalFleetItem = {
     reason: string;
     notes?: string | null;
   } | null;
+  /** Present only when the fleet was requested for an interval. */
+  availability?: RentalFleetAvailability | null;
 };
 
 export type RentalBookingItem = {

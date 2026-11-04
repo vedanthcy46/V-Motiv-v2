@@ -1,4 +1,7 @@
 import { api } from '../api';
+import type { RentalAvailability } from './rental-availability';
+
+export type { RentalAvailability } from './rental-availability';
 
 export interface RentalHub {
   id: string;
@@ -57,6 +60,8 @@ export interface RentalFleetVehicle {
   features?: string[];
   hub: RentalHub;
   quote?: RentalQuote;
+  /** Availability for the searched dates; absent on older API versions (treated as available). */
+  availability?: RentalAvailability | null;
 }
 
 export interface RentalSearchQuery {
@@ -348,6 +353,8 @@ export async function searchRentalCars(query: RentalSearchQuery): Promise<Rental
   if (query.fuelType) params.append('fuelType', query.fuelType);
   if (query.transmission) params.append('transmission', query.transmission);
   if (query.seats) params.append('seats', query.seats.toString());
+  // Show cars that are busy for these dates (on hold / booked / in trip) instead of hiding them.
+  params.append('includeUnavailable', 'true');
 
   return api<RentalFleetVehicle[]>(`/api/v2/rentals/search?${params.toString()}`);
 }

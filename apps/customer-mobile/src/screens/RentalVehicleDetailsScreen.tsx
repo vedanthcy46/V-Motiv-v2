@@ -13,6 +13,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import type { NativeStackScreenProps } from '@react-navigation/native-stack';
 import type { RootStack } from '../navigation/types';
 import { useAppTheme } from '../theme';
+import { RentalAvailabilityPill } from '../components/RentalAvailabilityPill';
+import { availabilityDetail } from '../services/rental-availability';
 import {
   ArrowLeft,
   Fuel,
@@ -70,9 +72,10 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
   }, [vehicleId, startTime, endTime]);
 
   const [reserving, setReserving] = useState(false);
+  const unavailable = vehicle?.availability ? !vehicle.availability.bookable : false;
 
   const handleReserve = async () => {
-    if (!vehicle) return;
+    if (!vehicle || unavailable) return;
     if (authState !== 'signed-in') {
       navigation.navigate('Tabs', { screen: 'Account' });
       return;
@@ -101,8 +104,10 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
         hubName: vehicle.hub?.name || 'Local Hub',
       });
     } catch (e: any) {
-      const errMsg =
-        e?.message && e.message !== 'INVALID_INPUT'
+      const taken = /VEHICLE_UNAVAILABLE|VEHICLE_NOT_ELIGIBLE/.test(String(e?.message || ''));
+      const errMsg = taken
+        ? 'This car was just booked or put on hold by another customer for your dates. Please choose another car or dates.'
+        : e?.message && e.message !== 'INVALID_INPUT'
           ? e.message
           : 'Unable to reserve this vehicle. It may be currently booked or the selected time slot is unavailable. Please choose another date or car.';
       Alert.alert('Reservation Unavailable', errMsg);
@@ -354,6 +359,14 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
           },
         ]}
       >
+        {unavailable ? (
+          <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 10 }}>
+            <RentalAvailabilityPill availability={vehicle?.availability} />
+            <Text style={{ flex: 1, color: colors.textSecondary, fontSize: 12.5, lineHeight: 18 }}>
+              {availabilityDetail(vehicle?.availability)}
+            </Text>
+          </View>
+        ) : null}
         <View style={styles.bottomBarContent}>
           <View>
             <Text
@@ -373,12 +386,12 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
             accessibilityRole="button"
             accessibilityLabel="Proceed to rental checkout"
             onPress={handleReserve}
-            disabled={reserving}
+            disabled={reserving || unavailable}
             style={({ pressed }) => [
               styles.reserveCta,
               {
                 backgroundColor: isDark ? colors.brandAccent : colors.brandNavy,
-                opacity: (pressed || reserving) ? 0.85 : 1,
+                opacity: unavailable ? 0.4 : (pressed || reserving) ? 0.85 : 1,
               },
             ]}
           >
@@ -392,7 +405,7 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
                     { color: isDark ? colors.brandNavy : '#FFFFFF' },
                   ]}
                 >
-                  Reserve & Checkout
+                  {unavailable ? 'Unavailable' : 'Reserve & Checkout'}
                 </Text>
                 <ChevronRight size={18} color={isDark ? colors.brandNavy : '#FFFFFF'} />
               </>
