@@ -56,7 +56,13 @@ function CustomerTabs() {
 
   // Spinny-like floating bottom bar positioning:
   // Floats above device safe area with rounded capsule corners, subtle border, and deep elevated shadow
-  const bottomFloatingInset = Math.max(insets.bottom, Platform.OS === 'android' ? 14 : 12);
+  // On some Android devices transparent system navigation reports a zero
+  // bottom inset. Keep the floating tab bar clear of three-button navigation
+  // as well as gesture navigation in that case.
+  const bottomFloatingInset = Math.max(
+    insets.bottom + 8,
+    Platform.OS === 'android' ? 48 : 12,
+  );
 
   return (
     <Tab.Navigator

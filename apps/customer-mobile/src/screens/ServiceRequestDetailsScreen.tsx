@@ -58,6 +58,13 @@ export function ServiceRequestDetailsScreen() {
     textMuted: theme.colors.textSecondary,
     accent: theme.colors.brandAccent,
   };
+  // A transparent modal does not reliably receive Android's three-button
+  // navigation inset. Reserve a minimum 48dp touch-clearance as well as the
+  // device safe inset so primary actions never sit behind system navigation.
+  const sheetBottomInset = Math.max(
+    insets.bottom + space.md,
+    Platform.OS === 'android' ? 48 : 20,
+  );
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -623,7 +630,7 @@ export function ServiceRequestDetailsScreen() {
             style={styles.keyboardAvoidWrap}
             contentContainerStyle={styles.keyboardAvoidContent}
           >
-          <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: sheetBottomInset }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: c.text }]}>Itemized Estimate Review</Text>
               <TouchableOpacity onPress={() => setEstimateModalVisible(false)}>
@@ -769,7 +776,7 @@ export function ServiceRequestDetailsScreen() {
                 styles.cancelSheet,
                 {
                   backgroundColor: c.surface,
-                  paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16),
+                  paddingBottom: sheetBottomInset,
                 },
               ]}
             >
@@ -826,7 +833,7 @@ export function ServiceRequestDetailsScreen() {
             style={styles.keyboardAvoidWrap}
             contentContainerStyle={styles.keyboardAvoidContent}
           >
-          <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: Math.max(insets.bottom, 16) }]}>
+          <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: sheetBottomInset }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: c.text }]}>Settle Outstanding Balance</Text>
               <TouchableOpacity onPress={() => setPayBalanceModalVisible(false)}>
