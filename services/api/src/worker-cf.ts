@@ -276,8 +276,12 @@ export async function fetchToExpress(app: Express, webReq: Request): Promise<Res
         // to decide whether a request has a body. Without it, every JSON POST
         // crossing this bridge arrives as req.body === undefined even though
         // the bytes were pushed below.
-        if (requestBody.length > 0 && !req.headers['content-length'] && !req.headers['transfer-encoding']) {
+        if (requestBody.length > 0) {
+          // The Worker already owns the complete request body at this point.
+          // Do not trust a proxy-provided zero/stale Content-Length: it makes
+          // body-parser skip the bytes we are about to push into the bridge.
           req.headers['content-length'] = String(requestBody.length);
+          delete req.headers['transfer-encoding'];
         }
       }
       if (requestBody?.length) {
