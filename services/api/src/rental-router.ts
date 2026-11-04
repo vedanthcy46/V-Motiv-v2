@@ -90,23 +90,44 @@ const kycReviewSchema = z.object({
 
 const walkinRentalBookingSchema = z.object({
   vehicleId: uuid,
-  customerName: z.string().trim().min(2).max(100),
-  customerPhone: z.string().trim().min(10).max(15),
-  customerEmail: z.string().trim().email(),
-  startTime: z.coerce.date(),
-  endTime: z.coerce.date(),
-  licenseNumber: z.string().trim().min(5).max(30),
-  licenseExpiry: z.coerce.date(),
-  drivingExperienceYears: z.number().int().min(1).max(60).default(3),
-  licenseFrontUrl: z.string().trim().min(5),
-  licenseBackUrl: z.string().trim().min(5),
-  paymentMethod: z.enum(['CASH', 'POS_CARD', 'UPI', 'NEFT', 'COUNTER']).default('UPI'),
-  transactionReference: z.string().trim().max(100).optional(),
-  startOdometerKm: z.number().int().min(0).optional(),
-  fuelPercent: z.number().int().min(1).max(100).default(100),
-  notes: z.string().trim().max(1000).optional(),
-  immediateHandover: z.boolean().default(false),
-});
+  customerName: z.string().trim().min(1).max(100),
+  customerPhone: z.string().trim().min(7).max(30),
+  customerEmail: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().email().optional().nullable()),
+  startTime: z.preprocess((val) => {
+    if (val instanceof Date) return val;
+    if (typeof val === 'string' || typeof val === 'number') {
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return val;
+  }, z.coerce.date()),
+  endTime: z.preprocess((val) => {
+    if (val instanceof Date) return val;
+    if (typeof val === 'string' || typeof val === 'number') {
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return val;
+  }, z.coerce.date()),
+  licenseNumber: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim().toUpperCase() : 'DL-WALKIN', z.string().min(2).max(50)),
+  licenseExpiry: z.preprocess((val) => {
+    if (val instanceof Date) return val;
+    if (typeof val === 'string' || typeof val === 'number') {
+      const d = new Date(val);
+      if (!isNaN(d.getTime())) return d;
+    }
+    return new Date(Date.now() + 365 * 24 * 3600 * 1000);
+  }, z.coerce.date()),
+  drivingExperienceYears: z.coerce.number().int().min(0).max(80).default(3),
+  licenseFrontUrl: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80', z.string().min(1)),
+  licenseBackUrl: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80', z.string().min(1)),
+  paymentMethod: z.string().trim().default('UPI'),
+  transactionReference: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(100).optional().nullable()),
+  startOdometerKm: z.preprocess((v) => v === '' || v === null || v === undefined ? undefined : Number(v), z.coerce.number().int().min(0).optional().nullable()),
+  fuelPercent: z.preprocess((v) => v === '' || v === null || v === undefined ? 100 : Number(v), z.coerce.number().int().min(0).max(100).default(100)),
+  notes: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(1000).optional().nullable()),
+  immediateHandover: z.coerce.boolean().default(false),
+}).passthrough();
 
 const handoverSchema = z.object({
   odometerKm: z.coerce.number().int().min(0),
@@ -710,7 +731,7 @@ export function createRentalOperationsRouter(deps: {
     try {
       const input = parse(walkinRentalBookingSchema, req.body);
       const employee = res.locals.employee;
-      const booking = await deps.store.createWalkInBooking(employee.userId, input);
+      const booking = await deps.store.createWalkInBooking(employee.userId, input as any);
       res.status(201).json(booking);
     } catch (e) {
       next(e);

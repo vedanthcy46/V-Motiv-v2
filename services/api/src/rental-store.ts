@@ -2671,7 +2671,7 @@ export class PrismaRentalStore {
       vehicleId: string;
       customerName: string;
       customerPhone: string;
-      customerEmail: string;
+      customerEmail?: string;
       startTime: Date;
       endTime: Date;
       licenseNumber: string;
@@ -2706,10 +2706,14 @@ export class PrismaRentalStore {
     }
 
     // Find or create customer
+    const emailToUse = input.customerEmail?.trim()
+      ? input.customerEmail.toLowerCase().trim()
+      : `walkin_rental_${Date.now()}_${Math.random().toString(36).substring(2, 6)}@rental.vmotiv.in`;
+
     let customer = await this.db.user.findFirst({
       where: {
         OR: [
-          { email: input.customerEmail.toLowerCase().trim() },
+          { email: emailToUse },
           { phone: input.customerPhone.trim() },
         ],
       },
@@ -2719,7 +2723,7 @@ export class PrismaRentalStore {
       customer = await this.db.user.create({
         data: {
           firebaseUid: `walkin_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-          email: input.customerEmail.toLowerCase().trim(),
+          email: emailToUse,
           phone: input.customerPhone.trim(),
           displayName: input.customerName.trim(),
         },

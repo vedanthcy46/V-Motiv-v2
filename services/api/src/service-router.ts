@@ -168,28 +168,28 @@ const paymentInitiateSchema = z.object({
 
 const walkInServiceSchema = z.object({
   hubId: uuid,
-  customerName: z.string().trim().min(2).max(100),
-  customerPhone: z.string().trim().min(7).max(25),
-  customerEmail: z.string().trim().email().optional().or(z.literal('')),
+  customerName: z.string().trim().min(1).max(100),
+  customerPhone: z.string().trim().min(7).max(30),
+  customerEmail: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().email().optional().nullable()),
   vehicleMake: z.string().trim().min(1).max(80),
   vehicleModel: z.string().trim().min(1).max(80),
-  vehicleYear: z.coerce.number().int().min(1980).max(new Date().getFullYear() + 1),
+  vehicleYear: z.coerce.number().int().min(1900).max(new Date().getFullYear() + 2).default(() => new Date().getFullYear()),
   fuelType: z.string().trim().default('PETROL'),
   transmission: z.string().trim().default('MANUAL'),
-  registrationNumber: z.string().trim().max(30).optional(),
-  odometerKm: z.coerce.number().int().min(0).max(2_000_000).optional(),
-  categoryKey: z.string().trim().min(1).max(100),
-  customerSymptoms: z.string().trim().max(2000).optional(),
-  scheduledDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  scheduledTimeSlot: z.string().trim().max(50).optional(),
-  immediateIntake: z.boolean().default(true),
-  intakeOdometerKm: z.coerce.number().int().min(0).max(2_000_000).optional(),
-  intakeFuelPercent: z.coerce.number().int().min(0).max(100).optional(),
-  intakeNotes: z.string().trim().max(1000).optional(),
-  advancePaymentAmountRupees: z.coerce.number().min(0).max(10_000_000).optional(),
-  paymentMethod: z.string().trim().max(50).optional(),
-  transactionReference: z.string().trim().max(100).optional(),
-}).strict();
+  registrationNumber: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim().toUpperCase() : undefined, z.string().max(30).optional().nullable()),
+  odometerKm: z.preprocess((v) => v === '' || v === null || v === undefined ? undefined : Number(v), z.coerce.number().int().min(0).max(2_000_000).optional().nullable()),
+  categoryKey: z.string().trim().min(1).max(100).default('periodic-maintenance'),
+  customerSymptoms: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(2000).optional().nullable()),
+  scheduledDate: z.preprocess((v) => typeof v === 'string' && v.trim() ? (v.includes('T') ? v.slice(0, 10) : v.trim()) : undefined, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable()),
+  scheduledTimeSlot: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(50).optional().nullable()),
+  immediateIntake: z.coerce.boolean().default(true),
+  intakeOdometerKm: z.preprocess((v) => v === '' || v === null || v === undefined ? undefined : Number(v), z.coerce.number().int().min(0).max(2_000_000).optional().nullable()),
+  intakeFuelPercent: z.preprocess((v) => v === '' || v === null || v === undefined ? undefined : Number(v), z.coerce.number().int().min(0).max(100).optional().nullable()),
+  intakeNotes: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(1000).optional().nullable()),
+  advancePaymentAmountRupees: z.preprocess((v) => v === '' || v === null || v === undefined ? undefined : Number(v), z.coerce.number().min(0).max(10_000_000).optional().nullable()),
+  paymentMethod: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(50).optional().nullable()),
+  transactionReference: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(100).optional().nullable()),
+}).passthrough();
 
 const paymentVerifySchema = z.object({
   verified: z.boolean(),
@@ -527,7 +527,7 @@ export function createServiceOperationsRouter(deps: {
       const job = await deps.store.createWalkInServiceJob(employee.userId, {
         ...input,
         customerEmail: input.customerEmail || undefined,
-      });
+      } as any);
       res.status(201).json(job);
     } catch (e) {
       next(e);

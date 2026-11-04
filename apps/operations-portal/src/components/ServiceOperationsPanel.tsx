@@ -526,7 +526,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         transmission: walkInTransmission,
         registrationNumber: walkInRegNumber.trim() || undefined,
         odometerKm: Number(walkInOdometer) || undefined,
-        categoryKey: walkInCategoryKey,
+        categoryKey: walkInCategoryKey || 'periodic-maintenance',
         customerSymptoms: walkInSymptoms.trim() || undefined,
         immediateIntake: walkInImmediateIntake,
         intakeOdometerKm: Number(walkInOdometer) || undefined,

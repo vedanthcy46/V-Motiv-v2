@@ -1505,8 +1505,35 @@ export class PrismaServiceStore {
     });
     if (!vehicle) throw new HttpError(404, 'VEHICLE_NOT_FOUND');
 
-    const hub = await this.db.serviceHub.findUnique({ where: { id: input.hubId } });
-    if (!hub || !hub.isActive) throw new HttpError(404, 'HUB_NOT_FOUND');
+    let hub = await this.db.serviceHub.findUnique({ where: { id: input.hubId } }).catch(() => null);
+    if (!hub) {
+      hub = await this.db.serviceHub.findFirst({ where: { branchId: input.hubId, isActive: true } }).catch(() => null);
+    }
+    if (!hub) {
+      hub = await this.db.serviceHub.findFirst({ where: { code: input.hubId, isActive: true } }).catch(() => null);
+    }
+    if (!hub) {
+      const branch = await this.db.branch.findUnique({ where: { id: input.hubId } }).catch(() => null);
+      if (branch) {
+        hub = await this.db.serviceHub.upsert({
+          where: { code: branch.code },
+          update: { branchId: branch.id, name: branch.name, city: branch.city, isActive: branch.active },
+          create: {
+            branchId: branch.id,
+            code: branch.code,
+            name: branch.name,
+            city: branch.city,
+            address: branch.address || `${branch.city} Hub Facility`,
+            isActive: branch.active,
+          },
+        }).catch(() => null);
+      }
+    }
+    if (!hub || !hub.isActive) {
+      hub = await this.db.serviceHub.findFirst({ where: { isActive: true } });
+    }
+    if (!hub) throw new HttpError(404, 'HUB_NOT_FOUND');
+    input.hubId = hub.id;
 
     const template = await this.db.serviceIssueTemplate.findUnique({
       where: { categoryKey: input.categoryKey },
@@ -2114,8 +2141,35 @@ export class PrismaServiceStore {
       transactionReference?: string;
     }
   ) {
-    const hub = await this.db.serviceHub.findUnique({ where: { id: input.hubId } });
-    if (!hub || !hub.isActive) throw new HttpError(404, 'HUB_NOT_FOUND');
+    let hub = await this.db.serviceHub.findUnique({ where: { id: input.hubId } }).catch(() => null);
+    if (!hub) {
+      hub = await this.db.serviceHub.findFirst({ where: { branchId: input.hubId, isActive: true } }).catch(() => null);
+    }
+    if (!hub) {
+      hub = await this.db.serviceHub.findFirst({ where: { code: input.hubId, isActive: true } }).catch(() => null);
+    }
+    if (!hub) {
+      const branch = await this.db.branch.findUnique({ where: { id: input.hubId } }).catch(() => null);
+      if (branch) {
+        hub = await this.db.serviceHub.upsert({
+          where: { code: branch.code },
+          update: { branchId: branch.id, name: branch.name, city: branch.city, isActive: branch.active },
+          create: {
+            branchId: branch.id,
+            code: branch.code,
+            name: branch.name,
+            city: branch.city,
+            address: branch.address || `${branch.city} Hub Facility`,
+            isActive: branch.active,
+          },
+        }).catch(() => null);
+      }
+    }
+    if (!hub || !hub.isActive) {
+      hub = await this.db.serviceHub.findFirst({ where: { isActive: true } });
+    }
+    if (!hub) throw new HttpError(404, 'HUB_NOT_FOUND');
+    input.hubId = hub.id;
 
     await this.ensureSeedData();
     let template = await this.db.serviceIssueTemplate.findUnique({

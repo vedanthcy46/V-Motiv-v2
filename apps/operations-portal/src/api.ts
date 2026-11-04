@@ -86,7 +86,8 @@ async function call<T>(user: User, path: string, init: RequestInit = {}, retry =
 
   if (!response.ok) {
     const body = (await response.json().catch(() => ({ code: 'REQUEST_FAILED' }))) as { code?: string; message?: string };
-    throw new ApiError(response.status, body.code || body.message || 'REQUEST_FAILED');
+    const errorMsg = (body.message && body.message !== body.code) ? body.message : (body.code || 'REQUEST_FAILED');
+    throw new ApiError(response.status, errorMsg);
   }
 
   if (response.status === 204) return undefined as T;
