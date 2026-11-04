@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
-  FlatList,
   Image,
   Linking,
   PermissionsAndroid,
@@ -133,7 +132,7 @@ export function ConnectGuestScreen() {
   const localStreamRef = useRef<MediaStream | null>(null);
   const signalCursor = useRef<string | undefined>(undefined);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const chatScrollRef = useRef<FlatList | null>(null);
+  const chatScrollRef = useRef<ScrollView | null>(null);
 
   // Call timer
   useEffect(() => {
@@ -733,39 +732,43 @@ export function ConnectGuestScreen() {
                   {/* Realtime Chat Section (integrated in the room) */}
                   <View style={[styles.chatCard, { backgroundColor: isDark ? '#061A38' : '#FFFFFF', borderColor: theme.colors.border }]}>
                     <Text style={[styles.chatTitle, { color: theme.colors.textPrimary }]}>Private Message Thread</Text>
-                    <FlatList
+                    {/* A plain nested ScrollView: a FlatList must not live inside the screen's vertical ScrollView. */}
+                    <ScrollView
                       ref={chatScrollRef}
-                      data={chatMessages}
-                      keyExtractor={item => item.id}
                       style={styles.chatList}
                       contentContainerStyle={{ gap: 8, paddingVertical: 8 }}
-                      renderItem={({ item }) => {
-                        const isMe = item.from === 'VISITOR';
-                        return (
-                          <View
-                            style={[
-                              styles.chatBubble,
-                              isMe ? styles.chatBubbleVisitor : styles.chatBubbleOwner,
-                              { backgroundColor: isMe ? theme.colors.brandAccent : (isDark ? '#1F3C64' : '#E2E8F0') },
-                            ]}
-                          >
-                            <Text style={[styles.chatBubbleSender, { color: isMe ? theme.colors.brandNavy : theme.colors.textSecondary }]}>
-                              {isMe ? 'You (Visitor)' : 'Vehicle Owner'}
-                            </Text>
-                            <Text style={[styles.chatBubbleBody, { color: isMe ? theme.colors.brandNavy : theme.colors.textPrimary }]}>
-                              {item.text}
-                            </Text>
-                          </View>
-                        );
-                      }}
-                      ListEmptyComponent={
+                      nestedScrollEnabled
+                      keyboardShouldPersistTaps="handled"
+                    >
+                      {chatMessages.length === 0 ? (
                         <Text style={[styles.chatEmptyText, { color: theme.colors.textSecondary }]}>
                           {phase === 'CALLING'
                             ? 'You can send a message while waiting for the owner to pick up.'
                             : 'No messages yet. Send a message to start conversation.'}
                         </Text>
-                      }
-                    />
+                      ) : (
+                        chatMessages.map(item => {
+                          const isMe = item.from === 'VISITOR';
+                          return (
+                            <View
+                              key={item.id}
+                              style={[
+                                styles.chatBubble,
+                                isMe ? styles.chatBubbleVisitor : styles.chatBubbleOwner,
+                                { backgroundColor: isMe ? theme.colors.brandAccent : (isDark ? '#1F3C64' : '#E2E8F0') },
+                              ]}
+                            >
+                              <Text style={[styles.chatBubbleSender, { color: isMe ? theme.colors.brandNavy : theme.colors.textSecondary }]}>
+                                {isMe ? 'You (Visitor)' : 'Vehicle Owner'}
+                              </Text>
+                              <Text style={[styles.chatBubbleBody, { color: isMe ? theme.colors.brandNavy : theme.colors.textPrimary }]}>
+                                {item.text}
+                              </Text>
+                            </View>
+                          );
+                        })
+                      )}
+                    </ScrollView>
 
                     {/* Chat Input */}
                     <View style={styles.chatInputRow}>
