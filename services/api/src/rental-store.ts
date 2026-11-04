@@ -2,6 +2,7 @@ import { PrismaClient, Prisma, RentalVehicleStatus, RentalBlockReason, RentalBoo
 import { HttpError } from './errors.js';
 import type { NotificationService } from './notification/notification-service.js';
 import crypto from 'node:crypto';
+import { currentCalendarYear } from './calendar.js';
 
 if (!('toJSON' in BigInt.prototype)) {
   Object.defineProperty(BigInt.prototype, 'toJSON', {
@@ -518,7 +519,7 @@ export class PrismaRentalStore {
 
       const quote = hold.quoteSnapshot as any as QuoteBreakdown;
       const count = await tx.rentalBooking.count();
-      const bookingNumber = `VMR-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+      const bookingNumber = `VMR-${currentCalendarYear()}-${String(count + 1).padStart(5, '0')}`;
       const returnHubId = input.returnHubId || hold.hubId;
 
       // Calculate authoritative payment obligations
@@ -2743,7 +2744,7 @@ export class PrismaRentalStore {
 
     return await this.db.$transaction(async tx => {
       const count = await tx.rentalBooking.count();
-      const bookingNumber = `VMR-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+      const bookingNumber = `VMR-${currentCalendarYear()}-${String(count + 1).padStart(5, '0')}`;
 
       const bookingStatus = input.immediateHandover
         ? RentalBookingStatus.TRIP_ACTIVE

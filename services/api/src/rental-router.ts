@@ -5,6 +5,7 @@ import { PrismaRentalStore } from './rental-store.js';
 import { HttpError } from './errors.js';
 import { PrismaClient, type EmployeeRole } from '@prisma/client';
 import crypto from 'node:crypto';
+import { currentCalendarYear } from './calendar.js';
 
 const uuid = z.string().trim().min(1);
 
@@ -186,7 +187,7 @@ const fleetCreateSchema = z.object({
   make: z.string().trim().min(1).max(50),
   model: z.string().trim().min(1).max(50),
   variant: z.string().trim().max(50).optional(),
-  year: z.coerce.number().int().min(2010).max(new Date().getFullYear() + 1),
+  year: z.coerce.number().int().min(2010).max(currentCalendarYear() + 1),
   transmission: z.enum(['MANUAL', 'AUTOMATIC']),
   fuelType: z.enum(['PETROL', 'DIESEL', 'EV', 'HYBRID', 'CNG']),
   seats: z.coerce.number().int().min(2).max(10).default(5),

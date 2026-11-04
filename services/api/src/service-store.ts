@@ -22,6 +22,7 @@ import {
   ServicePaymentStatus,
   Prisma,
 } from '@prisma/client';
+import { currentCalendarYear } from './calendar.js';
 import crypto from 'node:crypto';
 import { HttpError } from './errors.js';
 import type { Identity } from './auth.js';
@@ -2222,7 +2223,7 @@ export class PrismaServiceStore {
             userId: customer.id,
             make: input.vehicleMake.trim(),
             model: input.vehicleModel.trim(),
-            year: input.vehicleYear || new Date().getFullYear(),
+            year: input.vehicleYear || currentCalendarYear(),
             fuelType: (input.fuelType || 'PETROL').toUpperCase(),
             transmission: (input.transmission || 'MANUAL').toUpperCase(),
             registrationNumber: input.registrationNumber?.trim().toUpperCase() || null,

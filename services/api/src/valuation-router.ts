@@ -5,6 +5,7 @@ import { authentication } from './auth.js';
 import type { PrismaValuationStore, MarketObservationInput } from './valuation-store.js';
 import type { PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
+import { currentCalendarYear } from './calendar.js';
 
 const uuid = z.string().uuid();
 
@@ -13,7 +14,7 @@ const marketRecordInput = z.object({
   make: z.string().trim().min(1).max(80),
   model: z.string().trim().min(1).max(80),
   variant: z.string().trim().max(100).optional(),
-  manufacturingYear: z.number().int().min(1980).max(new Date().getFullYear() + 1),
+  manufacturingYear: z.number().int().min(1980).max(currentCalendarYear() + 1),
   fuelType: z.string().trim().min(2).max(30),
   transmission: z.string().trim().min(2).max(30),
   odometerKm: z.number().int().min(0).max(2_000_000),

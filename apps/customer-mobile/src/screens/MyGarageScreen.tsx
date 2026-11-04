@@ -81,6 +81,7 @@ import {
   FUEL_TYPES,
   TRANSMISSIONS,
 } from '../constants/car-catalog';
+import { CURRENT_YEAR } from '../utils/calendar';
 
 export function MyGarageScreen() {
   const insets = useSafeAreaInsets();
@@ -494,7 +495,7 @@ export function MyGarageScreen() {
       return;
     }
     const yearNum = parseInt(year, 10);
-    const currentYear = new Date().getFullYear();
+    const currentYear = CURRENT_YEAR;
     if (!year.trim() || isNaN(yearNum) || yearNum < 1980 || yearNum > currentYear + 1) {
       Alert.alert(
         'Invalid Year',

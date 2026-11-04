@@ -1,4 +1,5 @@
 import type { EmailOutbox } from '@prisma/client';
+import { currentCalendarYear } from './calendar.js';
 
 function escapeHtml(str: string): string {
   return str
@@ -368,7 +369,7 @@ export function renderEmailHtml(event: EmailTemplateData): string {
             </tr>
             <tr>
               <td style="padding-top: 16px; border-top: 1px solid #0F1D30; margin-top: 12px; font-size: 10px; color: #475569;">
-                &copy; ${new Date().getFullYear()} V MOTIV. All rights reserved. Bangalore, Chennai, Mumbai, Hyderabad, Delhi NCR.
+                &copy; ${currentCalendarYear()} V MOTIV. All rights reserved. Bangalore, Chennai, Mumbai, Hyderabad, Delhi NCR.
               </td>
             </tr>
           </table>

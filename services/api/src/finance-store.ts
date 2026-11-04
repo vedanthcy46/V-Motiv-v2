@@ -1,6 +1,7 @@
 import { Prisma, PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
 import type { NotificationService } from './notification/index.js';
+import { currentCalendarYear } from './calendar.js';
 
 export type FinanceActor = {
   userId: string;
@@ -906,7 +907,7 @@ export class PrismaFinanceStore {
     requirePermission(actor, 'finance.receipt.record');
     const totalPaise = BigInt(input.totalPayablePaise);
     const count = await this.db.buyerPaymentObligation.count();
-    const obligationNumber = `OBL-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    const obligationNumber = `OBL-${currentCalendarYear()}-${String(count + 1).padStart(5, '0')}`;
 
     // Resolve or create customer User
     let resolvedCustomerId = input.customerId;
@@ -1053,7 +1054,7 @@ export class PrismaFinanceStore {
 
     if (initialPaid > 0n) {
       const receiptCount = await this.db.incomingReceipt.count();
-      const receiptNumber = `REC-${new Date().getFullYear()}-${String(receiptCount + 1).padStart(5, '0')}`;
+      const receiptNumber = `REC-${currentCalendarYear()}-${String(receiptCount + 1).padStart(5, '0')}`;
       const receipt = await this.db.incomingReceipt.create({
         data: {
           receiptNumber,
@@ -1186,7 +1187,7 @@ export class PrismaFinanceStore {
 
       // Generate receipt number
       const receiptCount = await tx.incomingReceipt.count();
-      const receiptNumber = `REC-${new Date().getFullYear()}-${String(receiptCount + 1).padStart(5, '0')}`;
+      const receiptNumber = `REC-${currentCalendarYear()}-${String(receiptCount + 1).padStart(5, '0')}`;
       const validMethods = ['MANUAL_BANK_TRANSFER', 'NEFT', 'RTGS', 'IMPS', 'UPI', 'PAYMENT_GATEWAY', 'FINANCE_PARTNER'];
       let method: any = 'NEFT';
       const inputMode = (input.paymentMode || 'NEFT').toUpperCase();
@@ -1386,7 +1387,7 @@ export class PrismaFinanceStore {
     requirePermission(actor, 'finance.receipt.record');
     const amountPaise = BigInt(input.amountPaise);
     const count = await this.db.incomingReceipt.count();
-    const receiptNumber = `REC-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    const receiptNumber = `REC-${currentCalendarYear()}-${String(count + 1).padStart(5, '0')}`;
     const shouldAllocate = Boolean(input.obligationId);
 
     return this.db.$transaction(async tx => {
@@ -1745,7 +1746,7 @@ export class PrismaFinanceStore {
     if (!customerId) throw new HttpError(400, 'REFUND_CUSTOMER_SOURCE_REQUIRED');
 
     const count = await this.db.refundCase.count();
-    const refundNumber = `REF-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    const refundNumber = `REF-${currentCalendarYear()}-${String(count + 1).padStart(5, '0')}`;
 
     const refund = await this.db.refundCase.create({
       data: {
@@ -2004,7 +2005,7 @@ export class PrismaFinanceStore {
   ) {
     requirePermission(actor, 'finance.expense.submit');
     const count = await this.db.expenseClaim.count();
-    const claimNumber = `EXP-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    const claimNumber = `EXP-${currentCalendarYear()}-${String(count + 1).padStart(5, '0')}`;
 
     const created = await this.db.expenseClaim.create({
       data: {
@@ -2536,7 +2537,7 @@ export class PrismaFinanceStore {
     }
 
     const count = await this.db.financialJournal.count();
-    const journalNumber = `JRN-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    const journalNumber = `JRN-${currentCalendarYear()}-${String(count + 1).padStart(5, '0')}`;
 
     return this.db.$transaction(async tx => {
       const journal = await tx.financialJournal.create({
@@ -2635,7 +2636,7 @@ export class PrismaFinanceStore {
         : input.invoiceType;
     const prefix = resolvedInvoiceType === 'CREDIT_NOTE' ? 'CRN' : 'INV';
     const count = await this.db.invoiceDocument.count();
-    const invoiceNumber = `${prefix}-${new Date().getFullYear()}-${String(count + 1).padStart(5, '0')}`;
+    const invoiceNumber = `${prefix}-${currentCalendarYear()}-${String(count + 1).padStart(5, '0')}`;
 
     const created = await this.db.invoiceDocument.create({
       data: {

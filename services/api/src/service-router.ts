@@ -4,6 +4,7 @@ import { authentication, type Identity, type VerifyToken } from './auth.js';
 import { PrismaServiceStore } from './service-store.js';
 import { HttpError } from './errors.js';
 import { PrismaClient, type EmployeeRole } from '@prisma/client';
+import { currentCalendarYear } from './calendar.js';
 
 const uuid = z.string().trim().min(1);
 
@@ -31,7 +32,7 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
 const vehicleCreateSchema = z.object({
   make: z.string().trim().min(1).max(80),
   model: z.string().trim().min(1).max(80),
-  year: z.coerce.number().int().min(1900).max(new Date().getFullYear() + 2),
+  year: z.coerce.number().int().min(1900).max(currentCalendarYear() + 2),
   variant: z.string().trim().max(100).optional().nullable(),
   fuelType: z.string().trim().min(1).max(50),
   transmission: z.string().trim().min(1).max(50),
@@ -173,7 +174,7 @@ const walkInServiceSchema = z.object({
   customerEmail: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().email().optional().nullable()),
   vehicleMake: z.string().trim().min(1).max(80),
   vehicleModel: z.string().trim().min(1).max(80),
-  vehicleYear: z.coerce.number().int().min(1900).max(new Date().getFullYear() + 2).default(() => new Date().getFullYear()),
+  vehicleYear: z.coerce.number().int().min(1900).max(currentCalendarYear() + 2).default(currentCalendarYear),
   fuelType: z.string().trim().default('PETROL'),
   transmission: z.string().trim().default('MANUAL'),
   registrationNumber: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim().toUpperCase() : undefined, z.string().max(30).optional().nullable()),

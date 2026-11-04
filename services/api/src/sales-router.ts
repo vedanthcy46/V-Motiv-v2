@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { VerifyToken, Identity } from './auth.js';
 import { authentication } from './auth.js';
 import type { SalesStore } from './sales-store.js';
+import { currentCalendarYear } from './calendar.js';
 
 const uuid = z.string().uuid();
 const pagination = z.object({
@@ -25,7 +26,7 @@ const manualLeadInput = z.object({
   make: z.string().trim().min(1).max(80),
   model: z.string().trim().min(1).max(80),
   variant: z.string().trim().max(100).optional(),
-  manufacturingYear: z.number().int().min(1990).max(new Date().getFullYear() + 1),
+  manufacturingYear: z.number().int().min(1990).max(currentCalendarYear() + 1),
   fuelType: z.string().trim().min(2).max(30),
   transmission: z.string().trim().min(2).max(30),
   odometerKm: z.number().int().min(0).max(2_000_000),
@@ -97,7 +98,7 @@ const vehicleDetailsInput = z.object({
   registrationNumber: z.string().trim().max(30).optional(),
   variant: z.string().trim().max(100).optional(),
   color: z.string().trim().max(40).optional(),
-  registrationYear: z.number().int().min(1980).max(new Date().getFullYear() + 1).optional(),
+  registrationYear: z.number().int().min(1980).max(currentCalendarYear() + 1).optional(),
   registrationCity: z.string().trim().max(100).optional(),
   odometerKm: z.number().int().min(0).max(2_000_000).optional(),
 }).strict();

@@ -46,13 +46,14 @@ import type { PrismaConnectStore } from './connect-store.js';
 import { createConnectCustomerRouter, createConnectPublicRouter, createConnectWebhookRouter } from './connect-router.js';
 import type { PrismaValuationStore } from './valuation-store.js';
 import { createValuationRouter } from './valuation-router.js';
+import { currentCalendarYear } from './calendar.js';
 
 const uuid = z.string().uuid();
 const profileInput = z.object({ displayName: z.string().trim().min(1).max(80).optional(), phone: z.string().regex(/^\+91[6-9]\d{9}$/).optional(), marketingConsent: z.boolean().optional(), preferredCity: z.string().trim().min(2).max(100).optional(), termsVersion: z.string().trim().min(1).max(40).optional() }).strict().refine(value => Object.keys(value).length > 0);
 const sellInput = z.object({
   sellerName: z.string().trim().min(2).max(100), sellerPhone: z.string().regex(/^\+91[6-9]\d{9}$/), city: z.string().trim().min(2).max(100), pincode: z.string().regex(/^\d{6}$/),
-  make: z.string().trim().min(1).max(80), model: z.string().trim().min(1).max(80), variant: z.string().trim().max(100).optional(), manufacturingYear: z.number().int().min(1980).max(new Date().getFullYear() + 1),
-  fuelType: z.string().trim().min(2).max(30), transmission: z.string().trim().min(2).max(30), odometerKm: z.number().int().min(0).max(2_000_000), expectedPricePaise: z.number().int().positive().max(10_000_000_000).optional(), ownershipCount: z.number().int().min(0).max(20).optional(), registrationYear: z.number().int().min(1980).max(new Date().getFullYear() + 1).optional(), color: z.string().trim().max(40).optional(), registrationCity: z.string().trim().max(100).optional(), registrationNumber: z.string().trim().max(30).optional(), loanOutstanding: z.boolean().optional(), accidentHistory: z.enum(['YES', 'NO', 'NOT_SURE']).optional(), serviceHistory: z.enum(['COMPLETE', 'PARTIAL', 'NOT_SURE']).optional(), sellerNotes: z.string().trim().max(1000).optional(),
+  make: z.string().trim().min(1).max(80), model: z.string().trim().min(1).max(80), variant: z.string().trim().max(100).optional(), manufacturingYear: z.number().int().min(1980).max(currentCalendarYear() + 1),
+  fuelType: z.string().trim().min(2).max(30), transmission: z.string().trim().min(2).max(30), odometerKm: z.number().int().min(0).max(2_000_000), expectedPricePaise: z.number().int().positive().max(10_000_000_000).optional(), ownershipCount: z.number().int().min(0).max(20).optional(), registrationYear: z.number().int().min(1980).max(currentCalendarYear() + 1).optional(), color: z.string().trim().max(40).optional(), registrationCity: z.string().trim().max(100).optional(), registrationNumber: z.string().trim().max(30).optional(), loanOutstanding: z.boolean().optional(), accidentHistory: z.enum(['YES', 'NO', 'NOT_SURE']).optional(), serviceHistory: z.enum(['COMPLETE', 'PARTIAL', 'NOT_SURE']).optional(), sellerNotes: z.string().trim().max(1000).optional(),
   inspectionDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   inspectionTimeSlot: z.enum(['10:00-12:00', '12:00-14:00', '14:00-16:00', '16:00-18:00']).optional(),
   inspectionLocationType: z.enum(['HUB', 'HOME']).optional(),
@@ -68,8 +69,8 @@ const instantValuationInput = z.object({
   make: z.string().trim().min(1).max(80),
   model: z.string().trim().min(1).max(80),
   variant: z.string().trim().min(1).max(100).optional(),
-  manufacturingYear: z.number().int().min(1980).max(new Date().getFullYear() + 1),
-  registrationYear: z.number().int().min(1980).max(new Date().getFullYear() + 1).optional(),
+  manufacturingYear: z.number().int().min(1980).max(currentCalendarYear() + 1),
+  registrationYear: z.number().int().min(1980).max(currentCalendarYear() + 1).optional(),
   fuelType: z.string().trim().min(2).max(30),
   transmission: z.string().trim().min(2).max(30),
   odometerKm: z.number().int().min(0).max(2_000_000),
@@ -107,8 +108,8 @@ const inventoryQuery = z.object({
   model: z.string().trim().max(500).optional(),
   bodyType: z.string().trim().max(80).optional(),
   color: z.string().trim().max(80).optional(),
-  minYear: z.coerce.number().int().min(1980).max(new Date().getFullYear() + 1).optional(),
-  maxYear: z.coerce.number().int().min(1980).max(new Date().getFullYear() + 1).optional(),
+  minYear: z.coerce.number().int().min(1980).max(currentCalendarYear() + 1).optional(),
+  maxYear: z.coerce.number().int().min(1980).max(currentCalendarYear() + 1).optional(),
   maxOdometerKm: z.coerce.number().int().min(0).max(2_000_000).optional(),
   minPricePaise: z.coerce.number().int().min(0).max(10_000_000_000).optional(),
   maxPricePaise: z.coerce.number().int().min(0).max(10_000_000_000).optional(),

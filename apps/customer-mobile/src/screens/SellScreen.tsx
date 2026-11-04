@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   KeyboardAvoidingView,
@@ -35,6 +35,7 @@ import { useAppTheme, radius, space } from '../theme';
 import { friendlyError } from '../format';
 import { CarBrandLogo } from '../components/CarBrandLogo';
 import type { CustomerAddress, SupportedCity } from '../types';
+import { CURRENT_YEAR } from '../utils/calendar';
 
 // ─── Draft ─────────────────────────────────────────────────────────────────
 const DRAFT_KEY = 'vmotiv.v2.sell-draft';
@@ -159,7 +160,7 @@ const COLOUR_OPTIONS = [
 ];
 
 // Generate year list from current year down to 1990
-const currentYear = new Date().getFullYear();
+const currentYear = CURRENT_YEAR;
 const YEARS: string[] = [];
 for (let y = currentYear + 1; y >= 1990; y--) YEARS.push(String(y));
 
@@ -175,7 +176,7 @@ function computeClientEstimateFallback(input: {
   fuelType?: string;
   transmission?: string;
 }): InstantValuationSummary {
-  const curYear = new Date().getFullYear();
+  const curYear = CURRENT_YEAR;
   const age = Math.max(0, curYear - input.manufacturingYear);
 
   const modelUpper = input.model.toUpperCase();

@@ -3,6 +3,7 @@ import type { User } from 'firebase/auth';
 import { api } from '../api';
 import type { Branch, ServiceJobItem, ServiceJobStatus } from '../types';
 import { IconCross, IconRefresh, IconSearch, IconService } from '../icons';
+import { CURRENT_YEAR } from '../calendar';
 
 function formatRupees(paise?: string | number | null): string {
   if (paise === undefined || paise === null || paise === '') return '—';
@@ -108,7 +109,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const [walkInCustomerEmail, setWalkInCustomerEmail] = useState('');
   const [walkInVehicleMake, setWalkInVehicleMake] = useState('');
   const [walkInVehicleModel, setWalkInVehicleModel] = useState('');
-  const [walkInVehicleYear, setWalkInVehicleYear] = useState(new Date().getFullYear());
+  const [walkInVehicleYear, setWalkInVehicleYear] = useState(CURRENT_YEAR);
   const [walkInFuelType, setWalkInFuelType] = useState('PETROL');
   const [walkInTransmission, setWalkInTransmission] = useState('MANUAL');
   const [walkInRegNumber, setWalkInRegNumber] = useState('');
@@ -521,7 +522,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         customerEmail: walkInCustomerEmail.trim() || undefined,
         vehicleMake: walkInVehicleMake.trim(),
         vehicleModel: walkInVehicleModel.trim(),
-        vehicleYear: Number(walkInVehicleYear) || new Date().getFullYear(),
+        vehicleYear: Number(walkInVehicleYear) || CURRENT_YEAR,
         fuelType: walkInFuelType,
         transmission: walkInTransmission,
         registrationNumber: walkInRegNumber.trim() || undefined,
@@ -2279,7 +2280,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         className="input"
                         required
                         min={1990}
-                        max={new Date().getFullYear() + 1}
+                        max={CURRENT_YEAR + 1}
                         value={walkInVehicleYear}
                         onChange={e => setWalkInVehicleYear(Number(e.target.value))}
                         style={{ width: '100%', marginTop: '3px' }}

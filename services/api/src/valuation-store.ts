@@ -1,5 +1,6 @@
 import { PrismaClient, type MarketObservationPriceType, type MarketObservationQualityStatus } from '@prisma/client';
 import { HttpError } from './errors.js';
+import { currentCalendarYear } from './calendar.js';
 
 export type InstantValuationInput = {
   leadId?: string;
@@ -540,7 +541,7 @@ export class PrismaValuationStore {
       });
     }
 
-    const currentYear = new Date().getFullYear();
+    const currentYear = currentCalendarYear();
     let accepted = 0;
     let quarantined = 0;
 

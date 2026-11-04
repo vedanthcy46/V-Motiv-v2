@@ -3,6 +3,7 @@
 // Canonical Car Catalog for V MOTIV Customer Mobile App
 // Used across My Garage, Sell Screen, and Service Booking.
 // ============================================================
+import { CURRENT_YEAR } from '../utils/calendar';
 
 export interface CarBrandItem {
   name: string;
@@ -121,8 +122,8 @@ export const OWNERSHIP_TYPES = [
   { value: 'AUTHORIZED_DRIVER', label: 'Authorized Driver' },
 ] as const;
 
-// Quick year generation from next year down to 1995
-const CURRENT_YEAR = new Date().getFullYear();
+// Quick year generation — uses guarded currentCalendarYear() helper
+// to avoid "expected number to be <=1972" if the JS runtime returns epoch.
 export const QUICK_YEARS: string[] = [
   String(CURRENT_YEAR + 1),
   String(CURRENT_YEAR),

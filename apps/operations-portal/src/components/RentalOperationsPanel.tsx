@@ -1,6 +1,7 @@
 import React, { useState, useEffect, type FC, type FormEvent } from 'react';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
+import { CURRENT_YEAR } from '../calendar';
 import type {
   Branch,
   RentalBookingItem,
@@ -2202,7 +2203,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         className="input"
                         required
                         min={2015}
-                        max={new Date().getFullYear() + 1}
+                        max={CURRENT_YEAR + 1}
                         value={onboardYear}
                         onChange={e => setOnboardYear(Number(e.target.value))}
                         style={{ width: '100%', marginTop: '4px' }}
