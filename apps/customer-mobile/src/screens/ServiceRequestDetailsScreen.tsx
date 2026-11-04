@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -45,7 +45,6 @@ import {
   verifyServicePayment,
   type ServiceRequestDetails,
 } from '../services/service-api';
-import { useKeyboard } from '../components/KeyboardAwareFormScreen';
 
 export function ServiceRequestDetailsScreen() {
   const insets = useSafeAreaInsets();
@@ -79,7 +78,16 @@ export function ServiceRequestDetailsScreen() {
   const [payingBalance, setPayingBalance] = useState(false);
   const [customPayAmountRupees, setCustomPayAmountRupees] = useState<number>(0);
   const [payMethod, setPayMethod] = useState<'RAZORPAY_UPI' | 'RAZORPAY_CARD' | 'NET_BANKING'>('RAZORPAY_UPI');
-  const { keyboardHeight, isKeyboardVisible } = useKeyboard();
+  const estimateScrollRef = useRef<ScrollView>(null);
+  const paymentScrollRef = useRef<ScrollView>(null);
+
+  const revealFocusedField = (scrollRef: React.RefObject<ScrollView | null>) => {
+    // Allow Android's resize animation to settle before bringing the field and
+    // its actions into the remaining viewport.
+    requestAnimationFrame(() => {
+      setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), Platform.OS === 'android' ? 180 : 0);
+    });
+  };
 
   const loadDetails = useCallback(async (isSilent = false) => {
     if (!requestId) return;
@@ -242,6 +250,8 @@ export function ServiceRequestDetailsScreen() {
       <ScrollView
         contentContainerStyle={styles.scrollContent}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />}
+        keyboardShouldPersistTaps="handled"
+        keyboardDismissMode="on-drag"
       >
         {/* Safety Alert Banner if Critical */}
         {request.emergencySafetyFlag && (
@@ -605,9 +615,14 @@ export function ServiceRequestDetailsScreen() {
         animationType="slide"
         transparent={true}
         onRequestClose={() => setEstimateModalVisible(false)}
+        statusBarTranslucent
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: insets.bottom + 16 }]}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.keyboardAvoidWrap}
+          >
+          <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: Math.max(insets.bottom, 16) }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: c.text }]}>Itemized Estimate Review</Text>
               <TouchableOpacity onPress={() => setEstimateModalVisible(false)}>
@@ -616,7 +631,14 @@ export function ServiceRequestDetailsScreen() {
             </View>
 
             {activeEstimate && (
-              <ScrollView style={styles.modalScroll} showsVerticalScrollIndicator={false}>
+              <ScrollView
+                ref={estimateScrollRef}
+                style={styles.modalScroll}
+                contentContainerStyle={styles.modalScrollContent}
+                showsVerticalScrollIndicator={false}
+                keyboardShouldPersistTaps="handled"
+                keyboardDismissMode="on-drag"
+              >
                 {/* Items Table */}
                 <View style={[styles.itemsTable, { borderColor: c.border }]}>
                   {activeEstimate.items.map((item, idx) => (
@@ -674,6 +696,9 @@ export function ServiceRequestDetailsScreen() {
                     <TextInput
                       value={estimateNotes}
                       onChangeText={setEstimateNotes}
+                      onFocus={() => revealFocusedField(estimateScrollRef)}
+                      returnKeyType="done"
+                      onSubmitEditing={Keyboard.dismiss}
                       placeholder="Optional notes or questions for service advisor..."
                       placeholderTextColor={c.textMuted}
                       style={[styles.notesInput, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
@@ -705,6 +730,7 @@ export function ServiceRequestDetailsScreen() {
               </ScrollView>
             )}
           </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
 
@@ -732,20 +758,15 @@ export function ServiceRequestDetailsScreen() {
             }}
           />
           <KeyboardAvoidingView
-            behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-            style={[
-              styles.keyboardAvoidWrap,
-              Platform.OS === 'android' && isKeyboardVisible ? { marginBottom: keyboardHeight } : null,
-            ]}
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.keyboardAvoidWrap}
           >
             <View
               style={[
                 styles.cancelSheet,
                 {
                   backgroundColor: c.surface,
-                  paddingBottom: isKeyboardVisible
-                    ? 14
-                    : Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16),
+                  paddingBottom: Math.max(insets.bottom, Platform.OS === 'android' ? 24 : 16),
                 },
               ]}
             >
@@ -756,6 +777,8 @@ export function ServiceRequestDetailsScreen() {
               <TextInput
                 value={cancelReason}
                 onChangeText={setCancelReason}
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
                 placeholder="e.g. Schedule changed / Will book next week"
                 placeholderTextColor={c.textMuted}
                 style={[styles.notesInput, { backgroundColor: c.background, color: c.text, borderColor: c.border }]}
@@ -792,9 +815,14 @@ export function ServiceRequestDetailsScreen() {
         animationType="slide"
         transparent={true}
         onRequestClose={() => setPayBalanceModalVisible(false)}
+        statusBarTranslucent
       >
         <View style={styles.modalOverlay}>
-          <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: insets.bottom + 16 }]}>
+          <KeyboardAvoidingView
+            behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+            style={styles.keyboardAvoidWrap}
+          >
+          <View style={[styles.modalSheet, { backgroundColor: c.surface, paddingBottom: Math.max(insets.bottom, 16) }]}>
             <View style={styles.modalHeader}>
               <Text style={[styles.modalTitle, { color: c.text }]}>Settle Outstanding Balance</Text>
               <TouchableOpacity onPress={() => setPayBalanceModalVisible(false)}>
@@ -802,7 +830,13 @@ export function ServiceRequestDetailsScreen() {
               </TouchableOpacity>
             </View>
 
-            <View style={{ padding: 16 }}>
+            <ScrollView
+              ref={paymentScrollRef}
+              contentContainerStyle={styles.paymentScrollContent}
+              keyboardShouldPersistTaps="handled"
+              keyboardDismissMode="on-drag"
+              showsVerticalScrollIndicator={false}
+            >
               <Text style={{ fontSize: 13, color: c.textMuted, marginBottom: 12 }}>
                 Make an immediate secure payment via Razorpay UPI, Card, or Net Banking to settle your service balance.
               </Text>
@@ -825,6 +859,9 @@ export function ServiceRequestDetailsScreen() {
                 keyboardType="numeric"
                 value={String(customPayAmountRupees)}
                 onChangeText={t => setCustomPayAmountRupees(Number(t) || 0)}
+                onFocus={() => revealFocusedField(paymentScrollRef)}
+                returnKeyType="done"
+                onSubmitEditing={Keyboard.dismiss}
               />
 
               <View style={{ gap: 8, marginBottom: 20 }}>
@@ -874,8 +911,9 @@ export function ServiceRequestDetailsScreen() {
                   </Text>
                 )}
               </TouchableOpacity>
-            </View>
+            </ScrollView>
           </View>
+          </KeyboardAvoidingView>
         </View>
       </Modal>
     </View>
@@ -915,8 +953,8 @@ const styles = StyleSheet.create({
     borderBottomWidth: StyleSheet.hairlineWidth,
   },
   iconBtn: {
-    width: 40,
-    height: 40,
+    width: 44,
+    height: 44,
     borderRadius: radius.pill,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1217,7 +1255,15 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   modalScroll: {
+    flexGrow: 0,
     maxHeight: 500,
+  },
+  modalScrollContent: {
+    paddingBottom: space.md,
+  },
+  paymentScrollContent: {
+    padding: space.lg,
+    paddingBottom: space.xl,
   },
   itemsTable: {
     borderWidth: 1,
