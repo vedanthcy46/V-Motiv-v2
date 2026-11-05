@@ -577,7 +577,7 @@ export class PrismaInspectionStore {
       }
     }
 
-    return this.db.$transaction(async tx => {
+    const submitted = await this.db.$transaction(async tx => {
       const updated = await tx.inspectionReport.update({
         where: { id },
         data: {
@@ -621,8 +621,13 @@ export class PrismaInspectionStore {
         },
       });
 
-      // Notify inspection review queue
-      if (this.notificationService) {
+      return updated;
+    });
+
+    // Notify the review queue AFTER the report is safely committed. Doing this inside the transaction meant one slow or
+    // failing notification query (many reviewers x devices) aborted or timed out the whole submission (INTERNAL_ERROR).
+    if (this.notificationService) {
+      try {
         const vehicleTitle = `${report.request?.lead?.make || ''} ${report.request?.lead?.model || ''}`.trim() || 'Vehicle';
         const refCode = report.request?.lead?.referenceCode || id.slice(0, 8);
         await this.notificationService.dispatchDomainEvent({
@@ -639,17 +644,19 @@ export class PrismaInspectionStore {
           metadata: { targetApp: 'REVIEW', reportId: id, revision: report.revision },
           emailTemplate: 'inspection-requested-v1',
           emailSubject: `Inspection Report Submitted for Review: ${vehicleTitle} [${refCode}]`,
-          emailBody: `A completed inspection report revision v${report.revision} has been submitted for ${vehicleTitle} (${refCode}) and is awaiting verification in the review queue.\n\nPlease sign in to the Inspection Review Portal to examine the checklist, defect photos, and digital sign-off.`,
-        }, tx);
+          emailBody: `A completed inspection report revision v${report.revision} has been submitted for ${vehicleTitle} (${refCode}) and is awaiting verification in the review queue.
+
+Please sign in to the Inspection Review Portal to examine the checklist, defect photos, and digital sign-off.`,
+        });
+      } catch (error) {
+        console.warn('[INSPECTION_SUBMIT_NOTIFY_FAILED]', id, (error as Error)?.message);
       }
-
-      // Once submitted, clean up any local fallback files since media is stored in Cloudinary
-      void this.mediaService.cleanupReportLocalMedia(id).catch(err => {
-        console.warn('[LOCAL_MEDIA_CLEANUP_ON_SUBMIT_WARNING]', err);
-      });
-
-      return updated;
-    });
+    }
+    // Media lives in Cloudinary once submitted, so local fallback files can go (best effort, never blocks).
+    void Promise.resolve()
+      .then(() => this.mediaService.cleanupReportLocalMedia(id))
+      .catch(err => console.warn('[LOCAL_MEDIA_CLEANUP_ON_SUBMIT_WARNING]', err));
+    return submitted;
   }
 
   // --- Private Media Handling ---
