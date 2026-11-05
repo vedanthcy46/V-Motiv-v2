@@ -1,6 +1,6 @@
 import {
-  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader,
-  initTheme, modalIsOpen, mountLiveChangeBar, toast, useAutoRefresh, useChangeWatcher, type NavSection,
+  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader, StaffNotificationBell,
+  tabFromDeepLink, initTheme, modalIsOpen, mountLiveChangeBar, toast, useAutoRefresh, useChangeWatcher, type NavSection,
 } from '@vmotiv/ui';
 import { Component, useEffect, useRef, useState, type FC, type FormEvent, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -24,6 +24,7 @@ import {
 import { auth, firebaseConfigured } from './firebase';
 import {
   financeApi,
+  financeNotifications,
   ApiError,
   type FinanceActor,
   type DashboardMetrics,
@@ -436,7 +437,7 @@ function App() {
     try { await loadFinanceData(user); } finally { setRefreshing(false); }
   };
 
-  const runAction = async (task: () => Promise<unknown>) => {
+  const runAction = async (task: () => Promise<unknown>, successMessage?: string) => {
     if (busy) return;
     setBusy(true);
     try {
@@ -446,7 +447,7 @@ function App() {
       setActiveModal(null);
       setSelectedItem(null);
       setError('');
-      toast.success('Saved', { description: 'Your change was recorded.' });
+      toast.success(successMessage ?? 'Saved', successMessage ? undefined : { description: 'Your change was recorded.' });
       if (user) void refreshAfterAction(user, modal);
     } catch (e: any) {
       toast.error('Could not complete this action', { description: errorMessage(e) });
@@ -575,6 +576,17 @@ function App() {
         title={tabTitles[tab]}
         toolbar={
           <>
+            {user ? (
+              <StaffNotificationBell
+                title="Finance notifications"
+                source={financeNotifications(user)}
+                onOpenItem={item => {
+                  const next = tabFromDeepLink(item.deepLink);
+                  if (next && next in tabTitles) setTab(next as TabKey);
+                  else if (item.deepLink?.includes('payoutId=')) setTab('seller-settlements');
+                }}
+              />
+            ) : null}
             <span className="badge badge-soft badge-warning hidden font-semibold sm:inline-flex">{(actor.roles[0] || 'FINANCE').replace(/_/g, ' ')}</span>
             <Button variant="ghost" size="sm" aria-label="Refresh data" title="Refresh data" loading={refreshing} onClick={() => void refreshAll()} icon={<IconRefresh />} />
           </>
@@ -794,9 +806,11 @@ function App() {
                             <td>
                               <button
                                 className="button primary small"
+                                disabled={!payout && !docsOk}
+                                title={!payout && !docsOk ? 'Operations must verify the seller documents first' : undefined}
                                 onClick={() => { setSelectedItem(item); setActiveModal('PAYOUT_MANAGE'); }}
                               >
-                                {payout ? 'Review / Progress' : 'Prepare Payout'}
+                                {payout ? 'Review / Progress' : docsOk ? 'Prepare Payout' : 'Waiting for documents'}
                               </button>
                             </td>
                           </tr>
@@ -2070,6 +2084,21 @@ function MfaEnrollDialog({
 // MODAL DIALOGS (Using standard ModalDialog component matching Admin Portal)
 // --------------------------------------------------------------------------
 
+/** Where a seller payout is in its three steps: sent for approval, approved, paid. */
+function PayoutSteps({ status }: { status?: string }) {
+  // The number of the step that is waiting now (4 = everything done).
+  const rank = !status || status === 'DRAFT' ? 1 : status === 'PAID_VERIFIED' ? 4 : ['APPROVED', 'EXECUTION_PENDING', 'PROCESSING', 'RECONCILIATION_PENDING'].includes(status) ? 3 : 2;
+  const labels = ['Send for approval', 'Approve', 'Mark as paid'];
+  return (
+    <ol className="payout-steps" aria-label="Payout steps">
+      {labels.map((label, index) => {
+        const state = rank > index + 1 ? 'done' : rank === index + 1 ? 'current' : 'todo';
+        return <li key={label} data-state={state} aria-current={state === 'current' ? 'step' : undefined}><span>{state === 'done' ? '✓' : index + 1}</span>{label}</li>;
+      })}
+    </ol>
+  );
+}
+
 function PayoutManageDialog({
   item,
   user,
@@ -2083,7 +2112,7 @@ function PayoutManageDialog({
   busy: boolean;
   bankAccounts: CompanyBankAccount[];
   onClose: () => void;
-  onAction: (task: () => Promise<unknown>) => void;
+  onAction: (task: () => Promise<unknown>, successMessage?: string) => void;
 }) {
   const payout = item.settlement?.payoutInstructions?.[0];
   const [splitPayoff, setSplitPayoff] = useState(false);
@@ -2105,30 +2134,41 @@ function PayoutManageDialog({
       body.lenderPayoffPaise = lenderPaise.toString();
       body.sellerPayablePaise = sellerPaise.toString();
     }
-    onAction(() => financeApi.preparePayout(user, item.id, body));
+    onAction(() => financeApi.preparePayout(user, item.id, body), 'Payout sent for approval');
   };
 
+  const [decisionNote, setDecisionNote] = useState('');
   const decide = (decision: 'APPROVE' | 'REJECT') => {
-    onAction(() =>
-      financeApi.decidePayout(user, payout!.id, {
-        version: payout!.version,
-        decision,
-        reason: 'Authorized review decision recorded in treasury workflow.',
-      })
+    if (decision === 'REJECT' && decisionNote.trim().length < 3) {
+      toast.warning('Add a short reason', { description: 'Say why this payout is being put on hold.' });
+      return;
+    }
+    onAction(
+      () =>
+        financeApi.decidePayout(user, payout!.id, {
+          version: payout!.version,
+          decision,
+          reason: decisionNote.trim() || 'Approved after checking the beneficiary, amount and documents.',
+        }),
+      decision === 'APPROVE' ? 'Payout approved. It is ready to be paid.' : 'Payout put on hold',
     );
   };
 
-  const execute = (e: FormEvent<HTMLFormElement>) => {
+  // One step: record the bank transfer and confirm it. (The old "record execution" then "confirm reconciliation" pair is gone.)
+  const pay = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
     const bankAccountId = String(fd.get('companyBankAccountId') || '').trim();
-    onAction(() =>
-      financeApi.executePayout(user, payout!.id, {
-        version: payout!.version,
-        bankReference: String(fd.get('bankReference')).trim(),
-        companyBankAccountId: bankAccountId || undefined,
-        notes: String(fd.get('notes') || '').trim() || 'Controlled transfer executed via corporate netbanking.',
-      })
+    onAction(
+      () =>
+        financeApi.payPayout(user, payout!.id, {
+          version: payout!.version,
+          bankReference: String(fd.get('bankReference')).trim(),
+          companyBankAccountId: bankAccountId || undefined,
+          evidenceUri: String(fd.get('evidenceUri') || '').trim() || undefined,
+          notes: String(fd.get('notes') || '').trim() || undefined,
+        }),
+      'Payment recorded. Operations can now take the vehicle into custody.',
     );
   };
 
@@ -2140,7 +2180,7 @@ function PayoutManageDialog({
         version: payout!.version,
         kind: 'MANUAL_BANK_CONFIRMATION',
         reference: String(fd.get('reference')),
-        evidenceUri: String(fd.get('evidenceUri') || 'https://private-evidence.vmotiv.in/bank-advice.pdf'),
+        evidenceUri: String(fd.get('evidenceUri') || '').trim() || undefined,
         observedAt: new Date().toISOString(),
       })
     );
@@ -2161,6 +2201,8 @@ function PayoutManageDialog({
         <br />
         Accepted Consideration: <strong>{money(item.offer.offerAmountPaise)}</strong>
       </div>
+
+      <PayoutSteps status={payout?.status} />
 
       {!payout ? (
         <form onSubmit={prepare}>
@@ -2236,7 +2278,7 @@ function PayoutManageDialog({
           <footer>
             <button type="button" className="button secondary" onClick={onClose}>Cancel</button>
             <button type="submit" className="button primary" disabled={busy}>
-              {busy ? 'Preparing...' : 'Create Payout Instruction'}
+              {busy ? 'Sending…' : 'Send for approval'}
             </button>
           </footer>
         </form>
@@ -2275,18 +2317,24 @@ function PayoutManageDialog({
           )}
 
           {payout.status === 'APPROVAL_PENDING' && (
-            <footer>
-              <button type="button" className="button danger" disabled={busy} onClick={() => decide('REJECT')}>
-                Reject / Put on Hold
-              </button>
-              <button type="button" className="button primary" disabled={busy} onClick={() => decide('APPROVE')}>
-                Approve Payout
-              </button>
-            </footer>
+            <>
+              <label style={{ display: 'block', marginTop: '1rem' }}>
+                Note (required if you put it on hold)
+                <textarea value={decisionNote} onChange={e => setDecisionNote(e.target.value)} maxLength={500} rows={2} placeholder="e.g. Account name matches the RC owner" />
+              </label>
+              <footer>
+                <button type="button" className="button danger" disabled={busy} onClick={() => decide('REJECT')}>
+                  Put on hold
+                </button>
+                <button type="button" className="button primary" disabled={busy} onClick={() => decide('APPROVE')}>
+                  {busy ? 'Approving…' : 'Approve payout'}
+                </button>
+              </footer>
+            </>
           )}
 
           {payout.status === 'APPROVED' && (
-            <form onSubmit={execute}>
+            <form onSubmit={pay}>
               <div className="form-grid">
                 <div>
                   <label>
@@ -2304,10 +2352,16 @@ function PayoutManageDialog({
                     <input name="bankReference" placeholder="UTR123456789" required />
                   </label>
                 </div>
+                <div className="full">
+                  <label>
+                    Bank advice link (optional)
+                    <input name="evidenceUri" placeholder="Link to the bank advice or statement, if you have one" />
+                  </label>
+                </div>
               </div>
               <footer>
                 <button type="submit" className="button primary" disabled={busy}>
-                  Record Execution
+                  {busy ? 'Saving…' : 'Mark as paid'}
                 </button>
               </footer>
             </form>
@@ -2319,19 +2373,19 @@ function PayoutManageDialog({
                 <div>
                   <label>
                     Statement Reference
-                    <input name="reference" defaultValue={payout.bankReference || 'MATCH'} required />
+                    <input name="reference" defaultValue={payout.bankReference || ''} required />
                   </label>
                 </div>
                 <div>
                   <label>
-                    Evidence Document URI
-                    <input name="evidenceUri" defaultValue="https://private-evidence.vmotiv.in/advice.pdf" />
+                    Evidence link (optional)
+                    <input name="evidenceUri" placeholder="Link to the bank advice or statement" />
                   </label>
                 </div>
               </div>
               <footer>
                 <button type="submit" className="button primary" disabled={busy}>
-                  Confirm Reconciliation
+                  Confirm payment
                 </button>
               </footer>
             </form>
@@ -3064,27 +3118,27 @@ function ManageRefundDialog({
   busy: boolean;
   bankAccounts: CompanyBankAccount[];
   onClose: () => void;
-  onAction: (task: () => Promise<unknown>) => void;
+  onAction: (task: () => Promise<unknown>, successMessage?: string) => void;
 }) {
+  const [decisionNote, setDecisionNote] = useState('');
   const decide = (decision: 'APPROVE' | 'REJECT') => {
-    onAction(() =>
-      financeApi.decideRefund(user, refund.id, {
-        decision,
-        reason: 'Authorized decision in refund governance.',
-      })
+    if (decision === 'REJECT' && decisionNote.trim().length < 3) {
+      toast.warning('Add a short reason', { description: 'Say why this refund is being rejected.' });
+      return;
+    }
+    onAction(
+      () => financeApi.decideRefund(user, refund.id, { decision, reason: decisionNote.trim() || 'Approved after checking the request.' }),
+      decision === 'APPROVE' ? 'Refund approved. It is ready to be paid.' : 'Refund rejected',
     );
   };
 
-  const execute = (e: FormEvent<HTMLFormElement>) => {
+  // One step: record the bank transfer and confirm it.
+  const pay = (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const fd = new FormData(e.currentTarget);
-    const bankAccountId = String(fd.get('companyBankAccountId') || '').trim();
-    onAction(() =>
-      financeApi.executeRefund(user, refund.id, {
-        bankReference: String(fd.get('bankReference')).trim(),
-        companyBankAccountId: bankAccountId || undefined,
-        notes: 'Customer refund disbursed.',
-      })
+    onAction(
+      () => financeApi.payRefund(user, refund.id, { version: refund.version, bankReference: String(fd.get('bankReference')).trim(), evidenceUri: String(fd.get('evidenceUri') || '').trim() || undefined }),
+      'Refund recorded as paid',
     );
   };
 
@@ -3121,18 +3175,24 @@ function ManageRefundDialog({
         </div>
 
         {refund.status === 'APPROVAL_PENDING' && (
-          <footer>
-            <button type="button" className="button danger" disabled={busy} onClick={() => decide('REJECT')}>
-              Reject
-            </button>
-            <button type="button" className="button primary" disabled={busy} onClick={() => decide('APPROVE')}>
-              Approve Refund
-            </button>
-          </footer>
+          <>
+            <label style={{ display: 'block', marginTop: '1rem' }}>
+              Note (required if you reject)
+              <textarea value={decisionNote} onChange={e => setDecisionNote(e.target.value)} maxLength={500} rows={2} placeholder="e.g. Cancellation is within the policy window" />
+            </label>
+            <footer>
+              <button type="button" className="button danger" disabled={busy} onClick={() => decide('REJECT')}>
+                Reject
+              </button>
+              <button type="button" className="button primary" disabled={busy} onClick={() => decide('APPROVE')}>
+                {busy ? 'Approving…' : 'Approve refund'}
+              </button>
+            </footer>
+          </>
         )}
 
         {refund.status === 'APPROVED' && (
-          <form onSubmit={execute}>
+          <form onSubmit={pay}>
             <div className="form-grid">
               <div>
                 <label>
@@ -3150,10 +3210,16 @@ function ManageRefundDialog({
                   <input name="bankReference" placeholder="UTR123456789" required />
                 </label>
               </div>
+              <div className="full">
+                <label>
+                  Bank advice link (optional)
+                  <input name="evidenceUri" placeholder="Link to the bank advice or statement, if you have one" />
+                </label>
+              </div>
             </div>
             <footer>
               <button type="submit" className="button primary" disabled={busy}>
-                Record Execution
+                {busy ? 'Saving…' : 'Mark as paid'}
               </button>
             </footer>
           </form>
@@ -3162,7 +3228,7 @@ function ManageRefundDialog({
         {refund.status === 'PROCESSING' && (
           <form onSubmit={reconcile}>
             <div className="alert info" style={{ marginTop: '1rem' }}>
-              Transfer has been recorded. A separate finance user must verify it against the bank statement before this refund is final.
+              This transfer was recorded under the older two-step process. A finance user other than the one who recorded it confirms it against the bank statement.
             </div>
             <div className="form-grid" style={{ marginTop: '1rem' }}>
               <div className="full">

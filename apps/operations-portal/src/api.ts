@@ -38,6 +38,13 @@ function call<T>(user: User, path: string, init: RequestInit = {}): Promise<T> {
   return client.request<T>(path, init as never);
 }
 
+/** The shared in-app inbox (the same one every other portal and the mobile app read). */
+export const operationsNotifications = (user: User) => ({
+  list: () => call<{ items: any[]; unreadCount: number }>(user, '/notifications?limit=20'),
+  markRead: (id: string) => call<unknown>(user, `/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllRead: () => call<unknown>(user, '/notifications/read-all', { method: 'POST' }),
+});
+
 export const api = {
   // --- Dashboard ---
   dashboard: (u: User) => call<DashboardMetrics>(u, '/operations/dashboard'),
@@ -224,6 +231,23 @@ export const api = {
       expectedVersion: number;
     }
   ) => call<unknown>(u, `/operations/inventory/${stockId}/prepare-listing`, { method: 'POST', body: JSON.stringify(body) }),
+
+  /** Edit a listing in any editable state, including a live one. Photos: send the full ordered list; omitted ones are removed. */
+  updateListing: (
+    u: User,
+    stockId: string,
+    body: {
+      title?: string;
+      retailPricePaise?: string;
+      color?: string;
+      conditionSummary?: string;
+      inspectionSummary?: string;
+      registrationNumber?: string;
+      features?: string[];
+      verifiedTags?: string[];
+      mediaUrls?: string[];
+    }
+  ) => call<unknown>(u, `/operations/inventory/${stockId}/listing`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   publishListing: (
     u: User,

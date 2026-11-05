@@ -445,6 +445,23 @@ async function pulseTokens(user: User, domains: string[], fresh = false): Promis
   return ((await response.json()) as { tokens: Record<string, string> }).tokens;
 }
 
+const inboxClients = new WeakMap<User, ApiClient>();
+function inbox<T>(user: User, path: string, init: RequestInit = {}): Promise<T> {
+  let client = inboxClients.get(user);
+  if (!client) {
+    client = createApiClient({ base, getToken: force => user.getIdToken(force) });
+    inboxClients.set(user, client);
+  }
+  return client.request<T>(path, init as never);
+}
+
+/** The shared in-app inbox (the same one every other portal and the mobile app read), outside the /finance prefix. */
+export const financeNotifications = (user: User) => ({
+  list: () => inbox<{ items: any[]; unreadCount: number }>(user, '/notifications?limit=20'),
+  markRead: (id: string) => inbox<unknown>(user, `/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllRead: () => inbox<unknown>(user, '/notifications/read-all', { method: 'POST' }),
+});
+
 export const financeApi = {
   pulse: pulseTokens,
   me: (u: User) => call<FinanceActor>(u, '/me'),
@@ -479,6 +496,12 @@ export const financeApi = {
     }),
   executePayout: (u: User, payoutId: string, body: { version: number; bankReference: string; companyBankAccountId?: string; notes?: string }) =>
     call<PayoutInstruction>(u, `/payout-instructions/${payoutId}/execute`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  /** Records the bank payment and confirms it in one step (the old execute + reconcile pair needed two more people). */
+  payPayout: (u: User, payoutId: string, body: { version: number; bankReference: string; companyBankAccountId?: string; evidenceUri?: string; notes?: string }) =>
+    call<PayoutInstruction>(u, `/payout-instructions/${payoutId}/pay`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),
@@ -568,6 +591,11 @@ export const financeApi = {
     }),
   executeRefund: (u: User, refundId: string, body: { bankReference: string; companyBankAccountId?: string; notes?: string }) =>
     call<RefundCase>(u, `/refunds/${refundId}/execute`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  payRefund: (u: User, refundId: string, body: { version?: number; bankReference: string; evidenceUri?: string }) =>
+    call<RefundCase>(u, `/refunds/${refundId}/pay`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),

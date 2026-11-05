@@ -19,6 +19,8 @@ import {
 import { canonicalMakeModel } from './vehicle-names.js';
 import crypto from 'node:crypto';
 import { HttpError } from './errors.js';
+import type { NotificationService } from './notification/index.js';
+import { notifyOfferAccepted } from './acquisition-events.js';
 import { CODE_TTL_MS, MAX_ATTEMPTS, MAX_SENDS_PER_HOUR, RESEND_COOLDOWN_MS, challengeStatus, codeMatches, generateCode, hashCode, isWalkInSeller, maskPhone, smsText } from './in-person-acceptance.js';
 import { otpSecretFromEnv, smsSenderFromEnv, type SmsSender } from './sms.js';
 
@@ -322,7 +324,7 @@ const leadSelect = {
 } satisfies Prisma.AcquisitionLeadSelect;
 
 export class PrismaSalesStore implements SalesStore {
-  constructor(private db: PrismaClient, private smsSender?: SmsSender) {}
+  constructor(private db: PrismaClient, private smsSender?: SmsSender, private notificationService?: NotificationService) {}
 
   async actor(uid: string): Promise<SalesActor> {
     const employee = await this.db.employee.findFirst({
@@ -1661,6 +1663,9 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
         data: { actorId: actor.userId, action: 'ACQUISITION_CASE_CREATED', entityType: 'AcquisitionCase', entityId: acquisitionCase.id, details: { leadId, offerId } },
       });
       return { id: offerId, status: 'ACCEPTED' as const, acceptedAt: now, acquisitionCaseId: acquisitionCase.id, acceptedVia: 'IN_PERSON_OTP' as const };
+    }).then(async result => {
+      await notifyOfferAccepted(this.notificationService, this.db as any, lead, 'IN_PERSON_OTP', result.acquisitionCaseId).catch(() => undefined);
+      return result;
     });
   }
 

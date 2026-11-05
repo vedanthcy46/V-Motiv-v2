@@ -26,3 +26,13 @@
     border-radius: var(--radius-box);
   }
 }
+
+.payout-steps { display: flex; gap: 0.5rem; list-style: none; margin: 0 0 1rem; padding: 0; flex-wrap: wrap; }
+.payout-steps li { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.3rem 0.75rem 0.3rem 0.35rem; border: 1px solid var(--color-base-300); border-radius: 999px; font-size: 0.8125rem; font-weight: 500; color: var(--muted); }
+.payout-steps li span { display: grid; place-items: center; width: 1.4rem; height: 1.4rem; border-radius: 50%; background: var(--color-base-200); font-size: 0.75rem; font-weight: 700; }
+.payout-steps li[data-state='current'] { color: var(--color-base-content); border-color: var(--color-primary); background: color-mix(in oklab, var(--color-primary) 10%, transparent); }
+.payout-steps li[data-state='current'] span { background: var(--color-primary); color: var(--color-primary-content); }
+.payout-steps li[data-state='done'] { color: var(--color-success); border-color: color-mix(in oklab, var(--color-success) 40%, transparent); }
+.payout-steps li[data-state='done'] span { background: var(--color-success); color: var(--color-success-content); }
+
+.dialog .form-grid > div > .helper { display: block; margin-bottom: 0.15rem; }

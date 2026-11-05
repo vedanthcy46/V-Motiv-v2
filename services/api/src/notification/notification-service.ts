@@ -113,7 +113,7 @@ export class NotificationService {
             body: event.body,
             entityType: event.entityType,
             entityId: event.referenceId,
-            deepLink: event.deepLink,
+            deepLink: event.deepLink ?? event.actionUrl,
             targetApp: (event.metadata?.targetApp as string) || undefined,
             metadata: event.metadata ? (event.metadata as Prisma.InputJsonValue) : undefined,
           },
@@ -231,13 +231,16 @@ export class NotificationService {
     event: DomainEventPayload,
     client: Prisma.TransactionClient | PrismaClient
   ): Promise<string[]> {
-    if (event.recipientUserIds && event.recipientUserIds.length > 0) {
-      return [...new Set(event.recipientUserIds.filter(Boolean))];
+    const explicit = (event.recipientUserIds ?? []).filter(Boolean);
+    // Named people and a role/permission list are added together. (Before, naming one person silently dropped the roles,
+    // so e.g. Operations never heard that a seller payout had been verified.)
+    if (explicit.length > 0 && !event.recipientRoles?.length && !event.recipientPermissions?.length) {
+      return [...new Set(explicit)];
     }
 
     let roles = event.recipientRoles || [];
 
-    if (!roles.length) {
+    if (!roles.length && explicit.length === 0) {
       switch (event.type) {
         case 'INSPECTION_REQUESTED':
           roles = ['OPERATIONS', 'DISPATCH', 'SUPER_ADMIN'];
@@ -264,7 +267,8 @@ export class NotificationService {
       }
     }
 
-    if (!roles.length) return [];
+    const permissions = event.recipientPermissions ?? [];
+    if (!roles.length && !permissions.length) return [...new Set(explicit)];
 
     const validEnumRoles = Array.from(
       new Set(
@@ -284,6 +288,15 @@ export class NotificationService {
       );
     }
 
+    if (permissions.length > 0) {
+      orClauses.push(
+        { permissions: { hasSome: permissions } },
+        { roleAssignments: { some: { role: { permissions: { some: { permission: { key: { in: permissions } } } } } } } },
+      );
+    }
+
+    if (orClauses.length === 0) return [];
+
     const employees = await client.employee.findMany({
       where: {
         active: true,
@@ -295,7 +308,7 @@ export class NotificationService {
       select: { userId: true },
     });
 
-    return [...new Set(employees.map(e => e.userId))];
+    return [...new Set([...explicit, ...employees.map(e => e.userId)])];
   }
 
   private isQuietHours(start?: string | null, end?: string | null, now = new Date()): boolean {

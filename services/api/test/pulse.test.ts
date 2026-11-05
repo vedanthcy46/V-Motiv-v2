@@ -21,6 +21,28 @@ function appWith(db: Any) {
 const staff = { id: 'u1', status: 'ACTIVE', employee: { active: true, status: 'ACTIVE' } };
 const customer = { id: 'c1', status: 'ACTIVE', employee: null };
 
+describe('STAFF_DOMAINS', () => {
+  it('only watches models and fields that exist, so a typo cannot break every portal refresh', async () => {
+    const { Prisma } = await import('@prisma/client');
+    const models = new Map(Prisma.dmmf.datamodel.models.map(model => [model.name.charAt(0).toLowerCase() + model.name.slice(1), new Set(model.fields.map(field => field.name))]));
+    const problems: string[] = [];
+    for (const [domain, probes] of Object.entries(STAFF_DOMAINS)) {
+      for (const probe of probes) {
+        const fields = models.get(probe.model);
+        if (!fields) problems.push(`${domain}: unknown model ${probe.model}`);
+        else if (!fields.has(probe.field)) problems.push(`${domain}: ${probe.model} has no ${probe.field}`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
+  it('lets each hand-off reach the next screen', () => {
+    const watched = (domain: string) => STAFF_DOMAINS[domain]!.map(probe => probe.model);
+    expect(watched('finance')).toEqual(expect.arrayContaining(['financePayoutInstruction', 'acquisitionCase', 'acquisitionDocumentReview']));
+    expect(watched('dispatch')).toEqual(expect.arrayContaining(['refurbishmentCostApproval', 'qualityControlReport', 'vehicleListing', 'acquisitionSettlement']));
+  });
+});
+
 describe('computeToken', () => {
   it('changes when a row is inserted, updated or removed, and stays stable otherwise', async () => {
     const probes = STAFF_DOMAINS.rentals!;

@@ -1,5 +1,7 @@
 import { type InspectionAnswerStatus, type InspectionDefectSeverity, Prisma, PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
+import { notifyReadyForPayment } from './acquisition-events.js';
+import { listingGaps, listingGapMessage } from './listing-readiness.js';
 import { inferBodyType, refreshMasterBodyTypes, resolveBodyType } from './body-types.js';
 import { INSPECTOR_INELIGIBILITY_MESSAGES, inspectorIneligibility } from './inspector-eligibility.js';
 import { knownTemplateItem, templateFor, currentTemplate, isItemApplicable, type InspectionTemplateItem } from './inspection-template.js';
@@ -47,10 +49,12 @@ export function isInvalidRegNumberOrUuid(val: unknown): boolean {
 }
 
 const documentTerminalStatuses = ['VERIFIED', 'WAIVED_BY_AUTHORIZED_POLICY'];
+// A document can be verified (or rejected) straight from "requested" or "received": checking it IS the review, so staff no
+// longer click through Received and Under review first. The intermediate states remain available for those who use them.
 const documentTransitions: Record<string, string[]> = {
   NOT_REQUESTED: ['REQUESTED'],
-  REQUESTED: ['RECEIVED', 'WAIVED_BY_AUTHORIZED_POLICY'],
-  RECEIVED: ['UNDER_REVIEW'],
+  REQUESTED: ['RECEIVED', 'UNDER_REVIEW', 'VERIFIED', 'REJECTED', 'MISMATCH', 'WAIVED_BY_AUTHORIZED_POLICY'],
+  RECEIVED: ['UNDER_REVIEW', 'VERIFIED', 'REJECTED', 'EXPIRED', 'MISMATCH', 'WAIVED_BY_AUTHORIZED_POLICY'],
   UNDER_REVIEW: ['VERIFIED', 'REJECTED', 'EXPIRED', 'MISMATCH', 'RECEIVED'],
   REJECTED: ['RECEIVED'],
   EXPIRED: ['RECEIVED'],
@@ -971,12 +975,36 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     };
   }
 
+  /** Best-effort hand-off notification to the next team (never fails the action that caused it). */
+  private async notifyTeam(tx: Prisma.TransactionClient | PrismaClient, event: { type: any; roles: string[]; permissions?: string[]; title: string; body: string; actionUrl: string; referenceId: string; entityType: string; branchId?: string | null }) {
+    if (!this.notificationService) return;
+    await this.notificationService.dispatchDomainEvent({
+      type: event.type,
+      category: 'OPERATIONS',
+      priority: 'NORMAL',
+      recipientRoles: event.roles,
+      recipientPermissions: event.permissions,
+      branchId: event.branchId || undefined,
+      title: event.title,
+      body: event.body,
+      actionUrl: event.actionUrl,
+      referenceId: event.referenceId,
+      entityType: event.entityType,
+      metadata: { targetApp: 'OPS' },
+    }, tx as Prisma.TransactionClient).catch(() => undefined);
+  }
+
   private acquisitionCaseScope(actor: InspectionActor, id?: string): Prisma.AcquisitionCaseWhereInput {
     return {
       ...(id ? { id } : {}),
       ...(actor.roles.includes('SUPER_ADMIN') || actor.roles.includes('ADMIN')
         ? {}
-        : { lead: { inspectionRequests: { some: { branchId: { in: actor.branchIds } } } } }),
+        : { OR: [
+            { lead: { inspectionRequests: { some: { branchId: { in: actor.branchIds } } } } },
+            // Walk-in and manually entered leads have no inspection request; they belong to the branch that took them.
+            { lead: { assignments: { some: { branchId: { in: actor.branchIds } } } } },
+            { handover: { is: { branchId: { in: actor.branchIds } } } },
+          ] }),
     };
   }
 
@@ -1043,7 +1071,8 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     if (!acquisitionCase) throw new HttpError(404, 'ACQUISITION_CASE_NOT_FOUND');
     if (['COMPLETED', 'CANCELLED'].includes(acquisitionCase.status)) throw new HttpError(409, 'ACQUISITION_CASE_NOT_ACTIONABLE');
 
-    return this.db.$transaction(async tx => {
+    const outbox: Array<() => Promise<unknown>> = [];
+    const __result = await this.db.$transaction(async tx => {
       const existing = await tx.acquisitionDocumentReview.findUnique({ where: { acquisitionCaseId_documentType: { acquisitionCaseId: caseId, documentType: input.documentType } } });
       if (!existing) {
         if (input.status !== 'REQUESTED') throw new HttpError(409, 'DOCUMENT_MUST_BE_REQUESTED_FIRST');
@@ -1060,12 +1089,21 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
       });
       const documents = await tx.acquisitionDocumentReview.findMany({ where: { acquisitionCaseId: caseId }, select: { status: true } });
       const documentsReady = documents.length > 0 && documents.every(document => documentTerminalStatuses.includes(document.status));
+      let newlyReady = false;
       if (documentsReady) {
+        newlyReady = acquisitionCase.status !== 'SETTLEMENT_READY';
         await tx.acquisitionCase.update({ where: { id: caseId }, data: { status: 'SETTLEMENT_READY', version: { increment: 1 } } });
       }
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'ACQUISITION_DOCUMENT_STATUS_UPDATED', entityType: 'AcquisitionDocumentReview', entityId: updated.id, details: { acquisitionCaseId: caseId, documentType: input.documentType, from: existing.status, to: input.status } } });
+      if (newlyReady) {
+        const lead = await tx.acquisitionCase.findUnique({ where: { id: caseId }, select: { lead: { select: { id: true, referenceCode: true, make: true, model: true } } } });
+        // Finance is told the moment the last document is verified, so the payout can be prepared without waiting.
+        if (lead) outbox.push(() => notifyReadyForPayment(this.notificationService, lead.lead, caseId).catch(() => undefined));
+      }
       return updated;
     });
+    for (const send of outbox) await send();
+    return __result;
   }
 
   async updateAcquisitionSettlement(actor: InspectionActor, caseId: string, input: { status: string; transactionReference?: string; notes?: string; expectedVersion?: number }) {
@@ -1154,7 +1192,8 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
       : null;
     if (input.status === 'RECEIVED' && !branch) throw new HttpError(400, 'INVALID_BRANCH');
 
-    return this.db.$transaction(async tx => {
+    const outbox: Array<() => Promise<unknown>> = [];
+    const __result = await this.db.$transaction(async tx => {
       const inspectionIdentity = (acquisitionCase.offer?.valuation?.inspectionReport?.identity || {}) as Record<string, unknown>;
       const rawInspectionReg = typeof inspectionIdentity.registrationNumber === 'string' ? inspectionIdentity.registrationNumber.trim() : '';
       const inspectionReg = !isInvalidRegNumberOrUuid(rawInspectionReg) ? rawInspectionReg : '';
@@ -1215,8 +1254,20 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
       });
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'ACQUISITION_COMPLETED', entityType: 'AcquisitionCase', entityId: caseId, details: { automatic: true, reason: 'PAYMENT_VERIFIED_HANDOVER_RECEIVED' } } });
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'VEHICLE_STOCK_INWARD_CREATED', entityType: 'VehicleStockUnit', entityId: stockUnit.id, details: { acquisitionCaseId: caseId, stockCode: stockUnit.stockCode, branchId: stockUnit.branchId, automatic: true } } });
+      outbox.push(() => this.notifyTeam(this.db, {
+        type: 'VEHICLE_STOCK_INWARD',
+        roles: ['OPERATIONS_MANAGER', 'INVENTORY_MANAGER', 'LISTING_EXECUTIVE'],
+        title: `Car received: ${acquisitionCase.lead.make} ${acquisitionCase.lead.model}`,
+        body: `${acquisitionCase.lead.make} ${acquisitionCase.lead.model} (${stockCode}) is in stock at ${branch!.name}. Plan any repairs, then prepare the listing.`,
+        actionUrl: '/operations?tab=inventory',
+        referenceId: stockUnit.id,
+        entityType: 'VehicleStockUnit',
+        branchId: branch!.id,
+      }));
       return { handover, stockUnit, automaticallyCompleted };
     });
+    for (const send of outbox) await send();
+    return __result;
   }
 
   async completeAcquisition(actor: InspectionActor, caseId: string, input: { expectedVersion: number; completionNotes?: string }) {
@@ -1410,6 +1461,15 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
       const ownershipCount = u.vehicle?.ownershipCount || (lead as any)?.ownershipCount || null;
       // Shown in the Operations stock list; falls back to the catalogue so older stock is never blank.
       const bodyType = u.vehicle?.bodyType || inferBodyType(u.make, u.model);
+      // What the listing still lacks (the price is set when publishing, so it is not counted here).
+      const gaps = listingGaps({
+        title: u.vehicle?.listing?.title,
+        photoCount: u.vehicle?.listing?.media?.length ?? 0,
+        color,
+        registrationNumber,
+        conditionSummary: u.vehicle?.conditionSummary,
+        branchId: u.branchId,
+      });
 
       // Self-heal: If database record had null registrationNumber or variant, persist resolved fields asynchronously
       if (!u.registrationNumber && registrationNumber) {
@@ -1432,6 +1492,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
         registrationNumber,
         variant,
         bodyType,
+        listingGaps: gaps,
         color,
         registrationYear,
         registrationCity,
@@ -1533,6 +1594,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     if (!workOrder) throw new HttpError(404, 'WORK_ORDER_NOT_FOUND');
     if (workOrder.version !== input.expectedVersion) throw new HttpError(409, 'WORK_ORDER_VERSION_CONFLICT');
     if (workOrder.status !== 'DRAFT') throw new HttpError(409, 'WORK_ORDER_NOT_SUBMITTABLE');
+    const outbox: Array<() => Promise<unknown>> = [];
     const approval = await this.db.$transaction(async tx => {
       // Use upsert so that re-submission after a REJECTED cost approval replaces the old record
       const created = await tx.refurbishmentCostApproval.upsert({
@@ -1548,9 +1610,11 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
         },
       });
       await tx.refurbishmentWorkOrder.update({ where: { id: workOrderId }, data: { estimatedCostPaise: input.estimatedCostPaise, status: 'PENDING_COST_APPROVAL', version: { increment: 1 } } });
+      outbox.push(() => this.notifyTeam(this.db, { type: 'REFURBISHMENT_COST_APPROVAL_REQUESTED', roles: ['PRICING_APPROVER', 'ADMIN'], title: 'Repair cost needs approval', body: `A repair estimate of ₹${Number(input.estimatedCostPaise / 100n).toLocaleString('en-IN')} is waiting for approval: ${input.reason}`, actionUrl: '/operations?tab=refurbishment', referenceId: workOrderId, entityType: 'RefurbishmentWorkOrder' }));
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'REFURBISHMENT_COST_APPROVAL_REQUESTED', entityType: 'RefurbishmentCostApproval', entityId: created.id, details: { workOrderId, estimatedCostPaise: input.estimatedCostPaise.toString() } } });
       return created;
     });
+    for (const send of outbox) await send();
     return approval;
   }
 
@@ -1646,12 +1710,20 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     if (report.version !== input.expectedVersion) throw new HttpError(409, 'QC_VERSION_CONFLICT');
     if (report.status !== 'IN_PROGRESS') throw new HttpError(409, 'QC_NOT_IN_PROGRESS');
     const status = input.decision === 'PASS' ? 'PASSED' : input.decision === 'REWORK_REQUIRED' ? 'REWORK_REQUIRED' : 'FAILED';
-    return this.db.$transaction(async tx => {
+    const outbox: Array<() => Promise<unknown>> = [];
+    const __result = await this.db.$transaction(async tx => {
       const updated = await tx.qualityControlReport.update({ where: { id: reportId }, data: { status, findings: input.findings, evidenceNotes: input.evidenceNotes, reviewedAt: new Date(), version: { increment: 1 } } });
       await tx.vehicleStockUnit.update({ where: { id: report.stockUnitId }, data: { status: status === 'PASSED' ? 'LISTING_PREPARATION' : status === 'REWORK_REQUIRED' ? 'REFURBISHMENT_PENDING' : 'ON_HOLD', version: { increment: 1 } } });
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'QUALITY_CONTROL_DECIDED', entityType: 'QualityControlReport', entityId: reportId, details: { stockUnitId: report.stockUnitId, decision: input.decision } } });
+      if (status === 'PASSED') {
+        outbox.push(() => this.notifyTeam(this.db, { type: 'VEHICLE_QC_PASSED', roles: ['LISTING_EXECUTIVE', 'OPERATIONS_MANAGER'], title: 'Quality check passed', body: 'A car passed quality control and is ready for its listing details and photos.', actionUrl: '/operations?tab=studio', referenceId: report.stockUnitId, entityType: 'VehicleStockUnit' }));
+      } else if (status === 'REWORK_REQUIRED') {
+        outbox.push(() => this.notifyTeam(this.db, { type: 'VEHICLE_QC_PASSED', roles: ['OPERATIONS_MANAGER', 'INVENTORY_MANAGER'], title: 'Quality check: rework needed', body: 'A car failed quality control and needs more work before it can be listed.', actionUrl: '/operations?tab=refurbishment', referenceId: report.stockUnitId, entityType: 'VehicleStockUnit' }));
+      }
       return updated;
     });
+    for (const send of outbox) await send();
+    return __result;
   }
 
   async getBranches(actor: InspectionActor) {
@@ -1775,7 +1847,8 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
       branchCity = selectedBranch.city;
     }
 
-    return this.db.$transaction(async tx => {
+    const outbox: Array<() => Promise<unknown>> = [];
+    const __result = await this.db.$transaction(async tx => {
       let vehicleId = stock.vehicleId;
       const vehicleCity = branchCity || stock.branch?.city || stock.acquisitionCase?.lead?.city || (stock.physicalLocation?.includes('Bengaluru') ? 'Bengaluru' : stock.physicalLocation) || 'Bengaluru';
       if (!vehicleId) {
@@ -1883,7 +1956,151 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
         },
       });
 
+      outbox.push(() => this.notifyTeam(this.db, { type: 'VEHICLE_LISTING_READY', roles: ['PRICING_APPROVER', 'LISTING_EXECUTIVE', 'OPERATIONS_MANAGER'], title: `Listing ready: ${input.title}`, body: `${input.title} has its details and photos. Set the retail price and publish it.`, actionUrl: '/operations?tab=publication', referenceId: stockId, entityType: 'VehicleStockUnit', branchId }));
       return { stockId, vehicleId, listingId: listing.id, status: 'LISTING_READY' };
+    });
+    for (const send of outbox) await send();
+    return __result;
+  }
+
+  /**
+   * Edit a car's listing at any point after preparation, including while it is live: details, photos, price. Replaces the old
+   * rule that locked the studio once a car was published. A live listing must stay complete (see listing-readiness.ts).
+   */
+  async updateListing(actor: InspectionActor, stockId: string, input: {
+    title?: string;
+    retailPricePaise?: bigint;
+    color?: string;
+    variant?: string;
+    bodyType?: string;
+    features?: string[];
+    verifiedTags?: string[];
+    conditionSummary?: string;
+    inspectionSummary?: string;
+    registrationNumber?: string;
+    registrationYear?: number;
+    registrationCity?: string;
+    ownershipCount?: number;
+    odometerKm?: number;
+    engineCapacityCc?: number;
+    /** The full, ordered photo list. Photos not in it are removed; new ones are added. */
+    mediaUrls?: string[];
+  }) {
+    await refreshMasterBodyTypes(this.db as any);
+    checkRole(actor, publishRoles);
+    const stock = await this.db.vehicleStockUnit.findFirst({
+      where: this.stockScope(actor, stockId),
+      include: { vehicle: { include: { listing: { include: { media: true } } } }, branch: true },
+    });
+    if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
+    if (!stock.vehicleId || !stock.vehicle) throw new HttpError(409, 'VEHICLE_DETAILS_NOT_PREPARED');
+    if (!['LISTING_PREPARATION', 'LISTING_READY', 'LISTED', 'RESERVED'].includes(stock.status)) throw new HttpError(409, 'STOCK_NOT_EDITABLE_AS_LISTING');
+    const live = ['LISTED', 'RESERVED'].includes(stock.status);
+    if (input.retailPricePaise !== undefined && input.retailPricePaise <= 0n) throw new HttpError(400, 'INVALID_RETAIL_PRICE');
+    if (input.retailPricePaise !== undefined && stock.status === 'RESERVED' && stock.vehicle.listing && stock.vehicle.listing.pricePaise !== input.retailPricePaise) {
+      throw new HttpError(409, 'LISTING_RESERVED_PRICE_LOCKED', 'This car is reserved by a customer, so its price cannot be changed.');
+    }
+    const urls = input.mediaUrls?.map(url => url.trim()).filter(Boolean);
+    if (urls && new Set(urls).size !== urls.length) throw new HttpError(400, 'DUPLICATE_PHOTOS');
+
+    const vehicle = stock.vehicle;
+    const listing = vehicle.listing;
+    const next = {
+      title: input.title?.trim() || listing?.title || '',
+      color: input.color !== undefined ? input.color.trim() : vehicle.color,
+      registrationNumber: input.registrationNumber !== undefined ? input.registrationNumber.trim().toUpperCase() : stock.registrationNumber,
+      conditionSummary: input.conditionSummary !== undefined ? input.conditionSummary.trim() : vehicle.conditionSummary,
+      photoCount: urls ? urls.length : listing?.media.length ?? 0,
+    };
+    if (live) {
+      // A live listing may be improved but never left incomplete.
+      const gaps = listingGaps({ ...next, pricePaise: input.retailPricePaise ?? listing?.pricePaise ?? 0n, branchId: stock.branchId }, { requirePrice: true });
+      if (gaps.length) throw new HttpError(409, 'LISTING_INCOMPLETE', listingGapMessage(gaps));
+    }
+
+    const bodyType = input.bodyType !== undefined ? resolveBodyType({ bodyType: input.bodyType, make: stock.make, model: stock.model }) : undefined;
+    const changed = Object.entries(input).filter(([, value]) => value !== undefined).map(([key]) => key);
+    if (changed.length === 0) throw new HttpError(400, 'NOTHING_TO_UPDATE');
+
+    return this.db.$transaction(async tx => {
+      await tx.vehicle.update({
+        where: { id: vehicle.id },
+        data: {
+          ...(input.color !== undefined ? { color: next.color || null } : {}),
+          ...(input.variant !== undefined ? { variant: input.variant.trim() } : {}),
+          ...(bodyType !== undefined ? { bodyType } : {}),
+          ...(input.features !== undefined ? { features: input.features.map(f => f.trim()).filter(Boolean) } : {}),
+          ...(input.verifiedTags !== undefined ? { verifiedTags: input.verifiedTags.map(t => t.trim()).filter(Boolean) } : {}),
+          ...(input.conditionSummary !== undefined ? { conditionSummary: next.conditionSummary || null } : {}),
+          ...(input.inspectionSummary !== undefined ? { inspectionSummary: input.inspectionSummary.trim() || null } : {}),
+          ...(input.registrationYear !== undefined ? { registrationYear: input.registrationYear } : {}),
+          ...(input.ownershipCount !== undefined ? { ownershipCount: input.ownershipCount } : {}),
+          ...(input.odometerKm !== undefined ? { odometerKm: input.odometerKm } : {}),
+          ...(input.engineCapacityCc !== undefined ? { engineCapacityCc: input.engineCapacityCc } : {}),
+        },
+      });
+      if (input.registrationNumber !== undefined || input.variant !== undefined || input.odometerKm !== undefined) {
+        await tx.vehicleStockUnit.update({
+          where: { id: stockId },
+          data: {
+            ...(input.registrationNumber !== undefined ? { registrationNumber: next.registrationNumber || null } : {}),
+            ...(input.variant !== undefined ? { variant: input.variant.trim() || null } : {}),
+            ...(input.odometerKm !== undefined ? { odometerKm: input.odometerKm } : {}),
+            version: { increment: 1 },
+          },
+        });
+      }
+
+      // Keep the customer-facing snapshot in step with the edit (it used to go stale after the first save).
+      const profile = ((listing?.customerProfile ?? {}) as Record<string, any>);
+      const basic = { ...(profile.basicInformation ?? {}) };
+      if (input.registrationNumber !== undefined) basic.registrationNumber = next.registrationNumber || null;
+      if (input.variant !== undefined) basic.variant = input.variant.trim() || null;
+      if (input.odometerKm !== undefined) basic.odometerKm = input.odometerKm;
+      if (input.registrationYear !== undefined) basic.registrationYear = input.registrationYear;
+      if (input.registrationCity !== undefined) basic.registrationCity = input.registrationCity.trim() || null;
+      if (input.ownershipCount !== undefined) basic.ownershipCount = input.ownershipCount;
+      const specifications = { ...(profile.specifications ?? {}) };
+      if (input.color !== undefined) specifications.color = next.color || null;
+      if (bodyType !== undefined) specifications.bodyType = bodyType;
+      if (input.engineCapacityCc !== undefined) specifications.engineCapacityCc = input.engineCapacityCc;
+      const patchedProfile: Record<string, any> = { ...profile, version: profile.version ?? 1, basicInformation: basic, specifications, updatedAt: new Date().toISOString() };
+      if (input.features !== undefined) patchedProfile.topFeatures = input.features.map(f => f.trim()).filter(Boolean);
+      if (input.conditionSummary !== undefined) patchedProfile.customerConditionSummary = next.conditionSummary || null;
+      if (input.inspectionSummary !== undefined && patchedProfile.qualityReport) patchedProfile.qualityReport = { ...patchedProfile.qualityReport, summary: input.inspectionSummary.trim() || null };
+
+      const saved = await tx.vehicleListing.upsert({
+        where: { vehicleId: vehicle.id },
+        create: {
+          vehicleId: vehicle.id,
+          title: next.title || `${stock.manufacturingYear} ${stock.make} ${stock.model}`,
+          pricePaise: input.retailPricePaise ?? 0n,
+          status: 'DRAFT',
+          customerProfile: patchedProfile as Prisma.InputJsonValue,
+          media: urls?.length ? { create: urls.map((url, idx) => ({ url, mediaType: 'IMAGE', displayOrder: idx })) } : undefined,
+        },
+        update: {
+          ...(input.title !== undefined ? { title: next.title } : {}),
+          ...(input.retailPricePaise !== undefined ? { pricePaise: input.retailPricePaise } : {}),
+          customerProfile: patchedProfile as Prisma.InputJsonValue,
+          ...(urls ? { media: { deleteMany: {}, create: urls.map((url, idx) => ({ url, mediaType: 'IMAGE', displayOrder: idx })) } } : {}),
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: live ? 'VEHICLE_LISTING_EDITED_LIVE' : 'VEHICLE_LISTING_EDITED',
+          entityType: 'VehicleListing',
+          entityId: saved.id,
+          details: {
+            stockCode: stock.stockCode,
+            changed,
+            ...(input.retailPricePaise !== undefined ? { fromPricePaise: listing?.pricePaise?.toString() ?? null, toPricePaise: input.retailPricePaise.toString() } : {}),
+            ...(urls ? { photoCount: urls.length } : {}),
+          },
+        },
+      });
+      return { stockId, listingId: saved.id, status: stock.status, changed };
     });
   }
 
@@ -1930,6 +2147,18 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     const hasPassedQC = stock.qualityControlReports.some(qc => qc.status === 'PASSED');
     if (stock.workOrders.length > 0 && !hasPassedQC) throw new HttpError(409, 'QC_REPORT_NOT_PASSED');
     if (!stock.vehicleId || !stock.vehicle) throw new HttpError(409, 'VEHICLE_DETAILS_NOT_PREPARED');
+
+    // A car goes live only with everything a customer needs to see (photos, colour, registration, condition, branch).
+    const publishGaps = listingGaps({
+      title: input.title || stock.vehicle.listing?.title || `${stock.manufacturingYear} ${stock.make} ${stock.model}`,
+      pricePaise: input.retailPricePaise,
+      photoCount: stock.vehicle.listing?.media?.length ?? 0,
+      color: stock.vehicle.color,
+      registrationNumber: stock.registrationNumber,
+      conditionSummary: stock.vehicle.conditionSummary,
+      branchId: effectiveBranchId,
+    }, { requirePrice: true });
+    if (publishGaps.length) throw new HttpError(409, 'LISTING_INCOMPLETE', listingGapMessage(publishGaps));
 
     return this.db.$transaction(async tx => {
       const listingTitle = input.title || stock.vehicle!.listing?.title || `${stock.manufacturingYear} ${stock.make} ${stock.model} ${stock.variant || ''}`.trim();

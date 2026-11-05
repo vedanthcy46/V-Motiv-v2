@@ -114,12 +114,12 @@ const notificationRouter = createNotificationRouter({
 
 const app = createApp({
   verify: verifyToken,
-  store: new PrismaIdentityStore(db), customer: new PrismaCustomerStore(db), webOrigin: config.WEB_ORIGIN,
+  store: new PrismaIdentityStore(db), customer: new PrismaCustomerStore(db, notificationService), webOrigin: config.WEB_ORIGIN,
   adminWebOrigin,
   employeePortalOrigins: Object.values(employeePortalOrigins),
   adminPortalDestinations: employeePortalOrigins,
   admin: new PrismaAdminStore(db),
-  sales: new PrismaSalesStore(db),
+  sales: new PrismaSalesStore(db, undefined, notificationService),
   inspection: new PrismaInspectionStore(db, undefined, notificationService),
   finance: new PrismaFinanceStore(db, notificationService),
   service: new PrismaServiceStore(db, notificationService),

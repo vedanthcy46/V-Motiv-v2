@@ -12,6 +12,7 @@ export { TextField, SelectField, TextareaField } from './components/Form';
 export { ThemeToggle } from './components/ThemeToggle';
 export { AppShell, SimpleShell, AuthLayout, Sidebar, Topbar, Footer, type NavItem, type NavSection, type AppShellProps, type AccountInfo, type FooterLink } from './components/Shell';
 export { NotificationBell, type NotificationItem } from './components/NotificationBell';
+export { StaffNotificationBell, tabFromDeepLink, type StaffNotification, type StaffNotificationSource } from './components/StaffNotificationBell';
 export { Navbar, SiteFooter, type NavbarLink } from './components/Navbar';
 
 export { toast, useToasts, dismissToast, type ToastTone } from './hooks/toastStore';

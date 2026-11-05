@@ -143,6 +143,25 @@ const prepareListingInput = z.object({
   expectedVersion: z.number().int().positive(),
 }).strict();
 
+const updateListingInput = z.object({
+  title: z.string().trim().min(3).max(200).optional(),
+  retailPricePaise: z.coerce.bigint().positive().optional(),
+  color: z.string().trim().max(60).optional(),
+  variant: z.string().trim().max(100).optional(),
+  bodyType: bodyTypeInput,
+  features: z.array(z.string().trim().max(80)).max(60).optional(),
+  verifiedTags: z.array(z.string().trim().max(60)).max(20).optional(),
+  conditionSummary: z.string().trim().max(2_000).optional(),
+  inspectionSummary: z.string().trim().max(2_000).optional(),
+  registrationNumber: z.string().trim().max(30).optional(),
+  registrationYear: z.number().int().min(1980).max(2100).optional(),
+  registrationCity: z.string().trim().max(100).optional(),
+  ownershipCount: z.number().int().min(0).max(20).optional(),
+  odometerKm: z.number().int().min(0).max(2_000_000).optional(),
+  engineCapacityCc: z.number().int().min(0).max(10_000).optional(),
+  mediaUrls: z.array(z.string().trim().min(5).max(1000)).max(60).optional(),
+}).strict();
+
 const publishListingInput = z.object({
   retailPricePaise: z.coerce.bigint().positive(),
   expectedVersion: z.number().int().positive(),
@@ -459,6 +478,13 @@ export function createOperationsInspectionRouter(deps: { verify: VerifyToken; st
   router.post('/inventory/:id/prepare-listing', async (req, res, next) => {
     try {
       res.json(await deps.store.prepareListing(res.locals.inspectionActor, uuid.parse(req.params.id), prepareListingInput.parse(req.body)));
+    } catch (e) { next(e); }
+  });
+
+  // Edit a listing at any stage, including while it is live (details, photos, price).
+  router.patch('/inventory/:id/listing', async (req, res, next) => {
+    try {
+      res.json(await deps.store.updateListing(res.locals.inspectionActor, uuid.parse(req.params.id), updateListingInput.parse(req.body)));
     } catch (e) { next(e); }
   });
 
