@@ -2671,7 +2671,7 @@ model RentalFleetVehicle {
   id String @id @default(uuid()) @db.Uuid
   fleetNumber String @unique
   registrationNumber String @unique
-  vin String @unique
+  vin String? @unique
   make String
   model String
   variant String?
@@ -2685,11 +2685,12 @@ model RentalFleetVehicle {
   hubId String @db.Uuid
   images Json
   status RentalVehicleStatus @default(AVAILABLE)
-  commercialPermitNumber String
-  commercialPermitExpiry DateTime
-  insurancePolicyNumber String
-  insuranceExpiry DateTime
-  fitnessCertExpiry DateTime
+  // Compliance documents are optional: null means "not on file", never a made-up value.
+  commercialPermitNumber String?
+  commercialPermitExpiry DateTime?
+  insurancePolicyNumber String?
+  insuranceExpiry DateTime?
+  fitnessCertExpiry DateTime?
   isEligibleForRental Boolean @default(true)
   baseDailyRatePaise BigInt
   baseHourlyRatePaise BigInt

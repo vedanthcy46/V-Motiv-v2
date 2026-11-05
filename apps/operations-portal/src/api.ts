@@ -414,6 +414,9 @@ export const api = {
     seats: number;
     color: string;
     images?: string[];
+    /** Readings of the car as it joins the fleet; left out = not recorded yet. */
+    odometerKm?: number;
+    fuelLevelPercent?: number;
     commercialPermitNumber?: string;
     commercialPermitExpiry?: string;
     insurancePolicyNumber?: string;
@@ -427,6 +430,9 @@ export const api = {
     extraKmRatePaise?: string | number;
     features?: string[];
   }) => call<RentalFleetItem>(u, '/operations/rentals/fleet', { method: 'POST', body: JSON.stringify(body) }),
+  /** Correct the odometer / fuel level recorded for a car. A reason is required; the change is audited and refused while the car is on a trip. */
+  correctRentalReadings: (u: User, id: string, body: { odometerKm?: number; fuelLevelPercent?: number; reason: string }) =>
+    call<RentalFleetItem>(u, `/operations/rentals/fleet/${id}/readings`, { method: 'POST', body: JSON.stringify(body) }),
   updateRentalFleetVehicle: (u: User, id: string, body: {
     isEligibleForRental?: boolean;
     status?: string;

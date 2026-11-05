@@ -37,7 +37,8 @@ export interface RentalFleetVehicle {
   id: string;
   fleetNumber: string;
   registrationNumber: string;
-  vin: string;
+  /** Optional: the fleet team may not have entered it. */
+  vin?: string | null;
   make: string;
   model: string;
   variant?: string | null;
@@ -51,8 +52,8 @@ export interface RentalFleetVehicle {
   hubId: string;
   images: string[];
   status: string;
-  commercialPermitNumber?: string;
-  insurancePolicyNumber?: string;
+  commercialPermitNumber?: string | null;
+  insurancePolicyNumber?: string | null;
   baseDailyRatePaise: string | number;
   baseHourlyRatePaise: string | number;
   securityDepositPaise: string | number;

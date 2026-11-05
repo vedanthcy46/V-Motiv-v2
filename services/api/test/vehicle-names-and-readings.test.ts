@@ -38,7 +38,7 @@ describe('canonical make / model names', () => {
 describe('rental walk-in hand-over readings', () => {
   const vehicle = { id: 'veh-1', status: 'AVAILABLE', odometerKm: 41200, fuelLevelPercent: 62, hubId: 'hub-1', hub: null };
   const input = (extra: Record<string, unknown> = {}) => ({
-    vehicleId: 'veh-1', customerName: 'A', customerPhone: '9', licenseNumber: 'KA01', licenseExpiry: new Date('2030-01-01T00:00:00Z'), licenseFrontUrl: 'f', licenseBackUrl: 'b', paymentMethod: 'UPI',
+    vehicleId: 'veh-1', customerName: 'A', customerPhone: '9', licenseNumber: 'KA01', licenseExpiry: new Date('2030-01-01T00:00:00Z'), dateOfBirth: new Date('1992-03-14T00:00:00Z'), drivingExperienceYears: 3, licenseFrontUrl: 'f', licenseBackUrl: 'b', paymentMethod: 'UPI',
     startTime: new Date('2026-11-06T10:00:00Z'), endTime: new Date('2026-11-08T10:00:00Z'), immediateHandover: true, ...extra,
   }) as Any;
   const makeStore = () => {

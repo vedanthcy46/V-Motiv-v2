@@ -6,6 +6,14 @@ import { api } from '../api';
 import type { Branch, ServiceJobItem, ServiceJobStatus } from '../types';
 import { IconCross, IconRefresh, IconSearch, IconService } from '../icons';
 import { CURRENT_YEAR } from '../calendar';
+import { isBelowRecorded, parseReading, readingText } from '../readings';
+
+/** A custody record's fuel / charge as text: the percentage when it was recorded as one, otherwise the description as written. */
+function fuelText(record: { fuelPercent: number | null; fuelLabel?: string } | null | undefined): string {
+  if (!record) return '—';
+  if (typeof record.fuelPercent === 'number') return `${record.fuelPercent}%`;
+  return record.fuelLabel || '—';
+}
 
 function formatRupees(paise?: string | number | null): string {
   if (paise === undefined || paise === null || paise === '') return '—';
@@ -122,7 +130,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const [walkInFulfillment, setWalkInFulfillment] = useState<'SELF_DROP_AT_HUB' | 'PICKUP_AND_RETURN'>('SELF_DROP_AT_HUB');
   const [walkInPickup, setWalkInPickup] = useState({ line1: '', city: '', pincode: '', instructions: '' });
   const [walkInIntakeNotes, setWalkInIntakeNotes] = useState('');
-  const [walkInIntakeFuel, setWalkInIntakeFuel] = useState<number>(50);
+  // Intake and release readings are read from the dashboard at the counter; nothing starts as an assumed "50 %".
+  const [walkInIntakeFuel, setWalkInIntakeFuel] = useState<string>('');
   const [walkInCollectPayment, setWalkInCollectPayment] = useState(false);
   const [walkInAdvancePayment, setWalkInAdvancePayment] = useState<number>(0);
   const [walkInPaymentMethod, setWalkInPaymentMethod] = useState<'UPI' | 'POS_CARD' | 'CASH' | 'BANK_TRANSFER'>('UPI');
@@ -136,8 +145,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const [dispatchType, setDispatchType] = useState<'PICKUP' | 'RETURN'>('PICKUP');
 
   // Custody
-  const [intakeOdometer, setIntakeOdometer] = useState<number>(0);
-  const [intakeFuel, setIntakeFuel] = useState<number>(50);
+  const [intakeOdometer, setIntakeOdometer] = useState<string>('');
+  const [intakeFuel, setIntakeFuel] = useState<string>('');
   const [intakeNotes, setIntakeNotes] = useState('');
 
   // Estimate
@@ -159,11 +168,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const [paymentAutoVerify, setPaymentAutoVerify] = useState(true);
 
   // Return
-  const [returnOdometer, setReturnOdometer] = useState<number>(0);
-  // Release readings are entered at the counter, never defaulted: fuel starts empty and the acknowledgement unticked.
+  // Release readings start from what the car was checked in with (it cannot leave with less distance on the clock), and the
+  // acknowledgement is always unticked; the notes start empty because nothing is pre-written as fact.
+  const [returnOdometer, setReturnOdometer] = useState<string>('');
   const [returnFuel, setReturnFuel] = useState<string>('');
   const [returnAcknowledged, setReturnAcknowledged] = useState(false);
-  const [returnNotes, setReturnNotes] = useState('Vehicle delivered to customer with invoice and warranty booklet.');
+  const [returnNotes, setReturnNotes] = useState('');
 
   // Cancellation state
   const [cancelPromptOpen, setCancelPromptOpen] = useState(false);
@@ -213,29 +223,48 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     void loadQueue();
   };
 
+  /**
+   * Fill the intake and release forms from what is on record for the job: the vehicle's last odometer, what the car was checked
+   * in with, and what it was released with. `overwrite` is true when a job is opened; on a refresh only empty (or now-too-low)
+   * fields change, so nothing being typed is replaced.
+   */
+  const seedReadings = (job: ServiceJobItem, overwrite: boolean) => {
+    const vehicleKm = job.vehicle?.odometerKm;
+    const floorKm = job.releaseRecord?.odometerKm ?? job.custodyRecord?.odometerKm;
+    setIntakeOdometer(prev => (overwrite || prev === '' ? readingText(vehicleKm) : prev));
+    setReturnOdometer(prev => {
+      if (overwrite || prev === '') return readingText(floorKm ?? vehicleKm);
+      const typed = parseReading(prev);
+      return floorKm !== undefined && (typed === null || typed < floorKm) ? String(floorKm) : prev;
+    });
+    setReturnFuel(prev => (overwrite || prev === '' ? readingText(job.releaseRecord?.fuelPercent ?? job.custodyRecord?.fuelPercent) : prev));
+  };
+
+  const fetchJobSnapshot = async (jobId: string) => {
+    const [full, readiness] = await Promise.all([
+      api.serviceJobDetails(user, jobId),
+      api.fetchServiceReleaseReadiness(user, jobId).catch(() => null),
+    ]);
+    return { full, readiness };
+  };
+
   const openJobModal = async (job: ServiceJobItem) => {
     setActiveJob(job);
     setActionTab('details');
     setLoadingDetails(true);
-
-    if (job.vehicle && typeof (job.vehicle as any).odometerKm === 'number') {
-      setIntakeOdometer((job.vehicle as any).odometerKm);
-      setReturnOdometer((job.vehicle as any).odometerKm);
-    }
+    // A different job: nothing typed or fetched for the previous one may carry over.
+    setReadinessData(null);
+    setIntakeFuel('');
+    setIntakeNotes('');
+    setReturnNotes('');
+    setReturnAcknowledged(false);
+    seedReadings(job, true);
 
     try {
-      const full = await api.serviceJobDetails(user, job.id);
-      setActiveJob(full);
-      if (full.vehicle?.odometerKm) {
-        setIntakeOdometer(full.vehicle.odometerKm);
-        setReturnOdometer(full.vehicle.odometerKm);
-      }
-      try {
-        const rd = await api.fetchServiceReleaseReadiness(user, job.id);
-        setReadinessData(rd);
-      } catch {
-        // ignore readiness fetch error
-      }
+      const { full, readiness } = await fetchJobSnapshot(job.id);
+      setActiveJob(prev => (prev && prev.id === full.id ? full : prev));
+      if (readiness) setReadinessData(readiness);
+      seedReadings(full, true);
     } catch (err) {
       console.warn('Failed to load full job details', err);
     } finally {
@@ -243,21 +272,32 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     }
   };
 
-  const refreshActiveJob = async (jobId: string) => {
+  const refreshActiveJob = async (jobId: string, opts: { silent?: boolean } = {}) => {
     try {
-      const full = await api.serviceJobDetails(user, jobId);
-      setActiveJob(full);
-      try {
-        const rd = await api.fetchServiceReleaseReadiness(user, jobId);
-        setReadinessData(rd);
-      } catch {
-        // ignore
-      }
+      const { full, readiness } = await fetchJobSnapshot(jobId);
+      setActiveJob(prev => (prev && prev.id === full.id ? full : prev));
+      if (readiness) setReadinessData(readiness);
+      seedReadings(full, false);
     } catch (e) {
+      if (opts.silent) throw e;
       console.warn('Failed to refresh job', e);
     }
-    void loadQueue();
+    if (opts.silent) loadQueue({ silent: true }).catch(() => undefined);
+    else void loadQueue();
   };
+
+  // An open job keeps itself current: the customer approving an estimate or paying in the app, or another advisor's update,
+  // shows up here without closing and re-opening the job. Forms keep their own state, so nothing being typed is lost.
+  useAutoRefresh(
+    async () => {
+      if (activeJob) await refreshActiveJob(activeJob.id, { silent: true });
+    },
+    {
+      intervalMs: 30_000,
+      pauseWhen: () => activeJob === null || actionBusy || generatingInvoice || loadingDetails,
+      pulse: { domains: ['service'], live: true, fetchTokens: (domains, fresh) => api.pulse(user, domains, fresh) },
+    },
+  );
 
   const handleGenerateInvoice = async () => {
     if (!activeJob) return;
@@ -356,13 +396,20 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const handleCustodySubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!activeJob) return;
+    const km = parseReading(intakeOdometer);
+    const fuel = parseReading(intakeFuel);
+    if (km === null || fuel === null || fuel > 100) {
+      onError('Enter the odometer reading (km) and the fuel / charge level (0-100 %) as shown on the dashboard.');
+      return;
+    }
     setActionBusy(true);
     try {
       await api.recordServiceCustody(user, activeJob.id, {
         intakeType: activeJob.fulfillmentType === 'PICKUP_AND_RETURN' ? 'DOORSTEP_HANDOVER' : 'WORKSHOP_DROP',
-        odometerKm: Number(intakeOdometer),
-        fuelPercent: Number(intakeFuel),
-        exteriorNotes: intakeNotes || 'Visual inspection complete. No major dents observed.',
+        odometerKm: km,
+        fuelPercent: fuel,
+        // Only what the advisor actually wrote: no standard "no dents observed" text is recorded on their behalf.
+        exteriorNotes: intakeNotes.trim() || undefined,
         handoverByPerson: activeJob.customer?.displayName || 'Customer Handover',
       });
       onSuccess(`Custody confirmed for ${activeJob.requestNumber}. Vehicle intake documented.`);
@@ -516,7 +563,13 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const handleReturnSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!activeJob) return;
-    if (returnFuel === '' || Number(returnFuel) < 0 || Number(returnFuel) > 100) {
+    const releaseKm = parseReading(returnOdometer);
+    const releaseFuel = parseReading(returnFuel);
+    if (releaseKm === null) {
+      onError('Enter the odometer reading (km) the vehicle is leaving with.');
+      return;
+    }
+    if (releaseFuel === null || releaseFuel > 100) {
       onError('Enter the fuel / charge level (0-100%) the vehicle is leaving with.');
       return;
     }
@@ -528,16 +581,15 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     try {
       await api.recordServiceReturn(user, activeJob.id, {
         type: 'CHECK_OUT',
-        odometerKm: Number(returnOdometer),
-        returnOdometerKm: Number(returnOdometer),
-        fuelChargeLevel: `${Number(returnFuel)}%`,
-        fuelPercent: Number(returnFuel),
-        preExistingDamageNotes: returnNotes || 'Vehicle delivered with invoice and warranty booklet.',
-        returnNotes: returnNotes || 'Vehicle delivered with invoice and warranty booklet.',
+        odometerKm: releaseKm,
+        returnOdometerKm: releaseKm,
+        fuelChargeLevel: `${releaseFuel}%`,
+        fuelPercent: releaseFuel,
+        preExistingDamageNotes: returnNotes.trim() || undefined,
+        returnNotes: returnNotes.trim() || undefined,
         handoverByPerson: activeJob.customer?.displayName || 'Customer Pickup / Delivery',
         customerAcknowledged: returnAcknowledged,
       });
-      setReturnFuel('');
       setReturnAcknowledged(false);
       onSuccess(`Vehicle for ${activeJob.requestNumber} released and handover recorded successfully.`);
       await refreshActiveJob(activeJob.id);
@@ -566,6 +618,11 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
       onError('Enter the pickup address, city and a 6-digit pincode for the doorstep collection.');
       return;
     }
+    const walkInFuel = parseReading(walkInIntakeFuel);
+    if (walkInImmediateIntake && walkInFulfillment === 'SELF_DROP_AT_HUB' && (walkInFuel === null || walkInFuel > 100)) {
+      onError('Enter the fuel / charge level (0-100 %) the car arrived with, or untick Immediate Workshop Intake to record it later.');
+      return;
+    }
     setWalkInSubmitting(true);
     try {
       const job = await api.createWalkInServiceJob(user, {
@@ -588,7 +645,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
           ? { line1: walkInPickup.line1.trim(), city: walkInPickup.city.trim(), pincode: walkInPickup.pincode.replace(/\s+/g, ''), instructions: walkInPickup.instructions.trim() || undefined }
           : undefined,
         intakeOdometerKm: Number(walkInOdometer) || undefined,
-        intakeFuelPercent: Number(walkInIntakeFuel),
+        intakeFuelPercent: walkInFuel !== null && walkInFuel <= 100 ? walkInFuel : undefined,
         intakeNotes: walkInIntakeNotes.trim() || undefined,
         advancePaymentAmountRupees: walkInCollectPayment && walkInAdvancePayment > 0 ? Number(walkInAdvancePayment) : undefined,
         paymentMethod: walkInCollectPayment && walkInAdvancePayment > 0 ? walkInPaymentMethod : undefined,
@@ -607,6 +664,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
       setWalkInRegNumber('');
       setWalkInSymptoms('');
       setWalkInIntakeNotes('');
+      setWalkInIntakeFuel('');
       setWalkInCollectPayment(false);
       setWalkInAdvancePayment(0);
       setWalkInTxRef('');
@@ -1254,7 +1312,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     <div style={{ marginBottom: '1.25rem', padding: '0.75rem', background: 'var(--surface-secondary)', borderRadius: '6px' }}>
                       <strong>Recorded Vehicle Intake Custody:</strong>
                       <div style={{ fontSize: '0.875rem', marginTop: '4px' }}>
-                        Odometer: {activeJob.custodyRecord.odometerKm} km · Fuel Level: {activeJob.custodyRecord.fuelPercent}%
+                        Odometer: {activeJob.custodyRecord.odometerKm.toLocaleString('en-IN')} km · Fuel Level: {fuelText(activeJob.custodyRecord)}
                       </div>
                       {activeJob.custodyRecord.exteriorNotes && (
                         <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: '2px' }}>
@@ -1524,14 +1582,22 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       <span>✓</span> Vehicle Custody Intake Recorded
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.875rem' }}>
-                      <div><strong>Odometer:</strong> {activeJob.custodyRecord.odometerKm} km</div>
-                      <div><strong>Fuel Level:</strong> {activeJob.custodyRecord.fuelPercent}%</div>
+                      <div><strong>Odometer:</strong> {activeJob.custodyRecord.odometerKm.toLocaleString('en-IN')} km</div>
+                      <div><strong>Fuel Level:</strong> {fuelText(activeJob.custodyRecord)}</div>
                       <div style={{ gridColumn: 'span 2' }}>
                         <strong>Condition & Damage Notes:</strong>
                         <p style={{ margin: '4px 0 0', color: 'var(--muted)' }}>
-                          {activeJob.custodyRecord.exteriorNotes || 'Visual inspection complete. No major dents observed.'}
+                          {activeJob.custodyRecord.exteriorNotes || 'No condition notes were recorded.'}
                         </p>
                       </div>
+                      {activeJob.releaseRecord && (
+                        <div style={{ gridColumn: 'span 2', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
+                          <strong>Released:</strong> {activeJob.releaseRecord.odometerKm.toLocaleString('en-IN')} km · Fuel {fuelText(activeJob.releaseRecord)}
+                          {typeof activeJob.releaseRecord.odometerKm === 'number' && typeof activeJob.custodyRecord.odometerKm === 'number' && (
+                            <span style={{ color: 'var(--muted)' }}> · {(activeJob.releaseRecord.odometerKm - activeJob.custodyRecord.odometerKm).toLocaleString('en-IN')} km on the clock during service</span>
+                          )}
+                        </div>
+                      )}
                     </div>
                   </div>
                 ) : (
@@ -1546,10 +1612,16 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           type="number"
                           className="input"
                           required
+                          min={0}
                           value={intakeOdometer}
-                          onChange={e => setIntakeOdometer(Number(e.target.value))}
+                          onChange={e => setIntakeOdometer(e.target.value)}
                           style={{ width: '100%', marginTop: '4px' }}
                         />
+                        <small style={{ color: isBelowRecorded(intakeOdometer, activeJob.vehicle?.odometerKm) ? '#f59e0b' : 'var(--muted)' }}>
+                          {isBelowRecorded(intakeOdometer, activeJob.vehicle?.odometerKm)
+                            ? `Lower than the ${activeJob.vehicle?.odometerKm?.toLocaleString('en-IN')} km on the vehicle's record - check the reading.`
+                            : typeof activeJob.vehicle?.odometerKm === 'number' ? `On the vehicle's record: ${activeJob.vehicle.odometerKm.toLocaleString('en-IN')} km` : 'No reading on the vehicle record yet'}
+                        </small>
                       </div>
                       <div>
                         <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fuel Tank Level (%) *</label>
@@ -1560,7 +1632,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           max={100}
                           required
                           value={intakeFuel}
-                          onChange={e => setIntakeFuel(Number(e.target.value))}
+                          placeholder="From the gauge"
+                          onChange={e => setIntakeFuel(e.target.value)}
                           style={{ width: '100%', marginTop: '4px' }}
                         />
                       </div>
@@ -2240,10 +2313,16 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                                 type="number"
                                 className="input"
                                 required
+                                min={0}
                                 value={returnOdometer}
-                                onChange={e => setReturnOdometer(Number(e.target.value))}
+                                onChange={e => setReturnOdometer(e.target.value)}
                                 style={{ width: '100%', marginTop: '4px' }}
                               />
+                              <small style={{ color: isBelowRecorded(returnOdometer, activeJob.custodyRecord?.odometerKm) ? '#ef4444' : 'var(--muted)' }}>
+                                {isBelowRecorded(returnOdometer, activeJob.custodyRecord?.odometerKm)
+                                  ? `Lower than the ${activeJob.custodyRecord?.odometerKm.toLocaleString('en-IN')} km the car arrived with - it cannot be released with that.`
+                                  : activeJob.custodyRecord ? `Checked in at ${activeJob.custodyRecord.odometerKm.toLocaleString('en-IN')} km` : 'No check-in reading recorded'}
+                              </small>
                             </div>
                             <div>
                               <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Handover Recipient</label>
@@ -2270,6 +2349,9 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                                 onChange={e => setReturnFuel(e.target.value)}
                                 style={{ width: '100%', marginTop: '4px' }}
                               />
+                              <small style={{ color: 'var(--muted)' }}>
+                                {activeJob.custodyRecord ? `Arrived with ${fuelText(activeJob.custodyRecord)} - change it if the car was refuelled` : 'No check-in level recorded'}
+                              </small>
                             </div>
                             <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', fontWeight: 600, alignSelf: 'end', paddingBottom: '0.5rem' }}>
                               <input type="checkbox" checked={returnAcknowledged} onChange={e => setReturnAcknowledged(e.target.checked)} />
@@ -2283,6 +2365,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                               className="input"
                               rows={3}
                               value={returnNotes}
+                              placeholder="Anything worth recording at hand-over (documents given, condition, accessories returned)"
                               onChange={e => setReturnNotes(e.target.value)}
                               style={{ width: '100%', marginTop: '4px' }}
                             />
@@ -2566,7 +2649,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           min={0}
                           max={100}
                           value={walkInIntakeFuel}
-                          onChange={e => setWalkInIntakeFuel(Number(e.target.value))}
+                          placeholder="From the gauge"
+                          onChange={e => setWalkInIntakeFuel(e.target.value)}
                           style={{ width: '100%', marginTop: '3px' }}
                         />
                       </div>

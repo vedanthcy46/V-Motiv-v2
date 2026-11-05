@@ -411,6 +411,17 @@ export type ServiceJobStatus =
   | 'READY_FOR_DELIVERY'
   | 'DELIVERED';
 
+/** A vehicle custody reading recorded by the workshop (check-in or release). `fuelPercent` is null when the level was recorded as words. */
+export type ServiceCustodyReading = {
+  id: string;
+  odometerKm: number;
+  fuelPercent: number | null;
+  fuelLabel?: string;
+  exteriorNotes?: string | null;
+  keyCount?: number | null;
+  recordedAt?: string;
+};
+
 export type ServiceJobItem = {
   id: string;
   requestNumber: string;
@@ -484,12 +495,10 @@ export type ServiceJobItem = {
       isApprovedByCustomer?: boolean;
     }[];
   }[];
-  custodyRecord?: {
-    id: string;
-    odometerKm: number;
-    fuelPercent: number;
-    exteriorNotes?: string | null;
-  } | null;
+  /** What the car arrived with (latest check-in). */
+  custodyRecord?: ServiceCustodyReading | null;
+  /** What the car left with (latest release); null until it is released. */
+  releaseRecord?: ServiceCustodyReading | null;
   qcRecord?: {
     id: string;
     isPassed: boolean;
@@ -580,7 +589,8 @@ export type RentalFleetItem = {
   id: string;
   fleetNumber: string;
   registrationNumber: string;
-  vin: string;
+  /** Optional: null when no VIN has been entered. */
+  vin?: string | null;
   make: string;
   model: string;
   variant?: string | null;
@@ -658,6 +668,9 @@ export type RentalBookingItem = {
   rentalPaymentStatus?: 'NOT_PAID' | 'PARTIALLY_PAID' | 'PAID_IN_FULL' | 'REFUNDED' | string;
   depositStatus?: 'NOT_COLLECTED' | 'COLLECTED' | 'REFUND_QUEUED' | 'REFUNDED' | 'RETAINED' | string;
   balanceDueAt?: string | null;
+  /** Kilometres included in this booking, and the rate charged per extra km (set when the booking was priced). */
+  includedKm?: number;
+  extraKmRatePaise?: string | number;
   verifiedPaidPaise?: string | number;
   outstandingBalancePaise?: string | number;
   pickupReadiness?: {

@@ -226,6 +226,9 @@ function setupApp(activeRole: 'CUSTOMER' | 'OTHER_CUSTOMER' | 'RENTAL_DISPATCH' 
     getFleet: vi.fn().mockResolvedValue([
       { id: VEHICLE_ID, fleetNumber: 'VMF-001', status: 'AVAILABLE' },
     ]),
+    correctVehicleReadings: vi.fn().mockResolvedValue({ id: VEHICLE_ID, odometerKm: 24000, fuelLevelPercent: 80 }),
+    createWalkInBooking: vi.fn().mockResolvedValue({ id: BOOKING_ID, bookingNumber: 'VMR-2026-0002' }),
+    updateDriverKycDocuments: vi.fn().mockResolvedValue({ bookingId: BOOKING_ID, status: 'PENDING_REVIEW' }),
     createFleetVehicle: vi.fn().mockResolvedValue({
       id: 'veh-new-99',
       fleetNumber: 'VMF-002',
@@ -622,6 +625,109 @@ describe('V MOTIV V2 — Advance Car Rental Platform API Suite', () => {
     expect(res.body.booking.status).toBe('SETTLED');
     expect(res.body.trip.excessKm).toBe(40);
     expect(mockRentalStore.recordReturnAndSettlement).toHaveBeenCalled();
+  });
+
+  it('11b. handover with no photos records none - no stock picture is attached as evidence', async () => {
+    const { app, mockRentalStore } = setupApp('RENTAL_DISPATCH');
+    await request(app)
+      .post(`/api/v2/operations/rentals/bookings/${BOOKING_ID}/handover`)
+      .set('Authorization', 'Bearer dispatch-token')
+      .send({ odometerKm: 24500, fuelPercent: 0, notes: '' })
+      .expect(200);
+    const input = (mockRentalStore.recordPickupHandover as any).mock.calls.at(-1)[2];
+    expect(input.photos).toEqual([]);
+    expect(input.fuelPercent).toBe(0); // an empty tank is a real reading
+  });
+
+  it('13b. a damage charge entered at the return is passed on as a damage claim, and no photos means none recorded', async () => {
+    const { app, mockRentalStore } = setupApp('RENTAL_DISPATCH');
+    await request(app)
+      .post(`/api/v2/operations/rentals/bookings/${BOOKING_ID}/return`)
+      .set('Authorization', 'Bearer dispatch-token')
+      .send({
+        returnOdometerKm: 25040, returnFuelPercent: 35, customerSigned: true,
+        damages: [{ description: 'Rear bumper scraped', estimatedRepairCostPaise: 450000, photos: [], isDisputed: true }],
+      })
+      .expect(200);
+    const input = (mockRentalStore.recordReturnAndSettlement as any).mock.calls.at(-1)[2];
+    expect(input.photos).toEqual([]);
+    expect(input.damages).toEqual([{ description: 'Rear bumper scraped', estimatedRepairCostPaise: 450000, photos: [], isDisputed: true }]);
+  });
+
+  it('13c. POST /fleet accepts a car with its compliance details left blank', async () => {
+    const { app, mockRentalStore } = setupApp('RENTAL_MANAGER');
+    await request(app)
+      .post('/api/v2/operations/rentals/fleet')
+      .set('Authorization', 'Bearer manager-token')
+      .send({
+        registrationNumber: 'KA01AB1234', vin: '', make: 'Hyundai', model: 'Creta', year: 2024, transmission: 'AUTOMATIC', fuelType: 'PETROL', color: 'White',
+        hubId: HUB_ID, baseDailyRatePaise: 280000, includedKmPerDay: 250, extraKmRatePaise: 1200,
+        commercialPermitNumber: '', commercialPermitExpiry: '', insurancePolicyNumber: '', insuranceExpiry: '', fitnessCertExpiry: '',
+        odometerKm: '18250', fuelLevelPercent: '',
+      })
+      .expect(201);
+    const input = (mockRentalStore.createFleetVehicle as any).mock.calls.at(-1)[0];
+    expect(input.vin).toBeUndefined();
+    expect(input.commercialPermitNumber).toBeUndefined();
+    expect(input.insuranceExpiry).toBeUndefined();
+    expect(input.odometerKm).toBe(18250);
+    expect(input.fuelLevelPercent).toBeUndefined();
+  });
+
+  const walkInBody = () => ({
+    vehicleId: VEHICLE_ID, customerName: 'A Driver', customerPhone: '9876543210',
+    startTime: new Date(Date.now() + 3600_000).toISOString(), endTime: new Date(Date.now() + 3 * 86_400_000).toISOString(),
+    licenseNumber: 'KA0120180012345', licenseExpiry: '2032-05-01', dateOfBirth: '1992-03-14', drivingExperienceYears: 0,
+    licenseFrontUrl: 'https://storage.vmotiv.in/kyc/front.jpg', licenseBackUrl: 'https://storage.vmotiv.in/kyc/back.jpg', paymentMethod: 'UPI',
+  });
+
+  it('13d. walk-in booking passes the driver details on exactly as entered (0 years of experience stays 0)', async () => {
+    const { app, mockRentalStore } = setupApp('RENTAL_DISPATCH');
+    await request(app).post('/api/v2/operations/rentals/walkin-booking').set('Authorization', 'Bearer dispatch-token').send(walkInBody()).expect(201);
+    const input = (mockRentalStore.createWalkInBooking as any).mock.calls.at(-1)[1];
+    expect(input).toMatchObject({ licenseNumber: 'KA0120180012345', drivingExperienceYears: 0 });
+    expect(input.dateOfBirth).toEqual(new Date('1992-03-14'));
+    expect(input.licenseExpiry).toEqual(new Date('2032-05-01'));
+  });
+
+  it.each([
+    ['licence number', { licenseNumber: '' }],
+    ['licence number (absent)', { licenseNumber: undefined }],
+    ['licence expiry', { licenseExpiry: undefined }],
+    ['date of birth', { dateOfBirth: undefined }],
+    ['years of experience', { drivingExperienceYears: '' }],
+    ['front photo', { licenseFrontUrl: '' }],
+    ['back photo', { licenseBackUrl: undefined }],
+  ])('13e. walk-in booking is refused when the %s is missing - nothing is filled in on staff\'s behalf', async (_label, change) => {
+    const { app, mockRentalStore } = setupApp('RENTAL_DISPATCH');
+    const body: Record<string, unknown> = { ...walkInBody(), ...change };
+    await request(app).post('/api/v2/operations/rentals/walkin-booking').set('Authorization', 'Bearer dispatch-token').send(body).expect(400);
+    expect(mockRentalStore.createWalkInBooking).not.toHaveBeenCalled();
+  });
+
+  it('13f. hub licence upload needs the driver\'s date of birth and experience (no assumed 1990 / 3 years)', async () => {
+    const { app, mockRentalStore } = setupApp('RENTAL_DISPATCH');
+    const body = { licenseNumber: 'KA0120180012345', licenseExpiry: '2032-05-01', dateOfBirth: '1992-03-14', drivingExperienceYears: 6, licenseFrontUrl: 'f', licenseBackUrl: 'b' };
+    await request(app).post(`/api/v2/operations/rentals/bookings/${BOOKING_ID}/kyc/documents`).set('Authorization', 'Bearer dispatch-token').send({ ...body, drivingExperienceYears: '' }).expect(400);
+    await request(app).post(`/api/v2/operations/rentals/bookings/${BOOKING_ID}/kyc/documents`).set('Authorization', 'Bearer dispatch-token').send({ ...body, dateOfBirth: undefined }).expect(400);
+    expect(mockRentalStore.updateDriverKycDocuments).not.toHaveBeenCalled();
+    await request(app).post(`/api/v2/operations/rentals/bookings/${BOOKING_ID}/kyc/documents`).set('Authorization', 'Bearer dispatch-token').send(body).expect(200);
+    expect((mockRentalStore.updateDriverKycDocuments as any).mock.calls.at(-1)[2]).toMatchObject({ drivingExperienceYears: 6 });
+  });
+
+  it('13g. POST /fleet/:id/readings is for managers only, and passes the reason and readings on', async () => {
+    const { app: dispatchApp, mockRentalStore: dispatchStore } = setupApp('RENTAL_DISPATCH');
+    await request(dispatchApp).post(`/api/v2/operations/rentals/fleet/${VEHICLE_ID}/readings`).set('Authorization', 'Bearer dispatch-token')
+      .send({ odometerKm: 24000, reason: 'Typo at last return' }).expect(403);
+    expect(dispatchStore.correctVehicleReadings).not.toHaveBeenCalled();
+
+    const { app, mockRentalStore } = setupApp('RENTAL_MANAGER');
+    await request(app).post(`/api/v2/operations/rentals/fleet/${VEHICLE_ID}/readings`).set('Authorization', 'Bearer manager-token')
+      .send({ odometerKm: '24000', fuelLevelPercent: '', reason: 'Typo at last return' }).expect(200);
+    expect((mockRentalStore.correctVehicleReadings as any).mock.calls.at(-1).slice(1)).toEqual([VEHICLE_ID, { odometerKm: 24000, reason: 'Typo at last return' }]);
+
+    await request(app).post(`/api/v2/operations/rentals/fleet/${VEHICLE_ID}/readings`).set('Authorization', 'Bearer manager-token').send({ odometerKm: 24000 }).expect(400);
+    await request(app).post(`/api/v2/operations/rentals/fleet/${VEHICLE_ID}/readings`).set('Authorization', 'Bearer manager-token').send({ fuelLevelPercent: 140, reason: 'Gauge fixed' }).expect(400);
   });
 
   // -------------------------------------------------------------

@@ -90,10 +90,11 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
   const [secondsRemaining, setSecondsRemaining] = useState(15 * 60);
 
   // Driver KYC Form
-  const [licenseNumber, setLicenseNumber] = useState('KA0120210045892');
-  const [licenseExpiry, setLicenseExpiry] = useState('2032-12-31');
-  const [dob, setDob] = useState('1998-05-15');
-  const [experienceYears, setExperienceYears] = useState('5');
+  // The driver's own details, typed from their licence: nothing is pre-filled with someone else's licence number, birth date or experience.
+  const [licenseNumber, setLicenseNumber] = useState('');
+  const [licenseExpiry, setLicenseExpiry] = useState('');
+  const [dob, setDob] = useState('');
+  const [experienceYears, setExperienceYears] = useState('');
   const [driverLicenseFront, setDriverLicenseFront] = useState<string>('');
   const [driverLicenseBack, setDriverLicenseBack] = useState<string>('');
   const [localFrontAsset, setLocalFrontAsset] = useState<ImagePicker.ImagePickerAsset | null>(null);
@@ -286,6 +287,15 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
       Alert.alert('Driver License Required', 'Please enter a valid driving license number for identity verification.');
       return;
     }
+    const validDate = (value: string) => /^\d{4}-\d{2}-\d{2}$/.test(value.trim()) && !Number.isNaN(new Date(value.trim()).getTime());
+    if (!validDate(dob) || !validDate(licenseExpiry)) {
+      Alert.alert('Licence Details Required', 'Enter your date of birth and the licence expiry date as printed on your licence, in YYYY-MM-DD format.');
+      return;
+    }
+    if (!/^\d{1,2}$/.test(experienceYears.trim())) {
+      Alert.alert('Driving Experience Required', 'Enter how many years you have been driving (0 if you are a new driver).');
+      return;
+    }
     if (!driverLicenseFront || !driverLicenseBack) {
       Alert.alert(
         'License Document Required',
@@ -368,7 +378,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
           licenseNumber: licenseNumber.trim().toUpperCase(),
           licenseExpiry: new Date(licenseExpiry).toISOString(),
           dateOfBirth: new Date(dob).toISOString(),
-          drivingExperienceYears: Number(experienceYears) || 3,
+          drivingExperienceYears: Number(experienceYears),
           licenseFrontUrl: finalFrontUrl,
           licenseBackUrl: finalBackUrl,
         });

@@ -588,7 +588,7 @@ export function createServiceOperationsRouter(deps: {
     try {
       const employee = res.locals.employee;
       const raw = req.body || {};
-      const fuelVal = raw.fuelChargeLevel || (raw.fuelPercent !== undefined ? `${raw.fuelPercent}%` : '50%');
+      const fuelVal = raw.fuelChargeLevel || (raw.fuelPercent !== undefined ? `${raw.fuelPercent}%` : 'Not recorded');
       const normalizedBody = {
         type: raw.type || 'CHECK_IN',
         odometerKm: Number(raw.odometerKm || 0),
@@ -749,7 +749,7 @@ export function createServiceOperationsRouter(deps: {
     try {
       const employee = res.locals.employee;
       const raw = req.body || {};
-      const fuelVal = raw.fuelChargeLevel || (raw.fuelPercent !== undefined ? `${raw.fuelPercent}%` : '50%');
+      const fuelVal = raw.fuelChargeLevel || (raw.fuelPercent !== undefined ? `${raw.fuelPercent}%` : 'Not recorded');
       const odo = raw.odometerKm !== undefined ? Number(raw.odometerKm) : Number(raw.returnOdometerKm || 0);
       const normalizedBody = {
         type: 'CHECK_OUT',

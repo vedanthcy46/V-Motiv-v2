@@ -40,6 +40,19 @@ function parse<T>(schema: z.ZodType<T>, value: unknown): T {
   }
 }
 
+// A blank optional text/date field from a form means "not provided", not a validation error (and never the number 0).
+const blankToUndefined = (value: unknown) => (typeof value === 'string' && value.trim() === '' ? undefined : value);
+
+// A date that must be given as such: anything that is not a real date stays as it is so the schema rejects it.
+const requiredDate = (value: unknown) => {
+  if (value instanceof Date) return value;
+  if (typeof value === 'string' || typeof value === 'number') {
+    const date = new Date(value);
+    if (!Number.isNaN(date.getTime())) return date;
+  }
+  return value;
+};
+
 // -------------------------------------------------------------
 // SCHEMAS
 // -------------------------------------------------------------
@@ -80,7 +93,8 @@ const driverKycSchema = z.object({
   licenseExpiry: z.string().min(8),
   licenseCategory: z.string().trim().max(30).default('LMV'),
   dateOfBirth: z.string().min(8),
-  drivingExperienceYears: z.coerce.number().int().min(0).max(80).default(3),
+  // The driver's own answer; 0 is allowed, a blank is not (it used to turn into 3 years).
+  drivingExperienceYears: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(80)),
   licenseFrontUrl: z.string().trim().min(1),
   licenseBackUrl: z.string().trim().min(1),
 }).passthrough();
@@ -111,18 +125,14 @@ const walkinRentalBookingSchema = z.object({
     }
     return val;
   }, z.coerce.date()),
-  licenseNumber: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim().toUpperCase() : 'DL-WALKIN', z.string().min(2).max(50)),
-  licenseExpiry: z.preprocess((val) => {
-    if (val instanceof Date) return val;
-    if (typeof val === 'string' || typeof val === 'number') {
-      const d = new Date(val);
-      if (!isNaN(d.getTime())) return d;
-    }
-    return new Date(Date.now() + 365 * 24 * 3600 * 1000);
-  }, z.coerce.date()),
-  drivingExperienceYears: z.coerce.number().int().min(0).max(80).default(3),
-  licenseFrontUrl: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80', z.string().min(1)),
-  licenseBackUrl: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80', z.string().min(1)),
+  // The driver's details are read off the licence at the counter and are all required: no "DL-WALKIN" number, no one-year expiry,
+  // no assumed date of birth or experience and no stock picture stands in for something that was not provided.
+  licenseNumber: z.string().trim().min(3, 'Enter the driving licence number as printed on the licence.').max(50),
+  licenseExpiry: z.preprocess(requiredDate, z.coerce.date({ message: 'Enter the licence expiry date as printed on the licence.' })),
+  dateOfBirth: z.preprocess(requiredDate, z.coerce.date({ message: "Enter the driver's date of birth as printed on the licence." })),
+  drivingExperienceYears: z.preprocess(blankToUndefined, z.coerce.number({ message: "Enter the driver's years of driving experience." }).int().min(0).max(80)),
+  licenseFrontUrl: z.string().trim().min(1, 'The front photo of the driving licence is required.'),
+  licenseBackUrl: z.string().trim().min(1, 'The back photo of the driving licence is required.'),
   paymentMethod: z.string().trim().default('UPI'),
   transactionReference: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(100).optional().nullable()),
   startOdometerKm: z.preprocess((v) => v === '' || v === null || v === undefined ? undefined : Number(v), z.coerce.number().int().min(0).optional().nullable()),
@@ -185,7 +195,10 @@ const opsCancelBookingSchema = z.object({
 const fleetCreateSchema = z.object({
   fleetNumber: z.string().trim().min(3).max(30).optional(),
   registrationNumber: z.string().trim().min(5).max(30),
-  vin: z.string().trim().min(5).max(30),
+  // VIN and the compliance documents below are optional; the vehicle is stored with "not on file" for anything left out.
+  vin: z.preprocess(blankToUndefined, z.string().trim().min(5).max(30).optional()),
+  odometerKm: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(2_000_000).optional()),
+  fuelLevelPercent: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(100).optional()),
   make: z.string().trim().min(1).max(50),
   model: z.string().trim().min(1).max(50),
   variant: z.string().trim().max(50).optional(),
@@ -196,11 +209,11 @@ const fleetCreateSchema = z.object({
   color: z.string().trim().min(2).max(40),
   hubId: uuid,
   images: z.array(z.string().trim()).optional().default([]),
-  commercialPermitNumber: z.string().trim().min(3).optional(),
-  commercialPermitExpiry: z.string().datetime().or(z.string().min(10)).optional(),
-  insurancePolicyNumber: z.string().trim().min(3).optional(),
-  insuranceExpiry: z.string().datetime().or(z.string().min(10)).optional(),
-  fitnessCertExpiry: z.string().datetime().or(z.string().min(10)).optional(),
+  commercialPermitNumber: z.preprocess(blankToUndefined, z.string().trim().min(3).max(60).optional()),
+  commercialPermitExpiry: z.preprocess(blankToUndefined, z.string().datetime().or(z.string().min(10)).optional()),
+  insurancePolicyNumber: z.preprocess(blankToUndefined, z.string().trim().min(3).max(60).optional()),
+  insuranceExpiry: z.preprocess(blankToUndefined, z.string().datetime().or(z.string().min(10)).optional()),
+  fitnessCertExpiry: z.preprocess(blankToUndefined, z.string().datetime().or(z.string().min(10)).optional()),
   baseDailyRatePaise: z.coerce.number().int().positive(),
   baseHourlyRatePaise: z.coerce.number().int().positive().optional(),
   securityDepositPaise: z.coerce.number().int().min(0).default(500000),
@@ -208,6 +221,12 @@ const fleetCreateSchema = z.object({
   includedDailyKm: z.coerce.number().int().min(50).optional(),
   extraKmRatePaise: z.coerce.number().int().positive().default(1200).optional(),
   features: z.array(z.string().trim()).optional(),
+});
+
+const readingsCorrectionSchema = z.object({
+  odometerKm: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(2_000_000).optional()),
+  fuelLevelPercent: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).max(100).optional()),
+  reason: z.string().trim().min(3, 'Say why the reading is being changed.').max(300),
 });
 
 const blockCreateSchema = z.object({
@@ -687,6 +706,18 @@ export function createRentalOperationsRouter(deps: {
     }
   });
 
+  // Correct the recorded odometer / fuel level of a car (reason required, audited; not while it is on a trip)
+  router.post('/fleet/:id/readings', requireRentalRole(['RENTAL_MANAGER', 'HUB_MANAGER', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
+    try {
+      const vehicleId = uuid.parse(req.params.id);
+      const input = parse(readingsCorrectionSchema, req.body);
+      const employee = res.locals.employee;
+      res.json(await deps.store.correctVehicleReadings(employee.userId, vehicleId, input));
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // Update fleet vehicle (eligibility, status, pricing)
   router.patch('/fleet/:id', requireRentalRole(ALL_RENTAL_STAFF), async (req, res, next) => {
     try {
@@ -904,9 +935,8 @@ export function createRentalOperationsRouter(deps: {
       const normalizedBody = {
         odometerKm: rawBody.odometerKm,
         fuelPercent: rawBody.fuelPercent,
-        photos: Array.isArray(rawBody.photos) && rawBody.photos.length > 0
-          ? rawBody.photos
-          : ['https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'],
+        // Photos are evidence of the car's condition: none attached means none recorded, never a stock picture of another car.
+        photos: Array.isArray(rawBody.photos) ? rawBody.photos : [],
         notes: rawBody.notes || rawBody.conditionNotes || '',
         customerSigned: rawBody.customerSigned ?? rawBody.keyReleased ?? true,
       };
@@ -927,9 +957,7 @@ export function createRentalOperationsRouter(deps: {
       const normalizedBody = {
         returnOdometerKm: rawBody.returnOdometerKm ?? rawBody.odometerKm,
         returnFuelPercent: rawBody.returnFuelPercent ?? rawBody.fuelPercent,
-        photos: Array.isArray(rawBody.photos) && rawBody.photos.length > 0
-          ? rawBody.photos
-          : ['https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'],
+        photos: Array.isArray(rawBody.photos) ? rawBody.photos : [],
         notes: rawBody.notes || rawBody.conditionNotes || '',
         customerSigned: rawBody.customerSigned ?? rawBody.keyReceived ?? true,
         damages: rawBody.damages,

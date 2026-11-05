@@ -223,7 +223,8 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
             </View>
           </View>
 
-          {/* Verified Fleet Compliance */}
+          {/* Verified Fleet Compliance - only what is actually on file for this car (the details are optional for the fleet team) */}
+          {(vehicle.commercialPermitNumber || vehicle.insurancePolicyNumber) ? (
           <View style={[styles.complianceCard, { backgroundColor: colors.surface, borderColor: colors.border }]}>
             <View style={styles.complianceHeader}>
               <ShieldCheck size={20} color={colors.success} />
@@ -233,18 +234,22 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
             </View>
 
             <View style={styles.complianceItems}>
-              <View style={styles.complianceRow}>
-                <CheckCircle2 size={16} color={colors.success} />
-                <Text style={[styles.complianceText, { color: colors.textSecondary }]}>
-                  Commercial Self-Drive Permit: {vehicle.commercialPermitNumber}
-                </Text>
-              </View>
-              <View style={styles.complianceRow}>
-                <CheckCircle2 size={16} color={colors.success} />
-                <Text style={[styles.complianceText, { color: colors.textSecondary }]}>
-                  Full Comprehensive & Third-Party Insurance Policy
-                </Text>
-              </View>
+              {vehicle.commercialPermitNumber ? (
+                <View style={styles.complianceRow}>
+                  <CheckCircle2 size={16} color={colors.success} />
+                  <Text style={[styles.complianceText, { color: colors.textSecondary }]}>
+                    Commercial Self-Drive Permit: {vehicle.commercialPermitNumber}
+                  </Text>
+                </View>
+              ) : null}
+              {vehicle.insurancePolicyNumber ? (
+                <View style={styles.complianceRow}>
+                  <CheckCircle2 size={16} color={colors.success} />
+                  <Text style={[styles.complianceText, { color: colors.textSecondary }]}>
+                    Full Comprehensive & Third-Party Insurance Policy
+                  </Text>
+                </View>
+              ) : null}
               <View style={styles.complianceRow}>
                 <CheckCircle2 size={16} color={colors.success} />
                 <Text style={[styles.complianceText, { color: colors.textSecondary }]}>
@@ -253,6 +258,7 @@ export function RentalVehicleDetailsScreen({ route, navigation }: Props) {
               </View>
             </View>
           </View>
+          ) : null}
 
           {/* Transparent Price Breakdown */}
           {quote && (

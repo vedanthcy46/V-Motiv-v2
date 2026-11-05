@@ -4,6 +4,7 @@ import { modalIsOpen, useAutoRefresh } from '../autoRefresh';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
 import { CURRENT_YEAR } from '../calendar';
+import { isBelowRecorded, parseReading, readingText, tripKmPreview } from '../readings';
 import type {
   Branch,
   RentalBookingItem,
@@ -46,6 +47,24 @@ function formatDate(dateStr?: string | null): string {
   }
 }
 
+/** Compliance documents are optional. A document that is on file but expired is an error; one not on file is a gentle reminder. */
+function complianceNote(veh: RentalFleetItem): { text: string; tone: 'warn' | 'danger' } | null {
+  const now = Date.now();
+  const expired: string[] = [];
+  const missing: string[] = [];
+  const check = (label: string, expiry?: string | null) => {
+    if (!expiry) missing.push(label);
+    else if (new Date(expiry).getTime() < now) expired.push(label);
+  };
+  check('permit', veh.commercialPermitExpiry);
+  check('insurance', veh.insuranceExpiry);
+  check('fitness', veh.fitnessCertExpiry);
+  if (!veh.vin) missing.push('VIN');
+  if (expired.length > 0) return { text: `Expired: ${expired.join(', ')}`, tone: 'danger' };
+  if (missing.length > 0) return { text: `Not on file: ${missing.join(', ')}`, tone: 'warn' };
+  return null;
+}
+
 interface RentalOperationsPanelProps {
   user: User;
   branches: Branch[];
@@ -59,8 +78,6 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   onError,
   onSuccess,
 }) => {
-  const oneYearFromNow = () => new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-
   const [subTab, setSubTab] = useState<'fleet' | 'bookings'>('fleet');
   const [loading, setLoading] = useState(false);
   const [summary, setSummary] = useState<RentalOperationsSummary | null>(null);
@@ -81,6 +98,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [onboardModalOpen, setOnboardModalOpen] = useState(false);
   const [walkInModalOpen, setWalkInModalOpen] = useState(false);
   const [blockModalVehicle, setBlockModalVehicle] = useState<RentalFleetItem | null>(null);
+  // Correcting the odometer / fuel level recorded for a car
+  const [readingsVehicle, setReadingsVehicle] = useState<RentalFleetItem | null>(null);
+  const [readingOdometer, setReadingOdometer] = useState('');
+  const [readingFuel, setReadingFuel] = useState('');
+  const [readingReason, setReadingReason] = useState('');
   const [historyModalVehicle, setHistoryModalVehicle] = useState<RentalFleetItem | null>(null);
   const [expandedVehicleId, setExpandedVehicleId] = useState<string | null>(null);
   const [activeBooking, setActiveBooking] = useState<RentalBookingItem | null>(null);
@@ -122,7 +144,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [walkInDays, setWalkInDays] = useState(2);
   const [walkInLicenseNumber, setWalkInLicenseNumber] = useState('');
   const [walkInLicenseExpiry, setWalkInLicenseExpiry] = useState('');
-  const [walkInExperienceYears, setWalkInExperienceYears] = useState(5);
+  const [walkInDob, setWalkInDob] = useState('');
+  // Driver details are read off the licence at the counter: nothing starts as an assumed value.
+  const [walkInExperienceYears, setWalkInExperienceYears] = useState<string>('');
   const [walkInLicenseFrontUrl, setWalkInLicenseFrontUrl] = useState('');
   const [walkInLicenseBackUrl, setWalkInLicenseBackUrl] = useState('');
   const [walkInPaymentMethod, setWalkInPaymentMethod] = useState('UPI');
@@ -141,7 +165,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
   // Hub KYC Upload State
   const [hubKycLicenseNumber, setHubKycLicenseNumber] = useState('');
-  const [hubKycExpiry, setHubKycExpiry] = useState(oneYearFromNow());
+  const [hubKycExpiry, setHubKycExpiry] = useState('');
+  const [hubKycDob, setHubKycDob] = useState('');
+  const [hubKycExperience, setHubKycExperience] = useState<string>('');
   const [hubKycFrontUrl, setHubKycFrontUrl] = useState('');
   const [hubKycBackUrl, setHubKycBackUrl] = useState('');
   const [hubKycFrontLocal, setHubKycFrontLocal] = useState<LocalFileItem | null>(null);
@@ -186,7 +212,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [onboardDepositRupees, setOnboardDepositRupees] = useState<number>(5000);
   const [onboardIncludedKm, setOnboardIncludedKm] = useState<number>(250);
   const [onboardExtraKmRateRupees, setOnboardExtraKmRateRupees] = useState<number>(12);
-  const [onboardOdometerKm, setOnboardOdometerKm] = useState<number>(12000);
+  // Readings of the car as it joins the fleet. Blank = not recorded yet (the first hand-over records real ones).
+  const [onboardOdometerKm, setOnboardOdometerKm] = useState<string>('');
+  const [onboardFuelLevel, setOnboardFuelLevel] = useState<string>('');
 
   // Documentation / Compliance state
   const [onboardPermitNumber, setOnboardPermitNumber] = useState('');
@@ -196,10 +224,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [onboardFitnessExpiry, setOnboardFitnessExpiry] = useState('');
 
   // Images state
-  const [onboardImages, setOnboardImages] = useState<string[]>([
-    'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80',
-    'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=80',
-  ]);
+  // Photos of the actual car only; no stock pictures of other cars are attached for staff.
+  const [onboardImages, setOnboardImages] = useState<string[]>([]);
   const [imageUrlInput, setImageUrlInput] = useState('');
   const [imageUploading, setImageUploading] = useState(false);
 
@@ -230,7 +256,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   ]);
   const [customFeatureInput, setCustomFeatureInput] = useState('');
 
-  const MODEL_PRESETS: Record<string, { make: string; model: string; variant: string; fuel: string; transmission: string; seats: number; dailyRate: number; deposit: number; color: string; images: string[] }> = {
+  const MODEL_PRESETS: Record<string, { make: string; model: string; variant: string; fuel: string; transmission: string; seats: number; dailyRate: number; deposit: number; color: string }> = {
     'Hyundai Creta': {
       make: 'Hyundai',
       model: 'Creta',
@@ -241,11 +267,6 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       dailyRate: 2800,
       deposit: 5000,
       color: 'Polar White',
-      images: [
-        'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1503376780353-7e6692767b70?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=1200&q=80',
-      ],
     },
     'Tata Nexon EV': {
       make: 'Tata',
@@ -257,10 +278,6 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       dailyRate: 3500,
       deposit: 6000,
       color: 'Daytona Grey',
-      images: [
-        'https://images.unsplash.com/photo-1563720223185-11003d516935?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1550355291-bbee04a92027?auto=format&fit=crop&w=1200&q=80',
-      ],
     },
     'Toyota Innova Crysta': {
       make: 'Toyota',
@@ -272,10 +289,6 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       dailyRate: 4200,
       deposit: 7000,
       color: 'Silver Metallic',
-      images: [
-        'https://images.unsplash.com/photo-1541899481282-d53bffe3c35d?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1502877338535-766e1452684a?auto=format&fit=crop&w=1200&q=80',
-      ],
     },
     'Mahindra Thar 4x4': {
       make: 'Mahindra',
@@ -287,10 +300,6 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       dailyRate: 3800,
       deposit: 8000,
       color: 'Napoli Black',
-      images: [
-        'https://images.unsplash.com/photo-1533473359331-0135ef1b58bf?auto=format&fit=crop&w=1200&q=80',
-        'https://images.unsplash.com/photo-1552519507-da3b142c6e3d?auto=format&fit=crop&w=1200&q=80',
-      ],
     },
     'Maruti Swift': {
       make: 'Maruti Suzuki',
@@ -302,9 +311,6 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       dailyRate: 1900,
       deposit: 4000,
       color: 'Sizzling Red',
-      images: [
-        'https://images.unsplash.com/photo-1583121274602-3e2820c69888?auto=format&fit=crop&w=1200&q=80',
-      ],
     },
   };
 
@@ -321,7 +327,6 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     setOnboardHourlyRateRupees(Math.round(p.dailyRate / 10));
     setOnboardDepositRupees(p.deposit);
     setOnboardColor(p.color);
-    setOnboardImages(p.images);
   };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -403,13 +408,19 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
             resolve(raw);
           }
         } catch {
-          // Local dev fallback to data URL
+          // The photo is kept inline so the booking can still be saved, but say so: inline photos make every list heavier
+          // and usually mean the image service is not configured or is down.
+          onError('A photo could not be uploaded to the image service and was saved inline instead. Ask an administrator to check the image upload (Cloudinary) settings.');
           resolve(reader.result as string);
         }
       };
       reader.readAsDataURL(file);
     });
   };
+
+  // Uploads all staged photos at once (one after another made a 6-photo hand-over wait for six round trips).
+  const uploadAll = (items: LocalFileItem[], folder: string): Promise<string[]> =>
+    Promise.all(items.map(item => uploadFileToCloudinary(item.file, folder)));
 
   // Block form state
   const [blockStart, setBlockStart] = useState('');
@@ -419,18 +430,20 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
   // Booking Action form states
   const [kycRejectionReason, setKycRejectionReason] = useState('');
-  const [handoverOdometer, setHandoverOdometer] = useState<number>(12500);
-  const [handoverFuel, setHandoverFuel] = useState<number>(100);
+  // Hand-over readings start from the car's last recorded odometer / fuel (see the effect below); return readings start empty
+  // because they decide the extra-km and fuel charges and must be read from the dashboard. Notes start empty: nothing is pre-written as fact.
+  const [handoverOdometer, setHandoverOdometer] = useState<string>('');
+  const [handoverFuel, setHandoverFuel] = useState<string>('');
   const [handoverKeyReleased, setHandoverKeyReleased] = useState(true);
-  const [handoverNotes, setHandoverNotes] = useState('Clean car, full tank fuel verified.');
+  const [handoverNotes, setHandoverNotes] = useState('');
 
-  const [returnOdometer, setReturnOdometer] = useState<number>(12850);
-  const [returnFuel, setReturnFuel] = useState<number>(90);
+  const [returnOdometer, setReturnOdometer] = useState<string>('');
+  const [returnFuel, setReturnFuel] = useState<string>('');
   const [returnKeyReceived, setReturnKeyReceived] = useState(true);
-  const [returnExcessKm, setReturnExcessKm] = useState<number>(0);
-  const [returnExcessKmChargeRupees, setReturnExcessKmChargeRupees] = useState<number>(0);
   const [returnDamageChargeRupees, setReturnDamageChargeRupees] = useState<number>(0);
-  const [returnNotes, setReturnNotes] = useState('Vehicle returned in good condition. No visible damages.');
+  const [returnDamageDescription, setReturnDamageDescription] = useState('');
+  const [returnDamageDisputed, setReturnDamageDisputed] = useState(false);
+  const [returnNotes, setReturnNotes] = useState('');
 
   useEffect(() => {
     if (!walkInModalOpen) return;
@@ -539,8 +552,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     };
   }, [activeBooking?.id]);
 
-  const reloadPaymentDetails = async (bookingId: string) => {
-    setLoadingPaymentDetails(true);
+  const reloadPaymentDetails = async (bookingId: string, opts: { silent?: boolean } = {}) => {
+    if (!opts.silent) setLoadingPaymentDetails(true);
     try {
       const [updated, sum, sched, hist] = await Promise.all([
         api.rentalBookingDetails(user, bookingId).catch(() => null),
@@ -553,9 +566,54 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       if (sched) setActivePaymentSchedule(sched);
       if (hist) setActivePaymentHistory(hist);
     } finally {
-      setLoadingPaymentDetails(false);
+      if (!opts.silent) setLoadingPaymentDetails(false);
     }
   };
+
+  // Fill the hand-over / return forms from what is actually on record for this booking (the same figures the trip, the fleet
+  // list and the vehicle record show), so the fuel and odometer entered at one step are what the next step starts from.
+  useEffect(() => {
+    if (!activeBooking) return;
+    const trip = activeBooking.trip;
+    const vehicle = activeBooking.vehicle;
+    setHandoverOdometer(readingText(trip?.pickupOdometerKm ?? vehicle?.odometerKm));
+    setHandoverFuel(readingText(trip?.pickupFuelPercent ?? vehicle?.fuelLevelPercent));
+    setReturnOdometer(readingText(trip?.returnOdometerKm));
+    setReturnFuel(readingText(trip?.returnFuelPercent));
+  }, [activeBooking?.id, activeBooking?.trip?.pickupTime, activeBooking?.trip?.returnTime, activeBooking?.vehicle?.odometerKm, activeBooking?.vehicle?.fuelLevelPercent]);
+
+  useEffect(() => {
+    if (!activeBooking) return;
+    setHandoverNotes(activeBooking.trip?.pickupNotes ?? '');
+    setReturnNotes(activeBooking.trip?.returnNotes ?? '');
+    setReturnDamageChargeRupees(0);
+    setReturnDamageDescription('');
+    setReturnDamageDisputed(false);
+  }, [activeBooking?.id, activeBooking?.trip?.pickupTime, activeBooking?.trip?.returnTime]);
+
+  // The hub licence form starts from the details already on file for this booking (submitted by the driver or an earlier upload),
+  // otherwise empty - never from an assumed expiry, date of birth or experience.
+  useEffect(() => {
+    const verification = activeBooking?.driverVerification;
+    setHubKycLicenseNumber(verification?.licenseNumber ?? '');
+    setHubKycExpiry(verification?.licenseExpiry ? verification.licenseExpiry.slice(0, 10) : '');
+    setHubKycDob(verification?.dateOfBirth ? verification.dateOfBirth.slice(0, 10) : '');
+    setHubKycExperience(readingText(verification?.drivingExperienceYears));
+  }, [activeBooking?.id, activeBooking?.driverVerification?.id, activeBooking?.driverVerification?.status]);
+
+  // An open booking keeps itself current: a payment the customer makes in the app, a KYC decision or a status change shows up
+  // here without closing and re-opening the booking. Forms keep their own state, so nothing being typed is lost.
+  useAutoRefresh(
+    async () => {
+      if (!activeBooking) return;
+      await reloadPaymentDetails(activeBooking.id, { silent: true });
+    },
+    {
+      intervalMs: 30_000,
+      pauseWhen: () => activeBooking === null || actionBusy || recordingPayment || cancellingBooking,
+      pulse: { domains: ['rentals'], live: true, fetchTokens: (domains, fresh) => api.pulse(user, domains, fresh) },
+    },
+  );
 
   const openRecordPaymentModal = (preferredType?: 'BALANCE' | 'ADVANCE' | 'FULL' | 'DEPOSIT' | 'ADDITIONAL') => {
     if (!activeBooking) return;
@@ -679,13 +737,21 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     try {
       const reg = onboardReg.toUpperCase().replace(/\s/g, '');
       const toIso = (value: string) => new Date(`${value}T00:00:00.000Z`).toISOString();
-      if (!onboardVin.trim() || !onboardPermitNumber.trim() || !onboardInsurancePolicy.trim() || !onboardPermitExpiry || !onboardInsuranceExpiry || !onboardFitnessExpiry) {
-        onError('VIN, commercial permit, insurance policy and fitness certificate details (numbers and expiry dates) are required.');
+      // VIN, permit, insurance and fitness details are optional: anything left blank is saved as "not on file".
+      const permitExp = onboardPermitExpiry ? toIso(onboardPermitExpiry) : undefined;
+      const insExp = onboardInsuranceExpiry ? toIso(onboardInsuranceExpiry) : undefined;
+      const fitExp = onboardFitnessExpiry ? toIso(onboardFitnessExpiry) : undefined;
+      const vinClean = onboardVin.toUpperCase().replace(/\s/g, '');
+      const startOdometer = onboardOdometerKm.trim() === '' ? undefined : Number(onboardOdometerKm);
+      const startFuel = onboardFuelLevel.trim() === '' ? undefined : Number(onboardFuelLevel);
+      if (startOdometer !== undefined && (!Number.isFinite(startOdometer) || startOdometer < 0)) {
+        onError('Enter the odometer reading as a number of kilometres, or leave it blank.');
         return;
       }
-      const permitExp = toIso(onboardPermitExpiry);
-      const insExp = toIso(onboardInsuranceExpiry);
-      const fitExp = toIso(onboardFitnessExpiry);
+      if (startFuel !== undefined && (!Number.isFinite(startFuel) || startFuel < 0 || startFuel > 100)) {
+        onError('Fuel / charge level must be between 0 and 100 %, or leave it blank.');
+        return;
+      }
 
       const uploadedLocalUrls: string[] = [];
       for (const item of onboardLocalFiles) {
@@ -698,7 +764,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       await api.createRentalFleetVehicle(user, {
         fleetNumber: onboardFleetNumber.trim() || `VMF-${Math.floor(100 + Math.random() * 899)}`,
         registrationNumber: reg,
-        vin: onboardVin.toUpperCase().replace(/\s/g, ''),
+        vin: vinClean || undefined,
+        odometerKm: startOdometer,
+        fuelLevelPercent: startFuel,
         make: onboardMake.trim(),
         model: onboardModel.trim(),
         variant: onboardVariant.trim() || undefined,
@@ -715,9 +783,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         includedKmPerDay: Number(onboardIncludedKm) || undefined,
         includedDailyKm: Number(onboardIncludedKm) || undefined,
         extraKmRatePaise: onboardExtraKmRateRupees ? onboardExtraKmRateRupees * 100 : undefined,
-        commercialPermitNumber: onboardPermitNumber.trim(),
+        commercialPermitNumber: onboardPermitNumber.trim() || undefined,
         commercialPermitExpiry: permitExp,
-        insurancePolicyNumber: onboardInsurancePolicy.trim(),
+        insurancePolicyNumber: onboardInsurancePolicy.trim() || undefined,
         insuranceExpiry: insExp,
         fitnessCertExpiry: fitExp,
         images: vehicleImages,
@@ -751,6 +819,51 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       void loadData();
     } catch (err: any) {
       onError(err?.message || 'Failed to create availability block');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const openReadingsModal = (veh: RentalFleetItem) => {
+    setReadingsVehicle(veh);
+    setReadingOdometer(readingText(veh.odometerKm));
+    setReadingFuel(readingText(veh.fuelLevelPercent));
+    setReadingReason('');
+  };
+
+  // Correct the odometer / fuel level recorded for a car (a mistyped reading, a refuel at the hub). The API needs a reason,
+  // refuses it while the car is on a trip and keeps the previous and new values in the audit trail.
+  const handleReadingsSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!readingsVehicle) return;
+    const odometer = parseReading(readingOdometer);
+    const fuel = parseReading(readingFuel);
+    if (fuel !== null && fuel > 100) {
+      onError('Fuel / charge level must be between 0 and 100 %.');
+      return;
+    }
+    const odometerChanged = odometer !== null && odometer !== readingsVehicle.odometerKm;
+    const fuelChanged = fuel !== null && fuel !== readingsVehicle.fuelLevelPercent;
+    if (!odometerChanged && !fuelChanged) {
+      onError('Change the odometer and / or the fuel level first - both already match what is recorded.');
+      return;
+    }
+    if (readingReason.trim().length < 3) {
+      onError('Say why the reading is being changed.');
+      return;
+    }
+    setActionBusy(true);
+    try {
+      await api.correctRentalReadings(user, readingsVehicle.id, {
+        odometerKm: odometerChanged ? odometer : undefined,
+        fuelLevelPercent: fuelChanged ? fuel : undefined,
+        reason: readingReason.trim(),
+      });
+      onSuccess(`Readings for ${readingsVehicle.make} ${readingsVehicle.model} (${readingsVehicle.registrationNumber}) updated and recorded in the audit trail.`);
+      setReadingsVehicle(null);
+      void loadData();
+    } catch (err: any) {
+      onError(err?.message || 'Failed to update the recorded readings');
     } finally {
       setActionBusy(false);
     }
@@ -861,6 +974,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       onError('Both front and back photos of the physical license are required.');
       return;
     }
+    const hubExperience = parseReading(hubKycExperience);
+    if (hubKycLicenseNumber.trim().length < 3 || !hubKycExpiry || !hubKycDob || hubExperience === null) {
+      onError("Enter the licence number, expiry date, the driver's date of birth and years of driving experience as printed on the licence.");
+      return;
+    }
     setActionBusy(true);
     try {
       let finalFront = hubKycFrontUrl.trim();
@@ -874,9 +992,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
       await api.updateRentalKycDocuments(user, activeBooking.id, {
         licenseNumber: hubKycLicenseNumber.trim().toUpperCase(),
-        licenseExpiry: new Date(hubKycExpiry).toISOString(),
-        dateOfBirth: new Date('1990-01-01').toISOString(),
-        drivingExperienceYears: 5,
+        licenseExpiry: new Date(`${hubKycExpiry}T00:00:00.000Z`).toISOString(),
+        dateOfBirth: new Date(`${hubKycDob}T00:00:00.000Z`).toISOString(),
+        drivingExperienceYears: hubExperience,
         licenseFrontUrl: finalFront,
         licenseBackUrl: finalBack,
       });
@@ -923,6 +1041,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       onError('Driving license front and back documents are mandatory.');
       return;
     }
+    const walkInExperience = parseReading(walkInExperienceYears);
+    if (walkInLicenseNumber.trim().length < 3 || !walkInLicenseExpiry || !walkInDob || walkInExperience === null) {
+      onError("Enter the licence number, expiry date, the driver's date of birth and years of driving experience as printed on the licence.");
+      return;
+    }
     setActionBusy(true);
     try {
       let finalFront = walkInLicenseFrontUrl.trim();
@@ -944,11 +1067,12 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         customerEmail: walkInCustomerEmail.trim() || undefined,
         startTime: startDateTime.toISOString(),
         endTime: endDateTime.toISOString(),
-        licenseNumber: walkInLicenseNumber.toUpperCase().trim() || 'DL-WALKIN',
-        licenseExpiry: new Date(walkInLicenseExpiry).toISOString(),
-        drivingExperienceYears: Number(walkInExperienceYears) || 3,
-        licenseFrontUrl: finalFront || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80',
-        licenseBackUrl: finalBack || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80',
+        licenseNumber: walkInLicenseNumber.toUpperCase().trim(),
+        licenseExpiry: new Date(`${walkInLicenseExpiry}T00:00:00.000Z`).toISOString(),
+        dateOfBirth: new Date(`${walkInDob}T00:00:00.000Z`).toISOString(),
+        drivingExperienceYears: walkInExperience,
+        licenseFrontUrl: finalFront,
+        licenseBackUrl: finalBack,
         paymentMethod: walkInPaymentMethod,
         transactionReference: walkInPaymentTxRef.trim() || `COUNTER-${Date.now()}`,
         startOdometerKm: Number(walkInStartOdo) || undefined,
@@ -964,6 +1088,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       setWalkInCustomerPhone('');
       setWalkInCustomerEmail('');
       setWalkInLicenseNumber('');
+      setWalkInLicenseExpiry('');
+      setWalkInDob('');
+      setWalkInExperienceYears('');
       setWalkInLicenseFrontUrl('');
       setWalkInLicenseBackUrl('');
       setWalkInFrontLocal(null);
@@ -983,22 +1110,23 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     if (!activeBooking) return;
     setActionBusy(true);
     try {
-      const uploadedHandoverUrls: string[] = [];
-      for (const item of handoverLocalFiles) {
-        const url = await uploadFileToCloudinary(item.file, `vmotiv/rental-dispatch/${activeBooking.id}`);
-        uploadedHandoverUrls.push(url);
+      const startOdometer = parseReading(handoverOdometer);
+      const startFuel = parseReading(handoverFuel);
+      if (startOdometer === null || startFuel === null || startFuel > 100) {
+        onError('Enter the start odometer (km) and the fuel / charge level (0-100 %) as shown on the dashboard.');
+        return;
       }
-      const allPhotos = [...handoverPhotos, ...uploadedHandoverUrls];
-      const fallbackPhoto = activeBooking.vehicle?.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80';
-      const photosToSend = allPhotos.length > 0 ? allPhotos : [fallbackPhoto];
+      const uploadedHandoverUrls = await uploadAll(handoverLocalFiles, `vmotiv/rental-dispatch/${activeBooking.id}`);
+      // Photos are evidence of the car's condition: only the ones staff attached are recorded.
+      const photosToSend = [...handoverPhotos, ...uploadedHandoverUrls];
 
       await api.recordRentalHandover(user, activeBooking.id, {
-        odometerKm: Number(handoverOdometer),
-        fuelPercent: Number(handoverFuel),
+        odometerKm: startOdometer,
+        fuelPercent: startFuel,
         keyReleased: handoverKeyReleased,
         customerSigned: true,
-        conditionNotes: handoverNotes,
-        notes: handoverNotes,
+        conditionNotes: handoverNotes.trim(),
+        notes: handoverNotes.trim(),
         photos: photosToSend,
       });
       onSuccess(`Vehicle handover complete for booking ${activeBooking.bookingNumber}. Trip is now ACTIVE.`);
@@ -1025,28 +1153,35 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     if (!activeBooking) return;
     setActionBusy(true);
     try {
-      const uploadedReturnUrls: string[] = [];
-      for (const item of returnLocalFiles) {
-        const url = await uploadFileToCloudinary(item.file, `vmotiv/rental-return/${activeBooking.id}`);
-        uploadedReturnUrls.push(url);
+      const endOdometer = parseReading(returnOdometer);
+      const endFuel = parseReading(returnFuel);
+      if (endOdometer === null || endFuel === null || endFuel > 100) {
+        onError('Enter the return odometer (km) and the fuel / charge level (0-100 %) as shown on the dashboard.');
+        return;
       }
-      const allPhotos = [...returnPhotos, ...uploadedReturnUrls];
-      const fallbackPhoto = activeBooking.vehicle?.images?.[0] || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80';
-      const photosToSend = allPhotos.length > 0 ? allPhotos : [fallbackPhoto];
+      const damageRupees = Number(returnDamageChargeRupees) || 0;
+      if (damageRupees > 0 && returnDamageDescription.trim().length < 3) {
+        onError('Describe the damage this charge is for, so it can be reviewed and shown to the customer.');
+        return;
+      }
+      const uploadedReturnUrls = await uploadAll(returnLocalFiles, `vmotiv/rental-return/${activeBooking.id}`);
+      const photosToSend = [...returnPhotos, ...uploadedReturnUrls];
 
       await api.recordRentalReturn(user, activeBooking.id, {
-        returnOdometerKm: Number(returnOdometer),
-        odometerKm: Number(returnOdometer),
-        returnFuelPercent: Number(returnFuel),
-        fuelPercent: Number(returnFuel),
+        returnOdometerKm: endOdometer,
+        odometerKm: endOdometer,
+        returnFuelPercent: endFuel,
+        fuelPercent: endFuel,
         customerSigned: true,
         keyReceived: returnKeyReceived,
-        notes: returnNotes,
-        conditionNotes: returnNotes,
+        notes: returnNotes.trim(),
+        conditionNotes: returnNotes.trim(),
         photos: photosToSend,
-        excessKm: Number(returnExcessKm),
-        excessKmChargePaise: returnExcessKmChargeRupees * 100,
-        damageChargePaise: returnDamageChargeRupees * 100,
+        // Extra-km, fuel-refill and late-return charges are worked out by the system from the readings above.
+        // A damage charge goes in as a damage claim so it is applied to the settlement (a disputed one waits for finance review).
+        damages: damageRupees > 0
+          ? [{ description: returnDamageDescription.trim(), estimatedRepairCostPaise: Math.round(damageRupees * 100), photos: [], isDisputed: returnDamageDisputed }]
+          : undefined,
       });
       onSuccess(`Return inspection recorded for booking ${activeBooking.bookingNumber}. Settlement submitted.`);
       setReturnLocalFiles([]);
@@ -1343,6 +1478,19 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             <small style={{ color: 'var(--muted)' }}>
                               Year {veh.year} · {veh.color} {veh.images && veh.images.length > 1 ? `· 📷 ${veh.images.length} photos` : ''}
                             </small>
+                            {/* What is on record for the car now: the next hand-over starts from these readings. */}
+                            <small style={{ display: 'block', color: 'var(--muted)' }}>
+                              {typeof veh.odometerKm === 'number' ? `${veh.odometerKm.toLocaleString('en-IN')} km` : 'Odometer not recorded'}
+                              {typeof veh.fuelLevelPercent === 'number' ? ` · ${veh.fuelLevelPercent}% fuel` : ''}
+                            </small>
+                            {(() => {
+                              const note = complianceNote(veh);
+                              return note ? (
+                                <small style={{ display: 'block', color: note.tone === 'danger' ? '#ef4444' : '#f59e0b', fontWeight: 600 }} title="Compliance documents are optional, but a missing or expired document is shown here so it can be added or renewed.">
+                                  {note.text}
+                                </small>
+                              ) : null;
+                            })()}
                           </div>
                         </div>
                       </td>
@@ -1484,6 +1632,16 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             title={isPublished ? 'Delist from customer searches' : 'Publish to customer searches'}
                           >
                             {isPublished ? 'Delist' : 'Publish'}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="btn-secondary btn-sm button secondary small"
+                            disabled={veh.status === 'ON_TRIP'}
+                            onClick={() => openReadingsModal(veh)}
+                            title={veh.status === 'ON_TRIP' ? 'On a trip - its readings are recorded when it is returned' : 'Correct the odometer / fuel level recorded for this car'}
+                          >
+                            ⛽ Readings
                           </button>
 
                           <button
@@ -1709,6 +1867,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               onClick={() => {
                                 setActiveBooking(b);
                                 setBookingDrawerTab('overview');
+                                // The list row can be up to a refresh interval old: fetch the live booking (vehicle readings, payments, trip) right away.
+                                void api.rentalBookingDetails(user, b.id)
+                                  .then(fresh => setActiveBooking(prev => (prev && prev.id === fresh.id ? fresh : prev)))
+                                  .catch(() => undefined);
                               }}
                             >
                               Manage Trip
@@ -1887,8 +2049,12 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       <input type="date" className="input" required value={walkInLicenseExpiry} onChange={e => setWalkInLicenseExpiry(e.target.value)} style={{ width: '100%', marginTop: '3px' }} />
                     </div>
                     <div>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Date of Birth *</label>
+                      <input type="date" className="input" required value={walkInDob} max={new Date().toISOString().slice(0, 10)} onChange={e => setWalkInDob(e.target.value)} style={{ width: '100%', marginTop: '3px' }} />
+                    </div>
+                    <div>
                       <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Driving Experience (Years) *</label>
-                      <input type="number" className="input" min={1} max={50} required value={walkInExperienceYears} onChange={e => setWalkInExperienceYears(Number(e.target.value))} style={{ width: '100%', marginTop: '3px' }} />
+                      <input type="number" className="input" min={0} max={80} required placeholder="As stated by the driver" value={walkInExperienceYears} onChange={e => setWalkInExperienceYears(e.target.value)} style={{ width: '100%', marginTop: '3px' }} />
                     </div>
                   </div>
 
@@ -2424,8 +2590,22 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         type="number"
                         className="input"
                         min={0}
+                        placeholder="Optional - as shown on the dashboard"
                         value={onboardOdometerKm}
-                        onChange={e => setOnboardOdometerKm(Number(e.target.value))}
+                        onChange={e => setOnboardOdometerKm(e.target.value)}
+                        style={{ width: '100%', marginTop: '4px' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Current Fuel / Charge (%)</label>
+                      <input
+                        type="number"
+                        className="input"
+                        min={0}
+                        max={100}
+                        placeholder="Optional - as shown on the gauge"
+                        value={onboardFuelLevel}
+                        onChange={e => setOnboardFuelLevel(e.target.value)}
                         style={{ width: '100%', marginTop: '4px' }}
                       />
                     </div>
@@ -2840,14 +3020,13 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 <div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.5rem' }}>
                     <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, #f59e0b)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
-                      5. Commercial Compliance & Regulatory Documents
+                      5. Commercial Compliance & Regulatory Documents <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0, color: 'var(--muted)' }}>(optional - add later if not to hand)</span>
                     </span>
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.875rem' }}>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Commercial Permit Number *</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Commercial Permit Number</label>
                       <input
-                        required
                         type="text"
                         className="input font-mono"
                         placeholder="e.g. COMM-KA01MK1234"
@@ -2857,9 +3036,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Commercial Permit Expiry *</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Commercial Permit Expiry</label>
                       <input
-                        required
                         type="date"
                         className="input"
                         value={onboardPermitExpiry}
@@ -2868,9 +3046,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Insurance Policy Number *</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Insurance Policy Number</label>
                       <input
-                        required
                         type="text"
                         className="input font-mono"
                         placeholder="e.g. POL-VM-1234"
@@ -2880,9 +3057,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Insurance Expiry Date *</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Insurance Expiry Date</label>
                       <input
-                        required
                         type="date"
                         className="input"
                         value={onboardInsuranceExpiry}
@@ -2891,9 +3067,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fitness Certificate Expiry *</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fitness Certificate Expiry</label>
                       <input
-                        required
                         type="date"
                         className="input"
                         value={onboardFitnessExpiry}
@@ -3026,6 +3201,67 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 <button type="button" className="btn-secondary button secondary" onClick={() => setBlockModalVehicle(null)}>Cancel</button>
                 <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
                   {actionBusy ? 'Saving Block…' : 'Create Availability Block'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CORRECT RECORDED READINGS */}
+      {readingsVehicle && (
+        <div className="modal-overlay" style={{ zIndex: 1000 }}>
+          <div className="modal-dialog" style={{ maxWidth: '480px', width: '95%' }}>
+            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <div>
+                <span className="eyebrow">RECORDED READINGS</span>
+                <h3 style={{ margin: 0 }}>{readingsVehicle.make} {readingsVehicle.model} · {readingsVehicle.registrationNumber}</h3>
+              </div>
+              <button type="button" className="icon-button" onClick={() => setReadingsVehicle(null)}>
+                <IconCross />
+              </button>
+            </div>
+            <form onSubmit={handleReadingsSubmit}>
+              <div className="modal-body" style={{ padding: '1.25rem' }}>
+                <p style={{ fontSize: '0.875rem', color: 'var(--muted)', marginTop: 0 }}>
+                  Use this to fix a mistyped reading or to record a refuel at the hub. Hand-overs and returns record their own readings; every change here is kept in the audit trail with your reason.
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                  <div>
+                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Odometer (km)</label>
+                    <input type="number" className="input" min={0} value={readingOdometer} onChange={e => setReadingOdometer(e.target.value)} style={{ width: '100%', marginTop: '4px' }} />
+                    <small style={{ color: 'var(--muted)' }}>Recorded: {typeof readingsVehicle.odometerKm === 'number' ? `${readingsVehicle.odometerKm.toLocaleString('en-IN')} km` : 'not recorded'}</small>
+                  </div>
+                  <div>
+                    <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fuel / charge (%)</label>
+                    <input type="number" className="input" min={0} max={100} value={readingFuel} onChange={e => setReadingFuel(e.target.value)} style={{ width: '100%', marginTop: '4px' }} />
+                    <small style={{ color: 'var(--muted)' }}>Recorded: {typeof readingsVehicle.fuelLevelPercent === 'number' ? `${readingsVehicle.fuelLevelPercent}%` : 'not recorded'}</small>
+                  </div>
+                </div>
+                {typeof readingsVehicle.odometerKm === 'number' && parseReading(readingOdometer) !== null && (parseReading(readingOdometer) as number) < readingsVehicle.odometerKm && (
+                  <div style={{ marginTop: '0.75rem', padding: '0.5rem 0.75rem', borderRadius: '6px', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid #f59e0b', fontSize: '0.8125rem' }}>
+                    This lowers the odometer from {readingsVehicle.odometerKm.toLocaleString('en-IN')} km. Only do this to fix a wrong entry - the change is recorded with your name and reason.
+                  </div>
+                )}
+                <div style={{ marginTop: '0.75rem' }}>
+                  <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Reason *</label>
+                  <input
+                    type="text"
+                    className="input"
+                    required
+                    minLength={3}
+                    maxLength={300}
+                    placeholder="e.g. Extra zero typed at the last return / refuelled at the hub"
+                    value={readingReason}
+                    onChange={e => setReadingReason(e.target.value)}
+                    style={{ width: '100%', marginTop: '4px' }}
+                  />
+                </div>
+              </div>
+              <div className="modal-footer" style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                <button type="button" className="btn-secondary button secondary" onClick={() => setReadingsVehicle(null)}>Cancel</button>
+                <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>
+                  {actionBusy ? 'Saving…' : 'Save Readings'}
                 </button>
               </div>
             </form>
@@ -4008,6 +4244,32 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                 style={{ width: '100%', marginTop: '3px' }}
                               />
                             </div>
+                            <div>
+                              <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Date of Birth *</label>
+                              <input
+                                type="date"
+                                className="input"
+                                required
+                                max={new Date().toISOString().slice(0, 10)}
+                                value={hubKycDob}
+                                onChange={e => setHubKycDob(e.target.value)}
+                                style={{ width: '100%', marginTop: '3px' }}
+                              />
+                            </div>
+                            <div>
+                              <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Driving Experience (Years) *</label>
+                              <input
+                                type="number"
+                                className="input"
+                                required
+                                min={0}
+                                max={80}
+                                placeholder="As stated by the driver"
+                                value={hubKycExperience}
+                                onChange={e => setHubKycExperience(e.target.value)}
+                                style={{ width: '100%', marginTop: '3px' }}
+                              />
+                            </div>
                           </div>
                           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginBottom: '1rem' }}>
                             <div>
@@ -4165,11 +4427,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '0.75rem', background: 'var(--surface)', padding: '0.875rem', borderRadius: '6px', border: '1px solid var(--border)', marginBottom: '1rem' }}>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>START ODOMETER</span>
-                          <div style={{ fontWeight: 800, fontSize: '1.1rem' }}>{activeBooking.trip?.pickupOdometerKm ?? handoverOdometer} km</div>
+                          <div style={{ fontWeight: 800, fontSize: '1.1rem' }}>{activeBooking.trip?.pickupOdometerKm ?? '—'} km</div>
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>START FUEL LEVEL</span>
-                          <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#10b981' }}>{activeBooking.trip?.pickupFuelPercent ?? handoverFuel}%</div>
+                          <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#10b981' }}>{activeBooking.trip?.pickupFuelPercent ?? '—'}%</div>
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>KEY RELEASED</span>
@@ -4186,7 +4448,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       {/* Condition Notes */}
                       <div style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border)', marginBottom: '1rem' }}>
                         <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block', marginBottom: '2px' }}>HANDOVER CONDITION NOTES</span>
-                        <div style={{ fontSize: '0.85rem' }}>{activeBooking.trip?.pickupNotes || handoverNotes}</div>
+                        <div style={{ fontSize: '0.85rem' }}>{activeBooking.trip?.pickupNotes || 'No condition notes were recorded.'}</div>
                       </div>
 
                       {/* Dispatch Inspection Photos */}
@@ -4216,7 +4478,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           </div>
                         ) : (
                           <div style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>
-                            Primary fleet vehicle photo linked on file.
+                            No dispatch photos were attached.
                           </div>
                         )}
                       </div>
@@ -4266,10 +4528,16 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             type="number"
                             className="input"
                             required
+                            min={0}
                             value={handoverOdometer}
-                            onChange={e => setHandoverOdometer(Number(e.target.value))}
+                            onChange={e => setHandoverOdometer(e.target.value)}
                             style={{ width: '100%', marginTop: '4px' }}
                           />
+                          <small style={{ color: isBelowRecorded(handoverOdometer, activeBooking.vehicle?.odometerKm) ? '#f59e0b' : 'var(--muted)' }}>
+                            {isBelowRecorded(handoverOdometer, activeBooking.vehicle?.odometerKm)
+                              ? `Lower than the ${activeBooking.vehicle?.odometerKm?.toLocaleString('en-IN')} km recorded for this car - check the reading.`
+                              : typeof activeBooking.vehicle?.odometerKm === 'number' ? `Last recorded on this car: ${activeBooking.vehicle.odometerKm.toLocaleString('en-IN')} km` : 'No reading recorded on this car yet'}
+                          </small>
                         </div>
                         <div>
                           <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Start Fuel Level (%) *</label>
@@ -4280,9 +4548,12 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             max={100}
                             required
                             value={handoverFuel}
-                            onChange={e => setHandoverFuel(Number(e.target.value))}
+                            onChange={e => setHandoverFuel(e.target.value)}
                             style={{ width: '100%', marginTop: '4px' }}
                           />
+                          <small style={{ color: 'var(--muted)' }}>
+                            {typeof activeBooking.vehicle?.fuelLevelPercent === 'number' ? `Last recorded on this car: ${activeBooking.vehicle.fuelLevelPercent}%` : 'No level recorded on this car yet'}
+                          </small>
                         </div>
                       </div>
 
@@ -4290,7 +4561,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       <div style={{ marginTop: '1rem', border: '1px solid var(--border)', borderRadius: '6px', padding: '0.875rem', background: 'var(--surface)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '4px' }}>
                           <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text)' }}>
-                            Trip Dispatch Vehicle Photos *
+                            Trip Dispatch Vehicle Photos
                           </label>
                           <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
                             Capture odometer, fuel meter, and vehicle body condition (staged locally until save)
@@ -4322,7 +4593,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           <span style={{ fontSize: '0.75rem', color: (handoverPhotos.length + handoverLocalFiles.length) > 0 ? '#10b981' : 'var(--muted)' }}>
                             {(handoverPhotos.length + handoverLocalFiles.length) > 0
                               ? `✓ ${handoverPhotos.length + handoverLocalFiles.length} photo(s) attached (${handoverLocalFiles.length} staged locally)`
-                              : 'Upload photos or primary vehicle photo will be linked'}
+                              : 'No photos attached - add some as evidence of the car\'s condition'}
                           </span>
                         </div>
 
@@ -4412,6 +4683,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           className="input"
                           rows={2}
                           value={handoverNotes}
+                          placeholder="Anything worth recording about the car's condition at hand-over (scratches, cleanliness, accessories)"
                           onChange={e => setHandoverNotes(e.target.value)}
                           style={{ width: '100%', marginTop: '4px' }}
                         />
@@ -4478,7 +4750,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>RETURN ODOMETER</span>
-                          <div style={{ fontWeight: 800, fontSize: '1.05rem' }}>{activeBooking.trip?.returnOdometerKm ?? returnOdometer} km</div>
+                          <div style={{ fontWeight: 800, fontSize: '1.05rem' }}>{activeBooking.trip?.returnOdometerKm ?? '—'} km</div>
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>DISTANCE DRIVEN</span>
@@ -4496,7 +4768,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>RETURN FUEL LEVEL</span>
-                          <div style={{ fontWeight: 700, color: '#10b981' }}>{activeBooking.trip?.returnFuelPercent ?? returnFuel}%</div>
+                          <div style={{ fontWeight: 700, color: '#10b981' }}>{activeBooking.trip?.returnFuelPercent ?? '—'}%</div>
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>KEYS RECEIVED</span>
@@ -4583,7 +4855,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       {/* Section 4: Condition Notes */}
                       <div style={{ background: 'var(--surface)', padding: '0.75rem', borderRadius: '6px', border: '1px solid var(--border)', marginBottom: '1rem' }}>
                         <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block', marginBottom: '2px' }}>RETURN INSPECTION CONDITION NOTES</span>
-                        <div style={{ fontSize: '0.85rem' }}>{activeBooking.trip?.returnNotes || returnNotes}</div>
+                        <div style={{ fontSize: '0.85rem' }}>{activeBooking.trip?.returnNotes || 'No condition notes were recorded.'}</div>
                       </div>
 
                       {/* Section 5: Return Inspection Photos */}
@@ -4613,7 +4885,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           </div>
                         ) : (
                           <div style={{ fontSize: '0.8rem', color: 'var(--muted)', fontStyle: 'italic' }}>
-                            Primary fleet vehicle photo linked on return file.
+                            No return photos were attached.
                           </div>
                         )}
                       </div>
@@ -4639,10 +4911,14 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             type="number"
                             className="input"
                             required
+                            min={0}
                             value={returnOdometer}
-                            onChange={e => setReturnOdometer(Number(e.target.value))}
+                            onChange={e => setReturnOdometer(e.target.value)}
                             style={{ width: '100%', marginTop: '4px' }}
                           />
+                          <small style={{ color: 'var(--muted)' }}>
+                            {typeof activeBooking.trip?.pickupOdometerKm === 'number' ? `Handed over at ${activeBooking.trip.pickupOdometerKm.toLocaleString('en-IN')} km` : 'Start reading not recorded'}
+                          </small>
                         </div>
                         <div>
                           <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Return Fuel Level (%) *</label>
@@ -4653,35 +4929,12 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             max={100}
                             required
                             value={returnFuel}
-                            onChange={e => setReturnFuel(Number(e.target.value))}
+                            onChange={e => setReturnFuel(e.target.value)}
                             style={{ width: '100%', marginTop: '4px' }}
                           />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Excess Kilometres</label>
-                          <input
-                            type="number"
-                            className="input"
-                            min={0}
-                            value={returnExcessKm}
-                            onChange={e => {
-                              const km = Number(e.target.value);
-                              setReturnExcessKm(km);
-                              setReturnExcessKmChargeRupees(km * 12);
-                            }}
-                            style={{ width: '100%', marginTop: '4px' }}
-                          />
-                        </div>
-                        <div>
-                          <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Excess Km Charge (₹)</label>
-                          <input
-                            type="number"
-                            className="input"
-                            min={0}
-                            value={returnExcessKmChargeRupees}
-                            onChange={e => setReturnExcessKmChargeRupees(Number(e.target.value))}
-                            style={{ width: '100%', marginTop: '4px' }}
-                          />
+                          <small style={{ color: 'var(--muted)' }}>
+                            {typeof activeBooking.trip?.pickupFuelPercent === 'number' ? `Handed over with ${activeBooking.trip.pickupFuelPercent}% - a lower return level is charged as a refill` : 'Start level not recorded'}
+                          </small>
                         </div>
                         <div>
                           <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Damage Claim Charge (₹)</label>
@@ -4694,6 +4947,25 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             style={{ width: '100%', marginTop: '4px' }}
                           />
                         </div>
+                        {returnDamageChargeRupees > 0 && (
+                          <div style={{ gridColumn: '1 / -1' }}>
+                            <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>What was damaged? *</label>
+                            <input
+                              type="text"
+                              className="input"
+                              required
+                              maxLength={500}
+                              placeholder="e.g. Rear bumper scraped, left mirror cracked"
+                              value={returnDamageDescription}
+                              onChange={e => setReturnDamageDescription(e.target.value)}
+                              style={{ width: '100%', marginTop: '4px' }}
+                            />
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '6px', fontSize: '0.8125rem' }}>
+                              <input type="checkbox" checked={returnDamageDisputed} onChange={e => setReturnDamageDisputed(e.target.checked)} />
+                              <span>Customer disputes this charge (held for finance review, not deducted from the deposit)</span>
+                            </label>
+                          </div>
+                        )}
                         <div>
                           <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', marginTop: '1.75rem' }}>
                             <input
@@ -4706,19 +4978,35 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </div>
                       </div>
 
-                      {/* LIVE SETTLEMENT CALCULATION PREVIEW */}
+                      {/* WHAT THE READINGS MEAN (the system works out the final charges when the return is saved) */}
                       {(() => {
                         const deposit = Number(activeBooking.securityDepositPaise) / 100;
-                        const deductions = returnExcessKmChargeRupees + returnDamageChargeRupees;
-                        const estRefund = Math.max(0, deposit - deductions);
+                        const km = tripKmPreview({
+                          pickupKm: activeBooking.trip?.pickupOdometerKm,
+                          returnKm: parseReading(returnOdometer),
+                          includedKm: activeBooking.includedKm,
+                          extraKmRatePaise: activeBooking.extraKmRatePaise,
+                        });
+                        const startFuel = activeBooking.trip?.pickupFuelPercent;
+                        const endFuel = parseReading(returnFuel);
+                        const fuelShortfall = typeof startFuel === 'number' && endFuel !== null ? Math.max(0, startFuel - endFuel) : 0;
+                        const damage = Number(returnDamageChargeRupees) || 0;
                         return (
-                          <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'var(--surface-secondary)', border: '1px solid var(--border)', borderRadius: '6px', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
-                            <div style={{ fontSize: '0.8125rem' }}>
-                              Security Deposit: <strong>₹{deposit.toLocaleString('en-IN')}</strong> − Deductions: <strong style={{ color: '#ef4444' }}>₹{deductions.toLocaleString('en-IN')}</strong>
+                          <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'var(--surface-secondary)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.8125rem', display: 'grid', gap: '4px' }}>
+                            <div>
+                              Security deposit held: <strong>₹{deposit.toLocaleString('en-IN')}</strong>
+                              {damage > 0 && !returnDamageDisputed && <> · Damage charge: <strong style={{ color: '#ef4444' }}>₹{damage.toLocaleString('en-IN')}</strong></>}
                             </div>
-                            <div style={{ fontSize: '0.875rem', fontWeight: 800, color: '#10b981' }}>
-                              Estimated Net Refund: ₹{estRefund.toLocaleString('en-IN')}
-                            </div>
+                            {km ? (
+                              <div>
+                                Distance driven: <strong>{km.drivenKm.toLocaleString('en-IN')} km</strong>
+                                {km.includedKm !== null && <> of {km.includedKm.toLocaleString('en-IN')} km included → <strong style={{ color: km.excessKm > 0 ? '#ef4444' : '#10b981' }}>{km.excessKm.toLocaleString('en-IN')} km extra</strong>{km.excessChargePaise !== null && km.excessKm > 0 && <> (≈ {formatRupees(km.excessChargePaise.toString())})</>}</>}
+                              </div>
+                            ) : (
+                              <div style={{ color: 'var(--muted)' }}>Enter the return odometer to see the distance driven.</div>
+                            )}
+                            {fuelShortfall > 0 && <div style={{ color: '#f59e0b' }}>Returned {fuelShortfall}% below the start level - a fuel refill charge applies.</div>}
+                            <div style={{ color: 'var(--muted)' }}>Extra kilometres, fuel refill and any late-return charge are calculated by the system when you save; the settlement then shows the final refund.</div>
                           </div>
                         );
                       })()}
@@ -4727,7 +5015,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       <div style={{ marginTop: '1rem', border: '1px solid var(--border)', borderRadius: '6px', padding: '0.875rem', background: 'var(--surface)' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '4px' }}>
                           <label style={{ fontSize: '0.8125rem', fontWeight: 700, color: 'var(--text)' }}>
-                            Return Inspection Photos *
+                            Return Inspection Photos
                           </label>
                           <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
                             Capture return odometer, fuel meter, and body condition (staged locally until save)
@@ -4759,7 +5047,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           <span style={{ fontSize: '0.75rem', color: (returnPhotos.length + returnLocalFiles.length) > 0 ? '#10b981' : 'var(--muted)' }}>
                             {(returnPhotos.length + returnLocalFiles.length) > 0
                               ? `✓ ${returnPhotos.length + returnLocalFiles.length} photo(s) attached (${returnLocalFiles.length} staged locally)`
-                              : 'Upload photos or primary vehicle photo will be linked'}
+                              : 'No photos attached - add some as evidence of the car\'s condition'}
                           </span>
                         </div>
 
@@ -4838,6 +5126,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           className="input"
                           rows={2}
                           value={returnNotes}
+                          placeholder="Condition of the car on return and any damage seen (leave empty if there is nothing to record)"
                           onChange={e => setReturnNotes(e.target.value)}
                           style={{ width: '100%', marginTop: '4px' }}
                         />

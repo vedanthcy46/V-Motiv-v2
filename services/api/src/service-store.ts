@@ -23,6 +23,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { nextServiceDue } from './service-intervals.js';
+import { pickCustodyRecords } from './custody-readings.js';
 import { canonicalMakeModel } from './vehicle-names.js';
 import { currentCalendarYear } from './calendar.js';
 import crypto from 'node:crypto';
@@ -2352,7 +2353,8 @@ export class PrismaServiceStore {
             serviceRequestId: sr.id,
             type: 'CHECK_IN',
             odometerKm: input.intakeOdometerKm || input.odometerKm || vehicle.odometerKm || 0,
-            fuelChargeLevel: `${input.intakeFuelPercent ?? 50}%`,
+            // No reading given means none is recorded - never an assumed "50%".
+            fuelChargeLevel: input.intakeFuelPercent !== undefined && input.intakeFuelPercent !== null ? `${input.intakeFuelPercent}%` : 'Not recorded',
             keyCount: 1,
             preExistingDamageNotes: input.intakeNotes?.trim() || 'Walk-in intake inspected at service desk',
             custodyOfficerId: actorId,
@@ -2717,8 +2719,14 @@ export class PrismaServiceStore {
     });
     if (!r) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
 
+    // The portal shows what the car arrived with (`custodyRecord`) and what it left with (`releaseRecord`) as numbers it can
+    // compare and pre-fill; the raw rows stay in `custodyRecords`.
+    const { checkIn, checkOut } = pickCustodyRecords(r.custodyRecords || []);
+
     return {
       ...r,
+      custodyRecord: checkIn,
+      releaseRecord: checkOut,
       questionAnswers: safeParseJson(r.questionAnswers, {}),
       mediaUrls: safeParseJson(r.mediaUrls, []),
       pickupAddress: safeParseJson(r.pickupAddress, null),
@@ -3298,7 +3306,7 @@ export class PrismaServiceStore {
           title: nextStatus === ServiceRequestStatus.RETURN_DISPATCHED
             ? 'Vehicle Dispatched for Customer Return'
             : 'Service Completed & Vehicle Handed Over',
-          description: `Handover recorded at ${input.odometerKm} km. Vehicle returned in spotless condition. All invoices settled.`,
+          description: `Handover recorded at ${input.odometerKm} km, fuel/charge: ${input.fuelChargeLevel}. All invoices settled.`,
           actorRole: 'SERVICE_ADVISOR',
           actorId,
         },

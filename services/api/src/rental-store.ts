@@ -2,6 +2,7 @@ import { PrismaClient, Prisma, RentalVehicleStatus, RentalBlockReason, RentalBoo
 import { canonicalMakeModel } from './vehicle-names.js';
 import { gstOn, rentalGstPercent } from './rental-pricing.js';
 import { HttpError } from './errors.js';
+import { requireAdultDateOfBirth, requireDrivingExperience, requireLicenseNumber, requireLicensePhotos } from './rental-kyc.js';
 import { assertGatewayPaymentSignature } from './payment-signature.js';
 import { assertCapturedAmount } from './razorpay-gateway.js';
 import { computeAvailability, type RentalAvailability } from './rental-availability.js';
@@ -250,9 +251,12 @@ export class PrismaRentalStore {
     const where: Prisma.RentalFleetVehicleWhereInput = {
       isEligibleForRental: true,
       status: { not: RentalVehicleStatus.RETIRED },
-      commercialPermitExpiry: { gte: end },
-      insuranceExpiry: { gte: end },
-      fitnessCertExpiry: { gte: end },
+      // A document with no date on file is allowed (compliance details are optional); one that is on file must cover the trip.
+      AND: [
+        { OR: [{ commercialPermitExpiry: null }, { commercialPermitExpiry: { gte: end } }] },
+        { OR: [{ insuranceExpiry: null }, { insuranceExpiry: { gte: end } }] },
+        { OR: [{ fitnessCertExpiry: null }, { fitnessCertExpiry: { gte: end } }] },
+      ],
       hub: { isActive: true },
     };
 
@@ -500,7 +504,7 @@ export class PrismaRentalStore {
       if (!vehicle.isEligibleForRental || vehicle.status === RentalVehicleStatus.RETIRED || !vehicle.hub.isActive) {
         throw new HttpError(400, 'VEHICLE_NOT_ELIGIBLE_FOR_RENTAL');
       }
-      if (vehicle.insuranceExpiry < end || vehicle.commercialPermitExpiry < end) {
+      if ((vehicle.insuranceExpiry && vehicle.insuranceExpiry < end) || (vehicle.commercialPermitExpiry && vehicle.commercialPermitExpiry < end)) {
         throw new HttpError(400, 'VEHICLE_COMPLIANCE_EXPIRED_FOR_REQUESTED_DATES');
       }
 
@@ -1076,38 +1080,21 @@ export class PrismaRentalStore {
       const bookingRecord = await tx.rentalBooking.findUnique({ where: { id: bookingId } });
       if (!bookingRecord) throw new HttpError(404, 'BOOKING_NOT_FOUND');
 
-      let verification = await tx.rentalDriverVerification.findUnique({
+      const verification = await tx.rentalDriverVerification.findUnique({
         where: { bookingId },
         include: { booking: true },
       });
+      // A KYC decision is about the documents the driver actually submitted. When nothing has been submitted there is nothing to
+      // approve or reject: no placeholder licence number, date of birth or stock photo is created to get the booking through the gate.
       if (!verification) {
-        verification = await tx.rentalDriverVerification.create({
-          data: {
-            bookingId,
-            customerId: bookingRecord.customerId,
-            licenseNumber: 'PHYSICAL_VERIFIED_AT_HUB',
-            licenseCategory: 'LMV',
-            licenseExpiry: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000),
-            dateOfBirth: new Date('1990-01-01'),
-            drivingExperienceYears: 3,
-            licenseFrontUrl: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80',
-            licenseBackUrl: 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80',
-            status: RentalDriverKycStatus.PENDING_REVIEW,
-          },
-          include: { booking: true },
-        });
+        throw new HttpError(400, 'DRIVER_DOCUMENTS_MISSING', 'No driving licence details have been submitted for this booking yet. Add the licence number, expiry, date of birth and both photos first.');
       }
-
       if (decision === 'APPROVE') {
-        if (!verification.licenseFrontUrl || !verification.licenseBackUrl) {
-          verification = await tx.rentalDriverVerification.update({
-            where: { bookingId },
-            data: {
-              licenseFrontUrl: verification.licenseFrontUrl || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80',
-              licenseBackUrl: verification.licenseBackUrl || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80',
-            },
-            include: { booking: true },
-          });
+        if (!verification.licenseFrontUrl?.trim() || !verification.licenseBackUrl?.trim()) {
+          throw new HttpError(400, 'MANDATORY_LICENSE_DOCUMENTS_MISSING', 'Both the front and the back photo of the driving licence are required before KYC can be approved.');
+        }
+        if (verification.licenseExpiry.getTime() <= bookingRecord.endTime.getTime()) {
+          throw new HttpError(400, 'DRIVING_LICENSE_EXPIRED_OR_EXPIRES_BEFORE_TRIP_END');
         }
       }
 
@@ -1212,44 +1199,43 @@ export class PrismaRentalStore {
       licenseNumber: string;
       licenseExpiry: Date;
       licenseCategory?: string;
-      dateOfBirth?: Date;
-      drivingExperienceYears?: number;
+      dateOfBirth: Date;
+      drivingExperienceYears: number;
       licenseFrontUrl: string;
       licenseBackUrl: string;
     }
   ) {
-    if (!input.licenseFrontUrl || !input.licenseBackUrl) {
-      throw new HttpError(400, 'MANDATORY_LICENSE_DOCUMENTS_MISSING');
+    // Everything here comes from the licence in front of the staff member; nothing is defaulted (a made-up date of birth would
+    // pass the age check and a made-up number or picture would pass the KYC gate).
+    const photos = requireLicensePhotos(input.licenseFrontUrl, input.licenseBackUrl);
+    const licenseNumber = requireLicenseNumber(input.licenseNumber);
+    const dateOfBirth = requireAdultDateOfBirth(input.dateOfBirth);
+    const drivingExperienceYears = requireDrivingExperience(input.drivingExperienceYears);
+    if (!(input.licenseExpiry instanceof Date) || Number.isNaN(input.licenseExpiry.getTime())) {
+      throw new HttpError(400, 'LICENSE_EXPIRY_REQUIRED', 'Enter the licence expiry date as printed on the licence.');
     }
 
     return await this.db.$transaction(async tx => {
       const booking = await tx.rentalBooking.findUnique({ where: { id: bookingId } });
       if (!booking) throw new HttpError(404, 'BOOKING_NOT_FOUND');
+      if (input.licenseExpiry.getTime() <= booking.endTime.getTime()) {
+        throw new HttpError(400, 'DRIVING_LICENSE_EXPIRED_OR_EXPIRES_BEFORE_TRIP_END');
+      }
 
+      const details = {
+        licenseNumber,
+        licenseExpiry: input.licenseExpiry,
+        licenseCategory: input.licenseCategory || 'LMV',
+        dateOfBirth,
+        drivingExperienceYears,
+        licenseFrontUrl: photos.front,
+        licenseBackUrl: photos.back,
+        status: RentalDriverKycStatus.PENDING_REVIEW,
+      };
       const verification = await tx.rentalDriverVerification.upsert({
         where: { bookingId },
-        update: {
-          licenseNumber: input.licenseNumber.toUpperCase().trim(),
-          licenseExpiry: input.licenseExpiry,
-          licenseCategory: input.licenseCategory || 'LMV',
-          dateOfBirth: input.dateOfBirth || new Date('1990-01-01'),
-          drivingExperienceYears: input.drivingExperienceYears || 3,
-          licenseFrontUrl: input.licenseFrontUrl,
-          licenseBackUrl: input.licenseBackUrl,
-          status: RentalDriverKycStatus.PENDING_REVIEW,
-        },
-        create: {
-          bookingId,
-          customerId: booking.customerId,
-          licenseNumber: input.licenseNumber.toUpperCase().trim(),
-          licenseExpiry: input.licenseExpiry,
-          licenseCategory: input.licenseCategory || 'LMV',
-          dateOfBirth: input.dateOfBirth || new Date('1990-01-01'),
-          drivingExperienceYears: input.drivingExperienceYears || 3,
-          licenseFrontUrl: input.licenseFrontUrl,
-          licenseBackUrl: input.licenseBackUrl,
-          status: RentalDriverKycStatus.PENDING_REVIEW,
-        },
+        update: details,
+        create: { bookingId, customerId: booking.customerId, ...details },
       });
 
       await tx.rentalBooking.update({
@@ -1262,7 +1248,7 @@ export class PrismaRentalStore {
           bookingId,
           eventType: 'RENTAL_KYC_DOCUMENTS_UPDATED',
           actorId: employeeId,
-          metadata: { licenseNumber: input.licenseNumber },
+          metadata: { licenseNumber },
         },
       });
 
@@ -2461,7 +2447,7 @@ export class PrismaRentalStore {
   async createFleetVehicle(input: {
     fleetNumber?: string;
     registrationNumber: string;
-    vin: string;
+    vin?: string;
     make: string;
     model: string;
     variant?: string;
@@ -2472,6 +2458,10 @@ export class PrismaRentalStore {
     color: string;
     hubId: string;
     images?: string[];
+    /** Reading on the dashboard when the car joins the fleet. */
+    odometerKm?: number;
+    /** Fuel / charge level (%) when the car joins the fleet. */
+    fuelLevelPercent?: number;
     commercialPermitNumber?: string;
     commercialPermitExpiry?: string | Date;
     insurancePolicyNumber?: string;
@@ -2486,19 +2476,21 @@ export class PrismaRentalStore {
     features?: string[];
   }) {
     const regClean = input.registrationNumber.trim().toUpperCase();
-    const oneYearLater = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
     const fleetNumber = input.fleetNumber?.trim() || `VMF-${Math.floor(100 + Math.random() * 899)}`;
-    // Compliance documents are facts about the car, never defaults: a made-up permit/policy number or a "valid for a year"
-    // expiry would let an uninsured or unpermitted car be rented out.
-    const commercialPermitNumber = input.commercialPermitNumber?.trim();
-    const insurancePolicyNumber = input.insurancePolicyNumber?.trim();
-    const commercialPermitExpiry = input.commercialPermitExpiry ? new Date(input.commercialPermitExpiry) : null;
-    const insuranceExpiry = input.insuranceExpiry ? new Date(input.insuranceExpiry) : null;
-    const fitnessCertExpiry = input.fitnessCertExpiry ? new Date(input.fitnessCertExpiry) : null;
-    if (!input.vin?.trim() || !commercialPermitNumber || !insurancePolicyNumber || !commercialPermitExpiry || !insuranceExpiry || !fitnessCertExpiry
-      || [commercialPermitExpiry, insuranceExpiry, fitnessCertExpiry].some(date => Number.isNaN(date.getTime()))) {
-      throw new HttpError(400, 'COMPLIANCE_DETAILS_REQUIRED', 'VIN, commercial permit, insurance policy and fitness certificate details (numbers and expiry dates) are required.');
-    }
+    // VIN, permit, insurance and fitness details are optional: blank means "not on file" and is stored as NULL.
+    // They are facts about the car, never defaults - a made-up number or a "valid for a year" expiry would pass for a real document.
+    const vin = input.vin?.trim().toUpperCase() || null;
+    const commercialPermitNumber = input.commercialPermitNumber?.trim() || null;
+    const insurancePolicyNumber = input.insurancePolicyNumber?.trim() || null;
+    const optionalDate = (value: string | Date | undefined | null, label: string): Date | null => {
+      if (value === undefined || value === null || value === '') return null;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) throw new HttpError(400, 'INVALID_COMPLIANCE_DATE', `${label} is not a valid date.`);
+      return date;
+    };
+    const commercialPermitExpiry = optionalDate(input.commercialPermitExpiry, 'Commercial permit expiry');
+    const insuranceExpiry = optionalDate(input.insuranceExpiry, 'Insurance expiry');
+    const fitnessCertExpiry = optionalDate(input.fitnessCertExpiry, 'Fitness certificate expiry');
     const baseDailyRatePaise = BigInt(input.baseDailyRatePaise);
     const baseHourlyRatePaise = input.baseHourlyRatePaise ? BigInt(input.baseHourlyRatePaise) : BigInt(Math.max(100, Math.round(Number(baseDailyRatePaise) / 10)));
     const securityDepositPaise = input.securityDepositPaise !== undefined ? BigInt(input.securityDepositPaise) : 500000n;
@@ -2518,7 +2510,10 @@ export class PrismaRentalStore {
       data: {
         fleetNumber,
         registrationNumber: regClean,
-        vin: input.vin.trim().toUpperCase(),
+        vin,
+        // Current readings of the car being onboarded. Left out, the column defaults apply (0 km, full tank) until the first hand-over records real ones.
+        ...(input.odometerKm !== undefined ? { odometerKm: input.odometerKm } : {}),
+        ...(input.fuelLevelPercent !== undefined ? { fuelLevelPercent: input.fuelLevelPercent } : {}),
         make: names.make,
         model: names.model,
         variant: input.variant?.trim() || null,
@@ -2574,6 +2569,67 @@ export class PrismaRentalStore {
         ...(resolvedHubId !== undefined ? { hubId: resolvedHubId } : {}),
       },
       include: { hub: true },
+    });
+  }
+
+  /**
+   * Operations: correct the odometer and / or fuel level recorded for a car (a mistyped reading, a refuel at the hub).
+   * A hand-over or return records readings as part of the trip; this is the only other way to change them, so it needs a
+   * reason, is refused while the car is on a trip (the return records its readings then) and is audited with the previous
+   * and the new values - a reading is never changed quietly.
+   */
+  async correctVehicleReadings(
+    employeeId: string,
+    vehicleId: string,
+    input: { odometerKm?: number; fuelLevelPercent?: number; reason: string }
+  ) {
+    const reason = (input.reason ?? '').trim();
+    if (reason.length < 3) {
+      throw new HttpError(400, 'CORRECTION_REASON_REQUIRED', 'Say why the reading is being changed.');
+    }
+    if (input.odometerKm === undefined && input.fuelLevelPercent === undefined) {
+      throw new HttpError(400, 'NO_READING_TO_CORRECT', 'Enter the odometer reading and / or the fuel level to record.');
+    }
+    if (input.odometerKm !== undefined && (!Number.isInteger(input.odometerKm) || input.odometerKm < 0)) {
+      throw new HttpError(400, 'INVALID_ODOMETER', 'The odometer must be a whole number of kilometres.');
+    }
+    if (input.fuelLevelPercent !== undefined && (!Number.isInteger(input.fuelLevelPercent) || input.fuelLevelPercent < 0 || input.fuelLevelPercent > 100)) {
+      throw new HttpError(400, 'INVALID_FUEL_LEVEL', 'The fuel / charge level must be between 0 and 100 %.');
+    }
+
+    return await this.db.$transaction(async tx => {
+      const vehicle = await tx.rentalFleetVehicle.findUnique({
+        where: { id: vehicleId },
+        select: { id: true, status: true, odometerKm: true, fuelLevelPercent: true },
+      });
+      if (!vehicle) throw new HttpError(404, 'RENTAL_VEHICLE_NOT_FOUND');
+      if (vehicle.status === RentalVehicleStatus.ON_TRIP) {
+        throw new HttpError(409, 'VEHICLE_ON_TRIP', 'This car is on a trip - its readings are recorded when it is returned.');
+      }
+
+      const updated = await tx.rentalFleetVehicle.update({
+        where: { id: vehicleId },
+        data: {
+          ...(input.odometerKm !== undefined ? { odometerKm: input.odometerKm } : {}),
+          ...(input.fuelLevelPercent !== undefined ? { fuelLevelPercent: input.fuelLevelPercent } : {}),
+        },
+        include: { hub: true },
+      });
+
+      await tx.rentalAuditEvent.create({
+        data: {
+          vehicleId,
+          eventType: 'RENTAL_VEHICLE_READINGS_CORRECTED',
+          actorId: employeeId,
+          metadata: {
+            reason,
+            previous: { odometerKm: vehicle.odometerKm, fuelLevelPercent: vehicle.fuelLevelPercent },
+            next: { odometerKm: updated.odometerKm, fuelLevelPercent: updated.fuelLevelPercent },
+          },
+        },
+      });
+
+      return updated;
     });
   }
 
@@ -2807,7 +2863,8 @@ export class PrismaRentalStore {
       endTime: Date;
       licenseNumber: string;
       licenseExpiry: Date;
-      drivingExperienceYears?: number;
+      dateOfBirth: Date;
+      drivingExperienceYears: number;
       licenseFrontUrl: string;
       licenseBackUrl: string;
       paymentMethod: string;
@@ -2818,9 +2875,12 @@ export class PrismaRentalStore {
       immediateHandover?: boolean;
     }
   ) {
-    if (!input.licenseFrontUrl || !input.licenseBackUrl) {
-      throw new HttpError(400, 'MANDATORY_LICENSE_DOCUMENTS_MISSING');
-    }
+    // The driver's details come from the licence the customer shows at the counter. None of them is defaulted: a stock picture,
+    // a placeholder number or an assumed date of birth would mark a driver nobody checked as verified.
+    const licensePhotos = requireLicensePhotos(input.licenseFrontUrl, input.licenseBackUrl);
+    const licenseNumber = requireLicenseNumber(input.licenseNumber);
+    const dateOfBirth = requireAdultDateOfBirth(input.dateOfBirth);
+    const drivingExperienceYears = requireDrivingExperience(input.drivingExperienceYears);
     if (input.endTime.getTime() <= input.startTime.getTime()) {
       throw new HttpError(400, 'END_TIME_MUST_BE_AFTER_START_TIME');
     }
@@ -2939,13 +2999,13 @@ export class PrismaRentalStore {
         data: {
           bookingId: booking.id,
           customerId: customer.id,
-          licenseNumber: input.licenseNumber.toUpperCase().trim(),
+          licenseNumber,
           licenseExpiry: input.licenseExpiry,
           licenseCategory: 'LMV',
-          dateOfBirth: new Date('1990-01-01'),
-          drivingExperienceYears: input.drivingExperienceYears || 3,
-          licenseFrontUrl: input.licenseFrontUrl,
-          licenseBackUrl: input.licenseBackUrl,
+          dateOfBirth,
+          drivingExperienceYears,
+          licenseFrontUrl: licensePhotos.front,
+          licenseBackUrl: licensePhotos.back,
           status: RentalDriverKycStatus.VERIFIED,
           verifiedById: employeeId,
           verifiedAt: new Date(),
