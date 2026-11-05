@@ -215,7 +215,25 @@ export function App() {
 
   if (!firebaseConfigured) return <SetupState />;
   if (loading) return <FullLoader />;
-  if (route === '/accept-invitation') return <InvitationAcceptance user={user} onSignIn={googleSignIn} onSignOut={logout} />;
+  if (route === '/accept-invitation') {
+    // An account that already has 2-step verification (e.g. an existing employee being given another role) is asked for
+    // its code right after Google sign-in. This page used to return before the challenge was rendered, so the person
+    // was dropped back on "Continue with Google" with no way forward.
+    return (
+      <>
+        <InvitationAcceptance user={user} onSignIn={googleSignIn} onSignOut={logout} />
+        {mfaResolver && auth && (
+          <MfaChallengeDialog
+            auth={auth}
+            resolver={mfaResolver}
+            onClose={() => setMfaResolver(null)}
+            onSuccess={() => setMfaResolver(null)}
+          />
+        )}
+        <div id="recaptcha-container" />
+      </>
+    );
+  }
   if (!user || !actor) {
     return (
       <>
