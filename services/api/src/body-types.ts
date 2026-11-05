@@ -21,6 +21,17 @@ export function normalizeBodyType(value?: string | null): BodyTypeCode | null {
   return ALIASES[key] ?? ALIASES[key.replace(/ /g, '')] ?? null;
 }
 
+/**
+ * The code to store for a body type: a known spelling maps to its canonical code, and a body type an administrator added in
+ * Master data (e.g. "Pickup") is kept as an upper-case code ("PICKUP"). Null for blank input.
+ */
+export function canonicalBodyType(value?: string | null): string | null {
+  const known = normalizeBodyType(value);
+  if (known) return known;
+  const code = (value ?? '').trim().toUpperCase().replace(/&/g, 'AND').replace(/[^A-Z0-9]+/g, '_').replace(/^_+|_+$/g, '');
+  return code || null;
+}
+
 const BY_BODY: Record<BodyTypeCode, Record<string, string[]>> = {
   HATCHBACK: {
     'maruti suzuki': ['Swift', 'Baleno', 'Alto', 'WagonR', 'Celerio', 'Ignis'],
@@ -122,21 +133,67 @@ for (const [body, makes] of Object.entries(BY_BODY) as Array<[BodyTypeCode, Reco
   for (const [make, models] of Object.entries(makes)) for (const model of models) LOOKUP.set(`${makeKey(make)}|${squash(model)}`, body);
 }
 
-/** Body type for a make + model from the catalogue, ignoring case, spacing and punctuation. Null when the car is not catalogued. */
-export function inferBodyType(make?: string | null, model?: string | null): BodyTypeCode | null {
+// Body types set on models by administrators (Admin > Master data > Car model). They win over the built-in catalogue, so a
+// model added in Admin works without a code change. Kept per process and refreshed at most once a minute.
+let masterBodyTypes = new Map<string, string>();
+let masterLoadedAt = 0;
+const MASTER_TTL_MS = 60_000;
+
+export interface BodyTypeSource {
+  masterDataItem: { findMany: (args: any) => Promise<Array<{ category: string; code: string; name: string; parentCode: string | null; metadata: unknown }>> };
+}
+
+/** Builds the make+model -> body type map from master-data rows (MAKE rows give the make names; MODEL rows carry metadata.bodyType). */
+export function buildMasterBodyTypes(rows: Array<{ category: string; code: string; name: string; parentCode: string | null; metadata: unknown }>): Map<string, string> {
+  const makeNames = new Map(rows.filter(r => r.category === 'MAKE').map(r => [r.code, r.name]));
+  const out = new Map<string, string>();
+  for (const row of rows) {
+    if (row.category !== 'MODEL' || !row.parentCode) continue;
+    const meta = (row.metadata ?? {}) as { bodyType?: unknown };
+    const code = typeof meta.bodyType === 'string' ? meta.bodyType.trim().toUpperCase() : '';
+    const make = makeNames.get(row.parentCode);
+    if (code && make) out.set(`${makeKey(make)}|${squash(row.name)}`, code);
+  }
+  return out;
+}
+
+/** Loads (at most once a minute) the body types administrators set on models. Safe to call on every request; failures are ignored. */
+export async function refreshMasterBodyTypes(db: BodyTypeSource, force = false): Promise<void> {
+  if (!force && Date.now() - masterLoadedAt < MASTER_TTL_MS) return;
+  masterLoadedAt = Date.now();
+  try {
+    const rows = await db.masterDataItem.findMany({ where: { category: { in: ['MAKE', 'MODEL'] }, active: true }, select: { category: true, code: true, name: true, parentCode: true, metadata: true } });
+    masterBodyTypes = buildMasterBodyTypes(rows);
+  } catch {
+    masterLoadedAt = 0; // try again next time; the built-in catalogue still answers
+  }
+}
+
+/** For tests: replace the administrator-managed map directly. */
+export function setMasterBodyTypesForTest(map: Map<string, string>): void {
+  masterBodyTypes = map;
+  masterLoadedAt = Date.now();
+}
+
+/** Body type for a make + model: what an administrator set on the model, else the built-in catalogue. Null when unknown. */
+export function inferBodyType(make?: string | null, model?: string | null): string | null {
   if (!make || !model) return null;
-  return LOOKUP.get(`${makeKey(make)}|${squash(model)}`) ?? null;
+  const key = `${makeKey(make)}|${squash(model)}`;
+  return canonicalBodyType(masterBodyTypes.get(key)) ?? LOOKUP.get(key) ?? null;
 }
 
 /** What to store: the staff member's choice if it is valid, else the catalogue's answer for the car, else nothing. */
-export function resolveBodyType(input: { bodyType?: string | null; make?: string | null; model?: string | null }): BodyTypeCode | null {
-  return normalizeBodyType(input.bodyType) ?? inferBodyType(input.make, input.model);
+export function resolveBodyType(input: { bodyType?: string | null; make?: string | null; model?: string | null }): string | null {
+  return canonicalBodyType(input.bodyType) ?? inferBodyType(input.make, input.model);
 }
 
 /** Every spelling that should match a body-type filter (the code, its name, and the legacy "MPV"). */
 export function bodyTypeFilterValues(value: string): string[] {
   const code = normalizeBodyType(value);
-  if (!code) return [value];
+  if (!code) {
+    const custom = canonicalBodyType(value);
+    return custom && custom !== value ? [value, custom] : [value];
+  }
   const names: Record<BodyTypeCode, string[]> = {
     HATCHBACK: ['Hatchback'], SEDAN: ['Sedan'], SUV: ['SUV'], MUV: ['MUV', 'MPV'], COUPE: ['Coupe'], CONVERTIBLE: ['Convertible'],
   };

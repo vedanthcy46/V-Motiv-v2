@@ -1,11 +1,11 @@
 import React from 'react';
 
 interface HeroProps {
-  onExploreCars: () => void;
-  onSellCar: () => void;
+  onGetApp: () => void;
+  onHowItWorks: () => void;
 }
 
-export const Hero: React.FC<HeroProps> = ({ onExploreCars, onSellCar }) => {
+export const Hero: React.FC<HeroProps> = ({ onGetApp, onHowItWorks }) => {
   return (
     <section id="hero" className="hero-section">
       <div className="container hero-container">
@@ -20,8 +20,8 @@ export const Hero: React.FC<HeroProps> = ({ onExploreCars, onSellCar }) => {
           </h1>
 
           <p className="hero-lead">
-            Explore available cars or tell us about the car you want to sell. Clear steps,
-            helpful people and updates throughout your journey.
+            V MOTIV is an accountable pre-owned car platform. Buy a verified car, sell yours, book a
+            service or rent a car, all in the V MOTIV app, with clear steps and updates throughout your journey.
           </p>
 
           <div className="hero-tagline-callout">
@@ -32,9 +32,9 @@ export const Hero: React.FC<HeroProps> = ({ onExploreCars, onSellCar }) => {
             <button
               type="button"
               className="btn btn-primary btn-lg"
-              onClick={onExploreCars}
+              onClick={onGetApp}
             >
-              <span>Explore Cars</span>
+              <span>Get the App</span>
               <svg viewBox="0 0 20 20" fill="currentColor" width="18" height="18" aria-hidden="true">
                 <path
                   fillRule="evenodd"
@@ -47,9 +47,9 @@ export const Hero: React.FC<HeroProps> = ({ onExploreCars, onSellCar }) => {
             <button
               type="button"
               className="btn btn-secondary btn-lg"
-              onClick={onSellCar}
+              onClick={onHowItWorks}
             >
-              <span>Sell Your Car</span>
+              <span>How It Works</span>
             </button>
           </div>
 
@@ -90,7 +90,7 @@ export const Hero: React.FC<HeroProps> = ({ onExploreCars, onSellCar }) => {
                 className="preview-car-image"
                 loading="eager"
               />
-              <span className="preview-status-pill">Available for Test Drive</span>
+              <span className="preview-status-pill">Test drives in the app</span>
             </div>
             <div className="preview-card-details">
               <div className="preview-title-row">

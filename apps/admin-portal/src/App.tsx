@@ -1974,6 +1974,8 @@ function MasterDataPage({ user, actor }: { user: User; actor: AdminActor }) {
   const [reload, setReload] = useState(0);
   const [createOpen, setCreateOpen] = useState(false);
   const canManage = actor.permissions.includes('masterdata.manage');
+  const [bodyTypes, setBodyTypes] = useState<MasterDataItem[]>([]);
+  const [savingModel, setSavingModel] = useState<string | null>(null);
 
   useEffect(() => {
     setError('');
@@ -1981,6 +1983,26 @@ function MasterDataPage({ user, actor }: { user: User; actor: AdminActor }) {
       .then(setItems)
       .catch(err => setError(errorMessage(err)));
   }, [user, category, reload]);
+  // Active body types, offered on every car model row.
+  useEffect(() => {
+    adminApi.masterData(user, 'BODY_TYPE').then(list => setBodyTypes(list.filter(item => item.active))).catch(() => setBodyTypes([]));
+  }, [user, reload]);
+
+  async function setModelBodyType(item: MasterDataItem, bodyType: string) {
+    setSavingModel(item.id);
+    try {
+      const { bodyType: _old, ...rest } = (item.metadata ?? {}) as Record<string, unknown>;
+      const updated = await adminApi.updateMasterDataItem(user, item.id, { metadata: bodyType ? { ...rest, bodyType } : rest });
+      setItems(current => current ? current.map(row => row.id === item.id ? { ...row, metadata: (updated as MasterDataItem).metadata ?? (bodyType ? { ...rest, bodyType } : rest) } : row) : current);
+      toast.success(bodyType ? `${item.name} is now a ${bodyTypes.find(b => b.code === bodyType)?.name ?? bodyType}` : `${item.name} body type cleared`);
+    } catch (err) {
+      toast.error('Could not save the body type', { description: errorMessage(err) });
+    } finally {
+      setSavingModel(null);
+    }
+  }
+
+  const showBodyType = !category || category === 'MODEL';
 
   async function toggleActive(item: MasterDataItem) {
     try {
@@ -2037,6 +2059,7 @@ function MasterDataPage({ user, actor }: { user: User; actor: AdminActor }) {
                     <th>Code</th>
                     <th>Name</th>
                     <th>Parent</th>
+                    {showBodyType && <th>Body type</th>}
                     <th>Status</th>
                     {canManage && <th><span className="sr-only">Actions</span></th>}
                   </tr>
@@ -2048,6 +2071,25 @@ function MasterDataPage({ user, actor }: { user: User; actor: AdminActor }) {
                       <td><code>{item.code}</code></td>
                       <td><strong>{item.name}</strong></td>
                       <td>{item.parentCode ? <code>{item.parentCode}</code> : <small>None</small>}</td>
+                      {showBodyType && (
+                        <td>
+                          {item.category !== 'MODEL' ? <small>—</small> : canManage ? (
+                            <select
+                              aria-label={`Body type for ${item.name}`}
+                              className="select select-sm"
+                              style={{ minWidth: '9.5rem' }}
+                              disabled={savingModel === item.id}
+                              value={String((item.metadata as { bodyType?: string } | null)?.bodyType ?? '')}
+                              onChange={event => void setModelBodyType(item, event.target.value)}
+                            >
+                              <option value="">Not set</option>
+                              {bodyTypes.map(option => <option key={option.id} value={option.code}>{option.name}</option>)}
+                            </select>
+                          ) : (
+                            <span>{bodyTypes.find(b => b.code === (item.metadata as { bodyType?: string } | null)?.bodyType)?.name ?? <small>Not set</small>}</span>
+                          )}
+                        </td>
+                      )}
                       <td><StatusBadge value={item.active ? 'ACTIVE' : 'DEACTIVATED'} /></td>
                       {canManage && (
                         <td>
@@ -2086,6 +2128,13 @@ function CreateMasterDataDialog({ user, onClose, onDone }: { user: User; onClose
   const [parentCode, setParentCode] = useState('');
   const [parentOptions, setParentOptions] = useState<MasterDataItem[]>([]);
   const parentCategory = MASTER_DATA_CATEGORY_OPTIONS.find(option => option.value === categoryValue)?.parent ?? null;
+  const [bodyTypeOptions, setBodyTypeOptions] = useState<MasterDataItem[]>([]);
+  useEffect(() => {
+    if (categoryValue !== 'MODEL') return;
+    let active = true;
+    adminApi.masterData(user, 'BODY_TYPE').then(items => { if (active) setBodyTypeOptions(items.filter(item => item.active)); }).catch(() => { if (active) setBodyTypeOptions([]); });
+    return () => { active = false; };
+  }, [user, categoryValue]);
   useEffect(() => {
     if (!parentCategory) { setParentOptions([]); return; }
     let active = true;
@@ -2109,6 +2158,7 @@ function CreateMasterDataDialog({ user, onClose, onDone }: { user: User; onClose
         code: String(form.get('code')).trim().toUpperCase(),
         name: String(form.get('name')).trim(),
         parentCode: String(form.get('parentCode') ?? '').trim().toUpperCase() || undefined,
+        ...(categoryValue === 'MODEL' && String(form.get('bodyType') ?? '') ? { metadata: { bodyType: String(form.get('bodyType')) } } : {}),
       });
       onDone();
     } catch (err) {
@@ -2151,6 +2201,16 @@ function CreateMasterDataDialog({ user, onClose, onDone }: { user: User; onClose
               <option value="">Select {parentCategory === 'MAKE' ? 'a make' : 'a model'}</option>
               {parentOptions.map(item => <option key={item.id} value={item.code}>{item.name}</option>)}
             </select>
+          </label>
+        )}
+        {categoryValue === 'MODEL' && (
+          <label>
+            Body type
+            <select name="bodyType" defaultValue="">
+              <option value="">Not set</option>
+              {bodyTypeOptions.map(item => <option key={item.id} value={item.code}>{item.name}</option>)}
+            </select>
+            <small className="helper">Customers filter cars by body type (Hatchback, Sedan, SUV…). Cars of this model take it automatically.</small>
           </label>
         )}
         <footer>

@@ -1,15 +1,32 @@
 import React from 'react';
 
+const ANDROID_URL = (import.meta.env.VITE_ANDROID_APP_URL as string | undefined)?.trim() || '';
+const IOS_URL = (import.meta.env.VITE_IOS_APP_URL as string | undefined)?.trim() || '';
+
+/** A real store link when the listing is configured; otherwise an honest "coming soon" label instead of a dead button. */
+const StoreBadge: React.FC<{ href: string; icon: string; name: string }> = ({ href, icon, name }) =>
+  href ? (
+    <a className="app-badge-pill app-badge-link" href={href} target="_blank" rel="noreferrer">
+      <span className="badge-os-icon">{icon}</span>
+      <span>Get it on {name}</span>
+    </a>
+  ) : (
+    <span className="app-badge-pill" aria-label={`${name} app coming soon`}>
+      <span className="badge-os-icon">{icon}</span>
+      <span>{name}: coming soon</span>
+    </span>
+  );
+
 export const MobileAppSection: React.FC = () => {
   return (
-    <section className="mobile-app-section">
+    <section id="app" className="mobile-app-section">
       <div className="container mobile-app-container">
         <div className="mobile-app-content">
-          <span className="section-eyebrow">SEAMLESS CONVENIENCE</span>
-          <h2 className="section-title">Take V MOTIV With You Anywhere</h2>
+          <span className="section-eyebrow">THE V MOTIV APP</span>
+          <h2 className="section-title">Book, track and manage it all in the app</h2>
           <p className="section-subtitle">
-            Experience the complete buying and selling journey directly from your smartphone.
-            Track appointments, review inspection offers, and chat with support in real time.
+            Test drives, selling requests, service bookings and rentals are all handled in the V MOTIV
+            app, not on this website. Sign in with Google, track every request and chat with support in real time.
           </p>
 
           <ul className="app-feature-list">
@@ -17,7 +34,7 @@ export const MobileAppSection: React.FC = () => {
               <div className="app-feature-icon">📲</div>
               <div>
                 <strong>Live Request Tracking</strong>
-                <p>Monitor your test-drive bookings, purchase enquiries, and selling leads on a unified timeline.</p>
+                <p>Monitor your test drives, purchase enquiries, selling requests, service jobs and rentals on one timeline.</p>
               </div>
             </li>
             <li>
@@ -37,17 +54,10 @@ export const MobileAppSection: React.FC = () => {
           </ul>
 
           <div className="app-badges-row">
-            <div className="app-badge-pill">
-              <span className="badge-os-icon">🤖</span>
-              <span>Available on Android</span>
-            </div>
-            <div className="app-badge-pill">
-              <span className="badge-os-icon">🍎</span>
-              <span>Available on iOS</span>
-            </div>
+            <StoreBadge href={ANDROID_URL} icon="🤖" name="Android" />
+            <StoreBadge href={IOS_URL} icon="🍎" name="iOS" />
           </div>
         </div>
-
         {/* Visual Phone Mockup */}
         <div className="mobile-app-visual" aria-hidden="true">
           <div className="app-phone-mock">

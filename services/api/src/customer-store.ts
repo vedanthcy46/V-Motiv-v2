@@ -1,4 +1,4 @@
-import { bodyTypeFilterValues, inferBodyType } from './body-types.js';
+import { bodyTypeFilterValues, inferBodyType, refreshMasterBodyTypes } from './body-types.js';
 import { computeInventoryFacets, makeSpellings, type FacetFilters, type FacetRow } from './inventory-facets.js';
 import { canonicalMakeModel, loadMakeAliasGroups } from './vehicle-names.js';
 import { dropOrphanedChildren, normalizeMasterDataCategory } from './master-data-rules.js';
@@ -518,6 +518,7 @@ export class PrismaCustomerStore implements CustomerStore {
     return city.name;
   }
   async inventory(uid: string | undefined, filters: InventoryFilters = {}) {
+    await refreshMasterBodyTypes(this.db as any);
     const { search = '', page = 1, limit = 20, city, fuelType, transmission, make, model, bodyType, color, minYear, maxYear, maxOdometerKm, minPricePaise, maxPricePaise, features, sort = 'newest' } = filters;
     const user = uid ? await this.user(uid) : null;
     const makes = make ? make.split(',').map(m => m.trim()).filter(Boolean) : [];
@@ -559,6 +560,7 @@ export class PrismaCustomerStore implements CustomerStore {
   }
   /** Filter-aware option lists, counts and ranges over the whole published inventory (see inventory-facets.ts). */
   async inventoryFacets(filters: InventoryFilters = {}) {
+    await refreshMasterBodyTypes(this.db as any);
     const rows = await this.db.vehicleListing.findMany({
       where: { status: { in: ['PUBLISHED', 'RESERVED'] } },
       select: {
@@ -601,6 +603,7 @@ export class PrismaCustomerStore implements CustomerStore {
     return computeInventoryFacets(facetRows, f, await loadMakeAliasGroups(this.db as any));
   }
   async vehicle(uid: string | undefined, id: string) {
+    await refreshMasterBodyTypes(this.db as any);
     const user = uid ? await this.user(uid) : null;
     let listing: any;
     try {
@@ -614,6 +617,7 @@ export class PrismaCustomerStore implements CustomerStore {
     return listingJson(listing, wished);
   }
   async wishlist(uid: string) {
+    await refreshMasterBodyTypes(this.db as any);
     const user = await this.user(uid);
     const where: Prisma.WishlistItemWhereInput = {
       userId: user.id,

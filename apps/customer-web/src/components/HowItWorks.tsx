@@ -10,7 +10,7 @@ export const HowItWorks: React.FC = () => {
           <span className="section-eyebrow">CLEAR & ACCOUNTABLE PROCESS</span>
           <h2 className="section-title">How V MOTIV Works</h2>
           <p className="section-subtitle">
-            No confusion, no hidden clauses, no aggressive sales. Step-by-step transparency from day one.
+            No confusion, no hidden clauses, no aggressive sales. Step-by-step transparency from day one. You request and track every step in the V MOTIV app.
           </p>
 
           <div className="toggle-tab-group" role="tablist" aria-label="How it works workflow toggle">
@@ -40,7 +40,7 @@ export const HowItWorks: React.FC = () => {
           <div className="workflow-grid" role="tabpanel" aria-label="How buying works">
             <div className="step-card">
               <div className="step-number">01</div>
-              <h3 className="step-title">Browse Verified Cars</h3>
+              <h3 className="step-title">Browse Verified Cars in the App</h3>
               <p className="step-desc">
                 Explore real published inventory with authentic photos, actual odometer readings,
                 and comprehensive vehicle histories. No bait-and-switch listings.
@@ -49,7 +49,7 @@ export const HowItWorks: React.FC = () => {
 
             <div className="step-card">
               <div className="step-number">02</div>
-              <h3 className="step-title">Request a Test Drive</h3>
+              <h3 className="step-title">Request a Test Drive in the App</h3>
               <p className="step-desc">
                 Choose your preferred date, convenient time slot, and location preference
                 (our local service hub or doorstep where available).
@@ -81,7 +81,7 @@ export const HowItWorks: React.FC = () => {
           <div className="workflow-grid" role="tabpanel" aria-label="How selling works">
             <div className="step-card">
               <div className="step-number">01</div>
-              <h3 className="step-title">Share Vehicle Details</h3>
+              <h3 className="step-title">Share Vehicle Details in the App</h3>
               <p className="step-desc">
                 Provide your vehicle's make, model, year, fuel type, and current mileage in a quick
                 2-minute online intake form.

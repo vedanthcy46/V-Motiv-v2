@@ -1,107 +1,74 @@
 import React from 'react';
 
 interface QuickActionsProps {
-  onBuyClick: () => void;
-  onSellClick: () => void;
+  onGetApp: () => void;
 }
 
-export const QuickActions: React.FC<QuickActionsProps> = ({ onBuyClick, onSellClick }) => {
+const SERVICES = [
+  {
+    id: 'buy',
+    badge: 'BUY',
+    title: 'Buy a verified car',
+    desc: 'Every car on V MOTIV is physically inspected before it is listed, with honest photos and a clear condition report.',
+    points: ['Inspection summary and specifications for each car', 'Test drives at a hub or at your doorstep', 'Purchase enquiries without pushy sales calls', 'Assisted RC transfer and paperwork'],
+  },
+  {
+    id: 'sell',
+    badge: 'SELL',
+    title: 'Sell your car',
+    desc: 'Share your car details, get it inspected in person and receive a clear, accountable offer.',
+    points: ['Simple details form', 'Hub or doorstep inspection', 'Itemised valuation, no surprise deductions', 'Prompt settlement and ownership transfer care'],
+  },
+  {
+    id: 'service',
+    badge: 'SERVICE',
+    title: 'Car service',
+    desc: 'Book servicing and repairs for your own car at V MOTIV hubs, with an estimate you approve before work starts.',
+    points: ['Pickup and drop where supported', 'Estimates you approve first', 'Progress updates through the job', 'Invoice and service history in one place'],
+  },
+  {
+    id: 'rent',
+    badge: 'RENT',
+    title: 'Car rentals',
+    desc: 'Rent a car by the day from a V MOTIV hub, with transparent pricing and a documented handover.',
+    points: ['Clear daily rates and kilometre limits', 'Online KYC and payment', 'Recorded condition at pickup and return', 'Support during your trip'],
+  },
+];
+
+export const QuickActions: React.FC<QuickActionsProps> = ({ onGetApp }) => {
   return (
-    <section className="quick-actions-section">
+    <section id="platform" className="quick-actions-section">
       <div className="container">
         <div className="section-header-centered">
-          <span className="section-eyebrow">CHOOSE YOUR PATH</span>
-          <h2 className="section-title">Built around what you need today.</h2>
+          <span className="section-eyebrow">THE PLATFORM</span>
+          <h2 className="section-title">Everything about your car, in one app.</h2>
           <p className="section-subtitle">
-            Whether purchasing your next vehicle or parting with your current one, our process is clear,
-            truthful, and backed by genuine customer support.
+            Buying, selling, servicing and renting all follow the same promise: clear steps, truthful
+            information and a real person accountable for each one. You do all of it in the V MOTIV app.
           </p>
         </div>
-
         <div className="quick-actions-grid">
-          {/* Card 1: Buy a Car */}
-          <div className="action-card action-card-buy">
-            <div className="card-badge">FOR BUYERS</div>
-            <h3 className="card-title">Buy a Verified Car</h3>
-            <p className="card-desc">
-              Discover carefully evaluated vehicles with authentic photographs, real condition reports,
-              and assisted test-drive scheduling.
-            </p>
-            <ul className="card-features">
-              <li>
-                <span className="feature-check">✓</span>
-                <span>Browse real published vehicles with genuine photography</span>
-              </li>
-              <li>
-                <span className="feature-check">✓</span>
-                <span>Review detailed inspection summaries and specifications</span>
-              </li>
-              <li>
-                <span className="feature-check">✓</span>
-                <span>Book a test drive at your preferred hub or doorstep</span>
-              </li>
-              <li>
-                <span className="feature-check">✓</span>
-                <span>Submit purchase enquiries with zero aggressive sales calls</span>
-              </li>
-              <li>
-                <span className="feature-check">✓</span>
-                <span>Assisted RC transfer and verified paperwork handover</span>
-              </li>
-            </ul>
-            <div className="card-btn-wrap">
-              <button
-                type="button"
-                className="btn btn-primary btn-block"
-                onClick={onBuyClick}
-              >
-                <span>Browse Available Cars</span>
-                <span aria-hidden="true">→</span>
-              </button>
+          {SERVICES.map((item) => (
+            <div key={item.id} className={`action-card action-card-${item.id}`}>
+              <div className={`card-badge ${item.id === 'sell' ? 'card-badge-accent' : ''}`}>{item.badge}</div>
+              <h3 className="card-title">{item.title}</h3>
+              <p className="card-desc">{item.desc}</p>
+              <ul className="card-features">
+                {item.points.map((point) => (
+                  <li key={point}>
+                    <span className="feature-check">✓</span>
+                    <span>{point}</span>
+                  </li>
+                ))}
+              </ul>
             </div>
-          </div>
-
-          {/* Card 2: Sell Your Car */}
-          <div id="sell" className="action-card action-card-sell">
-            <div className="card-badge card-badge-accent">FOR SELLERS</div>
-            <h3 className="card-title">Sell Your Car</h3>
-            <p className="card-desc">
-              Share your vehicle details in minutes, arrange an in-person physical inspection, and receive
-              a clear, accountable offer based on factual evaluation.
-            </p>
-            <ul className="card-features">
-              <li>
-                <span className="feature-check">✓</span>
-                <span>Enter vehicle details in a simple 2-minute form</span>
-              </li>
-              <li>
-                <span className="feature-check">✓</span>
-                <span>Schedule hub or doorstep inspection at your convenience</span>
-              </li>
-              <li>
-                <span className="feature-check">✓</span>
-                <span>Receive transparent valuation based on real market condition</span>
-              </li>
-              <li>
-                <span className="feature-check">✓</span>
-                <span>Review offer with clear versioning and transparent decisions</span>
-              </li>
-              <li>
-                <span className="feature-check">✓</span>
-                <span>Prompt payment settlement & complete ownership transfer care</span>
-              </li>
-            </ul>
-            <div className="card-btn-wrap">
-              <button
-                type="button"
-                className="btn btn-accent btn-block"
-                onClick={onSellClick}
-              >
-                <span>Request Car Evaluation</span>
-                <span aria-hidden="true">→</span>
-              </button>
-            </div>
-          </div>
+          ))}
+        </div>
+        <div className="platform-cta">
+          <button type="button" className="btn btn-primary btn-lg" onClick={onGetApp}>
+            <span>Get the V MOTIV app</span>
+            <span aria-hidden="true">→</span>
+          </button>
         </div>
       </div>
     </section>

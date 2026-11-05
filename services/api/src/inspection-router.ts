@@ -1,6 +1,6 @@
 import express, { Router } from 'express';
 import { z } from 'zod';
-import { normalizeBodyType } from './body-types.js';
+
 import { inspectorMfaGuard } from './inspector-mfa.js';
 import { authentication, type Identity, type VerifyToken } from './auth.js';
 import { PrismaInspectionStore } from './inspection-store.js';
@@ -107,7 +107,8 @@ const stockInwardInput = z.object({
   physicalLocation: z.string().trim().min(3).max(500),
   notes: z.string().trim().max(2_000).optional(),
 }).strict();
-const bodyTypeInput = z.string().trim().max(40).refine(value => value === '' || normalizeBodyType(value) !== null, 'Unknown body type').optional();
+/** A body type code from Master data (HATCHBACK, SUV, PICKUP…) or blank for "work it out from the model". */
+const bodyTypeInput = z.string().trim().max(40).regex(/^[A-Za-z0-9 _&-]*$/, 'Invalid body type').optional();
 const stockSpecsInput = z.object({
   registrationNumber: z.string().trim().max(30).optional(),
   variant: z.string().trim().max(100).optional(),

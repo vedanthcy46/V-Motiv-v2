@@ -53,7 +53,7 @@ export const DEFAULT_MAKE_ALIAS_GROUPS: MakeAliasGroup[] = [
   { canonical: 'Land Rover', names: ['land rover', 'land-rover'] },
 ];
 
-import { normalizeBodyType } from './body-types.js';
+import { canonicalBodyType } from './body-types.js';
 
 const lower = (value: string | null | undefined) => (value ?? '').trim().toLowerCase();
 
@@ -77,9 +77,9 @@ export function makeSpellings(names: string[], groups: MakeAliasGroup[] = DEFAUL
 
 /** 'Hatchback', 'HATCHBACK' and 'hatch back' are the same body type; an unknown spelling still compares as plain text. */
 function sameBodyType(rowValue: string | null | undefined, wanted: string): boolean {
-  const a = normalizeBodyType(rowValue);
-  const b = normalizeBodyType(wanted);
-  return a && b ? a === b : lower(rowValue) === lower(wanted);
+  const a = canonicalBodyType(rowValue);
+  const b = canonicalBodyType(wanted);
+  return a !== null && a === b;
 }
 
 function matches(row: FacetRow, f: FacetFilters, skip?: Dimension, groups: MakeAliasGroup[] = DEFAULT_MAKE_ALIAS_GROUPS): boolean {
@@ -170,7 +170,7 @@ export function computeInventoryFacets(rows: FacetRow[], filters: FacetFilters, 
     })(),
     fuelTypes: tally(forDim('fuelType').map(r => r.fuelType)),
     transmissions: tally(forDim('transmission').map(r => r.transmission)),
-    bodyTypes: tally(forDim('bodyType').map(r => normalizeBodyType(r.bodyType) ?? r.bodyType)),
+    bodyTypes: tally(forDim('bodyType').map(r => canonicalBodyType(r.bodyType) ?? r.bodyType)),
     colors: tally(forDim('color').map(r => r.color)),
     cities: tally(forDim('city').map(r => r.city)),
     features: tally(forDim('features').flatMap(r => r.features)),

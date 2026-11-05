@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { catalogMasterData } from '../src/master-data-seed.js';
-import { bodyTypeCatalog, bodyTypeFilterValues, inferBodyType, normalizeBodyType, resolveBodyType } from '../src/body-types.js';
+import { bodyTypeCatalog, buildMasterBodyTypes, canonicalBodyType, setMasterBodyTypesForTest, bodyTypeFilterValues, inferBodyType, normalizeBodyType, resolveBodyType } from '../src/body-types.js';
 
 describe('body types', () => {
   it('normalises spellings to the master-data code', () => {
@@ -34,7 +34,7 @@ describe('body types', () => {
   it('lets a filter match both the code and the display name', () => {
     expect(bodyTypeFilterValues('hatchback')).toEqual(['HATCHBACK', 'Hatchback']);
     expect(bodyTypeFilterValues('MPV')).toContain('MUV');
-    expect(bodyTypeFilterValues('weird')).toEqual(['weird']);
+    expect(bodyTypeFilterValues('weird')).toEqual(['weird', 'WEIRD']);
   });
 
   it('knows the body type of every model in the seeded catalogue', () => {
@@ -50,5 +50,32 @@ describe('body types', () => {
     const sql = readFileSync(new URL('../prisma/migrations/20261105040000_vehicle_body_type_backfill/migration.sql', import.meta.url), 'utf8');
     const missing = bodyTypeCatalog().filter(r => !sql.includes(`('${r.make}', '${r.model.replace(/'/g, "''")}', '${r.bodyType}')`));
     expect(missing).toEqual([]);
+  });
+
+  it('writes every catalogued model onto its master-data row in the migration', () => {
+    const sql = readFileSync(new URL('../prisma/migrations/20261105050000_model_body_type_metadata/migration.sql', import.meta.url), 'utf8');
+    const missing = bodyTypeCatalog().filter(r => !sql.includes(`('${r.make}', '${r.model.replace(/'/g, "''")}', '${r.bodyType}')`));
+    expect(missing).toEqual([]);
+  });
+
+  it('lets a body type an administrator set on a model win over the built-in catalogue', () => {
+    const rows = [
+      { category: 'MAKE', code: 'MARUTI_SUZUKI', name: 'Maruti Suzuki', parentCode: null, metadata: {} },
+      { category: 'MODEL', code: 'MARUTI_SUZUKI__SWIFT', name: 'Swift', parentCode: 'MARUTI_SUZUKI', metadata: { bodyType: 'sedan' } },
+      { category: 'MAKE', code: 'ACME', name: 'Acme', parentCode: null, metadata: {} },
+      { category: 'MODEL', code: 'ACME__TRUCKY', name: 'Trucky', parentCode: 'ACME', metadata: { bodyType: 'Pickup' } },
+      { category: 'MODEL', code: 'ACME__BLANK', name: 'Blank', parentCode: 'ACME', metadata: {} },
+    ];
+    setMasterBodyTypesForTest(buildMasterBodyTypes(rows));
+    try {
+      expect(inferBodyType('Maruti Suzuki', 'Swift')).toBe('SEDAN');
+      expect(inferBodyType('Acme', 'Trucky')).toBe('PICKUP');
+      expect(inferBodyType('Acme', 'Blank')).toBeNull();
+      expect(inferBodyType('Hyundai', 'Creta')).toBe('SUV');
+      expect(canonicalBodyType('Pickup truck')).toBe('PICKUP_TRUCK');
+      expect(bodyTypeFilterValues('Pickup')).toEqual(['Pickup', 'PICKUP']);
+    } finally {
+      setMasterBodyTypesForTest(new Map());
+    }
   });
 });
