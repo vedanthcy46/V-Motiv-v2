@@ -181,3 +181,93 @@ export function useAutoRefresh(
     };
   }, [enabled, intervalMs]);
 }
+
+// ---------------------------------------------------------------------------------------------------------------------
+// "New activity" announcements: the floating bar (LiveChangeBar) tells staff when something changed that they did not do
+// themselves - a customer booking, an enquiry, a payment. It rides on the same cheap change tokens as the auto-refresh.
+// ---------------------------------------------------------------------------------------------------------------------
+export interface ChangeAnnouncement {
+  domains: string[];
+  at: number;
+}
+
+/** A change made within this long after the signed-in person's own save is assumed to be that save, not new activity. */
+export const OWN_WRITE_QUIET_MS = 5_000;
+
+/** Domains whose token differs from the previous one. A domain seen for the first time is a baseline, not a change. */
+export function changedDomains(previous: Record<string, string>, next: Record<string, string>, domains: string[]): string[] {
+  return domains.filter(domain => previous[domain] !== undefined && next[domain] !== undefined && previous[domain] !== next[domain]);
+}
+
+/** Whether to announce: not for the person's own just-saved change. */
+export function shouldAnnounce(args: { now: number; lastOwnWriteAt: number; quietMs?: number }): boolean {
+  return args.now - args.lastOwnWriteAt >= (args.quietMs ?? OWN_WRITE_QUIET_MS);
+}
+
+let lastOwnWriteAt = 0;
+let writeTrackingInstalled = false;
+const changeListeners = new Set<(announcement: ChangeAnnouncement) => void>();
+
+/** Notes the time of every save this browser tab makes (any non-GET call except the change check itself). */
+function installOwnWriteTracking() {
+  if (writeTrackingInstalled || typeof window === 'undefined' || typeof window.fetch !== 'function') return;
+  writeTrackingInstalled = true;
+  const original = window.fetch.bind(window);
+  window.fetch = ((input: RequestInfo | URL, init?: RequestInit) => {
+    try {
+      const method = (init?.method ?? (typeof Request !== 'undefined' && input instanceof Request ? input.method : 'GET')).toUpperCase();
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : (input as Request).url;
+      if (method !== 'GET' && method !== 'HEAD' && !url.includes('/pulse')) lastOwnWriteAt = Date.now();
+    } catch {
+      // tracking must never break a request
+    }
+    return original(input, init);
+  }) as typeof window.fetch;
+}
+
+export function announceChange(domains: string[], now: number = Date.now()): void {
+  if (domains.length === 0 || !shouldAnnounce({ now, lastOwnWriteAt })) return;
+  for (const listener of changeListeners) listener({ domains, at: now });
+}
+
+export function subscribeChanges(listener: (announcement: ChangeAnnouncement) => void): () => void {
+  changeListeners.add(listener);
+  return () => { changeListeners.delete(listener); };
+}
+
+/**
+ * Watches the given pulse domains (all at once, whatever screen is open) and announces the ones that change.
+ * Costs the same single cheap check as the auto-refresh and reacts to the realtime signal when it is available.
+ */
+export function useChangeWatcher(
+  domains: string[],
+  fetchTokens: (domains: string[], fresh?: boolean) => Promise<Record<string, string>>,
+  options: { enabled?: boolean; intervalMs?: number } = {},
+): void {
+  const previous = useRef<Record<string, string> | null>(null);
+  const latest = useRef<Record<string, string>>({});
+  useEffect(() => { installOwnWriteTracking(); }, []);
+  useAutoRefresh(
+    () => {
+      const before = previous.current;
+      const after = latest.current;
+      previous.current = { ...after };
+      if (before) announceChange(changedDomains(before, after, domains));
+    },
+    {
+      enabled: options.enabled,
+      intervalMs: options.intervalMs ?? 45_000,
+      pauseWhen: () => false,
+      pulse: {
+        domains,
+        live: true,
+        fetchTokens: async (requested, fresh) => {
+          const tokens = await fetchTokens(requested, fresh);
+          latest.current = tokens;
+          if (previous.current === null) previous.current = { ...tokens }; // the first reading is the baseline
+          return tokens;
+        },
+      },
+    },
+  );
+}

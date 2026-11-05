@@ -1,4 +1,5 @@
-import { useAutoRefresh } from './autoRefresh';
+import { useAutoRefresh, useChangeWatcher } from './autoRefresh';
+import { mountLiveChangeBar } from './LiveChangeBar';
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getApp, getApps, initializeApp } from 'firebase/app';
@@ -439,6 +440,13 @@ export function App() {
     intervalMs: 30_000,
     pulse: user ? { domains: ['review'], live: true, fetchTokens: async (domains, fresh) => (await api<{ tokens: Record<string, string> }>(user, `/pulse?domains=${domains.join(',')}${fresh ? '&fresh=1' : ''}`)).tokens } : undefined,
   });
+
+  // Floating "New activity" bar when a new inspection report arrives for review.
+  useChangeWatcher(
+    ['review'],
+    async (domains, fresh) => (await api<{ tokens: Record<string, string> }>(user as User, `/pulse?domains=${domains.join(',')}${fresh ? '&fresh=1' : ''}`)).tokens,
+    { enabled: Boolean(user) },
+  );
 
   const loadNotifications = async (activeUser = user) => {
     if (!activeUser) return;
@@ -1186,3 +1194,4 @@ export function App() {
 }
 
 createRoot(document.getElementById('root')!).render(<App />);
+mountLiveChangeBar({ review: 'Inspection reports awaiting review' });

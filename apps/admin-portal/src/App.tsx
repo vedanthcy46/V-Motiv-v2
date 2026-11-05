@@ -17,7 +17,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { adminApi, ApiError } from './api.js';
-import { useAutoRefresh } from './autoRefresh.js';
+import { announceChange, useAutoRefresh } from './autoRefresh.js';
 import { auth, firebaseConfigured } from './firebase.js';
 import type {
   RentalKmPolicy,
@@ -837,10 +837,16 @@ function NotificationBell({ user }: { user: User }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [items, setItems] = useState<any[]>([]);
   const [notificationError, setNotificationError] = useState('');
+  const lastUnread = useRef<number | null>(null);
 
   const loadNotifs = useCallback(() => {
     adminApi.unreadNotificationsCount(user)
-      .then(res => setUnreadCount(res.count))
+      .then(res => {
+        // A higher unread count than last time means something new arrived: show the floating bar.
+        if (lastUnread.current !== null && res.count > lastUnread.current) announceChange(['notifications']);
+        lastUnread.current = res.count;
+        setUnreadCount(res.count);
+      })
       .catch(error => setNotificationError(errorMessage(error)));
     if (open) {
       adminApi.notifications(user, 1)

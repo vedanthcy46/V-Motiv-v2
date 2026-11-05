@@ -53,7 +53,8 @@ import {
 } from './icons';
 import { ServiceOperationsPanel } from './components/ServiceOperationsPanel';
 import { RentalOperationsPanel } from './components/RentalOperationsPanel';
-import { modalIsOpen, useAutoRefresh } from './autoRefresh';
+import { modalIsOpen, useAutoRefresh, useChangeWatcher } from './autoRefresh';
+import { mountLiveChangeBar, registerViewHandler } from './LiveChangeBar';
 import './styles.css';
 
 type TabKey =
@@ -453,7 +454,14 @@ export const App: FC = () => {
   const [assignLocationType, setAssignLocationType] = useState<'HUB' | 'HOME'>('HUB');
   const [assignAddress, setAssignAddress] = useState('');
 
-  const [docModal, setDocModal] = useState<{ open: boolean; caseId?: string; docType?: string; currentStatus?: string }>({ open: false });
+  const [docModal, setDocModal] = useState<{ open: boolean; caseId?: string; docType?: string; docTypes?: string[]; currentStatus?: string }>({ open: false });
+  // Documents ticked for a bulk status update, per case
+  const [docSelection, setDocSelection] = useState<Record<string, string[]>>({});
+  const toggleDocSelected = (caseId: string, docType: string) =>
+    setDocSelection(prev => {
+      const current = prev[caseId] ?? [];
+      return { ...prev, [caseId]: current.includes(docType) ? current.filter(t => t !== docType) : [...current, docType] };
+    });
   const [docStatus, setDocStatus] = useState('VERIFIED');
   const [docNotes, setDocNotes] = useState('');
 
@@ -606,6 +614,9 @@ export const App: FC = () => {
 
   // Keep the dispatch board, acquisitions and inventory current without a manual refresh.
   useAutoRefresh(() => loadAllData(user, true), { enabled: Boolean(user) && !loading, intervalMs: 30_000, pauseWhen: () => modalIsOpen(), pulse: user ? { domains: ['dispatch'], live: true, fetchTokens: (domains, fresh) => api.pulse(user, domains, fresh) } : undefined });
+  // Floating "New activity" bar for everything customers do that lands in this portal, whichever tab is open.
+  useChangeWatcher(['dispatch', 'rentals', 'service'], (domains, fresh) => api.pulse(user as User, domains, fresh), { enabled: Boolean(user) });
+  useEffect(() => registerViewHandler(domain => { if (domain === 'dispatch' || domain === 'rentals' || domain === 'service') setActiveTab(domain); }), []);
 
   // Removed auto-refresh interval per user request - user manually refreshes via refresh button
 
@@ -653,16 +664,26 @@ export const App: FC = () => {
 
   const handleDocUpdate = async (e: FormEvent) => {
     e.preventDefault();
-    if (!user || !docModal.caseId || !docModal.docType) return;
+    const types = docModal.docTypes ?? (docModal.docType ? [docModal.docType] : []);
+    const caseId = docModal.caseId;
+    if (!user || !caseId || types.length === 0) return;
     setLoading(true);
     setError(null);
     try {
-      await api.updateDocument(user, docModal.caseId, {
-        documentType: docModal.docType,
-        status: docStatus,
-        notes: docNotes || undefined,
-      });
-      setSuccessMsg(`Document ${docModal.docType} updated to ${docStatus}`);
+      // One document at a time, so a failure names exactly which ones were not updated.
+      const failedTypes: string[] = [];
+      const failedLabels: string[] = [];
+      for (const documentType of types) {
+        try {
+          await api.updateDocument(user, caseId, { documentType, status: docStatus, notes: docNotes || undefined });
+        } catch (err) {
+          failedTypes.push(documentType);
+          failedLabels.push(documentType.replace(/_/g, ' ') + (err instanceof ApiError ? ' (' + err.code + ')' : ''));
+        }
+      }
+      if (failedTypes.length > 0) setError('Updated ' + (types.length - failedTypes.length) + ' of ' + types.length + '. Not updated: ' + failedLabels.join(', '));
+      else setSuccessMsg(types.length === 1 ? `Document ${types[0]} updated to ${docStatus}` : `${types.length} documents updated to ${docStatus}`);
+      setDocSelection(prev => ({ ...prev, [caseId]: failedTypes }));
       setDocModal({ open: false });
       await loadAllData();
     } catch (err) {
@@ -2055,10 +2076,39 @@ export const App: FC = () => {
                         </div>
                       </div>
 
+                      {(() => {
+                        const selected = (docSelection[c.id] ?? []).filter(t => displayedDocs.some(d => d.documentType === t));
+                        return selected.length > 0 ? (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', background: 'rgba(245, 158, 11, 0.1)', borderBottom: '1px solid var(--border)' }}>
+                            <strong style={{ fontSize: '0.85rem' }}>{selected.length} selected</strong>
+                            <button
+                              type="button"
+                              className="btn-gold"
+                              style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem' }}
+                              onClick={() => {
+                                setDocModal({ open: true, caseId: c.id, docTypes: selected });
+                                setDocStatus('VERIFIED');
+                                setDocNotes('');
+                              }}
+                            >
+                              Update Status of Selected
+                            </button>
+                            <button type="button" className="btn-secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }} onClick={() => setDocSelection(prev => ({ ...prev, [c.id]: [] }))}>Clear</button>
+                          </div>
+                        ) : null;
+                      })()}
                       <div className="table-responsive">
                         <table>
                           <thead>
                             <tr>
+                              <th style={{ width: '36px' }}>
+                                <input
+                                  type="checkbox"
+                                  aria-label="Select all documents"
+                                  checked={displayedDocs.length > 0 && displayedDocs.every(d => (docSelection[c.id] ?? []).includes(d.documentType))}
+                                  onChange={e => setDocSelection(prev => ({ ...prev, [c.id]: e.target.checked ? displayedDocs.map(d => d.documentType) : [] }))}
+                                />
+                              </th>
                               <th>Document Type</th>
                               <th>Current Status</th>
                               <th>Reviewed At</th>
@@ -2069,6 +2119,14 @@ export const App: FC = () => {
                           <tbody>
                             {displayedDocs.map(doc => (
                               <tr key={doc.id} style={docTypeFilter !== 'ALL' ? { background: 'rgba(255, 255, 255, 0.04)' } : undefined}>
+                                <td>
+                                  <input
+                                    type="checkbox"
+                                    aria-label={`Select ${doc.documentType.replace(/_/g, ' ')}`}
+                                    checked={(docSelection[c.id] ?? []).includes(doc.documentType)}
+                                    onChange={() => toggleDocSelected(c.id, doc.documentType)}
+                                  />
+                                </td>
                                 <td>
                                   <strong>{doc.documentType.replace(/_/g, ' ')}</strong>
                                 </td>
@@ -3210,11 +3268,16 @@ export const App: FC = () => {
         <div className="modal-overlay">
           <div className="modal-dialog modal-dialog-lg">
             <div className="modal-header">
-              <h3>Verify Document: {docModal.docType?.replace(/_/g, ' ')}</h3>
+              <h3>{docModal.docTypes && docModal.docTypes.length > 1 ? `Update ${docModal.docTypes.length} Documents` : `Verify Document: ${(docModal.docTypes?.[0] ?? docModal.docType)?.replace(/_/g, ' ')}`}</h3>
               <button className="btn-close" onClick={() => setDocModal({ open: false })}>✕</button>
             </div>
             <form onSubmit={handleDocUpdate}>
               <div className="modal-body">
+                {docModal.docTypes && docModal.docTypes.length > 1 ? (
+                  <div style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>
+                    Applies to: <strong style={{ color: 'var(--text)' }}>{docModal.docTypes.map(t => t.replace(/_/g, ' ')).join(', ')}</strong>. The same status and notes are recorded on each.
+                  </div>
+                ) : null}
                 <div className="form-group">
                   <label>Document Status</label>
                   <select
@@ -3243,7 +3306,7 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setDocModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading}>Update Document Status</button>
+                <button type="submit" className="btn-gold" disabled={loading}>{docModal.docTypes && docModal.docTypes.length > 1 ? `Update ${docModal.docTypes.length} Documents` : 'Update Document Status'}</button>
               </div>
             </form>
           </div>
@@ -4137,3 +4200,4 @@ export const App: FC = () => {
 };
 
 createRoot(document.getElementById('root')!).render(<App />);
+mountLiveChangeBar({ dispatch: 'Inspections, acquisitions & test drives', rentals: 'Rental bookings & payments', service: 'Service requests & estimates' });

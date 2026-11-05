@@ -1,4 +1,5 @@
-import { modalIsOpen, useAutoRefresh } from './autoRefresh';
+import { modalIsOpen, useAutoRefresh, useChangeWatcher } from './autoRefresh';
+import { mountLiveChangeBar } from './LiveChangeBar';
 import { Component, useEffect, useRef, useState, type FC, type FormEvent, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -303,6 +304,8 @@ function App() {
 
   // Receipts, settlements and reconciliation update on their own; paused while a finance dialog is open.
   useAutoRefresh(() => loadFinanceData(user as User, true), { enabled: Boolean(user && actor), intervalMs: 45_000, pauseWhen: () => modalIsOpen() || activeModal !== null, pulse: user ? { domains: ['finance'], live: true, fetchTokens: (domains, fresh) => financeApi.pulse(user, domains, fresh) } : undefined });
+  // Floating "New activity" bar for new settlements, receipts, refunds and claims.
+  useChangeWatcher(['finance'], (domains, fresh) => financeApi.pulse(user as User, domains, fresh), { enabled: Boolean(user && actor) });
 
   useEffect(() => {
     if (!auth) return;
@@ -4522,6 +4525,7 @@ function IssueInvoiceDialog({
   );
 }
 
+mountLiveChangeBar({ finance: 'Settlements, receipts, refunds & claims' });
 createRoot(document.getElementById('root')!).render(
   <ErrorBoundary>
     <App />

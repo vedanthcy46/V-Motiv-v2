@@ -1656,3 +1656,20 @@ input[type="datetime-local"].input {
   background: rgba(245, 158, 11, 0.9);
 }
 
+
+/* A form wrapped directly around a dialog's header / body / footer must pass the dialog's height limit down,
+   otherwise the body is never bounded: nothing scrolls and the footer buttons are clipped off-screen. */
+.modal-dialog > form {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+.modal-dialog > form > .modal-body {
+  overflow-y: auto;
+  min-height: 0;
+  flex: 1;
+}
+.modal-dialog > form > .modal-footer {
+  flex-shrink: 0;
+}

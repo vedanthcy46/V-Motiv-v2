@@ -1,4 +1,5 @@
-import { useAutoRefresh } from './autoRefresh';
+import { useAutoRefresh, useChangeWatcher } from './autoRefresh';
+import { mountLiveChangeBar } from './LiveChangeBar';
 import { VehicleMakeModel } from './components/VehicleMakeModel';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -559,6 +560,8 @@ function App() {
 
   // Quiet refresh of the current page (pauses when hidden, idle, or a dialog is open).
   useAutoRefresh(() => loadData(user, { silent: true }), { enabled: Boolean(user), intervalMs: 30_000, pulse: user ? { domains: ['sales'], live: true, fetchTokens: (domains, fresh) => salesApi.pulse(user, domains, fresh) } : undefined });
+  // Floating "New activity" bar for new leads, enquiries, test drives and quotations.
+  useChangeWatcher(['sales'], (domains, fresh) => salesApi.pulse(user as User, domains, fresh), { enabled: Boolean(user) });
 
   if (!user) return <SignIn />;
   if (loading) return <div className="auth-screen"><p className="eyebrow">INITIALIZING WORKSPACE…</p></div>;
@@ -5924,3 +5927,4 @@ function CommunicationsView({
 
 // Mount React Root
 createRoot(document.getElementById('root')!).render(<App />);
+mountLiveChangeBar({ sales: 'Leads, enquiries, test drives & quotations' });
