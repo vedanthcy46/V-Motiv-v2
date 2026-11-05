@@ -9,6 +9,25 @@ export function resolveApiBase(env: string | undefined, fallback = 'http://local
   return raw.endsWith('/api/v2') || raw.endsWith('/api/v1') ? raw : `${raw}/api/v2`;
 }
 
+/**
+ * Some browser extensions wrap window.fetch and throw from it. When that happens, retry once with the untouched
+ * fetch of a throw-away iframe so staff are not locked out by an extension.
+ */
+async function cleanFetchOnExtensionBreakage(url: string, init: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch (error) {
+    const broken = error instanceof TypeError && (String(error.message).includes('M_ID') || String(error.stack).includes('200.js'));
+    if (!broken || typeof document === 'undefined') throw error;
+    const frame = document.createElement('iframe');
+    frame.style.display = 'none';
+    document.body.appendChild(frame);
+    const clean = frame.contentWindow?.fetch;
+    if (!clean) { frame.remove(); throw error; }
+    try { return await clean(url, init); } finally { setTimeout(() => frame.remove(), 1000); }
+  }
+}
+
 export class ApiError extends Error {
   constructor(public status: number, public code: string, public details?: unknown) {
     super(code);
@@ -23,6 +42,8 @@ export interface ApiClientOptions {
   /** Added in front of every path (e.g. "/sales"). */
   prefix?: string;
   timeoutMs?: number;
+  /** Surface the server's human-readable `message` instead of its machine `code` when both exist. */
+  preferMessage?: boolean;
 }
 
 export interface RequestOptions extends Omit<RequestInit, 'body'> {
@@ -44,7 +65,7 @@ const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
  *  - every request drives the global progress bar so users see that something is happening.
  */
 export function createApiClient(options: ApiClientOptions) {
-  const { base, getToken, prefix = '', timeoutMs = 20_000 } = options;
+  const { base, getToken, prefix = '', timeoutMs = 20_000, preferMessage = false } = options;
   const inflight = new Map<string, Promise<unknown>>();
 
   async function send<T>(path: string, init: RequestOptions, refreshed: boolean, attempt: number): Promise<T> {
@@ -53,7 +74,7 @@ export function createApiClient(options: ApiClientOptions) {
     const { body, quiet: _quiet, headers, ...rest } = init;
     let response: Response;
     try {
-      response = await fetch(`${base}${prefix}${path}`, {
+      response = await cleanFetchOnExtensionBreakage(`${base}${prefix}${path}`, {
         ...rest,
         method,
         headers: { ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}), Authorization: `Bearer ${token}`, ...headers },
@@ -74,7 +95,8 @@ export function createApiClient(options: ApiClientOptions) {
     }
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as { code?: string; message?: string };
-      throw new ApiError(response.status, payload.code || payload.message || 'REQUEST_FAILED');
+      const code = preferMessage && payload.message && payload.message !== payload.code ? payload.message : payload.code || payload.message || 'REQUEST_FAILED';
+      throw new ApiError(response.status, code);
     }
     if (response.status === 204) return undefined as T;
     const type = response.headers.get('content-type');

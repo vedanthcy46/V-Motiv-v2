@@ -1,6 +1,6 @@
 import React, { useState, useEffect, type FC, type FormEvent } from 'react';
 import { VehicleMakeModel } from './VehicleMakeModel';
-import { modalIsOpen, useAutoRefresh } from '../autoRefresh';
+import { modalIsOpen, useAutoRefresh } from '@vmotiv/ui';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
 import type { Branch, ServiceJobItem, ServiceJobStatus } from '../types';
@@ -793,19 +793,19 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         </div>
         <div className="card-kpi" style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
           <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>In Workshop</span>
-          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: '#38bdf8' }}>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: 'var(--color-info)' }}>
             {jobs.filter(j => ['CHECKED_IN', 'DIAGNOSIS_IN_PROGRESS', 'WORK_IN_PROGRESS', 'QC_PENDING'].includes(j.status)).length}
           </div>
         </div>
         <div className="card-kpi" style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
           <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Pending Approval</span>
-          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: '#f59e0b' }}>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: 'var(--color-warning)' }}>
             {jobs.filter(j => j.status === 'ESTIMATE_PENDING_APPROVAL').length}
           </div>
         </div>
         <div className="card-kpi" style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
           <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Payment Pending</span>
-          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: '#ec4899' }}>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: 'var(--color-error)' }}>
             {jobs.filter(j => j.status === 'PAYMENT_PENDING').length}
           </div>
         </div>
@@ -868,7 +868,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               fontSize: '0.8125rem',
               fontWeight: statusFilter === tab.key ? 700 : 500,
               border: statusFilter === tab.key ? '1px solid var(--accent)' : '1px solid var(--border)',
-              background: statusFilter === tab.key ? 'rgba(247, 181, 3, 0.15)' : 'var(--surface)',
+              background: statusFilter === tab.key ? 'color-mix(in oklab, var(--color-primary) 15%, transparent)' : 'var(--surface)',
               color: statusFilter === tab.key ? 'var(--accent)' : 'var(--muted)',
               cursor: 'pointer',
               whiteSpace: 'nowrap',
@@ -944,10 +944,10 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                             overflow: 'hidden',
                             textOverflow: 'ellipsis',
                             whiteSpace: 'nowrap',
-                            background: 'rgba(247, 181, 3, 0.1)',
+                            background: 'color-mix(in oklab, var(--color-primary) 10%, transparent)',
                             padding: '2px 6px',
                             borderRadius: '4px',
-                            border: '1px solid rgba(247, 181, 3, 0.25)',
+                            border: '1px solid color-mix(in oklab, var(--color-primary) 25%, transparent)',
                           }}
                           title={String(reqText)}
                         >
@@ -971,7 +971,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           <div style={{ fontWeight: 700, color: 'var(--accent)' }}>
                             {formatRupees(est.totalAmountPaise)}
                           </div>
-                          <div style={{ fontSize: '0.68rem', color: est.status === 'APPROVED' ? '#10b981' : declined ? '#ef4444' : '#f59e0b' }}>
+                          <div style={{ fontSize: '0.68rem', color: est.status === 'APPROVED' ? 'var(--color-success)' : declined ? 'var(--color-error)' : 'var(--color-warning)' }}>
                             {est.status === 'APPROVED' ? '✓ APPROVED' : declined ? '✕ DECLINED — negotiate' : est.status.replace(/_/g, ' ')}
                           </div>
                         </div>
@@ -984,16 +984,16 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       const balanceDue = Math.round(Number(job.outstandingBalancePaise || 0) / 100);
                       const pStatus = job.servicePaymentStatus || (balanceDue === 0 && verifiedPaid > 0 ? 'PAID_IN_FULL' : (verifiedPaid > 0 ? 'PARTIALLY_PAID' : 'UNPAID'));
 
-                      let badgeColor = '#ef4444';
-                      let badgeBg = 'rgba(239, 68, 68, 0.15)';
+                      let badgeColor = 'var(--color-error)';
+                      let badgeBg = 'color-mix(in oklab, var(--color-error) 15%, transparent)';
                       let badgeText = 'UNPAID';
                       if (pStatus === 'PAID_IN_FULL' || (balanceDue === 0 && verifiedPaid > 0)) {
-                        badgeColor = '#10b981';
-                        badgeBg = 'rgba(16, 185, 129, 0.15)';
+                        badgeColor = 'var(--color-success)';
+                        badgeBg = 'color-mix(in oklab, var(--color-success) 15%, transparent)';
                         badgeText = 'PAID IN FULL';
                       } else if (pStatus === 'PARTIALLY_PAID' || verifiedPaid > 0) {
-                        badgeColor = '#f59e0b';
-                        badgeBg = 'rgba(245, 158, 11, 0.15)';
+                        badgeColor = 'var(--color-warning)';
+                        badgeBg = 'color-mix(in oklab, var(--color-primary) 15%, transparent)';
                         badgeText = 'PARTIAL';
                       }
 
@@ -1015,14 +1015,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                             {badgeText}
                           </span>
                           <div style={{ fontSize: '0.72rem', color: 'var(--muted)' }}>
-                            Paid: <strong style={{ color: '#10b981' }}>₹{verifiedPaid.toLocaleString('en-IN')}</strong>
+                            Paid: <strong style={{ color: 'var(--color-success)' }}>₹{verifiedPaid.toLocaleString('en-IN')}</strong>
                           </div>
                           {balanceDue > 0 ? (
-                            <div style={{ fontSize: '0.72rem', color: '#ef4444', fontWeight: 600 }}>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--color-error)', fontWeight: 600 }}>
                               Due: ₹{balanceDue.toLocaleString('en-IN')}
                             </div>
                           ) : (
-                            <div style={{ fontSize: '0.72rem', color: '#10b981' }}>
+                            <div style={{ fontSize: '0.72rem', color: 'var(--color-success)' }}>
                               Due: ₹0
                             </div>
                           )}
@@ -1082,18 +1082,18 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               <div style={{
                 margin: '0.85rem 1.25rem 0',
                 padding: '0.85rem 1rem',
-                backgroundColor: 'rgba(239, 68, 68, 0.12)',
-                border: '1px solid rgba(239, 68, 68, 0.35)',
-                borderLeft: '4px solid #ef4444',
+                backgroundColor: 'color-mix(in oklab, var(--color-error) 12%, transparent)',
+                border: '1px solid color-mix(in oklab, var(--color-error) 35%, transparent)',
+                borderLeft: '4px solid var(--color-error)',
                 borderRadius: '6px',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#ef4444', fontWeight: 800, fontSize: '0.9rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-error)', fontWeight: 800, fontSize: '0.9rem' }}>
                     <span>✕</span> SERVICE JOB CANCELLED
                   </div>
                   <span className="badge badge-danger" style={{ fontWeight: 800 }}>LOCKED</span>
                 </div>
-                <p style={{ margin: '4px 0 0', fontSize: '0.825rem', color: '#fca5a5' }}>
+                <p style={{ margin: '4px 0 0', fontSize: '0.825rem', color: 'var(--color-error)' }}>
                   This booking was cancelled.
                   {activeJob.cancellationReason && (
                     <span> Reason: <strong>{activeJob.cancellationReason}</strong></span>
@@ -1107,18 +1107,18 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               <div style={{
                 margin: '0.85rem 1.25rem 0',
                 padding: '0.85rem 1rem',
-                backgroundColor: 'rgba(16, 185, 129, 0.12)',
-                border: '1px solid rgba(16, 185, 129, 0.35)',
-                borderLeft: '4px solid #10b981',
+                backgroundColor: 'color-mix(in oklab, var(--color-success) 12%, transparent)',
+                border: '1px solid color-mix(in oklab, var(--color-success) 35%, transparent)',
+                borderLeft: '4px solid var(--color-success)',
                 borderRadius: '6px',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 800, fontSize: '0.9rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-success)', fontWeight: 800, fontSize: '0.9rem' }}>
                     <span>✅</span> SERVICE COMPLETED, PAID & VEHICLE DELIVERED
                   </div>
                   <span className="badge badge-success" style={{ fontWeight: 800 }}>COMPLETED</span>
                 </div>
-                <p style={{ margin: '4px 0 0', fontSize: '0.825rem', color: '#6ee7b7' }}>
+                <p style={{ margin: '4px 0 0', fontSize: '0.825rem', color: 'var(--color-success)' }}>
                   Vehicle has been successfully handed over to the customer and all payments are fully settled.
                 </p>
               </div>
@@ -1135,7 +1135,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 borderRadius: '6px',
               }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f472b6', fontWeight: 800, fontSize: '0.9rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-error)', fontWeight: 800, fontSize: '0.9rem' }}>
                     <span>💳</span> PAYMENT PENDING — ACTION REQUIRED
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -1146,13 +1146,13 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       type="button"
                       className="btn-primary btn-sm button primary small"
                       onClick={() => setActionTab('payment')}
-                      style={{ background: '#ec4899', borderColor: '#ec4899', color: '#fff', fontWeight: 700, padding: '0.3rem 0.75rem' }}
+                      style={{ background: 'var(--color-error)', borderColor: 'var(--color-error)', color: '#fff', fontWeight: 700, padding: '0.3rem 0.75rem' }}
                     >
                       👉 Collect / Record Payment
                     </button>
                   </div>
                 </div>
-                <p style={{ margin: '4px 0 0', fontSize: '0.825rem', color: '#fbcfe8' }}>
+                <p style={{ margin: '4px 0 0', fontSize: '0.825rem', color: 'var(--muted)' }}>
                   Customer payment must be collected at the counter or verified before concluding final settlement. Use Tab 6 (Billing & Payment) to record.
                 </p>
               </div>
@@ -1205,8 +1205,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 <div>
                   {/* 1. CUSTOMER REQUIREMENTS & REPORTED ISSUES (PROMINENT AT TOP) */}
                   <div style={{
-                    background: 'rgba(247, 181, 3, 0.08)',
-                    border: '1px solid rgba(247, 181, 3, 0.35)',
+                    background: 'color-mix(in oklab, var(--color-primary) 8%, transparent)',
+                    border: '1px solid color-mix(in oklab, var(--color-primary) 35%, transparent)',
                     borderLeft: '4px solid var(--accent)',
                     padding: '1rem',
                     borderRadius: '8px',
@@ -1227,14 +1227,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
 
                     {/* Safety alert if flag is active */}
                     {activeJob.emergencySafetyFlag && (
-                      <div style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem', background: 'rgba(239, 68, 68, 0.15)', border: '1px solid rgba(239, 68, 68, 0.4)', borderRadius: '4px', color: '#ef4444' }}>
+                      <div style={{ marginTop: '0.5rem', padding: '0.5rem 0.75rem', background: 'color-mix(in oklab, var(--color-error) 15%, transparent)', border: '1px solid color-mix(in oklab, var(--color-error) 40%, transparent)', borderRadius: '4px', color: 'var(--color-error)' }}>
                         <strong>⚠️ Critical Safety Warning Logged:</strong> {activeJob.safetyNotes || 'Emergency safety flag reported.'}
                       </div>
                     )}
 
                     {/* Diagnostic Questionnaire Answers */}
                     {activeJob.questionAnswers && typeof activeJob.questionAnswers === 'object' && Object.keys(activeJob.questionAnswers).length > 0 && (
-                      <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed rgba(247, 181, 3, 0.25)' }}>
+                      <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed color-mix(in oklab, var(--color-primary) 25%, transparent)' }}>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.35rem' }}>
                           Diagnostic Questionnaire Responses:
                         </span>
@@ -1253,7 +1253,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
 
                     {/* Customer Photos / Uploaded Media */}
                     {Array.isArray(activeJob.mediaUrls) && activeJob.mediaUrls.length > 0 && (
-                      <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed rgba(247, 181, 3, 0.25)' }}>
+                      <div style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px dashed color-mix(in oklab, var(--color-primary) 25%, transparent)' }}>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase', display: 'block', marginBottom: '0.35rem' }}>
                           Customer Attachments / Photos ({activeJob.mediaUrls.length}):
                         </span>
@@ -1333,7 +1333,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       )}
                     </div>
                     {activeJob.paymentPlanSnapshot && (
-                      <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem', background: 'rgba(247, 181, 3, 0.1)', border: '1px solid rgba(247, 181, 3, 0.25)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                      <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem', background: 'color-mix(in oklab, var(--color-primary) 10%, transparent)', border: '1px solid color-mix(in oklab, var(--color-primary) 25%, transparent)', borderRadius: '6px', fontSize: '0.8rem' }}>
                         Selected Booking Plan: <strong style={{ color: 'var(--accent)' }}>{(activeJob.paymentPlanSnapshot as any).title || (activeJob.paymentPlanSnapshot as any).planId}</strong>
                         {(activeJob.paymentPlanSnapshot as any).percentage ? ` (${(activeJob.paymentPlanSnapshot as any).percentage}% Advance)` : ''}
                       </div>
@@ -1347,13 +1347,13 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       </div>
                       <div>
                         <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Total Paid</span>
-                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: '#10b981' }}>
+                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--color-success)' }}>
                           ₹{activeTotalPaidRupees.toLocaleString('en-IN')}
                         </div>
                       </div>
                       <div>
                         <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Balance Due</span>
-                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: activeBalanceDueRupees > 0 ? '#ef4444' : 'var(--muted)' }}>
+                        <div style={{ fontSize: '1.15rem', fontWeight: 800, color: activeBalanceDueRupees > 0 ? 'var(--color-error)' : 'var(--muted)' }}>
                           ₹{activeBalanceDueRupees.toLocaleString('en-IN')}
                         </div>
                       </div>
@@ -1383,14 +1383,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     </div>
 
                     {!(activeJob.payments && activeJob.payments.length > 0) ? (
-                      <div style={{ padding: '1rem', textAlign: 'center', background: 'rgba(255, 255, 255, 0.02)', borderRadius: '4px', color: 'var(--muted)', fontSize: '0.8125rem' }}>
+                      <div style={{ padding: '1rem', textAlign: 'center', background: 'color-mix(in oklab, var(--color-base-content) 2%, transparent)', borderRadius: '4px', color: 'var(--muted)', fontSize: '0.8125rem' }}>
                         No payment transactions recorded for this service request yet.
                       </div>
                     ) : (
                       <div style={{ background: 'var(--surface)', borderRadius: '6px', overflow: 'hidden' }}>
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                           <thead>
-                            <tr style={{ background: 'rgba(255, 255, 255, 0.04)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                            <tr style={{ background: 'color-mix(in oklab, var(--color-base-content) 4%, transparent)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
                               <th style={{ padding: '0.5rem 0.75rem' }}>DATE</th>
                               <th style={{ padding: '0.5rem 0.75rem' }}>TYPE</th>
                               <th style={{ padding: '0.5rem 0.75rem' }}>AMOUNT</th>
@@ -1401,7 +1401,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           </thead>
                           <tbody>
                             {activeJob.payments.map((p, idx) => (
-                              <tr key={p.id || idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                              <tr key={p.id || idx} style={{ borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 5%, transparent)' }}>
                                 <td style={{ padding: '0.5rem 0.75rem' }}>{formatDate(p.createdAt)}</td>
                                 <td style={{ padding: '0.5rem 0.75rem' }}><span className="code-pill">{p.type}</span></td>
                                 <td style={{ padding: '0.5rem 0.75rem', fontWeight: 800, color: 'var(--text)' }}>
@@ -1447,12 +1447,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: 0, color: '#ef4444' }}>Appointment Locked — Job Cancelled</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-error)' }}>Appointment Locked — Job Cancelled</h4>
                   </div>
                 ) : isJobConcluded ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'color-mix(in oklab, var(--color-success) 8%, transparent)', border: '1px solid var(--color-success)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: 0, color: '#10b981' }}>Appointment Locked — Service Completed</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-success)' }}>Appointment Locked — Service Completed</h4>
                     <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
                       This service is completed, so its record is read-only. 
                     </p>
@@ -1503,12 +1503,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: 0, color: '#ef4444' }}>Dispatch Locked — Job Cancelled</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-error)' }}>Dispatch Locked — Job Cancelled</h4>
                   </div>
                 ) : isJobConcluded ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'color-mix(in oklab, var(--color-success) 8%, transparent)', border: '1px solid var(--color-success)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>✅</div>
-                    <h4 style={{ margin: 0, color: '#10b981' }}>Dispatch & Logistics Completed</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-success)' }}>Dispatch & Logistics Completed</h4>
                     <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
                       Fulfillment type: {activeJob.fulfillmentType === 'PICKUP_AND_RETURN' ? 'Doorstep Pickup & Return' : 'Self Drop at Workshop Hub'}.
                     </p>
@@ -1566,19 +1566,19 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: 0, color: '#ef4444' }}>Intake Locked — Job Cancelled</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-error)' }}>Intake Locked — Job Cancelled</h4>
                   </div>
                 ) : isJobConcluded && !activeJob.custodyRecord ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'color-mix(in oklab, var(--color-success) 8%, transparent)', border: '1px solid var(--color-success)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: 0, color: '#10b981' }}>Intake Locked — Service Completed</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-success)' }}>Intake Locked — Service Completed</h4>
                     <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
                       This service is completed, so its record is read-only. 
                     </p>
                   </div>
                 ) : activeJob.custodyRecord ? (
                   <div style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 700, marginBottom: '0.75rem' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-success)', fontWeight: 700, marginBottom: '0.75rem' }}>
                       <span>✓</span> Vehicle Custody Intake Recorded
                     </div>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', fontSize: '0.875rem' }}>
@@ -1617,7 +1617,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           onChange={e => setIntakeOdometer(e.target.value)}
                           style={{ width: '100%', marginTop: '4px' }}
                         />
-                        <small style={{ color: isBelowRecorded(intakeOdometer, activeJob.vehicle?.odometerKm) ? '#f59e0b' : 'var(--muted)' }}>
+                        <small style={{ color: isBelowRecorded(intakeOdometer, activeJob.vehicle?.odometerKm) ? 'var(--color-warning)' : 'var(--muted)' }}>
                           {isBelowRecorded(intakeOdometer, activeJob.vehicle?.odometerKm)
                             ? `Lower than the ${activeJob.vehicle?.odometerKm?.toLocaleString('en-IN')} km on the vehicle's record - check the reading.`
                             : typeof activeJob.vehicle?.odometerKm === 'number' ? `On the vehicle's record: ${activeJob.vehicle.odometerKm.toLocaleString('en-IN')} km` : 'No reading on the vehicle record yet'}
@@ -1664,10 +1664,10 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: 0, color: '#ef4444' }}>Estimate Locked — Job Cancelled</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-error)' }}>Estimate Locked — Job Cancelled</h4>
                     {activeJob.custodyRecord && (
-                      <div role="alert" style={{ margin: '0.75rem auto 0', maxWidth: 520, textAlign: 'left', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid #f59e0b', borderRadius: 8, padding: '0.6rem 0.8rem', fontSize: '0.85rem' }}>
-                        <strong style={{ color: '#f59e0b' }}>Vehicle return required.</strong> This car was checked in at the workshop before the job was cancelled. Arrange its return and confirm handover with the customer.
+                      <div role="alert" style={{ margin: '0.75rem auto 0', maxWidth: 520, textAlign: 'left', background: 'color-mix(in oklab, var(--color-primary) 12%, transparent)', border: '1px solid var(--color-warning)', borderRadius: 8, padding: '0.6rem 0.8rem', fontSize: '0.85rem' }}>
+                        <strong style={{ color: 'var(--color-warning)' }}>Vehicle return required.</strong> This car was checked in at the workshop before the job was cancelled. Arrange its return and confirm handover with the customer.
                       </div>
                     )}
                     <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
@@ -1676,9 +1676,9 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     </p>
                   </div>
                 ) : isJobConcluded ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'color-mix(in oklab, var(--color-success) 8%, transparent)', border: '1px solid var(--color-success)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: 0, color: '#10b981' }}>Estimate Locked — Service Completed</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-success)' }}>Estimate Locked — Service Completed</h4>
                     <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
                       This service is completed, so its record is read-only. The approved estimate and any deferred items remain in the estimate history above and on the invoice.
                     </p>
@@ -1687,8 +1687,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                   <div>
                     {/* CUSTOMER REQUIREMENTS & REPORTED COMPLAINTS (SHOWN BEFORE/DURING ESTIMATE) */}
                     <div style={{
-                      background: 'rgba(247, 181, 3, 0.08)',
-                      border: '1px solid rgba(247, 181, 3, 0.35)',
+                      background: 'color-mix(in oklab, var(--color-primary) 8%, transparent)',
+                      border: '1px solid color-mix(in oklab, var(--color-primary) 35%, transparent)',
                       borderLeft: '4px solid var(--accent)',
                       padding: '0.85rem 1rem',
                       borderRadius: '8px',
@@ -1706,7 +1706,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         {activeJob.customerSymptoms || activeJob.customerNotes || (activeJob.questionAnswers as any)?.requirements || (activeJob.questionAnswers as any)?.symptoms || 'Walk-in service customer intake.'}
                       </div>
                       {activeJob.emergencySafetyFlag && (
-                        <div style={{ marginTop: '0.4rem', color: '#ef4444', fontSize: '0.8rem', fontWeight: 700 }}>
+                        <div style={{ marginTop: '0.4rem', color: 'var(--color-error)', fontSize: '0.8rem', fontWeight: 700 }}>
                           ⚠️ Critical Safety Warning: {activeJob.safetyNotes || 'Emergency safety flag reported.'}
                         </div>
                       )}
@@ -1714,8 +1714,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
 
                     {/* NEGOTIATION: customer declined the latest estimate */}
                     {activeJob.estimates?.[0]?.status === 'DECLINED' && !reviseMode && (
-                      <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid rgba(239, 68, 68, 0.45)', borderLeft: '4px solid #ef4444', padding: '0.9rem 1rem', borderRadius: '8px', marginBottom: '1.25rem' }}>
-                        <div style={{ fontWeight: 800, color: '#ef4444', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                      <div style={{ background: 'color-mix(in oklab, var(--color-error) 8%, transparent)', border: '1px solid color-mix(in oklab, var(--color-error) 45%, transparent)', borderLeft: '4px solid var(--color-error)', padding: '0.9rem 1rem', borderRadius: '8px', marginBottom: '1.25rem' }}>
+                        <div style={{ fontWeight: 800, color: 'var(--color-error)', fontSize: '0.85rem', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
                           Customer declined estimate v{(activeJob.estimates[0] as any).version ?? ''}
                         </div>
                         <div style={{ fontSize: '0.9rem', marginTop: '0.35rem' }}>
@@ -1731,7 +1731,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           <button type="button" className="btn-secondary button secondary" disabled={actionBusy} onClick={() => handleApproveEstimateInPerson(activeJob.estimates![0].id, true)}>
                             ✓ Customer Agreed (Record Approval)
                           </button>
-                          <button type="button" className="button secondary" style={{ color: '#ef4444', borderColor: '#ef4444' }} disabled={actionBusy} onClick={() => setCancelPromptOpen(true)}>
+                          <button type="button" className="button secondary" style={{ color: 'var(--color-error)', borderColor: 'var(--color-error)' }} disabled={actionBusy} onClick={() => setCancelPromptOpen(true)}>
                             ✕ Cancel Service
                           </button>
                         </div>
@@ -1745,7 +1745,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         {activeJob.estimates!.map((e: any) => (
                           <div key={e.id} style={{ display: 'flex', justifyContent: 'space-between', gap: '0.75rem', padding: '3px 0', borderBottom: '1px solid var(--border)' }}>
                             <span>v{e.version ?? '?'} · {formatRupees(e.totalAmountPaise)}</span>
-                            <span style={{ color: e.status === 'APPROVED' ? '#10b981' : e.status === 'DECLINED' ? '#ef4444' : 'var(--muted)' }}>
+                            <span style={{ color: e.status === 'APPROVED' ? 'var(--color-success)' : e.status === 'DECLINED' ? 'var(--color-error)' : 'var(--muted)' }}>
                               {String(e.status).replace(/_/g, ' ')}{e.responseNotes ? ` — ${e.responseNotes}` : ''}
                             </span>
                           </div>
@@ -1804,12 +1804,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           </thead>
                           <tbody>
                             {((activeJob.estimates[0] as any).items || []).map((item: any, idx: number) => (
-                              <tr key={idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                              <tr key={idx} style={{ borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 5%, transparent)' }}>
                                 <td style={{ padding: '6px 8px' }}><span className="code-pill">{item.category || item.itemType}</span></td>
                                 <td style={{ padding: '6px 8px' }}>{item.description}</td>
                                 <td style={{ padding: '6px 8px', textAlign: 'center' }}>{item.quantity}</td>
                                 <td style={{ padding: '6px 8px', textAlign: 'right' }}>{formatRupees(item.unitPricePaise || item.unitRatePaise)}</td>
-                                <td style={{ padding: '6px 8px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: item.isApprovedByCustomer === false && activeJob.estimates![0].status === 'APPROVED' ? '#ef4444' : item.isMandatory === false ? '#f59e0b' : 'var(--muted)' }}>
+                                <td style={{ padding: '6px 8px', textAlign: 'center', fontSize: '0.72rem', fontWeight: 700, color: item.isApprovedByCustomer === false && activeJob.estimates![0].status === 'APPROVED' ? 'var(--color-error)' : item.isMandatory === false ? 'var(--color-warning)' : 'var(--muted)' }}>
                                   {item.isApprovedByCustomer === false && activeJob.estimates![0].status === 'APPROVED'
                                     ? 'DEFERRED BY CUSTOMER'
                                     : item.isMandatory === false ? 'RECOMMENDED' : 'REQUIRED'}
@@ -1907,7 +1907,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                               type="button"
                               className="icon-button"
                               onClick={() => setEstimateLines(prev => prev.filter((_, i) => i !== idx))}
-                              style={{ color: '#ef4444' }}
+                              style={{ color: 'var(--color-error)' }}
                             >
                               ✕
                             </button>
@@ -1937,12 +1937,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: 0, color: '#ef4444' }}>QC Locked — Job Cancelled</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-error)' }}>QC Locked — Job Cancelled</h4>
                   </div>
                 ) : isJobConcluded ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'color-mix(in oklab, var(--color-success) 8%, transparent)', border: '1px solid var(--color-success)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>✅</div>
-                    <h4 style={{ margin: 0, color: '#10b981' }}>Quality Control Certified & Passed</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-success)' }}>Quality Control Certified & Passed</h4>
                     <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
                       QC road test and multi-point inspection verified before vehicle departure.
                     </p>
@@ -1960,7 +1960,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           checked={qcPassed}
                           onChange={() => setQcPassed(true)}
                         />
-                        <span style={{ color: '#10b981' }}>✓ Quality Control PASSED</span>
+                        <span style={{ color: 'var(--color-success)' }}>✓ Quality Control PASSED</span>
                       </label>
                       <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 600 }}>
                         <input
@@ -1969,7 +1969,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           checked={!qcPassed}
                           onChange={() => setQcPassed(false)}
                         />
-                        <span style={{ color: '#ef4444' }}>✕ Rework Required</span>
+                        <span style={{ color: 'var(--color-error)' }}>✕ Rework Required</span>
                       </label>
                     </div>
 
@@ -2000,7 +2000,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: 0, color: '#ef4444' }}>Payment Processing Locked — Job Cancelled</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-error)' }}>Payment Processing Locked — Job Cancelled</h4>
                   </div>
                 ) : (
                   <div>
@@ -2014,13 +2014,13 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       </div>
                       <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px' }}>
                         <span style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700 }}>Total Collected</span>
-                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: '#10b981', marginTop: '2px' }}>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: 'var(--color-success)', marginTop: '2px' }}>
                           ₹{activeTotalPaidRupees.toLocaleString('en-IN')}
                         </div>
                       </div>
                       <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px' }}>
                         <span style={{ fontSize: '0.75rem', color: 'var(--muted)', textTransform: 'uppercase', fontWeight: 700 }}>Balance Due</span>
-                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: activeBalanceDueRupees > 0 ? '#ef4444' : '#10b981', marginTop: '2px' }}>
+                        <div style={{ fontSize: '1.5rem', fontWeight: 800, color: activeBalanceDueRupees > 0 ? 'var(--color-error)' : 'var(--color-success)', marginTop: '2px' }}>
                           ₹{activeBalanceDueRupees.toLocaleString('en-IN')}
                         </div>
                       </div>
@@ -2068,7 +2068,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                             </div>
                             <div>
                               <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Prepayment Credits:</span>
-                              <div style={{ fontWeight: 700, color: '#10b981' }}>-₹{(Math.round(Number(activeJob.invoices[0].priorPaymentsCreditedPaise) / 100) + Math.round(Number(activeJob.invoices[0].diagnosticFeeCreditPaise) / 100)).toLocaleString('en-IN')}</div>
+                              <div style={{ fontWeight: 700, color: 'var(--color-success)' }}>-₹{(Math.round(Number(activeJob.invoices[0].priorPaymentsCreditedPaise) / 100) + Math.round(Number(activeJob.invoices[0].diagnosticFeeCreditPaise) / 100)).toLocaleString('en-IN')}</div>
                             </div>
                             <div>
                               <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Net Invoice Total:</span>
@@ -2076,7 +2076,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                             </div>
                             <div>
                               <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Outstanding Balance:</span>
-                              <div style={{ fontWeight: 800, color: Number(activeJob.invoices[0].outstandingPaise) > 0 ? '#ef4444' : '#10b981' }}>
+                              <div style={{ fontWeight: 800, color: Number(activeJob.invoices[0].outstandingPaise) > 0 ? 'var(--color-error)' : 'var(--color-success)' }}>
                                 ₹{Math.round(Number(activeJob.invoices[0].outstandingPaise) / 100).toLocaleString('en-IN')}
                               </div>
                             </div>
@@ -2108,7 +2108,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         <div style={{ background: 'var(--surface-secondary)', borderRadius: '6px', overflow: 'hidden' }}>
                           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                             <thead>
-                              <tr style={{ background: 'rgba(255, 255, 255, 0.04)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
+                              <tr style={{ background: 'color-mix(in oklab, var(--color-base-content) 4%, transparent)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
                                 <th style={{ padding: '0.6rem 0.75rem' }}>DATE & TIME</th>
                                 <th style={{ padding: '0.6rem 0.75rem' }}>TYPE</th>
                                 <th style={{ padding: '0.6rem 0.75rem' }}>AMOUNT</th>
@@ -2119,7 +2119,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                             </thead>
                             <tbody>
                               {activeJob.payments.map((p, idx) => (
-                                <tr key={p.id || idx} style={{ borderBottom: '1px solid rgba(255, 255, 255, 0.05)' }}>
+                                <tr key={p.id || idx} style={{ borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 5%, transparent)' }}>
                                   <td style={{ padding: '0.6rem 0.75rem' }}>{formatDate(p.createdAt)}</td>
                                   <td style={{ padding: '0.6rem 0.75rem' }}><span className="code-pill">{p.type}</span></td>
                                   <td style={{ padding: '0.6rem 0.75rem', fontWeight: 800, color: 'var(--text)' }}>
@@ -2146,7 +2146,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
 
                     {/* RECORD NEW PAYMENT FORM */}
                     {!isJobConcluded ? (
-                      <form onSubmit={handlePaymentSubmit} style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px solid rgba(247, 181, 3, 0.25)' }}>
+                      <form onSubmit={handlePaymentSubmit} style={{ padding: '1.25rem', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px solid color-mix(in oklab, var(--color-primary) 25%, transparent)' }}>
                         <h4 style={{ margin: '0 0 0.5rem', color: 'var(--accent)' }}>Record Payment Transaction</h4>
                         <p style={{ fontSize: '0.875rem', color: 'var(--muted)', margin: '0 0 1rem' }}>
                           Record counter customer payment received via UPI QR, card terminal POS, cash, or bank transfer.
@@ -2210,7 +2210,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         </div>
                       </form>
                     ) : (
-                      <div style={{ padding: '1rem', background: 'rgba(16, 185, 129, 0.1)', border: '1px solid #10b981', borderRadius: '8px', color: '#10b981', fontWeight: 600, textAlign: 'center' }}>
+                      <div style={{ padding: '1rem', background: 'color-mix(in oklab, var(--color-success) 10%, transparent)', border: '1px solid var(--color-success)', borderRadius: '8px', color: 'var(--color-success)', fontWeight: 600, textAlign: 'center' }}>
                         ✓ Total invoice amount is fully settled. No balance remaining.
                       </div>
                     )}
@@ -2223,12 +2223,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
-                    <h4 style={{ margin: 0, color: '#ef4444' }}>Vehicle Release Locked — Job Cancelled</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-error)' }}>Vehicle Release Locked — Job Cancelled</h4>
                   </div>
                 ) : isJobConcluded ? (
-                  <div style={{ padding: '2rem', textAlign: 'center', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px' }}>
+                  <div style={{ padding: '2rem', textAlign: 'center', background: 'color-mix(in oklab, var(--color-success) 8%, transparent)', border: '1px solid var(--color-success)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2.5rem', marginBottom: '0.5rem' }}>✅</div>
-                    <h4 style={{ margin: 0, color: '#10b981' }}>Vehicle Handover Concluded & Closed</h4>
+                    <h4 style={{ margin: 0, color: 'var(--color-success)' }}>Vehicle Handover Concluded & Closed</h4>
                     <p style={{ margin: '8px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
                       Vehicle has been physically released to customer and all service balances are settled in full.
                     </p>
@@ -2258,28 +2258,28 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                                 <span style={{ fontSize: '1.1rem' }}>{gateQc ? '✅' : '❌'}</span>
                                 <div>
                                   <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>1. QC Inspection</div>
-                                  <div style={{ fontSize: '0.7rem', color: gateQc ? '#10b981' : '#ef4444' }}>{gateQc ? 'Passed' : 'Pending QC Sign-off'}</div>
+                                  <div style={{ fontSize: '0.7rem', color: gateQc ? 'var(--color-success)' : 'var(--color-error)' }}>{gateQc ? 'Passed' : 'Pending QC Sign-off'}</div>
                                 </div>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem', background: 'var(--surface)', borderRadius: '6px' }}>
                                 <span style={{ fontSize: '1.1rem' }}>{gateEstimate ? '✅' : '❌'}</span>
                                 <div>
                                   <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>2. Customer Estimate</div>
-                                  <div style={{ fontSize: '0.7rem', color: gateEstimate ? '#10b981' : '#ef4444' }}>{gateEstimate ? 'Approved' : 'Pending Approval'}</div>
+                                  <div style={{ fontSize: '0.7rem', color: gateEstimate ? 'var(--color-success)' : 'var(--color-error)' }}>{gateEstimate ? 'Approved' : 'Pending Approval'}</div>
                                 </div>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem', background: 'var(--surface)', borderRadius: '6px' }}>
                                 <span style={{ fontSize: '1.1rem' }}>{gateInvoice ? '✅' : '❌'}</span>
                                 <div>
                                   <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>3. Tax Invoice</div>
-                                  <div style={{ fontSize: '0.7rem', color: gateInvoice ? '#10b981' : '#ef4444' }}>{gateInvoice ? 'Issued (GST 18%)' : 'Invoice Not Issued'}</div>
+                                  <div style={{ fontSize: '0.7rem', color: gateInvoice ? 'var(--color-success)' : 'var(--color-error)' }}>{gateInvoice ? 'Issued (GST 18%)' : 'Invoice Not Issued'}</div>
                                 </div>
                               </div>
                               <div style={{ display: 'flex', alignItems: 'center', gap: '8px', padding: '0.5rem', background: 'var(--surface)', borderRadius: '6px' }}>
                                 <span style={{ fontSize: '1.1rem' }}>{gateSettled ? '✅' : '❌'}</span>
                                 <div>
                                   <div style={{ fontWeight: 600, fontSize: '0.8rem' }}>4. Payment Settled</div>
-                                  <div style={{ fontSize: '0.7rem', color: gateSettled ? '#10b981' : '#ef4444' }}>
+                                  <div style={{ fontSize: '0.7rem', color: gateSettled ? 'var(--color-success)' : 'var(--color-error)' }}>
                                     {gateSettled ? 'Fully Settled (₹0 Due)' : `Pending ₹${activeBalanceDueRupees.toLocaleString('en-IN')}`}
                                   </div>
                                 </div>
@@ -2288,7 +2288,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           </div>
 
                           {isBlocked && (
-                            <div style={{ padding: '0.85rem 1rem', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid #ef4444', borderRadius: '8px', marginBottom: '1rem', color: '#ef4444' }}>
+                            <div style={{ padding: '0.85rem 1rem', background: 'color-mix(in oklab, var(--color-error) 12%, transparent)', border: '1px solid var(--color-error)', borderRadius: '8px', marginBottom: '1rem', color: 'var(--color-error)' }}>
                               <div style={{ fontWeight: 800, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 ⚠️ VEHICLE HANDOVER STRICTLY BLOCKED — ACTION REQUIRED
                               </div>
@@ -2318,7 +2318,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                                 onChange={e => setReturnOdometer(e.target.value)}
                                 style={{ width: '100%', marginTop: '4px' }}
                               />
-                              <small style={{ color: isBelowRecorded(returnOdometer, activeJob.custodyRecord?.odometerKm) ? '#ef4444' : 'var(--muted)' }}>
+                              <small style={{ color: isBelowRecorded(returnOdometer, activeJob.custodyRecord?.odometerKm) ? 'var(--color-error)' : 'var(--muted)' }}>
                                 {isBelowRecorded(returnOdometer, activeJob.custodyRecord?.odometerKm)
                                   ? `Lower than the ${activeJob.custodyRecord?.odometerKm.toLocaleString('en-IN')} km the car arrived with - it cannot be released with that.`
                                   : activeJob.custodyRecord ? `Checked in at ${activeJob.custodyRecord.odometerKm.toLocaleString('en-IN')} km` : 'No check-in reading recorded'}
@@ -2756,7 +2756,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         <div className="modal-overlay" style={{ zIndex: 1100 }}>
           <div className="modal-dialog" style={{ maxWidth: '450px', width: '90%' }}>
             <div className="modal-header">
-              <h3 style={{ margin: 0, color: '#ef4444' }}>Cancel Service Job</h3>
+              <h3 style={{ margin: 0, color: 'var(--color-error)' }}>Cancel Service Job</h3>
               <button type="button" className="icon-button" onClick={() => setCancelPromptOpen(false)}>
                 <IconCross />
               </button>

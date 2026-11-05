@@ -1,6 +1,6 @@
 import React, { useState, useEffect, type FC, type FormEvent } from 'react';
 import { VehicleMakeModel } from './VehicleMakeModel';
-import { modalIsOpen, useAutoRefresh } from '../autoRefresh';
+import { modalIsOpen, useAutoRefresh } from '@vmotiv/ui';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
 import { CURRENT_YEAR } from '../calendar';
@@ -1275,7 +1275,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
           <button
             type="button"
             className="button secondary"
-            style={{ background: '#059669', color: '#ffffff', borderColor: '#059669', fontWeight: 700 }}
+            style={{ background: 'var(--color-success)', color: 'var(--color-success-content)', borderColor: 'var(--color-success)', fontWeight: 700 }}
             onClick={() => {
               const avail = fleet.find(v => v.status === 'AVAILABLE');
               if (avail) setWalkInVehicleId(avail.id);
@@ -1304,13 +1304,13 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         </div>
         <div className="card-kpi" style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
           <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Driver KYC Pending</span>
-          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: 'var(--warning, #f59e0b)' }}>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: 'var(--warning, var(--color-warning))' }}>
             {bookings.filter(b => b.kycStatus === 'PENDING_REVIEW').length}
           </div>
         </div>
         <div className="card-kpi" style={{ background: 'var(--surface)', padding: '1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
           <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Upcoming Bookings</span>
-          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: 'var(--success, #10b981)' }}>
+          <div style={{ fontSize: '1.75rem', fontWeight: 800, marginTop: '4px', color: 'var(--success, var(--color-success))' }}>
             {bookings.filter(b => b.status === 'CONFIRMED').length}
           </div>
         </div>
@@ -1461,7 +1461,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                 width: '52px',
                                 height: '38px',
                                 borderRadius: '4px',
-                                background: 'rgba(255, 255, 255, 0.05)',
+                                background: 'color-mix(in oklab, var(--color-base-content) 5%, transparent)',
                                 border: '1px solid var(--border)',
                                 display: 'flex',
                                 alignItems: 'center',
@@ -1486,7 +1486,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             {(() => {
                               const note = complianceNote(veh);
                               return note ? (
-                                <small style={{ display: 'block', color: note.tone === 'danger' ? '#ef4444' : '#f59e0b', fontWeight: 600 }} title="Compliance documents are optional, but a missing or expired document is shown here so it can be added or renewed.">
+                                <small style={{ display: 'block', color: note.tone === 'danger' ? 'var(--color-error)' : 'var(--color-warning)', fontWeight: 600 }} title="Compliance documents are optional, but a missing or expired document is shown here so it can be added or renewed.">
                                   {note.text}
                                 </small>
                               ) : null;
@@ -1502,7 +1502,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         <div>{veh.transmission} · {veh.fuelType}</div>
                         <small style={{ color: 'var(--muted)' }}>{veh.seats} Seats · {includedKm} km/day · ₹{Math.round(Number(veh.extraKmRatePaise || 0) / 100)}/extra km</small>
                         {veh.kmPolicySource?.includedKm === 'HUB' || veh.kmPolicySource?.extraKmRate === 'HUB' ? (
-                          <small style={{ display: 'block', color: '#34d399', fontSize: '0.65rem' }} title="Set by an administrator for this hub in the Admin portal">Hub policy</small>
+                          <small style={{ display: 'block', color: 'var(--color-success)', fontSize: '0.65rem' }} title="Set by an administrator for this hub in the Admin portal">Hub policy</small>
                         ) : null}
                       </td>
                       <td className="money" style={{ color: 'var(--accent)', fontWeight: 700 }}>
@@ -1568,7 +1568,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           )}
                           {veh.activeBlock && (
                             <div style={{ marginTop: '2px' }}>
-                              <span style={{ fontSize: '0.6875rem', color: '#fbbf24', fontWeight: 700 }}>
+                              <span style={{ fontSize: '0.6875rem', color: 'var(--color-warning)', fontWeight: 700 }}>
                                 {veh.activeBlock.reason.replace(/_/g, ' ')}
                               </span>
                               <div style={{ fontSize: '0.65rem', color: 'var(--muted)' }}>
@@ -1593,7 +1593,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             <span className="badge badge-success" style={{ gap: 4 }}>
                               <span>✓</span> Published
                             </span>
-                            <small style={{ display: 'block', fontSize: '0.6875rem', color: '#34d399', marginTop: 2 }}>
+                            <small style={{ display: 'block', fontSize: '0.6875rem', color: 'var(--color-success)', marginTop: 2 }}>
                               Live on App & Web
                             </small>
                           </div>
@@ -1615,7 +1615,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             <button
                               type="button"
                               className="btn-sm btn-primary button primary small"
-                              style={{ background: '#10b981', color: '#061a38', borderColor: '#10b981', fontWeight: 700 }}
+                              style={{ background: 'var(--color-success)', color: 'var(--color-base-100)', borderColor: 'var(--color-success)', fontWeight: 700 }}
                               disabled={actionBusy}
                               onClick={() => void handleReleaseFromMaintenance(veh)}
                               title="End maintenance and restore vehicle to AVAILABLE immediately"
@@ -1701,31 +1701,31 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
           >
             <div className="card-kpi" style={{ background: 'var(--surface)', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
               <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Partially Paid</span>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: '#f59e0b' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: 'var(--color-warning)' }}>
                 {paymentDashboard?.partiallyPaidCount ?? bookings.filter(b => b.rentalPaymentStatus === 'PARTIALLY_PAID').length}
               </div>
             </div>
             <div className="card-kpi" style={{ background: 'var(--surface)', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
               <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Paid In Full</span>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: '#10b981' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: 'var(--color-success)' }}>
                 {paymentDashboard?.fullyPaidCount ?? bookings.filter(b => b.rentalPaymentStatus === 'PAID_IN_FULL').length}
               </div>
             </div>
             <div className="card-kpi" style={{ background: 'var(--surface)', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
               <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Overdue Payments</span>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: '#ef4444' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: 'var(--color-error)' }}>
                 {paymentDashboard?.overdueCount ?? bookings.filter(b => b.rentalPaymentStatus === 'OVERDUE' || (b.balanceDueAt && new Date(b.balanceDueAt).getTime() < Date.now() && Number(b.outstandingBalancePaise || 0) > 0)).length}
               </div>
             </div>
             <div className="card-kpi" style={{ background: 'var(--surface)', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
               <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Pickups Blocked</span>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: '#ef4444' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: 'var(--color-error)' }}>
                 {paymentDashboard?.blockedPickupsCount ?? bookings.filter(b => b.status === 'CONFIRMED' && (Number(b.outstandingBalancePaise || 0) > 0 || b.kycStatus !== 'VERIFIED')).length}
               </div>
             </div>
             <div className="card-kpi" style={{ background: 'var(--surface)', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid var(--border)' }}>
               <span style={{ fontSize: '0.7rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Pending Reconciliation</span>
-              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: 'var(--accent, #3b82f6)' }}>
+              <div style={{ fontSize: '1.5rem', fontWeight: 800, marginTop: '2px', color: 'var(--accent, var(--color-info))' }}>
                 {paymentDashboard?.reconciliationPendingCount ?? bookings.filter(b => (b.status === 'RETURN_INSPECTED' || b.status === 'SETTLED') && b.depositStatus === 'REFUND_QUEUED').length}
               </div>
             </div>
@@ -1812,8 +1812,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </td>
                         <td className="money">
                           <div><strong>{formatRupees(b.totalPayablePaise)}</strong></div>
-                          <div style={{ fontSize: '0.72rem', color: '#10b981' }}>Paid: {formatRupees(verifiedPaid)}</div>
-                          <div style={{ fontSize: '0.72rem', color: outstanding > 0 ? '#ef4444' : 'var(--muted)' }}>
+                          <div style={{ fontSize: '0.72rem', color: 'var(--color-success)' }}>Paid: {formatRupees(verifiedPaid)}</div>
+                          <div style={{ fontSize: '0.72rem', color: outstanding > 0 ? 'var(--color-error)' : 'var(--muted)' }}>
                             Bal: {formatRupees(outstanding)}
                           </div>
                         </td>
@@ -1854,7 +1854,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             {isPickupReady ? '✓ READY' : '⊘ BLOCKED'}
                           </span>
                           {!isPickupReady && reasons.length > 0 && (
-                            <div style={{ fontSize: '0.68rem', color: '#ef4444', marginTop: '2px', maxWidth: '120px', whiteSpace: 'normal' }}>
+                            <div style={{ fontSize: '0.68rem', color: 'var(--color-error)', marginTop: '2px', maxWidth: '120px', whiteSpace: 'normal' }}>
                               {reasons[0]}
                             </div>
                           )}
@@ -1912,10 +1912,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               maxHeight: '92vh',
               display: 'flex',
               flexDirection: 'column',
-              background: 'var(--surface, #0f172a)',
+              background: 'var(--surface)',
               borderRadius: '12px',
               border: '1px solid var(--border)',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.75)',
+              boxShadow: '0 25px 50px -12px var(--scrim)',
               overflow: 'hidden',
             }}
           >
@@ -1931,10 +1931,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               }}
             >
               <div>
-                <span className="eyebrow" style={{ color: '#10b981', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                <span className="eyebrow" style={{ color: 'var(--color-success)', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                   ⚡ OFFLINE HUB WALK-IN RENTAL
                 </span>
-                <h3 style={{ margin: '4px 0 0 0', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text, #f8fafc)' }}>
+                <h3 style={{ margin: '4px 0 0 0', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text, var(--color-base-content))' }}>
                   Create On-Road Rental Booking
                 </h3>
               </div>
@@ -2001,7 +2001,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                     const av = walkInAvailability[walkInVehicleId];
                     if (!walkInVehicleId || !av || av.bookable) return null;
                     return (
-                      <div role="alert" style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: '#fbbf24', fontWeight: 600 }}>
+                      <div role="alert" style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: 'var(--color-warning)', fontWeight: 600 }}>
                         {av.label}.{av.availableFrom ? ` Free from ${formatDate(av.availableFrom)}.` : ''} Pick another car or change the dates.
                       </div>
                     );
@@ -2030,12 +2030,12 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 </div>
 
                 {/* 3. MANDATORY DRIVER LICENSE & PHOTO UPLOAD */}
-                <div style={{ border: '1px solid rgba(245, 158, 11, 0.3)', padding: '1rem', borderRadius: '8px', background: 'rgba(245, 158, 11, 0.03)' }}>
+                <div style={{ border: '1px solid color-mix(in oklab, var(--color-primary) 30%, transparent)', padding: '1rem', borderRadius: '8px', background: 'color-mix(in oklab, var(--color-primary) 3%, transparent)' }}>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
                     <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent)', textTransform: 'uppercase' }}>
                       3. Driver License KYC & Mandatory Documents *
                     </span>
-                    <span style={{ fontSize: '0.7rem', color: '#10b981', fontWeight: 700 }}>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--color-success)', fontWeight: 700 }}>
                       Legally Required for On-Road Insurance
                     </span>
                   </div>
@@ -2061,7 +2061,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: (walkInFrontLocal || walkInLicenseFrontUrl) ? '#10b981' : 'var(--text)' }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: (walkInFrontLocal || walkInLicenseFrontUrl) ? 'var(--color-success)' : 'var(--text)' }}>
                           License Front Photo * {(walkInFrontLocal || walkInLicenseFrontUrl) && '✓'}
                         </label>
                         <label
@@ -2085,7 +2085,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         />
                       </div>
                       {(walkInFrontLocal || walkInLicenseFrontUrl) ? (
-                        <div style={{ position: 'relative', marginTop: '4px', border: '1px solid #10b981', borderRadius: '4px', padding: '4px', background: 'rgba(16, 185, 129, 0.05)' }}>
+                        <div style={{ position: 'relative', marginTop: '4px', border: '1px solid var(--color-success)', borderRadius: '4px', padding: '4px', background: 'color-mix(in oklab, var(--color-success) 5%, transparent)' }}>
                           <img
                             src={walkInFrontLocal ? walkInFrontLocal.previewUrl : walkInLicenseFrontUrl}
                             alt="Front preview"
@@ -2098,7 +2098,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               setWalkInFrontLocal(null);
                               setWalkInLicenseFrontUrl('');
                             }}
-                            style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
+                            style={{ position: 'absolute', top: '2px', right: '2px', background: 'color-mix(in oklab, var(--color-error) 90%, transparent)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
                             title="Remove photo"
                           >
                             ✕
@@ -2119,7 +2119,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                     <div>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: (walkInBackLocal || walkInLicenseBackUrl) ? '#10b981' : 'var(--text)' }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600, color: (walkInBackLocal || walkInLicenseBackUrl) ? 'var(--color-success)' : 'var(--text)' }}>
                           License Back Photo * {(walkInBackLocal || walkInLicenseBackUrl) && '✓'}
                         </label>
                         <label
@@ -2143,7 +2143,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         />
                       </div>
                       {(walkInBackLocal || walkInLicenseBackUrl) ? (
-                        <div style={{ position: 'relative', marginTop: '4px', border: '1px solid #10b981', borderRadius: '4px', padding: '4px', background: 'rgba(16, 185, 129, 0.05)' }}>
+                        <div style={{ position: 'relative', marginTop: '4px', border: '1px solid var(--color-success)', borderRadius: '4px', padding: '4px', background: 'color-mix(in oklab, var(--color-success) 5%, transparent)' }}>
                           <img
                             src={walkInBackLocal ? walkInBackLocal.previewUrl : walkInLicenseBackUrl}
                             alt="Back preview"
@@ -2156,7 +2156,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               setWalkInBackLocal(null);
                               setWalkInLicenseBackUrl('');
                             }}
-                            style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
+                            style={{ position: 'absolute', top: '2px', right: '2px', background: 'color-mix(in oklab, var(--color-error) 90%, transparent)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
                             title="Remove photo"
                           >
                             ✕
@@ -2205,7 +2205,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               fontWeight: 700,
                               borderRadius: '4px',
                               background: walkInDays === d ? 'var(--accent)' : 'var(--surface-secondary)',
-                              color: walkInDays === d ? '#061a38' : 'var(--text)',
+                              color: walkInDays === d ? 'var(--color-base-100)' : 'var(--text)',
                               border: '1px solid var(--border)',
                               cursor: 'pointer',
                             }}
@@ -2290,8 +2290,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 </div>
 
                 {/* 6. ON-ROAD IMMEDIATE HANDOVER */}
-                <div style={{ border: '1px solid #10b981', padding: '1rem', borderRadius: '8px', background: 'rgba(16, 185, 129, 0.05)' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', fontWeight: 700, fontSize: '0.9rem', color: '#10b981' }}>
+                <div style={{ border: '1px solid var(--color-success)', padding: '1rem', borderRadius: '8px', background: 'color-mix(in oklab, var(--color-success) 5%, transparent)' }}>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', cursor: 'pointer', fontWeight: 700, fontSize: '0.9rem', color: 'var(--color-success)' }}>
                     <input
                       type="checkbox"
                       checked={walkInImmediateHandover}
@@ -2301,7 +2301,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                     <span>🚗 Immediate On-Road Departure: Release keys and set Trip Active right now</span>
                   </label>
                   {walkInImmediateHandover && (
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(16, 185, 129, 0.2)' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid color-mix(in oklab, var(--color-success) 20%, transparent)' }}>
                       <div>
                         <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Current Odometer (km)</label>
                         <input type="number" className="input" min={fleet.find(v => v.id === walkInVehicleId)?.odometerKm || 0} value={walkInStartOdo} onChange={e => setWalkInStartOdo(Number(e.target.value))} style={{ width: '100%', marginTop: '3px' }} />
@@ -2333,7 +2333,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 <button type="button" className="btn-secondary button secondary" onClick={() => setWalkInModalOpen(false)}>
                   Cancel
                 </button>
-                <button type="submit" className="button primary" style={{ background: '#059669', color: '#fff', borderColor: '#059669', fontWeight: 700 }} disabled={actionBusy || Boolean(walkInAvailability[walkInVehicleId] && !walkInAvailability[walkInVehicleId]!.bookable)}>
+                <button type="submit" className="button primary" style={{ background: 'var(--color-success)', color: '#fff', borderColor: 'var(--color-success)', fontWeight: 700 }} disabled={actionBusy || Boolean(walkInAvailability[walkInVehicleId] && !walkInAvailability[walkInVehicleId]!.bookable)}>
                   {actionBusy ? 'Processing Booking…' : '⚡ Confirm On-Road Rental Booking'}
                 </button>
               </div>
@@ -2355,8 +2355,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               flexDirection: 'column',
               borderRadius: '12px',
               overflow: 'hidden',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.7), 0 0 0 1px rgba(255, 255, 255, 0.12)',
-              background: 'var(--surface, #0f172a)',
+              boxShadow: '0 25px 50px -12px var(--scrim), 0 0 0 1px color-mix(in oklab, var(--color-base-content) 12%, transparent)',
+              background: 'var(--surface)',
             }}
           >
             {/* FIXED STICKY HEADER */}
@@ -2374,10 +2374,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               }}
             >
               <div>
-                <span className="eyebrow" style={{ color: 'var(--accent, #f59e0b)', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                <span className="eyebrow" style={{ color: 'var(--accent, var(--color-warning))', fontSize: '0.75rem', fontWeight: 800, letterSpacing: '0.08em', textTransform: 'uppercase' }}>
                   FLEET ENROLLMENT & SPECIFICATIONS
                 </span>
-                <h3 style={{ margin: '4px 0 0 0', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text, #f8fafc)' }}>
+                <h3 style={{ margin: '4px 0 0 0', fontSize: '1.25rem', fontWeight: 700, color: 'var(--text, var(--color-base-content))' }}>
                   Onboard New Self-Drive Rental Vehicle
                 </h3>
               </div>
@@ -2409,7 +2409,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 {/* PRESET SHORTCUTS BAR */}
                 <div
                   style={{
-                    background: 'rgba(255, 255, 255, 0.03)',
+                    background: 'color-mix(in oklab, var(--color-base-content) 3%, transparent)',
                     border: '1px solid var(--border)',
                     borderRadius: '8px',
                     padding: '0.875rem 1rem',
@@ -2434,9 +2434,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           fontWeight: 600,
                           padding: '0.35rem 0.75rem',
                           borderRadius: '6px',
-                          background: onboardModel.toLowerCase() === MODEL_PRESETS[presetKey]!.model.toLowerCase() ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255, 255, 255, 0.06)',
-                          color: onboardModel.toLowerCase() === MODEL_PRESETS[presetKey]!.model.toLowerCase() ? 'var(--accent, #f59e0b)' : 'var(--text, #e2e8f0)',
-                          border: onboardModel.toLowerCase() === MODEL_PRESETS[presetKey]!.model.toLowerCase() ? '1px solid var(--accent, #f59e0b)' : '1px solid rgba(255, 255, 255, 0.1)',
+                          background: onboardModel.toLowerCase() === MODEL_PRESETS[presetKey]!.model.toLowerCase() ? 'color-mix(in oklab, var(--color-primary) 20%, transparent)' : 'color-mix(in oklab, var(--color-base-content) 6%, transparent)',
+                          color: onboardModel.toLowerCase() === MODEL_PRESETS[presetKey]!.model.toLowerCase() ? 'var(--accent, var(--color-warning))' : 'var(--text, var(--color-base-content))',
+                          border: onboardModel.toLowerCase() === MODEL_PRESETS[presetKey]!.model.toLowerCase() ? '1px solid var(--accent, var(--color-warning))' : '1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent)',
                           cursor: 'pointer',
                           transition: 'all 0.15s ease',
                         }}
@@ -2449,8 +2449,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                 {/* SECTION 1: VEHICLE IDENTITY & CORE ATTRIBUTES */}
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, #f59e0b)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem', borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent)', paddingBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, var(--color-warning))', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                       1. Vehicle Basics & Registration
                     </span>
                   </div>
@@ -2614,8 +2614,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                 {/* SECTION 2: RENTAL PRICING & KM PACKAGES */}
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, #f59e0b)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem', borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent)', paddingBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, var(--color-warning))', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                       2. Rental Rates & Kilometre Packages
                     </span>
                   </div>
@@ -2688,9 +2688,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                 {/* SECTION 3: VEHICLE IMAGES & PHOTO GALLERY */}
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem', borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent)', paddingBottom: '0.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, #f59e0b)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, var(--color-warning))', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                         3. Vehicle Photos & Visuals
                       </span>
                       <span className="badge badge-info" style={{ fontSize: '0.6875rem' }}>
@@ -2759,7 +2759,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       style={{
                         padding: '1.5rem',
                         textAlign: 'center',
-                        background: 'rgba(255, 255, 255, 0.02)',
+                        background: 'color-mix(in oklab, var(--color-base-content) 2%, transparent)',
                         border: '1px dashed var(--border)',
                         borderRadius: '8px',
                         color: 'var(--muted)',
@@ -2774,7 +2774,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         display: 'grid',
                         gridTemplateColumns: 'repeat(auto-fill, minmax(130px, 1fr))',
                         gap: '0.75rem',
-                        background: 'rgba(0, 0, 0, 0.2)',
+                        background: 'var(--scrim)',
                         padding: '0.75rem',
                         borderRadius: '8px',
                         border: '1px solid var(--border)',
@@ -2787,7 +2787,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             position: 'relative',
                             borderRadius: '6px',
                             overflow: 'hidden',
-                            border: idx === 0 ? '2px solid var(--accent, #f59e0b)' : '1px solid var(--border)',
+                            border: idx === 0 ? '2px solid var(--accent, var(--color-warning))' : '1px solid var(--border)',
                             background: '#000',
                             aspectRatio: '4/3',
                             display: 'flex',
@@ -2812,7 +2812,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                 position: 'absolute',
                                 top: '4px',
                                 left: '4px',
-                                background: 'var(--accent, #f59e0b)',
+                                background: 'var(--accent, var(--color-warning))',
                                 color: '#000',
                                 fontSize: '0.625rem',
                                 fontWeight: 800,
@@ -2832,8 +2832,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                 position: 'absolute',
                                 top: '4px',
                                 left: '4px',
-                                background: 'rgba(0, 0, 0, 0.65)',
-                                color: '#f8fafc',
+                                background: 'var(--scrim)',
+                                color: 'var(--color-base-content)',
                                 border: 'none',
                                 fontSize: '0.625rem',
                                 padding: '1px 5px',
@@ -2852,7 +2852,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               position: 'absolute',
                               top: '4px',
                               right: '4px',
-                              background: 'rgba(239, 68, 68, 0.85)',
+                              background: 'color-mix(in oklab, var(--color-error) 85%, transparent)',
                               color: '#ffffff',
                               border: 'none',
                               width: '20px',
@@ -2879,7 +2879,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             position: 'relative',
                             borderRadius: '6px',
                             overflow: 'hidden',
-                            border: '1px dashed #10b981',
+                            border: '1px dashed var(--color-success)',
                             background: '#000',
                             aspectRatio: '4/3',
                             display: 'flex',
@@ -2900,7 +2900,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               position: 'absolute',
                               bottom: '4px',
                               left: '4px',
-                              background: 'rgba(16, 185, 129, 0.9)',
+                              background: 'color-mix(in oklab, var(--color-success) 90%, transparent)',
                               color: '#fff',
                               fontSize: '0.5625rem',
                               fontWeight: 700,
@@ -2921,7 +2921,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               position: 'absolute',
                               top: '4px',
                               right: '4px',
-                              background: 'rgba(239, 68, 68, 0.85)',
+                              background: 'color-mix(in oklab, var(--color-error) 85%, transparent)',
                               color: '#ffffff',
                               border: 'none',
                               width: '20px',
@@ -2945,9 +2945,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                 {/* SECTION 4: VEHICLE FEATURES & AMENITIES */}
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.5rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '0.875rem', borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent)', paddingBottom: '0.5rem' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-                      <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, #f59e0b)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                      <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, var(--color-warning))', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                         4. Vehicle Features & Amenities
                       </span>
                       <span className="badge badge-info" style={{ fontSize: '0.6875rem' }}>
@@ -2972,9 +2972,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             fontWeight: 600,
                             padding: '0.35rem 0.75rem',
                             borderRadius: '999px',
-                            background: isSelected ? 'rgba(245, 158, 11, 0.2)' : 'rgba(255, 255, 255, 0.05)',
-                            color: isSelected ? 'var(--accent, #f59e0b)' : 'var(--muted)',
-                            border: isSelected ? '1px solid var(--accent, #f59e0b)' : '1px solid rgba(255, 255, 255, 0.1)',
+                            background: isSelected ? 'color-mix(in oklab, var(--color-primary) 20%, transparent)' : 'color-mix(in oklab, var(--color-base-content) 5%, transparent)',
+                            color: isSelected ? 'var(--accent, var(--color-warning))' : 'var(--muted)',
+                            border: isSelected ? '1px solid var(--accent, var(--color-warning))' : '1px solid color-mix(in oklab, var(--color-base-content) 10%, transparent)',
                             cursor: 'pointer',
                             display: 'inline-flex',
                             alignItems: 'center',
@@ -3018,8 +3018,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                 {/* SECTION 5: LEGAL & COMMERCIAL COMPLIANCE */}
                 <div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem', borderBottom: '1px solid rgba(255, 255, 255, 0.08)', paddingBottom: '0.5rem' }}>
-                    <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, #f59e0b)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.875rem', borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent)', paddingBottom: '0.5rem' }}>
+                    <span style={{ fontSize: '0.8125rem', fontWeight: 800, color: 'var(--accent, var(--color-warning))', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
                       5. Commercial Compliance & Regulatory Documents <span style={{ fontWeight: 600, textTransform: 'none', letterSpacing: 0, color: 'var(--muted)' }}>(optional - add later if not to hand)</span>
                     </span>
                   </div>
@@ -3101,7 +3101,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   <span>•</span>
                   <span>{onboardReg || 'New Vehicle'}</span>
                   <span>•</span>
-                  <span style={{ color: 'var(--accent, #f59e0b)', fontWeight: 700 }}>
+                  <span style={{ color: 'var(--accent, var(--color-warning))', fontWeight: 700 }}>
                     ₹{onboardDailyRateRupees.toLocaleString('en-IN')}/day
                   </span>
                 </div>
@@ -3239,7 +3239,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   </div>
                 </div>
                 {typeof readingsVehicle.odometerKm === 'number' && parseReading(readingOdometer) !== null && (parseReading(readingOdometer) as number) < readingsVehicle.odometerKm && (
-                  <div style={{ marginTop: '0.75rem', padding: '0.5rem 0.75rem', borderRadius: '6px', background: 'rgba(245, 158, 11, 0.12)', border: '1px solid #f59e0b', fontSize: '0.8125rem' }}>
+                  <div style={{ marginTop: '0.75rem', padding: '0.5rem 0.75rem', borderRadius: '6px', background: 'color-mix(in oklab, var(--color-primary) 12%, transparent)', border: '1px solid var(--color-warning)', fontSize: '0.8125rem' }}>
                     This lowers the odometer from {readingsVehicle.odometerKm.toLocaleString('en-IN')} km. Only do this to fix a wrong entry - the change is recorded with your name and reason.
                   </div>
                 )}
@@ -3290,8 +3290,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               {(historyModalVehicle.status === 'MAINTENANCE' || historyModalVehicle.status === 'CLEANING' || historyModalVehicle.activeBlock) ? (
                 <div style={{
                   padding: '1rem 1.25rem',
-                  background: 'rgba(247, 181, 3, 0.12)',
-                  border: '1px solid rgba(247, 181, 3, 0.45)',
+                  background: 'color-mix(in oklab, var(--color-primary) 12%, transparent)',
+                  border: '1px solid color-mix(in oklab, var(--color-primary) 45%, transparent)',
                   borderRadius: '8px',
                   marginBottom: '1.25rem',
                   display: 'flex',
@@ -3303,7 +3303,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   <div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                       <span className="badge badge-warning">● CURRENTLY IN MAINTENANCE</span>
-                      <strong style={{ fontSize: '1rem', color: '#fbbf24' }}>
+                      <strong style={{ fontSize: '1rem', color: 'var(--color-warning)' }}>
                         {historyModalVehicle.activeBlock?.reason?.replace(/_/g, ' ') || 'Scheduled Service & Maintenance'}
                       </strong>
                     </div>
@@ -3320,7 +3320,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   <button
                     type="button"
                     className="btn-primary btn-gold button primary"
-                    style={{ background: '#10b981', color: '#061a38', borderColor: '#10b981', fontWeight: 700 }}
+                    style={{ background: 'var(--color-success)', color: 'var(--color-base-100)', borderColor: 'var(--color-success)', fontWeight: 700 }}
                     disabled={actionBusy}
                     onClick={() => void handleReleaseFromMaintenance(historyModalVehicle)}
                   >
@@ -3330,8 +3330,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               ) : (
                 <div style={{
                   padding: '0.75rem 1rem',
-                  background: 'rgba(16, 185, 129, 0.1)',
-                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  background: 'color-mix(in oklab, var(--color-success) 10%, transparent)',
+                  border: '1px solid color-mix(in oklab, var(--color-success) 30%, transparent)',
                   borderRadius: '8px',
                   marginBottom: '1.25rem',
                   display: 'flex',
@@ -3424,7 +3424,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                   <button
                                     type="button"
                                     className="btn-sm btn-primary button primary small"
-                                    style={{ fontSize: '0.72rem', background: '#10b981', color: '#061a38', borderColor: '#10b981', fontWeight: 700 }}
+                                    style={{ fontSize: '0.72rem', background: 'var(--color-success)', color: 'var(--color-base-100)', borderColor: 'var(--color-success)', fontWeight: 700 }}
                                     disabled={actionBusy}
                                     onClick={() => void handleReleaseSpecificBlock(historyModalVehicle, block.id)}
                                     title="End this block now and restore vehicle to AVAILABLE"
@@ -3524,8 +3524,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               {bookingDrawerTab === 'overview' && (
                 <div>
                   {activeBooking.status === 'CANCELLED' && (
-                    <div style={{ background: 'rgba(239, 68, 68, 0.1)', border: '1px solid #ef4444', borderRadius: '8px', padding: '1rem', marginBottom: '1.25rem' }}>
-                      <div style={{ fontWeight: 800, color: '#ef4444', fontSize: '0.9rem', marginBottom: '4px' }}>
+                    <div style={{ background: 'color-mix(in oklab, var(--color-error) 10%, transparent)', border: '1px solid var(--color-error)', borderRadius: '8px', padding: '1rem', marginBottom: '1.25rem' }}>
+                      <div style={{ fontWeight: 800, color: 'var(--color-error)', fontSize: '0.9rem', marginBottom: '4px' }}>
                         🚫 THIS RESERVATION IS CANCELLED
                       </div>
                       <div style={{ fontSize: '0.8125rem' }}>
@@ -3540,11 +3540,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   )}
 
                   {(activeBooking.status === 'TRIP_ACTIVE' || activeBooking.status === 'VEHICLE_COLLECTED') && (
-                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px', padding: '0.85rem 1rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
+                    <div style={{ background: 'color-mix(in oklab, var(--color-success) 8%, transparent)', border: '1px solid var(--color-success)', borderRadius: '8px', padding: '0.85rem 1rem', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                         <span style={{ fontSize: '1.2rem' }}>🚗</span>
                         <div>
-                          <strong style={{ color: '#10b981', fontSize: '0.875rem', display: 'block' }}>
+                          <strong style={{ color: 'var(--color-success)', fontSize: '0.875rem', display: 'block' }}>
                             Vehicle Dispatched — Trip Active On Road
                           </strong>
                           <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
@@ -3595,11 +3595,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       </div>
                       <div style={{ background: 'var(--surface-secondary)', padding: '0.6rem 0.75rem', borderRadius: '6px' }}>
                         <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block' }}>VERIFIED PAID</span>
-                        <strong style={{ fontSize: '1rem', color: '#10b981' }}>{formatRupees(activePaymentSummary?.verifiedPaidPaise || activeBooking.verifiedPaidPaise || 0)}</strong>
+                        <strong style={{ fontSize: '1rem', color: 'var(--color-success)' }}>{formatRupees(activePaymentSummary?.verifiedPaidPaise || activeBooking.verifiedPaidPaise || 0)}</strong>
                       </div>
                       <div style={{ background: 'var(--surface-secondary)', padding: '0.6rem 0.75rem', borderRadius: '6px' }}>
                         <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block' }}>OUTSTANDING BALANCE</span>
-                        <strong style={{ fontSize: '1rem', color: Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) > 0 ? '#ef4444' : '#10b981' }}>
+                        <strong style={{ fontSize: '1rem', color: Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) > 0 ? 'var(--color-error)' : 'var(--color-success)' }}>
                           {formatRupees(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0)}
                         </strong>
                       </div>
@@ -3614,7 +3614,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       <div>
                         Balance Deadline: <strong>{formatDate(activePaymentSummary?.balanceDueAt || activeBooking.balanceDueAt)}</strong>
                         {activeBooking.balanceDueAt && Number(activeBooking.outstandingBalancePaise || 0) > 0 && new Date(activeBooking.balanceDueAt).getTime() < Date.now() && (
-                          <span style={{ color: '#ef4444', fontWeight: 800, marginLeft: '6px' }}>(OVERDUE)</span>
+                          <span style={{ color: 'var(--color-error)', fontWeight: 800, marginLeft: '6px' }}>(OVERDUE)</span>
                         )}
                       </div>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -3655,15 +3655,15 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                     return (
                       <div
                         style={{
-                          background: isReady ? 'rgba(16, 185, 129, 0.08)' : 'rgba(239, 68, 68, 0.08)',
-                          border: `1px solid ${isReady ? '#10b981' : '#ef4444'}`,
+                          background: isReady ? 'color-mix(in oklab, var(--color-success) 8%, transparent)' : 'color-mix(in oklab, var(--color-error) 8%, transparent)',
+                          border: `1px solid ${isReady ? 'var(--color-success)' : 'var(--color-error)'}`,
                           borderRadius: '8px',
                           padding: '1rem',
                           marginBottom: '1.25rem',
                         }}
                       >
                         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', flexWrap: 'wrap', gap: '6px' }}>
-                          <span style={{ fontWeight: 800, fontSize: '0.875rem', color: isReady ? '#10b981' : '#ef4444' }}>
+                          <span style={{ fontWeight: 800, fontSize: '0.875rem', color: isReady ? 'var(--color-success)' : 'var(--color-error)' }}>
                             🛡️ AUTHORITATIVE PICKUP READINESS GATE
                           </span>
                           <span className={`badge ${isReady ? 'badge-success' : 'badge-danger'}`} style={{ fontWeight: 800 }}>
@@ -3674,25 +3674,25 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.5rem', marginBottom: reasons.length > 0 ? '0.75rem' : '0' }}>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
                             <span>{checklist.bookingConfirmed ? '✅' : '❌'}</span>
-                            <span style={{ color: checklist.bookingConfirmed ? 'var(--text)' : '#ef4444' }}>Booking Confirmed</span>
+                            <span style={{ color: checklist.bookingConfirmed ? 'var(--text)' : 'var(--color-error)' }}>Booking Confirmed</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
                             <span>{checklist.rentalPaymentComplete ? '✅' : '❌'}</span>
-                            <span style={{ color: checklist.rentalPaymentComplete ? 'var(--text)' : '#ef4444' }}>Rental Charges Paid in Full</span>
+                            <span style={{ color: checklist.rentalPaymentComplete ? 'var(--text)' : 'var(--color-error)' }}>Rental Charges Paid in Full</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
                             <span>{checklist.driverEligible ? '✅' : '❌'}</span>
-                            <span style={{ color: checklist.driverEligible ? 'var(--text)' : '#ef4444' }}>Driver KYC Approved</span>
+                            <span style={{ color: checklist.driverEligible ? 'var(--text)' : 'var(--color-error)' }}>Driver KYC Approved</span>
                           </div>
                           <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '0.8rem' }}>
                             <span>{checklist.vehicleReady ? '✅' : '❌'}</span>
-                            <span style={{ color: checklist.vehicleReady ? 'var(--text)' : '#ef4444' }}>Vehicle Prepared & Assigned</span>
+                            <span style={{ color: checklist.vehicleReady ? 'var(--text)' : 'var(--color-error)' }}>Vehicle Prepared & Assigned</span>
                           </div>
                         </div>
 
                         {!isReady && reasons.length > 0 && (
-                          <div style={{ background: 'var(--surface)', padding: '0.6rem 0.8rem', borderRadius: '6px', border: '1px solid rgba(239, 68, 68, 0.3)' }}>
-                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: '#ef4444', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>
+                          <div style={{ background: 'var(--surface)', padding: '0.6rem 0.8rem', borderRadius: '6px', border: '1px solid color-mix(in oklab, var(--color-error) 30%, transparent)' }}>
+                            <span style={{ fontSize: '0.72rem', fontWeight: 700, color: 'var(--color-error)', textTransform: 'uppercase', display: 'block', marginBottom: '2px' }}>
                               Handover Blocking Reasons:
                             </span>
                             <ul style={{ margin: '0', paddingLeft: '1.2rem', fontSize: '0.78rem', color: 'var(--text)' }}>
@@ -3715,9 +3715,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                   {/* SETTLEMENT OVERVIEW BANNER (IF TRIP RETURNED OR SETTLED) */}
                   {(activeBooking.status === 'SETTLED' || activeBooking.status === 'RETURN_INSPECTED' || activeBooking.trip?.isSettled || activeBooking.trip?.returnTime) && (
-                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
+                    <div style={{ background: 'color-mix(in oklab, var(--color-success) 8%, transparent)', border: '1px solid var(--color-success)', padding: '1rem', borderRadius: '8px', marginBottom: '1rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.5rem', flexWrap: 'wrap', gap: '8px' }}>
-                        <span style={{ fontWeight: 800, color: '#10b981', fontSize: '0.875rem' }}>
+                        <span style={{ fontWeight: 800, color: 'var(--color-success)', fontSize: '0.875rem' }}>
                           🏁 FINAL SETTLEMENT & DEPOSIT RECONCILIATION
                         </span>
                         <span className={`badge ${activeBooking.trip?.isSettled ? 'badge-success' : 'badge-info'}`}>
@@ -3743,13 +3743,13 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>EXTRA CHARGES</span>
-                          <div style={{ fontWeight: 700, color: '#ef4444' }}>
+                          <div style={{ fontWeight: 700, color: 'var(--color-error)' }}>
                             {formatRupees(activeBooking.trip?.totalAdditionalChargesPaise || 0)}
                           </div>
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>NET REFUND</span>
-                          <div style={{ fontWeight: 800, color: '#10b981', fontSize: '1.05rem' }}>
+                          <div style={{ fontWeight: 800, color: 'var(--color-success)', fontSize: '1.05rem' }}>
                             {formatRupees(activeBooking.trip?.depositRefundPaise || 0)}
                           </div>
                         </div>
@@ -3802,13 +3802,13 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       </div>
                       <div>
                         <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>VERIFIED PAID</span>
-                        <div style={{ fontWeight: 800, color: '#10b981' }}>
+                        <div style={{ fontWeight: 800, color: 'var(--color-success)' }}>
                           {formatRupees(activePaymentSummary?.verifiedPaidPaise || activeBooking.verifiedPaidPaise || 0)}
                         </div>
                       </div>
                       <div>
                         <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>BALANCE REMAINING</span>
-                        <div style={{ fontWeight: 800, color: Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) > 0 ? '#ef4444' : '#10b981' }}>
+                        <div style={{ fontWeight: 800, color: Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) > 0 ? 'var(--color-error)' : 'var(--color-success)' }}>
                           {formatRupees(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0)}
                         </div>
                       </div>
@@ -3937,12 +3937,12 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                   {/* VERIFIED SUMMARY VIEW (SHOWN WHEN KYC IS ALREADY VERIFIED) */}
                   {activeBooking.kycStatus === 'VERIFIED' && !editKycDocuments ? (
-                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px', padding: '1.25rem', marginBottom: '1.25rem' }}>
+                    <div style={{ background: 'color-mix(in oklab, var(--color-success) 8%, transparent)', border: '1px solid var(--color-success)', borderRadius: '8px', padding: '1.25rem', marginBottom: '1.25rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '1.2rem' }}>✅</span>
                           <div>
-                            <div style={{ fontWeight: 800, color: '#10b981', fontSize: '1rem' }}>
+                            <div style={{ fontWeight: 800, color: 'var(--color-success)', fontSize: '1rem' }}>
                               Driver License KYC Verified & Approved
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
@@ -3990,7 +3990,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
                           {activeBooking.driverVerification?.licenseFrontUrl ? (
                             <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
-                              <span style={{ fontSize: '0.7rem', fontWeight: 700, display: 'block', marginBottom: '4px', color: '#10b981' }}>License Front</span>
+                              <span style={{ fontSize: '0.7rem', fontWeight: 700, display: 'block', marginBottom: '4px', color: 'var(--color-success)' }}>License Front</span>
                               <img
                                 src={activeBooking.driverVerification.licenseFrontUrl}
                                 alt="License Front"
@@ -4001,7 +4001,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseFrontUrl || '', title: `Driver License Front — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
-                                  style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, #f59e0b)', cursor: 'pointer', fontWeight: 600 }}
+                                  style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, var(--color-warning))', cursor: 'pointer', fontWeight: 600 }}
                                 >
                                   👁️ Preview
                                 </button>
@@ -4009,13 +4009,13 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               </div>
                             </div>
                           ) : (
-                            <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                            <div style={{ padding: '0.75rem', background: 'color-mix(in oklab, var(--color-error) 10%, transparent)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
                               ⚠️ Front document missing
                             </div>
                           )}
                           {activeBooking.driverVerification?.licenseBackUrl ? (
                             <div style={{ border: '1px solid var(--border)', borderRadius: '6px', padding: '6px', background: 'var(--surface)' }}>
-                              <span style={{ fontSize: '0.7rem', fontWeight: 700, display: 'block', marginBottom: '4px', color: '#10b981' }}>License Back</span>
+                              <span style={{ fontSize: '0.7rem', fontWeight: 700, display: 'block', marginBottom: '4px', color: 'var(--color-success)' }}>License Back</span>
                               <img
                                 src={activeBooking.driverVerification.licenseBackUrl}
                                 alt="License Back"
@@ -4026,7 +4026,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseBackUrl || '', title: `Driver License Back — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
-                                  style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, #f59e0b)', cursor: 'pointer', fontWeight: 600 }}
+                                  style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, var(--color-warning))', cursor: 'pointer', fontWeight: 600 }}
                                 >
                                   👁️ Preview
                                 </button>
@@ -4034,7 +4034,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               </div>
                             </div>
                           ) : (
-                            <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                            <div style={{ padding: '0.75rem', background: 'color-mix(in oklab, var(--color-error) 10%, transparent)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
                               ⚠️ Back document missing
                             </div>
                           )}
@@ -4082,7 +4082,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseFrontUrl || '', title: `Driver License Front — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
-                                      style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, #f59e0b)', cursor: 'pointer', fontWeight: 600 }}
+                                      style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, var(--color-warning))', cursor: 'pointer', fontWeight: 600 }}
                                     >
                                       👁️ Preview
                                     </button>
@@ -4090,7 +4090,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                   </div>
                                 </div>
                               ) : (
-                                <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                                <div style={{ padding: '0.75rem', background: 'color-mix(in oklab, var(--color-error) 10%, transparent)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
                                   ⚠️ Front document missing
                                 </div>
                               )}
@@ -4106,7 +4106,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                     <button
                                       type="button"
                                       onClick={() => setLightboxModal({ url: activeBooking.driverVerification?.licenseBackUrl || '', title: `Driver License Back — ${activeBooking.driverVerification?.licenseNumber || activeBooking.bookingNumber}` })}
-                                      style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, #f59e0b)', cursor: 'pointer', fontWeight: 600 }}
+                                      style={{ background: 'none', border: 'none', padding: 0, fontSize: '0.75rem', color: 'var(--accent, var(--color-warning))', cursor: 'pointer', fontWeight: 600 }}
                                     >
                                       👁️ Preview
                                     </button>
@@ -4114,7 +4114,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                   </div>
                                 </div>
                               ) : (
-                                <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
+                                <div style={{ padding: '0.75rem', background: 'color-mix(in oklab, var(--color-error) 10%, transparent)', color: 'var(--danger)', borderRadius: '6px', fontSize: '0.8rem' }}>
                                   ⚠️ Back document missing
                                 </div>
                               )}
@@ -4178,9 +4178,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                         {/* PROMINENT REJECTED KYC CANCELLATION ACTION */}
                         {activeBooking.kycStatus === 'REJECTED' && (activeBooking.status === 'CONFIRMED' || activeBooking.status === 'PENDING_PAYMENT') && (
-                          <div style={{ background: 'rgba(239, 68, 68, 0.08)', border: '1px solid #ef4444', borderRadius: '8px', padding: '1rem', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                          <div style={{ background: 'color-mix(in oklab, var(--color-error) 8%, transparent)', border: '1px solid var(--color-error)', borderRadius: '8px', padding: '1rem', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                             <div>
-                              <div style={{ fontWeight: 700, color: '#ef4444', fontSize: '0.875rem' }}>
+                              <div style={{ fontWeight: 700, color: 'var(--color-error)', fontSize: '0.875rem' }}>
                                 ⚠️ Driver KYC Is Marked Rejected
                               </div>
                               <div style={{ fontSize: '0.75rem', color: 'var(--muted)', marginTop: '2px' }}>
@@ -4309,7 +4309,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                       setHubKycFrontLocal(null);
                                       setHubKycFrontUrl('');
                                     }}
-                                    style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
+                                    style={{ position: 'absolute', top: '2px', right: '2px', background: 'color-mix(in oklab, var(--color-error) 90%, transparent)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
                                     title="Remove photo"
                                   >
                                     ✕
@@ -4365,7 +4365,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                       setHubKycBackLocal(null);
                                       setHubKycBackUrl('');
                                     }}
-                                    style={{ position: 'absolute', top: '2px', right: '2px', background: 'rgba(239, 68, 68, 0.9)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
+                                    style={{ position: 'absolute', top: '2px', right: '2px', background: 'color-mix(in oklab, var(--color-error) 90%, transparent)', color: '#fff', border: 'none', borderRadius: '50%', width: '18px', height: '18px', fontSize: '0.625rem', cursor: 'pointer' }}
                                     title="Remove photo"
                                   >
                                     ✕
@@ -4401,12 +4401,12 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 <div>
                   {(activeBooking.status === 'TRIP_ACTIVE' || activeBooking.status === 'RETURN_INSPECTED' || activeBooking.status === 'SETTLED' || activeBooking.trip?.pickupTime != null) && !editHandover ? (
                     /* COMPLETED HANDOVER CARD */
-                    <div style={{ background: 'rgba(59, 130, 246, 0.08)', border: '1px solid #3b82f6', borderRadius: '8px', padding: '1.25rem' }}>
+                    <div style={{ background: 'color-mix(in oklab, var(--color-info) 8%, transparent)', border: '1px solid var(--color-info)', borderRadius: '8px', padding: '1.25rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '1.2rem' }}>🚗</span>
                           <div>
-                            <div style={{ fontWeight: 800, color: '#3b82f6', fontSize: '1rem' }}>
+                            <div style={{ fontWeight: 800, color: 'var(--color-info)', fontSize: '1rem' }}>
                               Vehicle Handed Over & Trip Dispatched
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
@@ -4431,11 +4431,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>START FUEL LEVEL</span>
-                          <div style={{ fontWeight: 800, fontSize: '1.1rem', color: '#10b981' }}>{activeBooking.trip?.pickupFuelPercent ?? '—'}%</div>
+                          <div style={{ fontWeight: 800, fontSize: '1.1rem', color: 'var(--color-success)' }}>{activeBooking.trip?.pickupFuelPercent ?? '—'}%</div>
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>KEY RELEASED</span>
-                          <div style={{ fontWeight: 700, color: '#10b981' }}>Yes (Customer Signed)</div>
+                          <div style={{ fontWeight: 700, color: 'var(--color-success)' }}>Yes (Customer Signed)</div>
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>DISPATCH TIME</span>
@@ -4469,7 +4469,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => setLightboxModal({ url: photoUrl, title: `Dispatch Inspection Photo #${idx + 1}` })}
-                                  style={{ position: 'absolute', bottom: '2px', right: '2px', background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: '0.625rem', padding: '1px 5px', borderRadius: '3px', border: 'none', cursor: 'pointer' }}
+                                  style={{ position: 'absolute', bottom: '2px', right: '2px', background: 'var(--scrim)', color: '#fff', fontSize: '0.625rem', padding: '1px 5px', borderRadius: '3px', border: 'none', cursor: 'pointer' }}
                                 >
                                   Enlarge 🔍
                                 </button>
@@ -4498,7 +4498,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       </div>
 
                       {activeBooking.kycStatus !== 'VERIFIED' && (
-                        <div style={{ padding: '0.75rem', background: 'rgba(239, 68, 68, 0.1)', color: 'var(--danger)', borderRadius: '6px', marginBottom: '1rem', borderLeft: '3px solid var(--danger)' }}>
+                        <div style={{ padding: '0.75rem', background: 'color-mix(in oklab, var(--color-error) 10%, transparent)', color: 'var(--danger)', borderRadius: '6px', marginBottom: '1rem', borderLeft: '3px solid var(--danger)' }}>
                           <strong>KYC Gate Locked:</strong> Driver KYC must be VERIFIED before physical vehicle keys can be released.
                         </div>
                       )}
@@ -4507,7 +4507,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         const outstanding = Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0);
                         if (outstanding > 0) {
                           return (
-                            <div style={{ padding: '0.85rem 1rem', background: 'rgba(239, 68, 68, 0.12)', color: '#ef4444', borderRadius: '8px', marginBottom: '1rem', border: '1px solid #ef4444' }}>
+                            <div style={{ padding: '0.85rem 1rem', background: 'color-mix(in oklab, var(--color-error) 12%, transparent)', color: 'var(--color-error)', borderRadius: '8px', marginBottom: '1rem', border: '1px solid var(--color-error)' }}>
                               <div style={{ fontWeight: 800, fontSize: '0.9rem', display: 'flex', alignItems: 'center', gap: '6px' }}>
                                 ⚠️ VEHICLE HANDOVER STRICTLY BLOCKED — OUTSTANDING RENTAL BALANCE
                               </div>
@@ -4533,7 +4533,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             onChange={e => setHandoverOdometer(e.target.value)}
                             style={{ width: '100%', marginTop: '4px' }}
                           />
-                          <small style={{ color: isBelowRecorded(handoverOdometer, activeBooking.vehicle?.odometerKm) ? '#f59e0b' : 'var(--muted)' }}>
+                          <small style={{ color: isBelowRecorded(handoverOdometer, activeBooking.vehicle?.odometerKm) ? 'var(--color-warning)' : 'var(--muted)' }}>
                             {isBelowRecorded(handoverOdometer, activeBooking.vehicle?.odometerKm)
                               ? `Lower than the ${activeBooking.vehicle?.odometerKm?.toLocaleString('en-IN')} km recorded for this car - check the reading.`
                               : typeof activeBooking.vehicle?.odometerKm === 'number' ? `Last recorded on this car: ${activeBooking.vehicle.odometerKm.toLocaleString('en-IN')} km` : 'No reading recorded on this car yet'}
@@ -4590,7 +4590,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               if (e.target) e.target.value = '';
                             }}
                           />
-                          <span style={{ fontSize: '0.75rem', color: (handoverPhotos.length + handoverLocalFiles.length) > 0 ? '#10b981' : 'var(--muted)' }}>
+                          <span style={{ fontSize: '0.75rem', color: (handoverPhotos.length + handoverLocalFiles.length) > 0 ? 'var(--color-success)' : 'var(--muted)' }}>
                             {(handoverPhotos.length + handoverLocalFiles.length) > 0
                               ? `✓ ${handoverPhotos.length + handoverLocalFiles.length} photo(s) attached (${handoverLocalFiles.length} staged locally)`
                               : 'No photos attached - add some as evidence of the car\'s condition'}
@@ -4611,7 +4611,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                     position: 'absolute',
                                     top: '2px',
                                     right: '2px',
-                                    background: 'rgba(239, 68, 68, 0.9)',
+                                    background: 'color-mix(in oklab, var(--color-error) 90%, transparent)',
                                     color: '#fff',
                                     border: 'none',
                                     width: '18px',
@@ -4630,9 +4630,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               </div>
                             ))}
                             {handoverLocalFiles.map((item, lIdx) => (
-                              <div key={`local-${lIdx}`} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px dashed #10b981' }}>
+                              <div key={`local-${lIdx}`} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px dashed var(--color-success)' }}>
                                 <img src={item.previewUrl} alt={`Local Dispatch ${lIdx + 1}`} style={{ width: '100%', height: '75px', objectFit: 'cover', display: 'block' }} />
-                                <span style={{ position: 'absolute', bottom: '2px', left: '2px', background: 'rgba(16, 185, 129, 0.9)', color: '#fff', fontSize: '0.5rem', padding: '1px 3px', borderRadius: '2px', fontWeight: 700 }}>Staged</span>
+                                <span style={{ position: 'absolute', bottom: '2px', left: '2px', background: 'color-mix(in oklab, var(--color-success) 90%, transparent)', color: '#fff', fontSize: '0.5rem', padding: '1px 3px', borderRadius: '2px', fontWeight: 700 }}>Staged</span>
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -4644,7 +4644,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                     position: 'absolute',
                                     top: '2px',
                                     right: '2px',
-                                    background: 'rgba(239, 68, 68, 0.9)',
+                                    background: 'color-mix(in oklab, var(--color-error) 90%, transparent)',
                                     color: '#fff',
                                     border: 'none',
                                     width: '18px',
@@ -4719,12 +4719,12 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 <div>
                   {(activeBooking.status === 'SETTLED' || activeBooking.status === 'RETURN_INSPECTED' || activeBooking.trip?.isSettled || activeBooking.trip?.returnOdometerKm != null) && !editReturnSettlement ? (
                     /* COMPLETED SETTLEMENT VIEW (SHOWS FINAL CALCULATED AMOUNT & REFUND INSTEAD OF UPLOAD WORKFLOW) */
-                    <div style={{ background: 'rgba(16, 185, 129, 0.08)', border: '1px solid #10b981', borderRadius: '8px', padding: '1.25rem' }}>
+                    <div style={{ background: 'color-mix(in oklab, var(--color-success) 8%, transparent)', border: '1px solid var(--color-success)', borderRadius: '8px', padding: '1.25rem' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '8px' }}>
                         <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
                           <span style={{ fontSize: '1.25rem' }}>🏁</span>
                           <div>
-                            <div style={{ fontWeight: 800, color: '#10b981', fontSize: '1.05rem' }}>
+                            <div style={{ fontWeight: 800, color: 'var(--color-success)', fontSize: '1.05rem' }}>
                               {activeBooking.trip?.isSettled ? 'Final Trip Settlement Completed & Closed' : 'Vehicle Return Inspected — Settlement Reconciled'}
                             </div>
                             <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
@@ -4754,7 +4754,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>DISTANCE DRIVEN</span>
-                          <div style={{ fontWeight: 800, color: '#f59e0b' }}>
+                          <div style={{ fontWeight: 800, color: 'var(--color-warning)' }}>
                             {activeBooking.trip?.returnOdometerKm && activeBooking.trip?.pickupOdometerKm
                               ? `${activeBooking.trip.returnOdometerKm - activeBooking.trip.pickupOdometerKm} km`
                               : '—'}
@@ -4762,17 +4762,17 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>EXCESS KILOMETRES</span>
-                          <div style={{ fontWeight: 700, color: (activeBooking.trip?.excessKm || 0) > 0 ? '#ef4444' : '#10b981' }}>
+                          <div style={{ fontWeight: 700, color: (activeBooking.trip?.excessKm || 0) > 0 ? 'var(--color-error)' : 'var(--color-success)' }}>
                             {activeBooking.trip?.excessKm || 0} km
                           </div>
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>RETURN FUEL LEVEL</span>
-                          <div style={{ fontWeight: 700, color: '#10b981' }}>{activeBooking.trip?.returnFuelPercent ?? '—'}%</div>
+                          <div style={{ fontWeight: 700, color: 'var(--color-success)' }}>{activeBooking.trip?.returnFuelPercent ?? '—'}%</div>
                         </div>
                         <div>
                           <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>KEYS RECEIVED</span>
-                          <div style={{ fontWeight: 700, color: '#10b981' }}>Yes (Customer Signed)</div>
+                          <div style={{ fontWeight: 700, color: 'var(--color-success)' }}>Yes (Customer Signed)</div>
                         </div>
                       </div>
 
@@ -4788,25 +4788,25 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           </div>
                           <div style={{ padding: '0.5rem', background: 'var(--surface-secondary)', borderRadius: '4px' }}>
                             <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>EXCESS KM CHARGE</span>
-                            <div style={{ fontWeight: 700, color: Number(activeBooking.trip?.excessKmChargePaise || 0) > 0 ? '#ef4444' : 'var(--text)' }}>
+                            <div style={{ fontWeight: 700, color: Number(activeBooking.trip?.excessKmChargePaise || 0) > 0 ? 'var(--color-error)' : 'var(--text)' }}>
                               {formatRupees(activeBooking.trip?.excessKmChargePaise || 0)}
                             </div>
                           </div>
                           <div style={{ padding: '0.5rem', background: 'var(--surface-secondary)', borderRadius: '4px' }}>
                             <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>FUEL REFILL CHARGE</span>
-                            <div style={{ fontWeight: 700, color: Number(activeBooking.trip?.fuelRefillChargePaise || 0) > 0 ? '#ef4444' : 'var(--text)' }}>
+                            <div style={{ fontWeight: 700, color: Number(activeBooking.trip?.fuelRefillChargePaise || 0) > 0 ? 'var(--color-error)' : 'var(--text)' }}>
                               {formatRupees(activeBooking.trip?.fuelRefillChargePaise || 0)}
                             </div>
                           </div>
                           <div style={{ padding: '0.5rem', background: 'var(--surface-secondary)', borderRadius: '4px' }}>
                             <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>DAMAGE CLAIM CHARGE</span>
-                            <div style={{ fontWeight: 700, color: Number(activeBooking.trip?.damageChargePaise || 0) > 0 ? '#ef4444' : 'var(--text)' }}>
+                            <div style={{ fontWeight: 700, color: Number(activeBooking.trip?.damageChargePaise || 0) > 0 ? 'var(--color-error)' : 'var(--text)' }}>
                               {formatRupees(activeBooking.trip?.damageChargePaise || 0)}
                             </div>
                           </div>
                           <div style={{ padding: '0.5rem', background: 'var(--surface-secondary)', borderRadius: '4px' }}>
                             <span style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>TOTAL EXTRA DEDUCTIONS</span>
-                            <div style={{ fontWeight: 800, color: '#ef4444', fontSize: '1rem' }}>
+                            <div style={{ fontWeight: 800, color: 'var(--color-error)', fontSize: '1rem' }}>
                               {formatRupees(activeBooking.trip?.totalAdditionalChargesPaise || 0)}
                             </div>
                           </div>
@@ -4826,8 +4826,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           <div style={{
                             padding: '1rem 1.25rem',
                             borderRadius: '8px',
-                            background: isExtraDue ? 'rgba(239, 68, 68, 0.12)' : 'rgba(16, 185, 129, 0.15)',
-                            border: isExtraDue ? '1px solid #ef4444' : '1px solid #10b981',
+                            background: isExtraDue ? 'color-mix(in oklab, var(--color-error) 12%, transparent)' : 'color-mix(in oklab, var(--color-success) 15%, transparent)',
+                            border: isExtraDue ? '1px solid var(--color-error)' : '1px solid var(--color-success)',
                             display: 'flex',
                             justifyContent: 'space-between',
                             alignItems: 'center',
@@ -4836,7 +4836,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             marginBottom: '1rem',
                           }}>
                             <div>
-                              <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: isExtraDue ? '#ef4444' : '#10b981', letterSpacing: '0.05em' }}>
+                              <div style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: isExtraDue ? 'var(--color-error)' : 'var(--color-success)', letterSpacing: '0.05em' }}>
                                 {isExtraDue ? '⚠️ ADDITIONAL BALANCE DUE FROM CUSTOMER' : 'FINAL CALCULATED SECURITY DEPOSIT REFUND'}
                               </div>
                               <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: '2px' }}>
@@ -4845,7 +4845,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                   : `Security deposit of ₹${depositRupees.toLocaleString('en-IN')} minus ₹${totalExtraRupees.toLocaleString('en-IN')} deductions.`}
                               </div>
                             </div>
-                            <div style={{ fontSize: '1.6rem', fontWeight: 900, color: isExtraDue ? '#ef4444' : '#10b981' }}>
+                            <div style={{ fontSize: '1.6rem', fontWeight: 900, color: isExtraDue ? 'var(--color-error)' : 'var(--color-success)' }}>
                               ₹{isExtraDue ? (totalExtraRupees - depositRupees).toLocaleString('en-IN') : refundRupees.toLocaleString('en-IN')}
                             </div>
                           </div>
@@ -4876,7 +4876,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                 <button
                                   type="button"
                                   onClick={() => setLightboxModal({ url: photoUrl, title: `Return Inspection Photo #${idx + 1}` })}
-                                  style={{ position: 'absolute', bottom: '2px', right: '2px', background: 'rgba(0,0,0,0.75)', color: '#fff', fontSize: '0.625rem', padding: '1px 5px', borderRadius: '3px', border: 'none', cursor: 'pointer' }}
+                                  style={{ position: 'absolute', bottom: '2px', right: '2px', background: 'var(--scrim)', color: '#fff', fontSize: '0.625rem', padding: '1px 5px', borderRadius: '3px', border: 'none', cursor: 'pointer' }}
                                 >
                                   Enlarge 🔍
                                 </button>
@@ -4995,17 +4995,17 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           <div style={{ marginTop: '1rem', padding: '0.75rem 1rem', background: 'var(--surface-secondary)', border: '1px solid var(--border)', borderRadius: '6px', fontSize: '0.8125rem', display: 'grid', gap: '4px' }}>
                             <div>
                               Security deposit held: <strong>₹{deposit.toLocaleString('en-IN')}</strong>
-                              {damage > 0 && !returnDamageDisputed && <> · Damage charge: <strong style={{ color: '#ef4444' }}>₹{damage.toLocaleString('en-IN')}</strong></>}
+                              {damage > 0 && !returnDamageDisputed && <> · Damage charge: <strong style={{ color: 'var(--color-error)' }}>₹{damage.toLocaleString('en-IN')}</strong></>}
                             </div>
                             {km ? (
                               <div>
                                 Distance driven: <strong>{km.drivenKm.toLocaleString('en-IN')} km</strong>
-                                {km.includedKm !== null && <> of {km.includedKm.toLocaleString('en-IN')} km included → <strong style={{ color: km.excessKm > 0 ? '#ef4444' : '#10b981' }}>{km.excessKm.toLocaleString('en-IN')} km extra</strong>{km.excessChargePaise !== null && km.excessKm > 0 && <> (≈ {formatRupees(km.excessChargePaise.toString())})</>}</>}
+                                {km.includedKm !== null && <> of {km.includedKm.toLocaleString('en-IN')} km included → <strong style={{ color: km.excessKm > 0 ? 'var(--color-error)' : 'var(--color-success)' }}>{km.excessKm.toLocaleString('en-IN')} km extra</strong>{km.excessChargePaise !== null && km.excessKm > 0 && <> (≈ {formatRupees(km.excessChargePaise.toString())})</>}</>}
                               </div>
                             ) : (
                               <div style={{ color: 'var(--muted)' }}>Enter the return odometer to see the distance driven.</div>
                             )}
-                            {fuelShortfall > 0 && <div style={{ color: '#f59e0b' }}>Returned {fuelShortfall}% below the start level - a fuel refill charge applies.</div>}
+                            {fuelShortfall > 0 && <div style={{ color: 'var(--color-warning)' }}>Returned {fuelShortfall}% below the start level - a fuel refill charge applies.</div>}
                             <div style={{ color: 'var(--muted)' }}>Extra kilometres, fuel refill and any late-return charge are calculated by the system when you save; the settlement then shows the final refund.</div>
                           </div>
                         );
@@ -5044,7 +5044,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               if (e.target) e.target.value = '';
                             }}
                           />
-                          <span style={{ fontSize: '0.75rem', color: (returnPhotos.length + returnLocalFiles.length) > 0 ? '#10b981' : 'var(--muted)' }}>
+                          <span style={{ fontSize: '0.75rem', color: (returnPhotos.length + returnLocalFiles.length) > 0 ? 'var(--color-success)' : 'var(--muted)' }}>
                             {(returnPhotos.length + returnLocalFiles.length) > 0
                               ? `✓ ${returnPhotos.length + returnLocalFiles.length} photo(s) attached (${returnLocalFiles.length} staged locally)`
                               : 'No photos attached - add some as evidence of the car\'s condition'}
@@ -5065,7 +5065,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                     position: 'absolute',
                                     top: '2px',
                                     right: '2px',
-                                    background: 'rgba(239, 68, 68, 0.9)',
+                                    background: 'color-mix(in oklab, var(--color-error) 90%, transparent)',
                                     color: '#fff',
                                     border: 'none',
                                     width: '18px',
@@ -5084,9 +5084,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                               </div>
                             ))}
                             {returnLocalFiles.map((item, lIdx) => (
-                              <div key={`local-${lIdx}`} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px dashed #10b981' }}>
+                              <div key={`local-${lIdx}`} style={{ position: 'relative', borderRadius: '4px', overflow: 'hidden', border: '1px dashed var(--color-success)' }}>
                                 <img src={item.previewUrl} alt={`Local Return ${lIdx + 1}`} style={{ width: '100%', height: '75px', objectFit: 'cover', display: 'block' }} />
-                                <span style={{ position: 'absolute', bottom: '2px', left: '2px', background: 'rgba(16, 185, 129, 0.9)', color: '#fff', fontSize: '0.5rem', padding: '1px 3px', borderRadius: '2px', fontWeight: 700 }}>Staged</span>
+                                <span style={{ position: 'absolute', bottom: '2px', left: '2px', background: 'color-mix(in oklab, var(--color-success) 90%, transparent)', color: '#fff', fontSize: '0.5rem', padding: '1px 3px', borderRadius: '2px', fontWeight: 700 }}>Staged</span>
                                 <button
                                   type="button"
                                   onClick={() => {
@@ -5098,7 +5098,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                                     position: 'absolute',
                                     top: '2px',
                                     right: '2px',
-                                    background: 'rgba(239, 68, 68, 0.9)',
+                                    background: 'color-mix(in oklab, var(--color-error) 90%, transparent)',
                                     color: '#fff',
                                     border: 'none',
                                     width: '18px',
@@ -5167,7 +5167,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               <div style={{ background: 'var(--surface-secondary)', padding: '0.75rem 1rem', borderRadius: '8px', marginBottom: '1.25rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
                 <div>
                   <span style={{ fontSize: '0.7rem', color: 'var(--muted)', display: 'block' }}>OUTSTANDING BALANCE</span>
-                  <strong style={{ fontSize: '1.05rem', color: Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) > 0 ? '#ef4444' : '#10b981' }}>
+                  <strong style={{ fontSize: '1.05rem', color: Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) > 0 ? 'var(--color-error)' : 'var(--color-success)' }}>
                     {formatRupees(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0)}
                   </strong>
                 </div>
@@ -5216,7 +5216,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       {Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) > 0 && (
                         <button
                           type="button"
-                          style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '4px', background: 'rgba(245, 158, 11, 0.15)', color: 'var(--accent)', border: '1px solid rgba(245, 158, 11, 0.3)', cursor: 'pointer' }}
+                          style={{ fontSize: '0.7rem', padding: '2px 8px', borderRadius: '4px', background: 'color-mix(in oklab, var(--color-primary) 15%, transparent)', color: 'var(--accent)', border: '1px solid color-mix(in oklab, var(--color-primary) 30%, transparent)', cursor: 'pointer' }}
                           onClick={() => {
                             setRecordPaymentType('BALANCE');
                             setRecordPaymentAmount((Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0) / 100).toString());
@@ -5328,7 +5328,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
           <div className="modal-dialog" style={{ maxWidth: '520px', width: '95%', maxHeight: '90vh', overflowY: 'auto' }}>
             <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
               <div>
-                <span className="eyebrow" style={{ color: '#ef4444' }}>OPERATIONS CANCELLATION</span>
+                <span className="eyebrow" style={{ color: 'var(--color-error)' }}>OPERATIONS CANCELLATION</span>
                 <h3 style={{ margin: 0, fontSize: '1.1rem' }}>
                   Cancel Booking #{activeBooking.bookingNumber}
                 </h3>
@@ -5481,13 +5481,13 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
               maxWidth: '920px',
               width: '100%',
               maxHeight: '92vh',
-              background: '#0f172a',
+              background: 'var(--color-base-100)',
               border: '1px solid var(--border)',
               borderRadius: '12px',
               overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
-              boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.85)',
+              boxShadow: '0 25px 50px -12px var(--scrim)',
             }}
           >
             <div
@@ -5497,10 +5497,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'space-between',
-                background: '#091a33',
+                background: 'var(--color-base-200)',
               }}
             >
-              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: '#f8fafc' }}>
+              <div style={{ fontWeight: 700, fontSize: '0.95rem', color: 'var(--color-base-content)' }}>
                 {lightboxModal.title}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
@@ -5531,7 +5531,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
-                background: '#020617',
+                background: 'var(--color-base-200)',
                 overflow: 'auto',
               }}
             >
