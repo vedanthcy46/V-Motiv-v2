@@ -118,3 +118,13 @@
 .vm-note-title { margin: 0 0 0.25rem; font-weight: 600; color: #fff; font-size: 0.875rem; }
 .vm-note-text { margin: 0 0 0.65rem; font-size: 0.8125rem; }
 .vm-note .button.secondary { background: rgb(255 255 255 / 0.1); border-color: rgb(255 255 255 / 0.2); color: #fff; box-shadow: none; }
+
+/* Public site navigation and footer (navy in both themes) */
+.vm-navbar { background: var(--vm-chrome); border-bottom: 1px solid var(--vm-chrome-line); box-shadow: 0 4px 20px rgb(6 26 56 / 0.18); color: var(--vm-chrome-text); }
+.vm-navbar .btn-ghost { color: var(--vm-chrome-text); }
+.vm-navbar .btn-ghost:hover { background: rgb(255 255 255 / 0.08); color: #fff; }
+.vm-navbar-link { padding: 0.4rem 0.75rem; border-radius: 0.5rem; color: var(--vm-chrome-text); font-size: 0.9375rem; font-weight: 500; transition: color 0.15s, background-color 0.15s; }
+.vm-navbar-link:hover { color: #fff; background: rgb(255 255 255 / 0.07); text-decoration: none; }
+.vm-navbar-mobile { background: var(--vm-chrome); border-top: 1px solid var(--vm-chrome-line); }
+.vm-sitefooter { background: var(--vm-chrome); color: var(--vm-chrome-text); border-top: 1px solid var(--vm-chrome-line); }
+.vm-sitefooter a { color: inherit; }

@@ -9,7 +9,7 @@ export const Hero: React.FC<HeroProps> = ({ onExploreCars, onSellCar }) => {
   return (
     <section id="hero" className="hero-section">
       <div className="container hero-container">
-        <div className="hero-content">
+        <div className="hero-copy">
           <div className="hero-badge">
             <span className="badge-dot" />
             <span>ACCOUNTABLE AUTOMOTIVE PLATFORM</span>

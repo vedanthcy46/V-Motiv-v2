@@ -127,7 +127,7 @@ export const ServiceModal: React.FC<ServiceModalProps> = ({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={onClose} role="presentation">
       <div
         className="modal-content modal-service"
         onClick={(e) => e.stopPropagation()}

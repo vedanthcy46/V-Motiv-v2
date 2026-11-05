@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 // Firebase authorizes localhost, but does not automatically authorize the IP
 // alias 127.0.0.1. Keep browser origins consistent before OAuth starts.
 const localhostOrigin: Plugin = {
@@ -16,7 +17,7 @@ const localhostOrigin: Plugin = {
   },
 };
 export default defineConfig({
-  plugins: [react(), localhostOrigin],
+  plugins: [tailwindcss(), react(), localhostOrigin],
   server: {
     port: 3100,
     strictPort: true,

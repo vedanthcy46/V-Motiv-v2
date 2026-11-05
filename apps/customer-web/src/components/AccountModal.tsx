@@ -22,7 +22,7 @@ export const AccountModal: React.FC<AccountModalProps> = ({
   if (!isOpen || !user) return null;
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="account-modal-title">
       <div className="modal-dialog account-modal-dialog">
         <button
           type="button"

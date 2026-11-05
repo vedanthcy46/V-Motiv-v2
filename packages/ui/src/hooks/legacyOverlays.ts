@@ -32,7 +32,7 @@ function setup(overlay: HTMLElement) {
     const all = document.querySelectorAll(OVERLAY);
     if (all[all.length - 1] !== overlay) return;
     if (event.key === 'Escape') {
-      const close = dialog.querySelector<HTMLElement>('.modal-header button, .dialog-header button, [aria-label*="lose" i], .btn-close');
+      const close = dialog.querySelector<HTMLElement>('.modal-header button, .dialog-header button, .modal-close-btn, [aria-label*="lose" i], .btn-close');
       if (close) { event.stopPropagation(); close.click(); }
     } else if (event.key === 'Tab') {
       const items = Array.from(dialog.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(el => el.offsetParent !== null);

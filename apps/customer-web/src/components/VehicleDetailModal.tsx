@@ -205,7 +205,7 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
 
   return (
     <div
-      className="modal-backdrop"
+      className="modal-overlay"
       role="dialog"
       aria-modal="true"
       aria-labelledby="vehicle-modal-title"

@@ -102,7 +102,7 @@ export const SellCarModal: React.FC<SellCarModalProps> = ({
   };
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="sell-modal-title">
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="sell-modal-title">
       <div className="modal-dialog sell-modal-dialog">
         <button
           type="button"

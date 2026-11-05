@@ -10,7 +10,7 @@ export const LegalModal: React.FC<LegalModalProps> = ({ isOpen, type, onClose })
   if (!isOpen || !type) return null;
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="legal-modal-title">
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="legal-modal-title">
       <div className="modal-dialog legal-modal-dialog">
         <button
           type="button"

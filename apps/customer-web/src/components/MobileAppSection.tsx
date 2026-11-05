@@ -50,7 +50,7 @@ export const MobileAppSection: React.FC = () => {
 
         {/* Visual Phone Mockup */}
         <div className="mobile-app-visual" aria-hidden="true">
-          <div className="mockup-phone">
+          <div className="app-phone-mock">
             <div className="mockup-notch" />
             <div className="mockup-screen">
               <div className="mockup-header">
