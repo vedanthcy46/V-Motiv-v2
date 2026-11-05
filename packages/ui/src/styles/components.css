@@ -1,0 +1,26 @@
+/* Small custom pieces that sit beside daisyUI's own component classes. */
+
+.vm-progress { position: fixed; inset: 0 0 auto 0; height: 3px; z-index: 2000; overflow: hidden; pointer-events: none; background: color-mix(in oklab, var(--color-primary) 18%, transparent); animation: vm-fade-in 0.15s ease both; }
+.vm-progress::after { content: ''; position: absolute; inset: 0 auto 0 0; width: 40%; background: var(--color-primary); border-radius: 3px; animation: vm-progress 1.1s cubic-bezier(0.4, 0, 0.2, 1) infinite; }
+
+.vm-skeleton { position: relative; overflow: hidden; border-radius: 0.5rem; background: color-mix(in oklab, var(--color-base-content) 9%, transparent); }
+.vm-skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--color-base-content) 9%, transparent), transparent); animation: vm-shimmer 1.4s infinite; }
+
+.vm-modal-box { animation: vm-pop-in 0.18s ease both; }
+.vm-drawer-panel { animation: vm-slide-in-right 0.22s ease both; }
+.modal[open], .modal.modal-open { animation: vm-fade-in 0.15s ease both; }
+
+.vm-toaster { position: fixed; z-index: 2100; right: 1rem; bottom: 1rem; display: flex; flex-direction: column; gap: 0.5rem; width: min(24rem, calc(100vw - 2rem)); pointer-events: none; }
+.vm-toast { pointer-events: auto; animation: vm-toast-in 0.2s ease both; box-shadow: var(--shadow); }
+
+.vm-table-wrap { overflow-x: auto; border: 1px solid var(--color-base-300); border-radius: var(--radius-box); background: var(--color-base-100); }
+.vm-table-wrap > table { width: 100%; border-collapse: collapse; }
+
+.vm-page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem 2rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.vm-page-header p { color: color-mix(in oklab, var(--color-base-content) 66%, transparent); max-width: 46rem; }
+
+.vm-live-bar { position: fixed; z-index: 1200; left: 50%; bottom: 1.25rem; transform: translateX(-50%); max-width: min(40rem, calc(100vw - 2rem)); animation: vm-pop-in 0.2s ease both; }
+
+/* Solid count bubbles (nav badges, bell) */
+.badge.vm-count-solid { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-primary-content); }
+.badge.vm-count-solid-danger { background: var(--color-error); border-color: var(--color-error); color: var(--color-error-content); }

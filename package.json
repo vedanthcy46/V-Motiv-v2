@@ -9,6 +9,7 @@
     "react-native": "0.86.3"
   },
   "workspaces": [
+    "packages/*",
     "services/*",
     "apps/*"
   ],

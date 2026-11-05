@@ -1,0 +1,24 @@
+/*
+ * V MOTIV shared design system.
+ * Every portal imports this single file:   @import '@vmotiv/ui/styles.css';
+ * Tailwind CSS 4 + daisyUI 5 supply the utilities and component classes; theme.css defines the two V MOTIV
+ * themes (light / dark) and the other files layer the portal chrome on top of them.
+ */
+@import '@fontsource-variable/inter/wght.css';
+@import 'tailwindcss';
+@plugin 'daisyui' {
+  themes: false;
+  logs: false;
+}
+@source '../';
+
+@import './theme.css';
+@import './base.css';
+/*
+ * daisyUI 5 emits its components as sub-layers of Tailwind's `utilities` layer. Our chrome and compatibility rules
+ * therefore live in a later sub-layer of the same layer: they refine daisyUI, while plain Tailwind utility classes
+ * written on an element still beat both.
+ */
+@import './shell.css' layer(utilities.vm);
+@import './components.css' layer(utilities.vm);
+@import './legacy.css' layer(utilities.vm);

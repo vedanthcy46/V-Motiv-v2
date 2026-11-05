@@ -1,0 +1,229 @@
+/*
+ * One canonical look for the class names the portals already use (.button / .btn-*, .panel, .metric-card, .badge-*,
+ * .modal-*, .form-*, .table-*...). Before this file each portal had its own copy that had drifted apart. Everything
+ * here is expressed in theme tokens, so it follows light and dark automatically. New code should prefer the React
+ * components in @vmotiv/ui; these rules keep the remaining markup identical to them.
+ */
+
+/* daisyUI's own field classes get the same border, radius and focus ring as plain controls */
+.input, .select, .textarea {
+  width: 100%; min-height: 2.5rem; border: 1px solid var(--color-base-300); border-radius: var(--radius-field); background: var(--color-base-100);
+  color: var(--color-base-content); box-shadow: none; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
+}
+.input:hover:not(:disabled), .select:hover:not(:disabled), .textarea:hover:not(:disabled) { border-color: color-mix(in oklab, var(--color-base-content) 30%, var(--color-base-300)); }
+.input:focus, .input:focus-within, .select:focus, .textarea:focus { outline: none; border-color: var(--color-secondary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-secondary) 22%, transparent); }
+[data-theme='vmotiv-dark'] :is(.input, .select, .textarea):focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent); }
+.input-error, .select-error, .textarea-error { border-color: var(--color-error) !important; }
+.input.input-lg { min-height: 3.25rem; }
+
+/* ---------- Form controls (zero specificity: any class still wins) ---------- */
+:where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='hidden'], [type='color']), select, textarea) {
+  width: 100%;
+  min-height: 2.5rem;
+  padding: 0.5rem 0.75rem;
+  background: var(--color-base-100);
+  border: 1px solid var(--color-base-300);
+  border-radius: var(--radius-field);
+  color: var(--color-base-content);
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+:where(textarea) { min-height: 6rem; resize: vertical; }
+:where(input, select, textarea)::placeholder { color: color-mix(in oklab, var(--color-base-content) 42%, transparent); }
+:where(input, select, textarea):hover:not(:disabled) { border-color: color-mix(in oklab, var(--color-base-content) 30%, var(--color-base-300)); }
+:where(input, select, textarea):focus { outline: none; border-color: var(--color-secondary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-secondary) 22%, transparent); }
+[data-theme='vmotiv-dark'] :where(input, select, textarea):focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent); }
+:where(input, select, textarea):disabled { opacity: 0.6; cursor: not-allowed; background: var(--color-base-200); }
+:where(input[type='checkbox'], input[type='radio']) { width: 1rem; height: 1rem; accent-color: var(--color-primary); }
+option { background: var(--color-base-100); color: var(--color-base-content); }
+
+.form-group { display: grid; gap: 0.375rem; align-content: start; }
+.form-group.full, .form-grid .full { grid-column: 1 / -1; }
+.form-label, .form-grid > label, .filters > label, fieldset > legend { font-size: 0.8125rem; font-weight: 500; color: color-mix(in oklab, var(--color-base-content) 75%, transparent); }
+.form-grid > label, .filters > label { display: grid; gap: 0.375rem; align-content: start; }
+.form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+.form-row { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.helper, .form-hint { font-size: 0.8125rem; color: color-mix(in oklab, var(--color-base-content) 60%, transparent); line-height: 1.5; }
+fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.check-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.5rem; }
+.check-grid > label { display: flex; align-items: center; gap: 0.65rem; padding: 0.55rem 0.75rem; border: 1px solid var(--color-base-300); border-radius: var(--radius-field); cursor: pointer; }
+.check-grid > label:has(input:checked) { border-color: var(--color-primary); background: color-mix(in oklab, var(--color-primary) 8%, transparent); }
+.check-grid small { display: block; color: color-mix(in oklab, var(--color-base-content) 58%, transparent); }
+.filters, .filters-bar { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 0.75rem; margin-bottom: 1rem; }
+.filters-bar > *, .filters > * { min-width: 0; }
+.filter-select { width: auto; min-width: 9rem; }
+.search-input-box, .search-input-wrap { position: relative; flex: 1 1 16rem; max-width: 26rem; }
+.search-input-box input, .search-input-wrap input { width: 100%; }
+
+/* ---------- Buttons ---------- */
+.button, .btn-gold {
+  display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.5rem; padding: 0.5rem 1rem;
+  border: 1px solid transparent; border-radius: var(--radius-field); font-size: 0.875rem; font-weight: 600; line-height: 1.2; cursor: pointer;
+  transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
+}
+.button:disabled, .btn:disabled, .btn-gold:disabled, .button[aria-busy='true'] { opacity: 0.55; cursor: not-allowed; }
+.button.primary, .btn.btn-primary, .btn-gold {
+  background: var(--color-primary); border-color: var(--color-primary); color: var(--color-primary-content);
+  box-shadow: 0 1px 0 rgb(0 0 0 / 0.06);
+}
+.button.primary:hover:not(:disabled), .btn.btn-primary:hover:not(:disabled), .btn-gold:hover:not(:disabled) { background: var(--yellow-hover); border-color: var(--yellow-hover); }
+.button.secondary, .btn.btn-secondary, .btn.btn-outline {
+  background: var(--color-base-100); border-color: var(--color-base-300); color: var(--color-base-content); box-shadow: var(--shadow-sm);
+}
+.button.secondary:hover:not(:disabled), .btn.btn-secondary:hover:not(:disabled), .btn.btn-outline:hover:not(:disabled) {
+  background: var(--color-base-200); border-color: color-mix(in oklab, var(--color-base-content) 28%, var(--color-base-300)); color: var(--color-base-content);
+}
+.button.danger, .btn.btn-danger, .btn.btn-error {
+  background: color-mix(in oklab, var(--color-error) 10%, var(--color-base-100)); border-color: color-mix(in oklab, var(--color-error) 45%, transparent); color: var(--color-error);
+}
+.button.danger:hover:not(:disabled), .btn.btn-danger:hover:not(:disabled), .btn.btn-error:hover:not(:disabled) { background: var(--color-error); border-color: var(--color-error); color: var(--color-error-content); }
+.btn.btn-success { background: color-mix(in oklab, var(--color-success) 12%, var(--color-base-100)); border-color: color-mix(in oklab, var(--color-success) 45%, transparent); color: var(--color-success); }
+.btn.btn-success:hover:not(:disabled) { background: var(--color-success); color: var(--color-success-content); border-color: var(--color-success); }
+.button.small, .btn.btn-sm, .button.btn-sm { min-height: 2rem; padding: 0.25rem 0.7rem; font-size: 0.8125rem; }
+.button.pill { border-radius: 9999px; }
+.btn { font-weight: 600; text-transform: none; }
+.icon-button, .btn-close, .modal-header > button, .dialog header > .icon-button {
+  display: inline-grid; place-items: center; width: 2.25rem; height: 2.25rem; padding: 0; border: 1px solid transparent; border-radius: var(--radius-field);
+  background: transparent; color: color-mix(in oklab, var(--color-base-content) 65%, transparent); cursor: pointer; font-size: 1.1rem; transition: background-color 0.15s, color 0.15s;
+}
+.icon-button:hover, .btn-close:hover, .modal-header > button:hover { background: var(--color-base-200); color: var(--color-base-content); }
+.text-button { padding: 0.25rem 0.4rem; border: 0; background: transparent; color: var(--color-secondary); font-weight: 500; cursor: pointer; text-decoration: underline; text-underline-offset: 0.18em; }
+[data-theme='vmotiv-dark'] .text-button { color: var(--color-primary); }
+
+/* ---------- Page structure ---------- */
+.page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem 2rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+.page-header > div { min-width: 0; max-width: 48rem; }
+.page-header h1 { margin: 0; }
+.page-header p, .section-heading p { color: color-mix(in oklab, var(--color-base-content) 64%, transparent); margin-top: 0.2rem; }
+.page-header-actions, .page-actions, .action-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+.action-bar { justify-content: space-between; margin-bottom: 1.25rem; }
+.section-heading h2 { font-size: 1.125rem; font-weight: 600; }
+.content-area { width: 100%; }
+.eyebrow, .kicker { margin: 0 0 0.25rem; font-family: var(--font-sans); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: color-mix(in oklab, var(--color-base-content) 58%, transparent); }
+.muted, .text-muted { color: color-mix(in oklab, var(--color-base-content) 62%, transparent); }
+
+/* ---------- Cards / panels / metrics ---------- */
+.panel, .metric-card, .card-kpi, .detail-card, .card, .subpanel, .funnel-card {
+  background: var(--color-base-100); border: 1px solid var(--color-base-300); border-radius: var(--radius-box); box-shadow: var(--shadow-sm); color: var(--color-base-content);
+}
+.panel, .detail-card, .subpanel { padding: 1.25rem; margin-bottom: 1rem; }
+.panel p { color: color-mix(in oklab, var(--color-base-content) 66%, transparent); }
+.panel-heading, .panel-header, .card-header { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; margin-bottom: 1rem; }
+.panel-heading h2, .panel-header h2, .panel-header h3, .card-title, .subpanel-title { font-size: 1rem; font-weight: 600; margin: 0; }
+.card-subtitle { color: color-mix(in oklab, var(--color-base-content) 60%, transparent); font-size: 0.8125rem; }
+.card-body { padding: 0; }
+.metric-grid, .metrics-grid, .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+.metric-card, .card-kpi { padding: 1.1rem 1.25rem; transition: border-color 0.15s, box-shadow 0.15s; }
+button.metric-card:hover, .metric-card[role='button']:hover, a.metric-card:hover { border-color: color-mix(in oklab, var(--color-primary) 70%, var(--color-base-300)); box-shadow: var(--shadow); }
+.metric-card > span, .metric-label, .metric-title { display: block; font-size: 0.8125rem; font-weight: 500; text-transform: none; color: color-mix(in oklab, var(--color-base-content) 64%, transparent); }
+.metric-card > strong, .metric-value { display: block; margin: 0.4rem 0 0.25rem; font-size: 1.85rem; font-weight: 600; letter-spacing: -0.02em; line-height: 1.15; font-variant-numeric: tabular-nums; color: var(--color-base-content); }
+.metric-card > small, .metric-sub, .metric-subtitle { display: block; font-size: 0.75rem; color: color-mix(in oklab, var(--color-base-content) 55%, transparent); }
+.event-list { list-style: none; margin: 0; padding: 0; }
+.event-list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.8rem 0; border-top: 1px solid var(--color-base-300); }
+.event-list li:first-child { border-top: 0; }
+.event-list span, .event-list time { display: block; font-size: 0.8125rem; color: color-mix(in oklab, var(--color-base-content) 60%, transparent); overflow-wrap: anywhere; }
+.role-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; }
+
+/* ---------- Tables ---------- */
+.table-panel, .table-responsive, .table-scroll { overflow-x: auto; }
+.table-panel { padding: 0; background: var(--color-base-100); border: 1px solid var(--color-base-300); border-radius: var(--radius-box); box-shadow: var(--shadow-sm); margin-bottom: 1rem; }
+.table-panel > .panel-heading { padding: 1rem 1.25rem 0; }
+.table-responsive { background: var(--color-base-100); border: 1px solid var(--color-base-300); border-radius: var(--radius-box); box-shadow: var(--shadow-sm); }
+.table-panel .table-responsive, .table-panel .table-scroll { border: 0; box-shadow: none; border-radius: 0; }
+:where(.table-panel, .table-responsive, .table-scroll, .vm-table-wrap) table { width: 100%; border-collapse: collapse; min-width: 40rem; }
+th, td { text-align: left; padding: 0.7rem 1rem; border-top: 1px solid var(--color-base-300); vertical-align: middle; }
+thead th { border-top: 0; background: var(--color-base-200); color: color-mix(in oklab, var(--color-base-content) 62%, transparent); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
+td { font-size: 0.875rem; }
+tbody tr { transition: background-color 0.12s; }
+tbody tr:hover { background: color-mix(in oklab, var(--color-base-content) 3.5%, transparent); }
+tr[role='button'], tr.clickable, tr[onclick] { cursor: pointer; }
+td > strong, td > span, td > small, .table-title, .table-sub { display: block; }
+td > span, td > small, .table-sub { color: color-mix(in oklab, var(--color-base-content) 58%, transparent); font-size: 0.8125rem; margin-top: 0.1rem; overflow-wrap: anywhere; }
+.table-title { font-weight: 600; }
+.money { font-variant-numeric: tabular-nums; text-align: right; white-space: nowrap; }
+.pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; flex-wrap: wrap; padding: 0.75rem 1.25rem; border-top: 1px solid var(--color-base-300); font-size: 0.8125rem; color: color-mix(in oklab, var(--color-base-content) 62%, transparent); }
+.pagination > div { display: flex; gap: 0.5rem; }
+
+/* ---------- Badges, pills, status ---------- */
+.badge, .pill, .code-pill, .count-badge, .mfa-badge, .privileged-badge, .tab-badge, .branch-badge {
+  display: inline-flex; align-items: center; gap: 0.35rem; height: auto; min-height: 1.5rem; padding: 0.15rem 0.6rem; border: 1px solid transparent; border-radius: 9999px;
+  font-size: 0.75rem; font-weight: 600; line-height: 1.3; white-space: nowrap; background: color-mix(in oklab, var(--color-base-content) 7%, transparent); color: color-mix(in oklab, var(--color-base-content) 78%, transparent);
+}
+.code-pill { border-radius: 0.375rem; font-family: var(--font-mono); font-weight: 500; background: var(--color-base-200); border-color: var(--color-base-300); }
+.badge-success, .badge-green, .mfa-badge, .badge.success { background: var(--success-bg); color: var(--color-success); border-color: color-mix(in oklab, var(--color-success) 35%, transparent); }
+.badge-warning, .badge-amber, .badge-yellow, .privileged-badge, .badge.warning { background: var(--warning-bg); color: var(--color-warning); border-color: color-mix(in oklab, var(--color-warning) 38%, transparent); }
+.badge-danger, .badge-red, .badge-error, .badge.danger { background: var(--danger-bg); color: var(--color-error); border-color: color-mix(in oklab, var(--color-error) 38%, transparent); }
+.badge-info, .badge-blue, .badge-accent { background: var(--blue-bg); color: var(--color-info); border-color: color-mix(in oklab, var(--color-info) 38%, transparent); }
+.badge-purple { background: var(--purple-bg); color: var(--purple); border-color: color-mix(in oklab, var(--purple) 38%, transparent); }
+.badge-primary { background: color-mix(in oklab, var(--color-primary) 16%, transparent); color: var(--brand-text); border-color: color-mix(in oklab, var(--color-primary) 45%, transparent); }
+.badge-sm { min-height: 1.25rem; padding: 0.05rem 0.5rem; font-size: 0.6875rem; }
+.badge-neutral, .badge-gray, .badge-active { background: color-mix(in oklab, var(--color-base-content) 7%, transparent); color: color-mix(in oklab, var(--color-base-content) 75%, transparent); border-color: var(--color-base-300); }
+.count-badge, .tab-badge { min-width: 1.4rem; justify-content: center; padding: 0.05rem 0.45rem; background: var(--color-primary); color: var(--color-primary-content); }
+.status { display: inline-flex; align-items: center; gap: 0.4rem; font-size: 0.8125rem; font-weight: 600; white-space: nowrap; }
+.status::before { content: ''; width: 0.5rem; height: 0.5rem; border-radius: 50%; background: currentColor; }
+.status > span:first-child:empty { display: none; }
+.status.success { color: var(--color-success); }
+.status.warning { color: var(--color-warning); }
+.status.danger { color: var(--color-error); }
+.status.info { color: var(--color-info); }
+.status.neutral { color: color-mix(in oklab, var(--color-base-content) 62%, transparent); }
+
+/* ---------- Tabs ---------- */
+.tab-row, .tabs-nav { display: flex; gap: 0.25rem; flex-wrap: wrap; border-bottom: 1px solid var(--color-base-300); margin-bottom: 1rem; }
+.tab-btn, .tab-row > button { display: inline-flex; align-items: center; gap: 0.4rem; padding: 0.6rem 0.9rem; border: 0; border-bottom: 2px solid transparent; margin-bottom: -1px; background: transparent; font-size: 0.875rem; font-weight: 500; color: color-mix(in oklab, var(--color-base-content) 62%, transparent); cursor: pointer; transition: color 0.15s, border-color 0.15s; }
+.tab-btn:hover, .tab-row > button:hover { color: var(--color-base-content); }
+.tab-btn.active, .tab-row > button.active, .tab-row > button[aria-selected='true'] { color: var(--color-base-content); border-bottom-color: var(--color-primary); }
+
+/* ---------- Feedback ---------- */
+.alert:not(.alert-soft):not([class*='alert-info'], [class*='alert-success'], [class*='alert-warning'], [class*='alert-error']), .error-banner, .alert.error {
+  display: flex; flex-direction: column; gap: 0.3rem; margin: 0 0 1rem; padding: 0.85rem 1rem; border: 1px solid var(--color-base-300); border-radius: var(--radius-box); font-size: 0.875rem;
+  background: var(--color-base-100); color: var(--color-base-content); text-align: left;
+}
+.error-banner, .alert.error { border-color: color-mix(in oklab, var(--color-error) 40%, transparent); background: var(--danger-bg); color: var(--color-error); }
+.empty-state { display: grid; justify-items: center; gap: 0.35rem; padding: 2.25rem 1rem; text-align: center; border: 1px dashed var(--color-base-300); border-radius: var(--radius-box); color: color-mix(in oklab, var(--color-base-content) 62%, transparent); }
+.empty-state p { max-width: 36rem; }
+.page-empty { margin-top: 3rem; }
+.skeleton { position: relative; overflow: hidden; border-radius: var(--radius-field); background: color-mix(in oklab, var(--color-base-content) 9%, transparent); }
+.skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--color-base-content) 9%, transparent), transparent); animation: vm-shimmer 1.4s infinite; }
+.skeleton.card { height: 8rem; }
+.skeleton.line { height: 1.25rem; width: 35%; margin-bottom: 0.9rem; }
+.skeleton.row { height: 3.25rem; margin-top: 0.4rem; }
+.spinner { width: 1.75rem; height: 1.75rem; border: 3px solid color-mix(in oklab, var(--color-primary) 25%, transparent); border-top-color: var(--color-primary); border-radius: 50%; animation: vm-spin 0.8s linear infinite; }
+@keyframes vm-spin { to { transform: rotate(360deg); } }
+.center-state, .auth-screen { min-height: 100dvh; display: grid; place-content: center; justify-items: center; gap: 0.75rem; padding: 2rem; text-align: center; background: var(--color-base-200); }
+.center-state > * { max-width: 36rem; }
+.center-state p, .auth-screen p { color: color-mix(in oklab, var(--color-base-content) 66%, transparent); }
+.state-logo, .auth-logo { width: 11rem; height: auto; object-fit: contain; }
+.skip-link { position: fixed; z-index: 3000; top: 0.5rem; left: 0.5rem; transform: translateY(-200%); padding: 0.6rem 1rem; border-radius: var(--radius-field); background: var(--color-primary); color: var(--color-primary-content); font-weight: 600; }
+.skip-link:focus { transform: none; }
+
+/* ---------- Dialogs: legacy overlay markup and native <dialog>, same look as the shared <Modal> ---------- */
+.modal-overlay, .dialog-scrim, .scrim { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1rem; background: var(--scrim); backdrop-filter: blur(3px); animation: vm-fade-in 0.15s ease both; }
+.modal-dialog, .dialog { display: flex; flex-direction: column; width: min(40rem, 100%); max-height: min(92dvh, 52rem); margin: auto; padding: 0; overflow: hidden; border: 1px solid var(--color-base-300); border-radius: var(--radius-box); background: var(--color-base-100); color: var(--color-base-content); box-shadow: var(--shadow-lg); animation: vm-pop-in 0.18s ease both; }
+dialog.dialog { width: min(44rem, calc(100vw - 2rem)); }
+.dialog::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
+.modal-dialog.modal-dialog-md, .dialog.compact { width: min(34rem, 100%); }
+.modal-dialog.lg, .modal-dialog.modal-dialog-lg { width: min(56rem, 100%); }
+.modal-dialog > form, .dialog > form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.modal-header, .dialog header, .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-base-300); }
+.modal-header h2, .modal-header h3, .dialog header h2, .dialog-header h2 { font-size: 1.125rem; font-weight: 600; margin: 0; }
+.modal-body { display: flex; flex-direction: column; gap: 1rem; flex: 1; min-height: 0; overflow-y: auto; padding: 1.25rem; }
+.dialog > form > :not(header, footer, .dialog-actions) { margin-left: 1.25rem; margin-right: 1.25rem; }
+.dialog > form > label { display: grid; gap: 0.375rem; margin-top: 1rem; font-size: 0.8125rem; font-weight: 500; }
+.dialog > form > .form-grid, .dialog > form > .alert { margin-top: 1rem; }
+.modal-footer, .dialog footer, .dialog-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 0.5rem; padding: 0.85rem 1.25rem; border-top: 1px solid var(--color-base-300); background: color-mix(in oklab, var(--color-base-200) 70%, transparent); }
+.dialog > form > footer { margin: 1rem 0 0; }
+.modal-img-container { display: grid; place-items: center; background: var(--color-base-200); }
+.permission-preview { padding: 1rem; border: 1px solid var(--color-base-300); border-radius: var(--radius-box); background: var(--color-base-200); }
+.permission-preview ul, .role-card ul { list-style: none; margin: 0.75rem 0 0; padding: 0; max-height: 18rem; overflow-y: auto; }
+.permission-preview li, .role-card li { display: grid; grid-template-columns: minmax(9rem, 0.7fr) 1fr; gap: 1rem; padding: 0.55rem 0; border-top: 1px solid var(--color-base-300); font-size: 0.8125rem; }
+.permission-preview li span, .role-card li span { color: color-mix(in oklab, var(--color-base-content) 62%, transparent); }
+
+@media (max-width: 760px) {
+  .form-grid, .check-grid, .role-grid { grid-template-columns: 1fr; }
+  .modal-overlay, .dialog-scrim { padding: 0.5rem; align-items: flex-end; }
+  .modal-dialog, .dialog { max-height: 94dvh; border-radius: var(--radius-box) var(--radius-box) 0 0; }
+  .modal-footer, .dialog footer { flex-direction: column-reverse; }
+  .modal-footer .btn, .modal-footer .button, .dialog footer .button { width: 100%; }
+  .permission-preview li, .role-card li { grid-template-columns: 1fr; gap: 0.15rem; }
+  .filter-select, .search-input-box, .search-input-wrap { flex: 1 1 100%; max-width: none; width: 100%; }
+}
