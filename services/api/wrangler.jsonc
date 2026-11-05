@@ -16,7 +16,8 @@
     "FINANCE_WEB_ORIGIN": "https://finance.vmotiv.in",
     "FIREBASE_PROJECT_ID": "v-motiv",
     "FIREBASE_DATABASE_URL": "https://v-motiv-default-rtdb.asia-southeast1.firebasedatabase.app",
-    "EMAIL_DELIVERY_ENABLED": "false"
+    "EMAIL_DELIVERY_ENABLED": "true",
+    "EMAIL_FROM": "noreply@vmotiv.in"
   },
   "env": {
     "staging": {

@@ -48,7 +48,9 @@ let createClientForRequest: (() => PrismaClient) | null = null;
 // forwards to the client of the request being served.
 interface RequestScope {
   client: PrismaClient;
-  waitUntil?: (promise: Promise<unknown>) => void;
+  /** Keep work running after the response is sent. The request's client is only closed once all of it has finished. */
+  waitUntil: (promise: Promise<unknown>) => void;
+  background: Promise<unknown>[];
 }
 const requestScope = new AsyncLocalStorage<RequestScope>();
 
@@ -145,7 +147,13 @@ function getOrCreateApp(): Express {
         from: emailFrom,
         webOrigin: config.WEB_ORIGIN,
       });
-      drainEmails = async () => drainOutbox(db, send, emailFrom, 5);
+      // Admin routes call this fire-and-forget right before responding. In a Worker, anything not registered with
+      // waitUntil is cancelled when the response is sent, so queued mail (invitations, replies) was never delivered.
+      drainEmails = () => {
+        const job = drainOutbox(db, send, emailFrom, 5);
+        requestScope.getStore()?.waitUntil(job);
+        return job;
+      };
     } catch (err) {
       console.warn('[CLOUDFLARE EMAIL DISPATCHER INIT FAILED]', err);
     }
@@ -382,7 +390,15 @@ export default {
 
       // 3. Initialize application with populated environment
       const app = getOrCreateApp();
-      scope = { client: createClientForRequest!(), waitUntil: ctx?.waitUntil ? p => ctx.waitUntil(p) : undefined };
+      const background: Promise<unknown>[] = [];
+      scope = {
+        client: createClientForRequest!(),
+        background,
+        waitUntil: p => {
+          background.push(p);
+          ctx?.waitUntil?.(p);
+        },
+      };
 
       // 4. Forward request through Express bridge (inside this request's own database scope)
       const response = await requestScope.run(scope, () => fetchToExpress(app, request));
@@ -422,7 +438,10 @@ export default {
     } finally {
       // Close this request's connections once the response is complete; never block or fail the response.
       const finished = scope;
-      if (finished) ctx?.waitUntil?.(finished.client.$disconnect().catch(() => undefined));
+      if (finished) {
+        // Wait for background work (email drain, realtime signals) before closing the connections it may still be using.
+        ctx?.waitUntil?.(Promise.allSettled(finished.background).then(() => finished.client.$disconnect()).catch(() => undefined));
+      }
     }
   },
 };
