@@ -726,7 +726,12 @@ export function createApp(deps: {
     } else {
       console.error('API_REQUEST_FAILED', error);
     }
-    res.status(500).json({ code: 'INTERNAL_ERROR' });
+    // A short, non-sensitive tag (error class + Prisma/driver code only) so support can tell failures apart from the app
+    // without server log access. Never includes messages, queries, ids or data.
+    const tag = [error instanceof Error ? error.constructor.name : typeof error, (error as any)?.code]
+      .filter(value => typeof value === 'string' && /^[A-Za-z0-9_]{1,40}$/.test(value))
+      .join(':');
+    res.status(500).json({ code: 'INTERNAL_ERROR', ...(tag ? { message: `INTERNAL_ERROR [${tag}]` } : {}) });
   };
   app.use(errors);
   return app;
