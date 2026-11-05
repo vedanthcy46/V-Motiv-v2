@@ -7,6 +7,7 @@ process.emitWarning = function (warning: any, ...args: any[]) {
   return (originalEmitWarning as any).call(process, warning, ...args);
 };
 
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { Socket } from 'node:net';
 import { IncomingMessage, ServerResponse } from 'node:http';
 import type { Express } from 'express';
@@ -39,9 +40,17 @@ import { createEdgeTokenVerifier } from './edge-auth.js';
 import { domainsForModel, isWriteOperation, signalerFromEnv } from './rtdb-signal.js';
 
 let expressApp: Express | null = null;
-// The invocation context of the request being served, so background signal writes can outlive the response.
-let currentWaitUntil: ((promise: Promise<unknown>) => void) | undefined;
-let dbClient: PrismaClient | null = null;
+let createClientForRequest: (() => PrismaClient) | null = null;
+// Cloudflare Workers forbid reusing I/O objects (such as a Neon WebSocket connection) across requests. A Prisma client
+// created once and shared would keep a pooled connection from request A and hand it to request B, which fails with
+// "Cannot perform I/O on behalf of a different request" (seen as INTERNAL_ERROR on every interactive transaction).
+// So every request gets its own Prisma client, closed when the response is done. Stores keep using one `db` handle that
+// forwards to the client of the request being served.
+interface RequestScope {
+  client: PrismaClient;
+  waitUntil?: (promise: Promise<unknown>) => void;
+}
+const requestScope = new AsyncLocalStorage<RequestScope>();
 
 function getOrCreateApp(): Express {
   if (expressApp) return expressApp;
@@ -78,28 +87,30 @@ function getOrCreateApp(): Express {
     return firebaseApp;
   }
 
-  let db: PrismaClient;
-  try {
-    neonConfig.poolQueryViaFetch = true;
-    if (typeof WebSocket !== 'undefined') {
-      neonConfig.webSocketConstructor = WebSocket;
-    }
-    const adapter = new PrismaNeon({ connectionString: config.DATABASE_URL });
-    db = new PrismaClient({
-      adapter,
-      transactionOptions: { timeout: 15000, maxWait: 5000 },
-    });
-  } catch (adapterErr) {
-    console.warn('[PRISMA_ADAPTER_FALLBACK]', adapterErr);
-    db = new PrismaClient({
-      datasourceUrl: config.DATABASE_URL,
-      transactionOptions: { timeout: 15000, maxWait: 5000 },
-    });
-  }
   // Realtime signals for the staff portals (Firebase Realtime Database). No-op unless FIREBASE_DATABASE_URL is set.
-  const signaler = signalerFromEnv(process.env, () => currentWaitUntil);
-  if (signaler) {
-    db = (db as any).$extends({
+  const signaler = signalerFromEnv(process.env, () => requestScope.getStore()?.waitUntil);
+
+  function createRequestClient(): PrismaClient {
+    let client: PrismaClient;
+    try {
+      neonConfig.poolQueryViaFetch = true;
+      if (typeof WebSocket !== 'undefined') {
+        neonConfig.webSocketConstructor = WebSocket;
+      }
+      const adapter = new PrismaNeon({ connectionString: config.DATABASE_URL });
+      client = new PrismaClient({
+        adapter,
+        transactionOptions: { timeout: 15000, maxWait: 5000 },
+      });
+    } catch (adapterErr) {
+      console.warn('[PRISMA_ADAPTER_FALLBACK]', adapterErr);
+      client = new PrismaClient({
+        datasourceUrl: config.DATABASE_URL,
+        transactionOptions: { timeout: 15000, maxWait: 5000 },
+      });
+    }
+    if (!signaler) return client;
+    return (client as any).$extends({
       query: {
         $allModels: {
           async $allOperations({ model, operation, args, query }: { model: string; operation: string; args: unknown; query: (a: unknown) => Promise<unknown> }) {
@@ -111,7 +122,17 @@ function getOrCreateApp(): Express {
       },
     }) as unknown as PrismaClient;
   }
-  dbClient = db;
+
+  // Used only outside a request (there should be none); created lazily so it never holds a connection by default.
+  let outOfRequestClient: PrismaClient | null = null;
+  const db = new Proxy({} as PrismaClient, {
+    get(_target, property) {
+      const client = requestScope.getStore()?.client ?? (outOfRequestClient ??= createRequestClient());
+      const value = Reflect.get(client as object, property);
+      return typeof value === 'function' ? value.bind(client) : value;
+    },
+  });
+  createClientForRequest = createRequestClient;
 
   const resendApiKey = config.RESEND_API_KEY;
   const emailFrom = config.EMAIL_FROM;
@@ -348,7 +369,7 @@ export default {
       });
     }
 
-    currentWaitUntil = ctx?.waitUntil?.bind(ctx);
+    let scope: RequestScope | null = null;
     try {
       // 2. Populate process.env from Cloudflare Worker env/secrets bindings
       if (env && typeof env === 'object') {
@@ -361,9 +382,10 @@ export default {
 
       // 3. Initialize application with populated environment
       const app = getOrCreateApp();
+      scope = { client: createClientForRequest!(), waitUntil: ctx?.waitUntil ? p => ctx.waitUntil(p) : undefined };
 
-      // 4. Forward request through Express bridge
-      const response = await fetchToExpress(app, request);
+      // 4. Forward request through Express bridge (inside this request's own database scope)
+      const response = await requestScope.run(scope, () => fetchToExpress(app, request));
 
       // 5. Ensure CORS headers are present on all responses
       const allowOrigin = origin || '*';
@@ -397,6 +419,10 @@ export default {
           },
         }
       );
+    } finally {
+      // Close this request's connections once the response is complete; never block or fail the response.
+      const finished = scope;
+      if (finished) ctx?.waitUntil?.(finished.client.$disconnect().catch(() => undefined));
     }
   },
 };
