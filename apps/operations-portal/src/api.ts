@@ -152,7 +152,7 @@ export const api = {
   updateStockVehicleSpecs: (
     u: User,
     stockId: string,
-    body: { registrationNumber?: string; variant?: string; color?: string; odometerKm?: number }
+    body: { registrationNumber?: string; variant?: string; bodyType?: string; color?: string; odometerKm?: number }
   ) => call<unknown>(u, `/operations/inventory/${stockId}/vehicle-specs`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   // --- Refurbishment Work Orders & Cost Approvals ---

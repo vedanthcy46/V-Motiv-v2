@@ -23,12 +23,20 @@ const API_BASE = publicApiBase();
 
 export type InventoryFacetCount = { value: string; count: number };
 
-/** Fuel types and transmissions that exist in published stock, with counts. */
-export async function fetchInventoryFacets(): Promise<{ fuelTypes: InventoryFacetCount[]; transmissions: InventoryFacetCount[] }> {
+const BODY_TYPE_LABELS: Record<string, string> = { HATCHBACK: 'Hatchback', SEDAN: 'Sedan', SUV: 'SUV', MUV: 'MUV / MPV', COUPE: 'Coupe', CONVERTIBLE: 'Convertible' };
+/** Readable name for a stored body type code ("HATCHBACK" -> "Hatchback"). */
+export function bodyTypeLabel(code?: string | null): string {
+  if (!code) return '';
+  const key = code.trim().toUpperCase();
+  return BODY_TYPE_LABELS[key] ?? code.charAt(0).toUpperCase() + code.slice(1).toLowerCase();
+}
+
+/** Fuel types, transmissions and body types that exist in published stock, with counts. */
+export async function fetchInventoryFacets(): Promise<{ fuelTypes: InventoryFacetCount[]; transmissions: InventoryFacetCount[]; bodyTypes: InventoryFacetCount[] }> {
   const response = await fetch(`${API_BASE}/inventory/facets`);
   if (!response.ok) throw new Error('Failed to load inventory filters');
   const body = await response.json();
-  return { fuelTypes: body.fuelTypes ?? [], transmissions: body.transmissions ?? [] };
+  return { fuelTypes: body.fuelTypes ?? [], transmissions: body.transmissions ?? [], bodyTypes: body.bodyTypes ?? [] };
 }
 
 export function formatInrPaise(paise: string | number): string {
@@ -52,6 +60,7 @@ export async function fetchInventory(params?: {
   limit?: number;
   fuelType?: string;
   transmission?: string;
+  bodyType?: string;
   city?: string;
   search?: string;
 }): Promise<InventoryResponse> {
@@ -59,6 +68,7 @@ export async function fetchInventory(params?: {
   if (params?.limit) searchParams.set('limit', String(params.limit));
   if (params?.fuelType && params.fuelType !== 'ALL') searchParams.set('fuelType', params.fuelType);
   if (params?.transmission && params.transmission !== 'ALL') searchParams.set('transmission', params.transmission);
+  if (params?.bodyType && params.bodyType !== 'ALL') searchParams.set('bodyType', params.bodyType);
   if (params?.city) searchParams.set('city', params.city);
   if (params?.search) searchParams.set('search', params.search);
 

@@ -53,6 +53,8 @@ export const DEFAULT_MAKE_ALIAS_GROUPS: MakeAliasGroup[] = [
   { canonical: 'Land Rover', names: ['land rover', 'land-rover'] },
 ];
 
+import { normalizeBodyType } from './body-types.js';
+
 const lower = (value: string | null | undefined) => (value ?? '').trim().toLowerCase();
 
 /** All spellings that should match when a customer picks a make (lower-cased). */
@@ -73,6 +75,13 @@ export function makeSpellings(names: string[], groups: MakeAliasGroup[] = DEFAUL
   return [...makeMatchSet(names, groups)];
 }
 
+/** 'Hatchback', 'HATCHBACK' and 'hatch back' are the same body type; an unknown spelling still compares as plain text. */
+function sameBodyType(rowValue: string | null | undefined, wanted: string): boolean {
+  const a = normalizeBodyType(rowValue);
+  const b = normalizeBodyType(wanted);
+  return a && b ? a === b : lower(rowValue) === lower(wanted);
+}
+
 function matches(row: FacetRow, f: FacetFilters, skip?: Dimension, groups: MakeAliasGroup[] = DEFAULT_MAKE_ALIAS_GROUPS): boolean {
   if (f.search) {
     const q = lower(f.search);
@@ -81,7 +90,7 @@ function matches(row: FacetRow, f: FacetFilters, skip?: Dimension, groups: MakeA
   if (skip !== 'city' && f.city && lower(row.city) !== lower(f.city)) return false;
   if (skip !== 'fuelType' && f.fuelType && lower(row.fuelType) !== lower(f.fuelType)) return false;
   if (skip !== 'transmission' && f.transmission && lower(row.transmission) !== lower(f.transmission)) return false;
-  if (skip !== 'bodyType' && f.bodyType && lower(row.bodyType) !== lower(f.bodyType)) return false;
+  if (skip !== 'bodyType' && f.bodyType && !sameBodyType(row.bodyType, f.bodyType)) return false;
   if (skip !== 'color' && f.color && lower(row.color) !== lower(f.color)) return false;
   if (skip !== 'make' && f.makes?.length && !makeMatchSet(f.makes, groups).has(lower(row.make))) return false;
   if (skip !== 'model' && f.models?.length && !f.models.some(model => lower(model) === lower(row.model))) return false;
@@ -161,7 +170,7 @@ export function computeInventoryFacets(rows: FacetRow[], filters: FacetFilters, 
     })(),
     fuelTypes: tally(forDim('fuelType').map(r => r.fuelType)),
     transmissions: tally(forDim('transmission').map(r => r.transmission)),
-    bodyTypes: tally(forDim('bodyType').map(r => r.bodyType)),
+    bodyTypes: tally(forDim('bodyType').map(r => normalizeBodyType(r.bodyType) ?? r.bodyType)),
     colors: tally(forDim('color').map(r => r.color)),
     cities: tally(forDim('city').map(r => r.city)),
     features: tally(forDim('features').flatMap(r => r.features)),

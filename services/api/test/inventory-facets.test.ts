@@ -61,4 +61,18 @@ describe('computeInventoryFacets', () => {
     expect(f.total).toBe(0);
     expect(f.ranges.price).toBeNull();
   });
+
+  it('treats Hatchback, HATCHBACK and hatch_back as one body type, in the filter and in the counts', () => {
+    const mixed = [
+      row({ model: 'Swift', bodyType: 'HATCHBACK' }),
+      row({ model: 'Baleno', bodyType: 'Hatchback' }),
+      row({ model: 'Creta', bodyType: 'SUV' }),
+      row({ model: 'Ertiga', bodyType: 'MPV' }),
+    ];
+    expect(computeInventoryFacets(mixed, { bodyType: 'hatch_back' }).total).toBe(2);
+    expect(computeInventoryFacets(mixed, { bodyType: 'MUV' }).total).toBe(1);
+    const counts = computeInventoryFacets(mixed, {}).bodyTypes;
+    expect(counts.find(c => c.value === 'HATCHBACK')?.count).toBe(2);
+    expect(counts.find(c => c.value === 'MUV')?.count).toBe(1);
+  });
 });

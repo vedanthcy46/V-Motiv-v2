@@ -78,6 +78,16 @@ type TabKey =
   | 'rentals'
   | 'team';
 
+const DEFAULT_BODY_TYPES = [
+  { code: 'HATCHBACK', name: 'Hatchback' },
+  { code: 'SEDAN', name: 'Sedan' },
+  { code: 'SUV', name: 'SUV' },
+  { code: 'MUV', name: 'MUV' },
+  { code: 'COUPE', name: 'Coupe' },
+  { code: 'CONVERTIBLE', name: 'Convertible' },
+];
+const bodyTypeLabel = (code: string, options: Array<{ code: string; name: string }>) => options.find(option => option.code === code.toUpperCase())?.name ?? code;
+
 function needsQualityControl(stock: VehicleStockUnit) {
   const hasCompletedWorkOrder = stock.workOrders?.some(workOrder => workOrder.status === 'COMPLETED') ?? false;
   const hasPassedQualityControl = stock.qualityControlReports?.some(report => report.status === 'PASSED') ?? false;
@@ -327,9 +337,20 @@ export const App: FC = () => {
     stockItem?: VehicleStockUnit;
     registrationNumber: string;
     variant: string;
+    bodyType: string;
     color: string;
     odometerKm: number;
-  }>({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 });
+  }>({ open: false, registrationNumber: '', variant: '', bodyType: '', color: '', odometerKm: 0 });
+  // Body types come from the administrator-managed list; these are used until it loads.
+  const [bodyTypeOptions, setBodyTypeOptions] = useState<Array<{ code: string; name: string }>>(DEFAULT_BODY_TYPES);
+  useEffect(() => {
+    void api.masterData()
+      .then(items => {
+        const fromMaster = items.filter(item => item.category === 'BODY_TYPE').map(item => ({ code: item.code, name: item.name }));
+        if (fromMaster.length) setBodyTypeOptions(fromMaster);
+      })
+      .catch(() => undefined);
+  }, []);
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [studioModal, setStudioModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
@@ -596,11 +617,12 @@ export const App: FC = () => {
       await api.updateStockVehicleSpecs(user, specsModal.stockItem.id, {
         registrationNumber: specsModal.registrationNumber.trim().toUpperCase() || undefined,
         variant: specsModal.variant.trim() || undefined,
+        bodyType: specsModal.bodyType,
         color: specsModal.color.trim() || undefined,
         odometerKm: specsModal.odometerKm || undefined,
       });
       setSuccessMsg('Vehicle specs & registration plate updated');
-      setSpecsModal({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 });
+      setSpecsModal({ open: false, registrationNumber: '', variant: '', bodyType: '', color: '', odometerKm: 0 });
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
       reportError(err instanceof ApiError ? `Specs Error: ${err.code}` : 'Failed to update vehicle specs');
@@ -2004,7 +2026,7 @@ export const App: FC = () => {
                         <td>
                           <strong>{s.manufacturingYear} {s.make} {s.model}{s.variant ? ` ${s.variant}` : ''}</strong>
                           <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                            {[s.fuelType, s.transmission, s.color || 'Standard'].filter(Boolean).join(' · ')}
+                            {[s.bodyType ? bodyTypeLabel(s.bodyType, bodyTypeOptions) : '', s.fuelType, s.transmission, s.color || 'Standard'].filter(Boolean).join(' · ')}
                           </div>
                         </td>
                         <td>
@@ -2049,6 +2071,7 @@ export const App: FC = () => {
                                   stockItem: s,
                                   registrationNumber: s.registrationNumber || '',
                                   variant: s.variant || '',
+                                  bodyType: s.bodyType || '',
                                   color: s.color || '',
                                   odometerKm: s.odometerKm || 0,
                                 });
@@ -3178,7 +3201,7 @@ export const App: FC = () => {
           <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Edit Vehicle Specs & Registration Plate</h3>
-              <button className="btn-close" onClick={() => setSpecsModal({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 })}>✕</button>
+              <button className="btn-close" onClick={() => setSpecsModal({ open: false, registrationNumber: '', variant: '', bodyType: '', color: '', odometerKm: 0 })}>✕</button>
             </div>
             <form onSubmit={handleSaveSpecs}>
               <div className="modal-body">
@@ -3213,6 +3236,19 @@ export const App: FC = () => {
                 </div>
 
                 <div className="form-group">
+                  <label>Body type</label>
+                  <select
+                    className="form-select"
+                    value={specsModal.bodyType}
+                    onChange={e => setSpecsModal({ ...specsModal, bodyType: e.target.value })}
+                  >
+                    <option value="">Detect from make and model</option>
+                    {bodyTypeOptions.map(option => <option key={option.code} value={option.code}>{option.name}</option>)}
+                  </select>
+                  <small className="helper">Customers filter cars by this (Hatchback, Sedan, SUV…). Leave it on automatic unless the car is an exception.</small>
+                </div>
+
+                <div className="form-group">
                   <label>Exterior Color</label>
                   <input
                     type="text"
@@ -3238,7 +3274,7 @@ export const App: FC = () => {
                 <button
                   type="button"
                   className="btn-secondary"
-                  onClick={() => setSpecsModal({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 })}
+                  onClick={() => setSpecsModal({ open: false, registrationNumber: '', variant: '', bodyType: '', color: '', odometerKm: 0 })}
                 >
                   Cancel
                 </button>

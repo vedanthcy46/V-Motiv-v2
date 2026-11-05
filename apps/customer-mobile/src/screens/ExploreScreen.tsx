@@ -150,6 +150,7 @@ const BODY_OPTIONS = [
   { key: 'SUV', label: 'SUV', icon: '🚙' },
   { key: 'MUV', label: 'MUV / 7-Seater', icon: '🚐' },
   { key: 'COUPE', label: 'Coupe / Luxury', icon: '🏎️' },
+  { key: 'CONVERTIBLE', label: 'Convertible', icon: '🚗' },
 ];
 
 const COLOR_OPTIONS = [

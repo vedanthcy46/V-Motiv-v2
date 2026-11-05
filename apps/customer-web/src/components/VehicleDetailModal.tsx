@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
 import type { ListingItem, UserTestDrive } from '../types';
 import {
+  bodyTypeLabel,
   formatLakh,
   formatInrPaise,
   submitTestDrive,
@@ -305,6 +306,12 @@ export const VehicleDetailModal: React.FC<VehicleDetailModalProps> = ({
                     <span className="table-lbl">Fuel Type</span>
                     <span className="table-val">{car.fuelType}</span>
                   </div>
+                  {car.bodyType ? (
+                    <div className="table-row">
+                      <span className="table-lbl">Body Type</span>
+                      <span className="table-val">{bodyTypeLabel(car.bodyType)}</span>
+                    </div>
+                  ) : null}
                   <div className="table-row">
                     <span className="table-lbl">Transmission</span>
                     <span className="table-val">{car.transmission}</span>

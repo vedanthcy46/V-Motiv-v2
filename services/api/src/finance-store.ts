@@ -983,6 +983,7 @@ export class PrismaFinanceStore {
               make: 'Hyundai',
               model: 'Creta',
               variant: 'SX (O)',
+              bodyType: 'SUV',
               manufacturingYear: 2022,
               odometerKm: 28000,
               fuelType: 'PETROL',

@@ -159,6 +159,8 @@ const baseMasterData = [
   { category: 'BODY_TYPE', code: 'SEDAN', name: 'Sedan', parentCode: null },
   { category: 'BODY_TYPE', code: 'SUV', name: 'SUV', parentCode: null },
   { category: 'BODY_TYPE', code: 'MUV', name: 'MUV', parentCode: null },
+  { category: 'BODY_TYPE', code: 'COUPE', name: 'Coupe', parentCode: null },
+  { category: 'BODY_TYPE', code: 'CONVERTIBLE', name: 'Convertible', parentCode: null },
   // Fuel Types
   { category: 'FUEL_TYPE', code: 'PETROL', name: 'Petrol', parentCode: null },
   { category: 'FUEL_TYPE', code: 'DIESEL', name: 'Diesel', parentCode: null },
