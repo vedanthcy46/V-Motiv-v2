@@ -17,7 +17,10 @@ import {
   type User,
 } from 'firebase/auth';
 import { adminApi, ApiError } from './api.js';
-import { announceChange, useAutoRefresh } from './autoRefresh.js';
+import {
+  AppShell, CenterState, EmptyState as UiEmptyState, ErrorState as UiErrorState, MfaChallengeModal, NotificationBell as BellMenu, PageHeader as UiPageHeader, PageLoader,
+  SkeletonCards as UiSkeletonCards, StatusBadge as UiStatusBadge, TableSkeleton as UiTableSkeleton, Button, announceChange, toast, useAutoRefresh, type NavSection,
+} from '@vmotiv/ui';
 import { auth, firebaseConfigured } from './firebase.js';
 import type {
   RentalKmPolicy,
@@ -223,7 +226,7 @@ export function App() {
       <>
         <InvitationAcceptance user={user} onSignIn={googleSignIn} onSignOut={logout} />
         {mfaResolver && auth && (
-          <MfaChallengeDialog
+          <MfaChallengeModal
             auth={auth}
             resolver={mfaResolver}
             onClose={() => setMfaResolver(null)}
@@ -245,7 +248,7 @@ export function App() {
           onStartEnroll={() => setEnrollMfaOpen(true)}
         />
         {mfaResolver && auth && (
-          <MfaChallengeDialog
+          <MfaChallengeModal
             auth={auth}
             resolver={mfaResolver}
             onClose={() => setMfaResolver(null)}
@@ -273,8 +276,14 @@ export function App() {
   return <Shell actor={actor} route={route} user={user} onLogout={logout} />;
 }
 
-function FullLoader() { return <main className="center-state" aria-busy="true"><img className="state-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV"/><div className="spinner"/><p>Verifying identity and access…</p></main>; }
-function SetupState() { return <main className="center-state"><img className="state-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV"/><p className="eyebrow">Admin Control Centre</p><h1>Firebase configuration required</h1><p>Add the four <code>VITE_FIREBASE_*</code> values from <code>.env.example</code>. No administrator access is granted until the backend also verifies the employee record, permission and MFA state.</p></main>; }
+function FullLoader() { return <PageLoader label="Verifying identity and access" />; }
+function SetupState() {
+  return (
+    <CenterState eyebrow="Admin Control Centre" title="Firebase configuration required">
+      <p>Add the four <code>VITE_FIREBASE_*</code> values from <code>.env.example</code>. No administrator access is granted until the backend also verifies the employee record, permission and MFA state.</p>
+    </CenterState>
+  );
+}
 
 function SignInState({
   user,
@@ -318,11 +327,11 @@ function SignInState({
           </div>
         )}
         {user && storedToken && (
-          <div style={{ marginTop: '1rem', padding: '0.875rem', background: '#ecfdf5', border: '1px solid #a7f3d0', borderRadius: '6px' }}>
-            <p style={{ margin: '0 0 0.5rem 0', fontWeight: 600, color: '#065f46', fontSize: '0.875rem' }}>
+          <div className="vm-note">
+            <p className="vm-note-title">
               Pending employee invitation detected
             </p>
-            <p style={{ margin: '0 0 0.75rem 0', fontSize: '0.8125rem', color: '#047857' }}>
+            <p className="vm-note-text">
               An invitation token was saved on this device. Click below to activate access for {user.email}:
             </p>
             <button
@@ -335,11 +344,11 @@ function SignInState({
           </div>
         )}
         {user && (
-          <div style={{ marginTop: '1rem', padding: '0.875rem', background: '#f8fafc', border: '1px solid #e2e8f0', borderRadius: '6px' }}>
-            <p style={{ margin: '0 0 0.375rem 0', fontWeight: 600, color: '#334155', fontSize: '0.875rem' }}>
+          <div className="vm-note">
+            <p className="vm-note-title">
               Invited as a staff member?
             </p>
-            <p style={{ margin: '0 0 0.625rem 0', fontSize: '0.8125rem', color: '#64748b' }}>
+            <p className="vm-note-text">
               Paste your onboarding link or token to activate your account:
             </p>
             <form
@@ -360,9 +369,9 @@ function SignInState({
                 name="inviteInput"
                 type="text"
                 placeholder="Paste token or invitation URL"
-                style={{ flex: 1, padding: '0.45rem 0.625rem', fontSize: '0.8125rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+                style={{ flex: 1 }}
               />
-              <button type="submit" className="button secondary" style={{ whiteSpace: 'nowrap', fontSize: '0.8125rem' }}>
+              <button type="submit" className="button secondary small" style={{ whiteSpace: 'nowrap' }}>
                 Redeem
               </button>
             </form>
@@ -377,150 +386,6 @@ function SignInState({
         <div><span className="kicker">Accountability</span><strong>Privileged actions are audited</strong></div>
       </aside>
     </main>
-  );
-}
-
-function MfaChallengeDialog({
-  auth,
-  resolver,
-  onClose,
-  onSuccess,
-}: {
-  auth: Auth;
-  resolver: MultiFactorResolver;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-  const [verificationId, setVerificationId] = useState('');
-  const [code, setCode] = useState('');
-  const [sending, setSending] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [error, setError] = useState('');
-
-  const phoneHint = resolver.hints.find(
-    hint => hint.factorId === PhoneMultiFactorGenerator.FACTOR_ID
-  ) as PhoneMultiFactorInfo | undefined;
-
-  useEffect(() => {
-    ref.current?.showModal();
-    return () => {
-      try {
-        recaptchaVerifierRef.current?.clear();
-      } catch {
-        // ignore
-      }
-    };
-  }, []);
-
-  async function sendOtp() {
-    if (!phoneHint) {
-      setError('No registered phone number found on this account.');
-      return;
-    }
-    setSending(true);
-    setError('');
-    try {
-      if (recaptchaVerifierRef.current) {
-        try { recaptchaVerifierRef.current.clear(); } catch { /* ignore */ }
-        recaptchaVerifierRef.current = null;
-      }
-      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-      });
-      const phoneProvider = new PhoneAuthProvider(auth);
-      const vId = await phoneProvider.verifyPhoneNumber(
-        { multiFactorHint: phoneHint, session: resolver.session },
-        recaptchaVerifierRef.current
-      );
-      setVerificationId(vId);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to send SMS code. Please try again.');
-    } finally {
-      setSending(false);
-    }
-  }
-
-  useEffect(() => {
-    void sendOtp();
-  }, []);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!verificationId || code.trim().length !== 6) return;
-    setVerifying(true);
-    setError('');
-    try {
-      const cred = PhoneAuthProvider.credential(verificationId, code.trim());
-      const assertion = PhoneMultiFactorGenerator.assertion(cred);
-      await resolver.resolveSignIn(assertion);
-      onSuccess();
-    } catch (err: any) {
-      setError(err?.message || 'Invalid or expired verification code.');
-      setVerifying(false);
-    }
-  }
-
-  const phoneDisplay = phoneHint?.phoneNumber || 'your registered mobile number';
-
-  return (
-    <dialog ref={ref} onCancel={onClose} className="dialog compact">
-      <form onSubmit={submit}>
-        <header>
-          <div>
-            <p className="eyebrow">2-Step Verification</p>
-            <h2>Phone Verification</h2>
-          </div>
-          <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
-            <Icon name="close" />
-          </button>
-        </header>
-        {error && <div className="alert error" role="alert">{error}</div>}
-        <p className="helper" style={{ margin: '1rem 0' }}>
-          {sending
-            ? `Sending 6-digit verification code to ${phoneDisplay}…`
-            : `We sent a 6-digit code via SMS to ${phoneDisplay}. Enter the code below to complete sign-in.`}
-        </p>
-        <label>
-          6-digit verification code <span aria-hidden="true">*</span>
-          <input
-            name="code"
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]{6}"
-            maxLength={6}
-            placeholder="123456"
-            value={code}
-            onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
-            required
-            autoFocus
-          />
-        </label>
-        <div style={{ marginTop: '0.75rem', display: 'flex', justifyContent: 'flex-end' }}>
-          <button
-            type="button"
-            className="text-button"
-            disabled={sending}
-            onClick={sendOtp}
-          >
-            {sending ? 'Resending…' : 'Resend code via SMS'}
-          </button>
-        </div>
-        <footer>
-          <button type="button" className="button secondary" onClick={onClose}>
-            Cancel
-          </button>
-          <button
-            className="button primary"
-            disabled={verifying || sending || code.length !== 6}
-          >
-            {verifying ? 'Verifying…' : 'Verify & Sign In'}
-          </button>
-        </footer>
-      </form>
-    </dialog>
   );
 }
 
@@ -755,7 +620,7 @@ function InvitationAcceptance({ user, onSignIn, onSignOut }: { user: User | null
           <div className="alert error" role="alert" style={{ marginBottom: '1rem' }}>
             This invitation link is missing the token parameter.
           </div>
-          <p style={{ fontSize: '0.875rem', color: '#64748b', marginBottom: '0.75rem' }}>
+          <p style={{ fontSize: '0.875rem', color: 'var(--muted)', marginBottom: '0.75rem' }}>
             Paste the invitation link or token from your onboarding email:
           </p>
           <form
@@ -775,7 +640,7 @@ function InvitationAcceptance({ user, onSignIn, onSignOut }: { user: User | null
               placeholder="Paste token or invitation link"
               value={manualToken}
               onChange={e => setManualToken(e.target.value)}
-              style={{ flex: 1, padding: '0.5rem 0.75rem', fontSize: '0.875rem', borderRadius: '4px', border: '1px solid #cbd5e1' }}
+              style={{ flex: 1, padding: '0.5rem 0.75rem', fontSize: '0.875rem', borderRadius: '4px', border: '1px solid var(--muted)' }}
             />
             <button type="submit" className="button secondary">Continue</button>
           </form>
@@ -833,13 +698,11 @@ const navItems = [
   { path: '/branches' as Route, label: 'Settings & Branches', icon: 'branches' as const, permission: 'branch.read' },
 ];
 function NotificationBell({ user }: { user: User }) {
-  const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState(0);
   const [items, setItems] = useState<any[]>([]);
-  const [notificationError, setNotificationError] = useState('');
   const lastUnread = useRef<number | null>(null);
 
-  const loadNotifs = useCallback(() => {
+  const loadCount = useCallback(() => {
     adminApi.unreadNotificationsCount(user)
       .then(res => {
         // A higher unread count than last time means something new arrived: show the floating bar.
@@ -847,167 +710,85 @@ function NotificationBell({ user }: { user: User }) {
         lastUnread.current = res.count;
         setUnreadCount(res.count);
       })
-      .catch(error => setNotificationError(errorMessage(error)));
-    if (open) {
-      adminApi.notifications(user, 1)
-        .then(res => { setItems(res.items); setNotificationError(''); })
-        .catch(error => setNotificationError(errorMessage(error)));
-    }
-  }, [user, open]);
+      .catch(() => undefined);
+  }, [user]);
+  const loadItems = useCallback(() => {
+    adminApi.notifications(user, 1)
+      .then(res => setItems(res.items))
+      .catch(error => toast.error('Could not load notifications', { description: errorMessage(error) }));
+  }, [user]);
 
-  useEffect(() => {
-    loadNotifs();
-  }, [loadNotifs]);
+  useEffect(() => { loadCount(); }, [loadCount]);
   // Poll for new notifications only while the tab is visible (and back off if the API is failing).
-  useAutoRefresh(() => Promise.resolve(loadNotifs()), { intervalMs: 60_000, pauseWhen: () => false });
-
-  const markAllRead = async () => {
-    try {
-      await adminApi.markAllNotificationsRead(user);
-      setItems(prev => prev.map(i => ({ ...i, read: true })));
-      setUnreadCount(0);
-    } catch (error) {
-      setNotificationError(errorMessage(error));
-    }
-  };
-
-  const markRead = async (id: string) => {
-    try {
-      await adminApi.markNotificationRead(user, id);
-      setItems(prev => prev.map(i => i.id === id ? { ...i, read: true } : i));
-      setUnreadCount(prev => Math.max(0, prev - 1));
-    } catch (error) {
-      setNotificationError(errorMessage(error));
-    }
-  };
+  useAutoRefresh(() => Promise.resolve(loadCount()), { intervalMs: 60_000, pauseWhen: () => false });
 
   return (
-    <div style={{ position: 'relative' }}>
-      <button
-        type="button"
-        className="icon-button"
-        style={{ position: 'relative', background: 'transparent', border: 'none', cursor: 'pointer', padding: '6px' }}
-        onClick={() => { setOpen(!open); }}
-        title="Notifications"
-      >
-        <Icon name="bell" />
-        {unreadCount > 0 && (
-          <span style={{ position: 'absolute', top: '-2px', right: '-2px', background: 'var(--red, #EF4444)', color: '#fff', borderRadius: '10px', fontSize: '10px', fontWeight: 800, padding: '1px 5px' }}>
-            {unreadCount > 9 ? '9+' : unreadCount}
-          </span>
-        )}
-      </button>
-
-      {open && (
-        <div style={{ position: 'absolute', right: 0, top: '36px', width: '320px', maxHeight: '420px', overflowY: 'auto', background: 'var(--navy, #061A38)', border: '1px solid var(--border, #1A3B6B)', borderRadius: '8px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 1000, padding: '12px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid var(--border, #1A3B6B)', paddingBottom: '6px' }}>
-            <strong style={{ fontSize: '13px' }}>Notifications</strong>
-            {unreadCount > 0 && (
-              <button className="text-button" style={{ fontSize: '11px', color: 'var(--yellow, #F7B503)', cursor: 'pointer' }} onClick={markAllRead}>
-                Mark all read
-              </button>
-            )}
-          </div>
-          {notificationError && (
-            <div className="alert error" role="alert" style={{ marginBottom: '8px', fontSize: '12px' }}>
-              {notificationError} <button type="button" className="text-button" onClick={loadNotifs}>Retry</button>
-            </div>
-          )}
-          {items.length === 0 ? (
-            <p style={{ color: 'var(--muted, #8899A6)', fontSize: '12px', textAlign: 'center', padding: '16px 0' }}>No notifications</p>
-          ) : (
-            items.map(item => (
-              <div
-                key={item.id}
-                style={{ padding: '8px 0', borderBottom: '1px solid rgba(255,255,255,0.06)', opacity: item.read ? 0.7 : 1, cursor: 'pointer' }}
-                onClick={() => markRead(item.id)}
-              >
-                <div style={{ fontWeight: item.read ? 600 : 700, fontSize: '12px', color: item.read ? 'inherit' : 'var(--yellow, #F7B503)' }}>
-                  {item.title}
-                </div>
-                <div style={{ fontSize: '11px', color: 'var(--muted, #8899A6)', marginTop: '2px' }}>
-                  {item.body}
-                </div>
-                <small style={{ fontSize: '10px', color: 'var(--muted, #8899A6)', marginTop: '4px', display: 'block' }}>
-                  {new Date(item.createdAt).toLocaleString()}
-                </small>
-              </div>
-            ))
-          )}
-        </div>
-      )}
-    </div>
+    <BellMenu
+      items={items}
+      unread={unreadCount}
+      onOpen={loadItems}
+      onMarkAllRead={async () => {
+        try {
+          await adminApi.markAllNotificationsRead(user);
+          setItems(prev => prev.map(i => ({ ...i, read: true })));
+          setUnreadCount(0);
+        } catch (error) {
+          toast.error('Could not mark notifications as read', { description: errorMessage(error) });
+        }
+      }}
+      onOpenItem={async item => {
+        if (item.read) return;
+        try {
+          await adminApi.markNotificationRead(user, item.id);
+          setItems(prev => prev.map(i => i.id === item.id ? { ...i, read: true } : i));
+          setUnreadCount(prev => Math.max(0, prev - 1));
+        } catch (error) {
+          toast.error('Could not update the notification', { description: errorMessage(error) });
+        }
+      }}
+    />
   );
 }
 
 function Shell({ actor, user, route, onLogout }: { actor: AdminActor; user: User; route: Route; onLogout: () => void }) {
-  const [open, setOpen] = useState(false);
   const nav = navItems.filter(item => actor.permissions.includes(item.permission));
+  const sections: NavSection<Route>[] = [{ items: nav.map(item => ({ key: item.path, label: item.label, icon: <Icon name={item.icon} /> })) }];
   const title = nav.find(item => item.path === route)?.label || 'Not found';
-  function go(path: Route) { navigate(path); setOpen(false); }
   return (
-    <div className="app-shell">
-      <a className="skip-link" href="#main">Skip to main content</a>
-      <aside className={`sidebar ${open ? 'open' : ''}`}>
-        <div className="brand">
-          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV"/>
-          <span>Admin</span>
-        </div>
-        <nav aria-label="Primary navigation">
-          {nav.map(item => (
-            <button
-              key={item.path}
-              className={route === item.path ? 'active' : ''}
-              aria-current={route === item.path ? 'page' : undefined}
-              onClick={() => go(item.path)}
-            >
-              <Icon name={item.icon}/>
-              <span>{item.label}</span>
-            </button>
-          ))}
-        </nav>
-        <div className="sidebar-account">
-          <span>{actor.displayName || actor.email}</span>
-          <small>{actor.employeeCode || 'Employee'}</small>
-          <button onClick={onLogout}><Icon name="logout"/>Sign out</button>
-        </div>
-      </aside>
-      {open && <button className="scrim" aria-label="Close navigation" onClick={() => setOpen(false)}/>}
-      <div className="app-main">
-        <header className="topbar">
-          <button className="icon-button mobile-menu" aria-label={open ? 'Close navigation' : 'Open navigation'} aria-expanded={open} onClick={() => setOpen(!open)}>
-            <Icon name={open ? 'close' : 'menu'}/>
-          </button>
-          <div>
-            <span className="breadcrumb">V MOTIV Admin /</span>
-            <strong>{title}</strong>
-          </div>
-          <div className="identity" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <NotificationBell user={user} />
-            <span>{user.email}</span>
-            <span className="mfa-badge">MFA verified</span>
-          </div>
-        </header>
-        <main id="main" tabIndex={-1}>
-          {route === '/' && <><OverviewPage user={user}/>{actor.permissions.includes('system.health.read') && <SystemHealthPanel user={user}/>}</>}
-          {route === '/employees' && <EmployeesPage user={user} actor={actor}/>}
-          {route === '/access' && <AccessPage user={user}/>}
-          {route === '/approvals' && <ApprovalsPage user={user} actor={actor}/>}
-          {route === '/business' && <BusinessPage user={user} actor={actor}/>}
-          {route === '/support' && <SupportPage user={user} actor={actor}/>}
-          {route === '/master-data' && <MasterDataPage user={user} actor={actor}/>}
-          {route === '/communications' && <CommunicationsPage user={user} actor={actor}/>}
-          {route === '/reports' && <ReportsPage user={user} actor={actor}/>}
-          {route === '/branches' && <><BranchesPage user={user} actor={actor}/>{actor.permissions.includes('branch.manage') && <RentalKmPolicyPanel user={user} actor={actor}/>}<PoliciesPanel user={user} actor={actor}/></>}
-          {route === '/audit' && <AuditPageView user={user}/>}
-          {route === '/not-found' && <NotFound/>}
-        </main>
-      </div>
-    </div>
+    <AppShell
+      portalName="Admin"
+      sections={sections}
+      active={route}
+      onSelect={navigate}
+      account={{ name: actor.displayName || actor.email, role: actor.employeeCode || 'Employee' }}
+      onSignOut={onLogout}
+      context="V MOTIV Admin"
+      title={title}
+      toolbar={
+        <>
+          <NotificationBell user={user} />
+          <span className="hidden text-sm text-base-content/65 md:inline">{user.email}</span>
+          <span className="badge badge-soft badge-success hidden font-medium sm:inline-flex">MFA verified</span>
+        </>
+      }
+    >
+      {route === '/' && <><OverviewPage user={user}/>{actor.permissions.includes('system.health.read') && <SystemHealthPanel user={user}/>}</>}
+      {route === '/employees' && <EmployeesPage user={user} actor={actor}/>}
+      {route === '/access' && <AccessPage user={user}/>}
+      {route === '/approvals' && <ApprovalsPage user={user} actor={actor}/>}
+      {route === '/business' && <BusinessPage user={user} actor={actor}/>}
+      {route === '/support' && <SupportPage user={user} actor={actor}/>}
+      {route === '/master-data' && <MasterDataPage user={user} actor={actor}/>}
+      {route === '/communications' && <CommunicationsPage user={user} actor={actor}/>}
+      {route === '/reports' && <ReportsPage user={user} actor={actor}/>}
+      {route === '/branches' && <><BranchesPage user={user} actor={actor}/>{actor.permissions.includes('branch.manage') && <RentalKmPolicyPanel user={user} actor={actor}/>}<PoliciesPanel user={user} actor={actor}/></>}
+      {route === '/audit' && <AuditPageView user={user}/>}
+      {route === '/not-found' && <NotFound/>}
+    </AppShell>
   );
 }
 
-function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) { return <div className="page-header"><div><p className="eyebrow">{eyebrow}</p><h1>{title}</h1><p>{description}</p></div>{action}</div>; }
+function PageHeader({ eyebrow, title, description, action }: { eyebrow: string; title: string; description: string; action?: ReactNode }) { return <UiPageHeader eyebrow={eyebrow} title={title} description={description} actions={action} />; }
 function OverviewPage({ user }: { user: User }) {
   const [data, setData] = useState<Dashboard | null>(null); const [error, setError] = useState(''); const [refresh, setRefresh] = useState(0);
   useEffect(() => { setError(''); adminApi.dashboard(user).then(setData).catch(error => setError(errorMessage(error))); }, [user, refresh]);
@@ -1212,9 +993,9 @@ function BranchesPage({ user, actor }: { user: User; actor: AdminActor }) {
                                 borderRadius: 4,
                                 fontSize: '0.75rem',
                                 fontWeight: 600,
-                                backgroundColor: 'rgba(56, 189, 248, 0.12)',
+                                backgroundColor: 'color-mix(in oklab, var(--color-info) 12%, transparent)',
                                 color: '#0284c7',
-                                border: '1px solid rgba(56, 189, 248, 0.3)'
+                                border: '1px solid color-mix(in oklab, var(--color-info) 30%, transparent)'
                               }}>
                                 <span>🔧</span> Service
                               </span>
@@ -1228,9 +1009,9 @@ function BranchesPage({ user, actor }: { user: User; actor: AdminActor }) {
                                 borderRadius: 4,
                                 fontSize: '0.75rem',
                                 fontWeight: 600,
-                                backgroundColor: 'rgba(247, 181, 3, 0.15)',
+                                backgroundColor: 'color-mix(in oklab, var(--color-primary) 15%, transparent)',
                                 color: '#b45309',
-                                border: '1px solid rgba(247, 181, 3, 0.35)'
+                                border: '1px solid color-mix(in oklab, var(--color-primary) 35%, transparent)'
                               }}>
                                 <span>🚗</span> Rental Hub
                               </span>
@@ -1306,7 +1087,7 @@ function BranchesPage({ user, actor }: { user: User; actor: AdminActor }) {
                           <td>
                             {coveringHub ? (
                               <div>
-                                <span style={{ color: '#10b981', fontWeight: 600 }}>📍 {coveringHub.name}</span>
+                                <span style={{ color: 'var(--color-success)', fontWeight: 600 }}>📍 {coveringHub.name}</span>
                                 <small style={{ display: 'block', color: 'var(--muted)' }}>Code: {coveringHub.code} ({coveringHub.city})</small>
                               </div>
                             ) : (
@@ -1315,7 +1096,7 @@ function BranchesPage({ user, actor }: { user: User; actor: AdminActor }) {
                                 {canManage && (
                                   <button
                                     className="text-button"
-                                    style={{ display: 'block', fontSize: '0.75rem', marginTop: '2px', color: '#38bdf8' }}
+                                    style={{ display: 'block', fontSize: '0.75rem', marginTop: '2px', color: 'var(--color-info)' }}
                                     onClick={() => {
                                       setInitialAreaForBranch(area.name);
                                       setBranchOpen(true);
@@ -1334,7 +1115,7 @@ function BranchesPage({ user, actor }: { user: User; actor: AdminActor }) {
                               <button className="text-button" onClick={() => setAreaActive(area)}>
                                 {area.active ? 'Deactivate' : 'Reactivate'}
                               </button>
-                              <button className="text-button" style={{ marginLeft: 8, color: '#EF4444' }} onClick={() => deleteArea(area)}>
+                              <button className="text-button" style={{ marginLeft: 8, color: 'var(--color-error)' }} onClick={() => deleteArea(area)}>
                                 Delete
                               </button>
                             </td>
@@ -2528,13 +2309,13 @@ function CommunicationsPage({ user }: { user: User; actor: AdminActor }) {
                   {selectedMessage.templateVersion && <div><strong>Template:</strong> <code>{selectedMessage.templateVersion}</code></div>}
                   {selectedMessage.providerMessageId && <div><strong>Resend Message ID:</strong> <code>{selectedMessage.providerMessageId}</code></div>}
                   <div><strong>Attempts:</strong> {selectedMessage.attempts} / {selectedMessage.maxAttempts}</div>
-                  {selectedMessage.lastErrorCode && <div><strong>Error Code:</strong> <span style={{ color: 'var(--red, #EF4444)' }}>{selectedMessage.lastErrorCode}</span></div>}
+                  {selectedMessage.lastErrorCode && <div><strong>Error Code:</strong> <span style={{ color: 'var(--red, var(--color-error))' }}>{selectedMessage.lastErrorCode}</span></div>}
                   <div><strong>Queued At:</strong> {new Date(selectedMessage.createdAt).toLocaleString()}</div>
                   {selectedMessage.sentAt && <div><strong>Delivered At:</strong> {new Date(selectedMessage.sentAt).toLocaleString()}</div>}
                   {selectedMessage.text && (
                     <div>
                       <strong>Body:</strong>
-                      <pre style={{ background: 'rgba(0,0,0,0.3)', border: '1px solid var(--border)', borderRadius: '6px', padding: '12px', whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto', fontSize: '12px', marginTop: '6px' }}>
+                      <pre style={{ background: 'var(--scrim)', border: '1px solid var(--border)', borderRadius: '6px', padding: '12px', whiteSpace: 'pre-wrap', maxHeight: '200px', overflowY: 'auto', fontSize: '12px', marginTop: '6px' }}>
                         {selectedMessage.text}
                       </pre>
                     </div>
@@ -3328,7 +3109,7 @@ function ApprovalDialog({ user, actor, approval, onClose, onDone }: { user: User
               </div>
               <div>
                 <dt>Proposed Purchase Price</dt>
-                <dd style={{ color: 'var(--color-primary, #f7b503)', fontWeight: 700, fontSize: '1.1rem' }}>
+                <dd style={{ color: 'var(--color-primary, var(--color-primary))', fontWeight: 700, fontSize: '1.1rem' }}>
                   ₹{(Number(approval.payload.recommendedPurchasePaise || 0) / 100).toLocaleString('en-IN')}
                 </dd>
               </div>
@@ -3351,7 +3132,7 @@ function ApprovalDialog({ user, actor, approval, onClose, onDone }: { user: User
               </div>
               <div>
                 <dt>Requested Discount</dt>
-                <dd style={{ color: 'var(--color-primary, #f7b503)', fontWeight: 700 }}>
+                <dd style={{ color: 'var(--color-primary, var(--color-primary))', fontWeight: 700 }}>
                   ₹{(Number(approval.payload.requestedDiscountPaise || 0) / 100).toLocaleString('en-IN')}
                 </dd>
               </div>
@@ -3545,7 +3326,7 @@ function PoliciesPanel({ user, actor }: { user: User; actor: AdminActor }) {
               <div>
                 <strong>{policy.title} · v{policy.version}</strong>
                 <span>{policy.key} · {policy.createdBy?.displayName || policy.createdBy?.email}</span>
-                {policy.reason && <small style={{ color: '#94a3b8' }}>Reason: {policy.reason}</small>}
+                {policy.reason && <small style={{ color: 'var(--muted)' }}>Reason: {policy.reason}</small>}
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
                 <StatusBadge value={policy.status}/>
@@ -3718,7 +3499,7 @@ function ViewPolicyDialog({
       {error && <div className="alert error" role="alert">{error}</div>}
       <div style={{ display: 'flex', gap: '8px', alignItems: 'center', marginBottom: '12px', flexWrap: 'wrap' }}>
         <StatusBadge value={policy.status}/>
-        <code style={{ fontSize: '0.85rem', padding: '2px 8px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px' }}>
+        <code style={{ fontSize: '0.85rem', padding: '2px 8px', background: 'color-mix(in oklab, var(--color-base-content) 6%, transparent)', borderRadius: '4px' }}>
           {policy.key}
         </code>
         <span style={{ fontSize: '0.8125rem', color: 'var(--muted)', marginLeft: 'auto' }}>
@@ -3727,7 +3508,7 @@ function ViewPolicyDialog({
       </div>
 
       {policy.reason && (
-        <div style={{ padding: '10px 12px', background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.2)', borderRadius: '6px', marginBottom: '14px', fontSize: '0.875rem' }}>
+        <div style={{ padding: '10px 12px', background: 'color-mix(in oklab, var(--color-info) 8%, transparent)', border: '1px solid color-mix(in oklab, var(--color-info) 20%, transparent)', borderRadius: '6px', marginBottom: '14px', fontSize: '0.875rem' }}>
           <strong>Proposal Rationale:</strong> {policy.reason}
         </div>
       )}
@@ -3735,7 +3516,7 @@ function ViewPolicyDialog({
       <label>
         Policy Rules & Economics Parameters (JSON)
         <pre style={{
-          background: 'rgba(0,0,0,0.3)',
+          background: 'var(--scrim)',
           border: '1px solid var(--border)',
           borderRadius: '6px',
           padding: '12px',
@@ -3743,7 +3524,7 @@ function ViewPolicyDialog({
           overflow: 'auto',
           fontSize: '0.8125rem',
           fontFamily: 'monospace',
-          color: '#38bdf8',
+          color: 'var(--color-info)',
           margin: '6px 0 0 0',
         }}>
           {JSON.stringify(policy.content || {}, null, 2)}
@@ -3756,7 +3537,7 @@ function ViewPolicyDialog({
             <button type="button" className="button primary" onClick={handleApprove} disabled={busy}>
               {busy ? 'Approving…' : '✓ Approve Policy'}
             </button>
-            <button type="button" className="button secondary" style={{ color: '#ef4444' }} onClick={handleReject} disabled={busy}>
+            <button type="button" className="button secondary" style={{ color: 'var(--color-error)' }} onClick={handleReject} disabled={busy}>
               ✕ Reject
             </button>
           </div>
@@ -3767,7 +3548,7 @@ function ViewPolicyDialog({
           </button>
         )}
         {policy.status !== 'RETIRED' && canPropose && (
-          <button type="button" className="button secondary" style={{ color: '#ef4444' }} onClick={handleRetire} disabled={busy}>
+          <button type="button" className="button secondary" style={{ color: 'var(--color-error)' }} onClick={handleRetire} disabled={busy}>
             {policy.status === 'PROPOSED' ? 'Cancel / Delete' : 'Retire / Delete'}
           </button>
         )}
@@ -3897,12 +3678,12 @@ function PolicyProposalDialog({ user, onClose, onDone }: { user: User; onClose: 
     <footer><button type="button" className="button secondary" onClick={onClose}>Cancel</button><button className="button primary" disabled={busy}>{busy ? 'Submitting…' : 'Submit for approval'}</button></footer>
   </form></dialog>;
 }
-function StatusBadge({ value }: { value: string }) { const tone = ['ACTIVE', 'COMPLIANT', 'SUCCEEDED', 'ACCEPTED'].includes(value) ? 'success' : ['SUSPENDED', 'REQUIRED', 'PENDING'].includes(value) ? 'warning' : ['DEACTIVATED', 'FAILED', 'RECOVERY_REQUIRED'].includes(value) ? 'danger' : 'neutral'; return <span className={`status ${tone}`}><span aria-hidden="true"/>{humanize(value)}</span>; }
+function StatusBadge({ value }: { value: string }) { return <UiStatusBadge status={value} />; }
 function Pagination({ page, limit, total, onPage }: { page: number; limit: number; total: number; onPage: (page: number) => void }) { const pages = Math.max(1, Math.ceil(total / limit)); return <div className="pagination"><span>Page {page} of {pages}</span><div><button className="button secondary" disabled={page <= 1} onClick={() => onPage(page - 1)}>Previous</button><button className="button secondary" disabled={page >= pages} onClick={() => onPage(page + 1)}>Next</button></div></div>; }
-function EmptyState({ title, text }: { title: string; text: string }) { return <div className="empty-state"><strong>{title}</strong><p>{text}</p></div>; }
-function ErrorState({ message, retry }: { message: string; retry?: () => void }) { return <div className="alert error page-error" role="alert"><strong>Unable to load this view</strong><span>{message}</span>{retry && <button className="button secondary" onClick={retry}>Try again</button>}</div>; }
-function SkeletonCards() { return <div className="metric-grid" aria-label="Loading" aria-busy="true">{[1, 2, 3, 4].map(item => <div className="skeleton card" key={item}/>)}</div>; }
-function TableSkeleton() { return <div className="panel" aria-label="Loading" aria-busy="true"><div className="skeleton line"/><div className="skeleton row"/><div className="skeleton row"/><div className="skeleton row"/></div>; }
+function EmptyState({ title, text }: { title: string; text: string }) { return <UiEmptyState title={title} description={text} />; }
+function ErrorState({ message, retry }: { message: string; retry?: () => void }) { return <UiErrorState message={message} onRetry={retry} />; }
+function SkeletonCards() { return <UiSkeletonCards />; }
+function TableSkeleton() { return <UiTableSkeleton rows={6} columns={4} />; }
 function NotFound() { return <div className="empty-state page-empty"><strong>Page not found</strong><p>The requested Admin route does not exist or is not enabled.</p><button className="button primary" onClick={() => navigate('/')}>Return to overview</button></div>; }
 function humanize(value?: string | null): string {
   if (!value) return '';
