@@ -17,9 +17,9 @@ export const Footer: React.FC<FooterProps> = ({ onNavigate, onOpenPrivacy, onOpe
         title: 'Navigation',
         links: [
           { label: 'Home', href: '#hero', onClick: () => onNavigate('hero') },
-          { label: 'Browse available cars', href: '#cars', onClick: () => onNavigate('cars') },
-          { label: 'Sell your car', href: '#sell', onClick: () => onNavigate('sell') },
-          { label: 'How buying works', href: '#how-it-works', onClick: () => onNavigate('how-it-works') },
+          { label: 'The platform', href: '#platform', onClick: () => onNavigate('platform') },
+          { label: 'How it works', href: '#how-it-works', onClick: () => onNavigate('how-it-works') },
+          { label: 'Get the app', href: '#app', onClick: () => onNavigate('app') },
           { label: 'Why V MOTIV', href: '#why-vmotiv', onClick: () => onNavigate('why-vmotiv') },
           { label: 'About us', href: '#about', onClick: () => onNavigate('about') },
         ],

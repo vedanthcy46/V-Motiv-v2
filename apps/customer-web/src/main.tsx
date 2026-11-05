@@ -1,18 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { io } from 'socket.io-client';
-import {
-  browserPopupRedirectResolver,
-  GoogleAuthProvider,
-  onIdTokenChanged,
-  signInWithPopup,
-  signOut,
-  type User,
-} from 'firebase/auth';
-import { auth, configured } from './firebase';
-import { friendlyError, syncProfile, type Profile } from './account-api';
-import { fetchCities, fetchUserDrives } from './api';
-import type { CityItem, ListingItem } from './types';
 import { Toaster, initTheme, RequestProgress } from '@vmotiv/ui';
 import './styles.css';
 
@@ -22,7 +10,6 @@ initTheme();
 import { Navbar } from './components/Navbar';
 import { Hero } from './components/Hero';
 import { QuickActions } from './components/QuickActions';
-import { AvailableCars } from './components/AvailableCars';
 import { HowItWorks } from './components/HowItWorks';
 import { WhyVMotiv } from './components/WhyVMotiv';
 import { MobileAppSection } from './components/MobileAppSection';
@@ -30,15 +17,7 @@ import { AboutSection } from './components/AboutSection';
 import { FAQSection } from './components/FAQSection';
 import { FinalCTA } from './components/FinalCTA';
 import { Footer } from './components/Footer';
-
-// Modals
-import { AuthModal } from './components/AuthModal';
-import { AccountModal } from './components/AccountModal';
-import { SellCarModal } from './components/SellCarModal';
-import { VehicleDetailModal } from './components/VehicleDetailModal';
 import { LegalModal } from './components/LegalModal';
-import { ServiceModal } from './components/ServiceModal';
-import { RentalsModal } from './components/RentalsModal';
 
 type ConnectVehicle = { nickname: string; make?: string; model?: string; year?: number; messagingEnabled: boolean; callingEnabled: boolean };
 
@@ -693,152 +672,35 @@ function PublicConnectPage({ token }: { token: string }) {
   );
 }
 
+/**
+ * The public website only explains the platform. Everything transactional (test drives, selling, service, rentals,
+ * account) happens in the mobile app, so old links to those pages simply take people to the "Get the app" section.
+ */
+const APP_ONLY_PATHS = ['/cars', '/sell', '/service', '/rentals', '/account'];
+
 function MarketingApp() {
-  const [user, setUser] = useState<User | null>(null);
-  const [profile, setProfile] = useState<Profile | null>(null);
-  const [authBusy, setAuthBusy] = useState(configured);
-  const [authError, setAuthError] = useState('');
-  const [cities, setCities] = useState<CityItem[]>([]);
-
-  // Modal visibility states
-  const [authModalOpen, setAuthModalOpen] = useState(false);
-  const [authReason, setAuthReason] = useState('');
-  const [accountModalOpen, setAccountModalOpen] = useState(false);
-  const [sellModalOpen, setSellModalOpen] = useState(false);
-  const [serviceModalOpen, setServiceModalOpen] = useState(false);
-  const [rentalsModalOpen, setRentalsModalOpen] = useState(false);
-  const [selectedVehicle, setSelectedVehicle] = useState<ListingItem | null>(null);
   const [legalModalType, setLegalModalType] = useState<'terms' | 'privacy' | null>(null);
-  const [bookedListingIds, setBookedListingIds] = useState<Set<string>>(new Set());
 
-  // Fetch user booked test drives for live card statuses (parity with mobile app)
-  const refreshUserDrives = async (currentUser: User | null) => {
-    if (!currentUser) {
-      setBookedListingIds(new Set());
-      return;
-    }
-    try {
-      const drives = await fetchUserDrives(currentUser);
-      const requestedIds = new Set(
-        drives
-          .filter((d) => d.status === 'REQUESTED' || d.status === 'CONFIRMED')
-          .map((d) => d.listing?.id)
-          .filter(Boolean) as string[]
-      );
-      setBookedListingIds(requestedIds);
-    } catch {
-      // Ignore background error
-    }
+  const scrollToSection = (sectionId: string) => {
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth' });
   };
 
-  useEffect(() => {
-    void refreshUserDrives(user);
-  }, [user]);
-
-  const handleDriveBooked = (listingId: string) => {
-    setBookedListingIds((prev) => new Set(prev).add(listingId));
-    if (user) void refreshUserDrives(user);
+  const navigateTo = (sectionId: string) => {
+    scrollToSection(sectionId);
+    window.history.replaceState({}, '', sectionId === 'hero' ? '/' : `/#${sectionId}`);
   };
 
-  const handleDriveCancelled = (listingId: string) => {
-    setBookedListingIds((prev) => {
-      const next = new Set(prev);
-      next.delete(listingId);
-      return next;
-    });
-    if (user) void refreshUserDrives(user);
-  };
-
-  const request = useRef<AbortController | null>(null);
-
-  // Sync profile when authenticated
-  async function loadProfile(current: User) {
-    request.current?.abort();
-    const controller = new AbortController();
-    request.current = controller;
-    setAuthBusy(true);
-    setAuthError('');
-    try {
-      const next = await syncProfile(current, controller.signal);
-      if (!controller.signal.aborted) setProfile(next);
-    } catch (failure) {
-      if (!controller.signal.aborted) setAuthError(friendlyError(failure));
-    } finally {
-      if (!controller.signal.aborted) setAuthBusy(false);
-    }
-  }
-
-  // Firebase auth state subscription
-  useEffect(() => {
-    if (!auth) {
-      setAuthBusy(false);
-      return;
-    }
-    const startupTimer = setTimeout(() => {
-      setAuthBusy(false);
-    }, 12_000);
-
-    const stop = onIdTokenChanged(auth, (current) => {
-      clearTimeout(startupTimer);
-      setUser(current);
-      if (current) {
-        void loadProfile(current);
-      } else {
-        request.current?.abort();
-        setProfile(null);
-        setAuthBusy(false);
-      }
-    });
-
-    return () => {
-      clearTimeout(startupTimer);
-      stop();
-      request.current?.abort();
-    };
-  }, []);
-
-  // Fetch supported cities for forms
-  useEffect(() => {
-    void fetchCities().then((res) => {
-      if (res && res.length) setCities(res);
-    });
-  }, []);
-
-  // Sync browser path and handle deep links / back navigation
+  // Deep links and back navigation: /terms, /privacy and section links; former app-only pages point to the app section.
   useEffect(() => {
     const handleLocation = () => {
       const path = window.location.pathname.toLowerCase();
-      const hash = window.location.hash.toLowerCase();
-
-      if (path === '/sell' || hash === '#sell') {
-        scrollToSection('sell');
-        setSellModalOpen(true);
-      } else if (path === '/service' || hash === '#service') {
-        setServiceModalOpen(true);
-      } else if (path === '/rentals' || hash === '#rentals') {
-        setRentalsModalOpen(true);
-      } else if (path === '/terms') {
-        setLegalModalType('terms');
-      } else if (path === '/privacy') {
-        setLegalModalType('privacy');
-      } else if (path === '/account') {
-        if (user) {
-          setAccountModalOpen(true);
-        } else {
-          setAuthReason('Sign in to view your V MOTIV account and activity.');
-          setAuthModalOpen(true);
-        }
-      } else if (path === '/cars' || hash === '#cars') {
-        scrollToSection('cars');
-      } else if (path === '/how-it-works' || hash === '#how-it-works') {
-        scrollToSection('how-it-works');
-      } else if (path === '/about' || hash === '#about') {
-        scrollToSection('about');
-      } else if (path === '/contact' || hash === '#contact') {
-        scrollToSection('contact');
-      }
+      const hash = window.location.hash.replace('#', '').toLowerCase();
+      if (path === '/terms') setLegalModalType('terms');
+      else if (path === '/privacy') setLegalModalType('privacy');
+      else if (APP_ONLY_PATHS.includes(path) || ['cars', 'sell', 'service', 'rentals'].includes(hash)) scrollToSection('app');
+      else if (['/how-it-works', '/about', '/contact'].includes(path)) scrollToSection(path.slice(1));
+      else if (hash) scrollToSection(hash);
     };
-
     handleLocation();
     window.addEventListener('popstate', handleLocation);
     window.addEventListener('hashchange', handleLocation);
@@ -846,186 +708,27 @@ function MarketingApp() {
       window.removeEventListener('popstate', handleLocation);
       window.removeEventListener('hashchange', handleLocation);
     };
-  }, [user]);
-
-  const scrollToSection = (sectionId: string) => {
-    const target = document.getElementById(sectionId);
-    if (target) {
-      target.scrollIntoView({ behavior: 'smooth' });
-    }
-  };
-
-  const navigateTo = (sectionId: string) => {
-    scrollToSection(sectionId);
-    if (sectionId === 'sell') {
-      setSellModalOpen(true);
-    } else if (sectionId === 'service') {
-      setServiceModalOpen(true);
-    } else if (sectionId === 'rentals') {
-      setRentalsModalOpen(true);
-    }
-    if (window.location.pathname !== '/') {
-      window.history.pushState({}, '', `/#${sectionId}`);
-    } else {
-      window.history.replaceState({}, '', `/#${sectionId}`);
-    }
-  };
-
-  // Google Login popup
-  const handleLogin = async () => {
-    if (!auth) {
-      setAuthError('Sign-in is currently unavailable. Please verify connection.');
-      return;
-    }
-    setAuthError('');
-    setAuthBusy(true);
-
-    let loginTimer: ReturnType<typeof setTimeout>;
-    const deadline = new Promise<never>((_, reject) => {
-      loginTimer = setTimeout(() => reject({ code: 'GOOGLE_SIGN_IN_TIMEOUT' }), 120_000);
-    });
-
-    try {
-      await Promise.race([
-        signInWithPopup(auth, new GoogleAuthProvider(), browserPopupRedirectResolver),
-        deadline,
-      ]);
-      setAuthModalOpen(false);
-    } catch (failure) {
-      setAuthError(friendlyError(failure));
-    } finally {
-      clearTimeout(loginTimer!);
-      setAuthBusy(false);
-    }
-  };
-
-  // Logout
-  const handleLogout = async () => {
-    if (!auth) return;
-    request.current?.abort();
-    setAuthBusy(true);
-    try {
-      await signOut(auth);
-      setProfile(null);
-      setUser(null);
-      setAccountModalOpen(false);
-      window.history.replaceState({}, '', '/');
-    } catch {
-      setAuthError('We could not sign you out. Please try again.');
-    } finally {
-      setAuthBusy(false);
-    }
-  };
-
-  const handleOpenAuth = (reason = '') => {
-    setAuthReason(reason);
-    setAuthError('');
-    setAuthModalOpen(true);
-  };
+  }, []);
 
   return (
     <div className="site-shell">
-      {/* 1. Header & Navigation */}
-      <Navbar
-        user={user}
-        profile={profile}
-        authBusy={authBusy}
-        onOpenAuth={() => handleOpenAuth()}
-        onOpenAccount={() => setAccountModalOpen(true)}
-        onNavigate={navigateTo}
-        onOpenService={() => setServiceModalOpen(true)}
-        onOpenRentals={() => setRentalsModalOpen(true)}
-      />
+      <Navbar onNavigate={navigateTo} />
 
       <main>
-        {/* 2. Hero Section */}
-        <Hero
-          onExploreCars={() => navigateTo('cars')}
-          onSellCar={() => navigateTo('sell')}
-        />
-
-        {/* 3. Buy / Sell Quick Action Cards */}
-        <QuickActions
-          onBuyClick={() => navigateTo('cars')}
-          onSellClick={() => navigateTo('sell')}
-        />
-
-        {/* 4. Live Available Cars Preview */}
-        <AvailableCars
-          user={user}
-          bookedListingIds={bookedListingIds}
-          onSelectCar={(car) => setSelectedVehicle(car)}
-          onSellClick={() => navigateTo('sell')}
-        />
-
-        {/* 5. How It Works (Buying & Selling Workflows) */}
+        <Hero onGetApp={() => navigateTo('app')} onHowItWorks={() => navigateTo('how-it-works')} />
+        <QuickActions onGetApp={() => navigateTo('app')} />
         <HowItWorks />
-
-        {/* 6. Why V MOTIV (Accountability Pillars) */}
         <WhyVMotiv />
-
-        {/* 7. Mobile App Showcase */}
         <MobileAppSection />
-
-        {/* 8. About V MOTIV & Presence */}
         <AboutSection />
-
-        {/* 9. Accessible FAQ Accordion */}
         <FAQSection />
-
-        {/* 10. Final Call to Action */}
-        <FinalCTA
-          onExploreCars={() => navigateTo('cars')}
-          onSellCar={() => navigateTo('sell')}
-        />
+        <FinalCTA onGetApp={() => navigateTo('app')} onHowItWorks={() => navigateTo('how-it-works')} />
       </main>
 
-      {/* 11. Footer with Official Lockup and Tagline */}
       <Footer
         onNavigate={navigateTo}
         onOpenPrivacy={() => setLegalModalType('privacy')}
         onOpenTerms={() => setLegalModalType('terms')}
-      />
-
-      {/* Modals & Dialogs */}
-      <AuthModal
-        isOpen={authModalOpen}
-        onClose={() => setAuthModalOpen(false)}
-        onLogin={handleLogin}
-        busy={authBusy}
-        error={authError}
-        actionReason={authReason}
-      />
-
-      <AccountModal
-        isOpen={accountModalOpen}
-        onClose={() => setAccountModalOpen(false)}
-        user={user}
-        profile={profile}
-        onLogout={handleLogout}
-        busy={authBusy}
-      />
-
-      <SellCarModal
-        isOpen={sellModalOpen}
-        onClose={() => {
-          setSellModalOpen(false);
-          if (window.location.pathname === '/sell' || window.location.hash === '#sell') {
-            window.history.replaceState({}, '', '/');
-          }
-        }}
-        user={user}
-        cities={cities}
-        onRequestAuth={(reason) => handleOpenAuth(reason)}
-      />
-
-      <VehicleDetailModal
-        vehicle={selectedVehicle}
-        user={user}
-        onClose={() => setSelectedVehicle(null)}
-        onRequestAuth={(reason) => handleOpenAuth(reason)}
-        onDriveBooked={handleDriveBooked}
-        onDriveCancelled={handleDriveCancelled}
       />
 
       <LegalModal
@@ -1037,32 +740,6 @@ function MarketingApp() {
             window.history.replaceState({}, '', '/');
           }
         }}
-      />
-
-      <ServiceModal
-        isOpen={serviceModalOpen}
-        onClose={() => {
-          setServiceModalOpen(false);
-          if (window.location.hash === '#service') {
-            window.history.replaceState({}, '', '/');
-          }
-        }}
-        user={user}
-        cities={cities}
-        onRequestAuth={(reason) => handleOpenAuth(reason)}
-      />
-
-      <RentalsModal
-        isOpen={rentalsModalOpen}
-        onClose={() => {
-          setRentalsModalOpen(false);
-          if (window.location.hash === '#rentals') {
-            window.history.replaceState({}, '', '/');
-          }
-        }}
-        user={user}
-        cities={cities}
-        onRequestAuth={(reason) => handleOpenAuth(reason)}
       />
     </div>
   );

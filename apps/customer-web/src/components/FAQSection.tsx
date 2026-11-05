@@ -9,9 +9,9 @@ interface FAQItem {
 const FAQ_ITEMS: FAQItem[] = [
   {
     id: 'faq-1',
-    question: 'Do I need to sign in or create an account to browse cars?',
+    question: 'Can I book or buy through this website?',
     answer:
-      'No. Public inventory browsing is completely open to everyone without signing in. You only need to sign in with your Google account when you choose to take an account-scoped action, such as scheduling a test drive, submitting an enquiry, or requesting a selling evaluation.',
+      'No. This website explains how V MOTIV works. Test drives, selling requests, purchase enquiries, service bookings and rentals are all done in the V MOTIV mobile app, where you sign in with your Google account and can track every request.',
   },
   {
     id: 'faq-2',
@@ -23,19 +23,25 @@ const FAQ_ITEMS: FAQItem[] = [
     id: 'faq-3',
     question: 'Can I take a test drive before making any commitment?',
     answer:
-      'Yes, absolutely. You can select an available date and time slot for a test drive at your nearest V MOTIV hub or at your home address (where doorstep service is supported in your city). Test drives are completely obligation-free.',
+      'Yes, absolutely. In the V MOTIV app you can pick an available date and time slot for a test drive at your nearest V MOTIV hub or at your home address (where doorstep service is supported in your city). Test drives are completely obligation-free.',
   },
   {
     id: 'faq-4',
     question: 'How is the selling valuation calculated?',
     answer:
-      'We combine comprehensive physical diagnostics with current live regional market demand data. You receive an itemized, transparent offer that reflects your vehicle’s actual condition, mileage, and maintenance history—without arbitrary on-the-spot deductions.',
+      'Share your car details in the app. We combine comprehensive physical diagnostics with current live regional market demand data. You receive an itemized, transparent offer that reflects your vehicle’s actual condition, mileage, and maintenance history—without arbitrary on-the-spot deductions.',
   },
   {
     id: 'faq-5',
     question: 'Who handles the RTO Registration Certificate (RC) transfer?',
     answer:
       'V MOTIV actively assists and manages the RC transfer documentation for both buyers and sellers. We collect the required RTO forms, verify signatures, submit the transfer, and provide you with milestone updates until the official RC transfer is complete.',
+  },
+  {
+    id: 'faq-7',
+    question: 'Does V MOTIV also service and rent cars?',
+    answer:
+      'Yes. Besides buying and selling, you can book servicing for your own car at a V MOTIV hub, approve the estimate before work starts, and rent cars by the day. Both are available in the app.',
   },
   {
     id: 'faq-6',
@@ -61,7 +67,7 @@ export const FAQSection: React.FC = () => {
   };
 
   return (
-    <section className="faq-section">
+    <section id="faq" className="faq-section">
       <div className="container">
         <div className="section-header-centered">
           <span className="section-eyebrow">COMMON QUESTIONS</span>
