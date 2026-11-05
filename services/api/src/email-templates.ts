@@ -21,8 +21,9 @@ export type EmailTemplateData = {
 };
 
 // Official single V MOTIV header logo
-export const BRAND_HEADER_LOGO_URL = 'https://iili.io/neuRn49.png';
-export const BRAND_FOOTER_LOCKUP_URL = 'https://iili.io/neuRrZl.png'; // Retained for backwards compatibility
+// Hosted on our own domain (the previous third-party image host removed the file, leaving a broken image in every email).
+export const BRAND_HEADER_LOGO_URL = 'https://vmotiv.in/brand/vmotiv-header-logo.png';
+export const BRAND_FOOTER_LOCKUP_URL = 'https://vmotiv.in/brand/vmotiv-logo.png'; // Retained for backwards compatibility
 
 export function renderEmailHtml(event: EmailTemplateData): string {
   const {
