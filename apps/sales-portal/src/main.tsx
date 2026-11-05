@@ -1,4 +1,5 @@
 import { useAutoRefresh } from './autoRefresh';
+import { VehicleMakeModel } from './components/VehicleMakeModel';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -2688,14 +2689,13 @@ function ManualLeadModal({ user, onClose, onSuccess }: { user: User | null; onCl
                 <label className="form-label">Pincode (6 digits) *</label>
                 <input required className="form-input" value={form.pincode} onChange={e => setForm({ ...form, pincode: e.target.value })} />
               </div>
-              <div className="form-group">
-                <label className="form-label">Vehicle Make *</label>
-                <input required className="form-input" value={form.make} onChange={e => setForm({ ...form, make: e.target.value })} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Vehicle Model *</label>
-                <input required className="form-input" value={form.model} onChange={e => setForm({ ...form, model: e.target.value })} />
-              </div>
+              <VehicleMakeModel
+                variant="sales"
+                make={form.make}
+                model={form.model}
+                onChange={(nextMake, nextModel) => setForm({ ...form, make: nextMake, model: nextModel })}
+                loadItems={salesApi.masterData}
+              />
               <div className="form-group">
                 <label className="form-label">Variant</label>
                 <input className="form-input" value={form.variant} onChange={e => setForm({ ...form, variant: e.target.value })} />
@@ -2752,6 +2752,116 @@ function ManualLeadModal({ user, onClose, onSuccess }: { user: User | null; onCl
 // ==========================================
 // SUBCOMPONENT: SELLER LEAD 360 DRAWER
 // ==========================================
+const IN_PERSON_ERRORS: Record<string, string> = {
+  SMS_NOT_CONFIGURED: 'Text messages are not set up on the server yet, so a code cannot be sent. Ask an administrator to configure SMS.',
+  SMS_DELIVERY_FAILED: 'The code could not be sent to the seller\'s phone. Check the number on the lead and try again.',
+  OTP_RESEND_TOO_SOON: 'A code was just sent. Please wait a minute before requesting another.',
+  OTP_SEND_LIMIT_REACHED: 'Too many codes were requested for this offer. Try again in an hour.',
+  SELLER_MUST_ACCEPT_IN_APP: 'This seller has a V MOTIV app account and must accept the offer in the app.',
+  LEAD_NOT_AWAITING_SELLER_RESPONSE: 'This lead is no longer waiting for the seller\'s response.',
+  OFFER_NOT_ACTIONABLE: 'This offer can no longer be accepted.',
+  OFFER_EXPIRED: 'This offer has expired. Issue a new offer first.',
+  OFFER_CHANGED_REQUEST_NEW_CODE: 'The offer changed after the code was sent. Send a new code.',
+  ACCEPTANCE_CODE_INVALID: 'That code is not correct.',
+  ACCEPTANCE_CODE_EXPIRED: 'That code has expired. Send a new code.',
+  ACCEPTANCE_CODE_LOCKED: 'Too many wrong attempts. Send a new code.',
+  ACCEPTANCE_CODE_ALREADY_USED: 'That code was already used.',
+  ACCEPTANCE_CODE_NOT_FOUND: 'Start again and send a new code.',
+};
+
+/** Walk-in seller accepts an offer in person: a one-time code goes to THEIR phone and they hand it to staff. */
+function InPersonAcceptDialog({ user, leadId, offer, sellerName, onClose, onAccepted }: {
+  user: User;
+  leadId: string;
+  offer: { id: string; offerAmountPaise: string };
+  sellerName: string;
+  onClose: () => void;
+  onAccepted: () => void;
+}) {
+  const [challenge, setChallenge] = useState<{ challengeId: string; phoneMasked: string } | null>(null);
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const amount = (Number(offer.offerAmountPaise) / 100).toLocaleString('en-IN');
+  const describe = (err: unknown) => (err instanceof ApiError ? IN_PERSON_ERRORS[err.code] || `Error: ${err.code}` : 'Something went wrong. Please try again.');
+
+  async function sendCode() {
+    setBusy(true);
+    setError('');
+    try {
+      const started = await salesApi.startInPersonAcceptance(user, leadId, offer.id);
+      setChallenge({ challengeId: started.challengeId, phoneMasked: started.phoneMasked });
+      setCode('');
+    } catch (err) {
+      setError(describe(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function confirm(event: React.FormEvent) {
+    event.preventDefault();
+    if (!challenge || code.length !== 6) return;
+    setBusy(true);
+    setError('');
+    try {
+      await salesApi.confirmInPersonAcceptance(user, leadId, offer.id, { challengeId: challenge.challengeId, code });
+      onAccepted();
+    } catch (err) {
+      setError(describe(err));
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog">
+        <div className="modal-header">
+          <h3>Seller accepts in person</h3>
+          <button onClick={onClose} disabled={busy}><Icons.Close size={18} /></button>
+        </div>
+        <form onSubmit={confirm}>
+          <div className="modal-body">
+            {error && <div className="error-banner">{error}</div>}
+            <p style={{ marginTop: 0 }}>
+              <strong>{sellerName}</strong> is accepting the offer of <strong>₹{amount}</strong>. A one-time code is texted to the seller&apos;s own phone.
+              You never see it: the seller reads it out or types it below, while standing in front of you.
+            </p>
+            {!challenge ? (
+              <button type="button" className="btn-primary" disabled={busy} onClick={() => void sendCode()}>
+                {busy ? 'Sending…' : 'Send code to seller'}
+              </button>
+            ) : (
+              <>
+                <p style={{ color: 'var(--muted)' }}>Code sent to {challenge.phoneMasked}. It is valid for 10 minutes.</p>
+                <div className="form-group">
+                  <label className="form-label">Code from the seller</label>
+                  <input
+                    className="form-input"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    maxLength={6}
+                    value={code}
+                    onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    autoFocus
+                  />
+                </div>
+                <button type="button" className="btn-secondary btn-sm" disabled={busy} onClick={() => void sendCode()}>Send a new code</button>
+              </>
+            )}
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-outline" onClick={onClose} disabled={busy}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={busy || !challenge || code.length !== 6}>
+              {busy && challenge ? 'Confirming…' : 'Confirm acceptance'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function SellerLeadDrawer({
   user,
   lead,
@@ -2785,6 +2895,8 @@ function SellerLeadDrawer({
   const [taskExpectedOutcome, setTaskExpectedOutcome] = useState('');
 
   const [offerRupees, setOfferRupees] = useState('550000');
+  const [acceptingOffer, setAcceptingOffer] = useState<{ id: string; offerAmountPaise: string } | null>(null);
+  const isWalkInLead = Boolean(lead.user?.email?.toLowerCase().endsWith('@vmotiv.internal'));
   const [valExpectedResale, setValExpectedResale] = useState(() =>
     lead.expectedPricePaise ? String(BigInt(lead.expectedPricePaise) / 100n) : '600000'
   );
@@ -3083,6 +3195,20 @@ function SellerLeadDrawer({
 
   return (
     <div className="modal-overlay">
+      {acceptingOffer && user && (
+        <InPersonAcceptDialog
+          user={user}
+          leadId={lead.id}
+          offer={acceptingOffer}
+          sellerName={lead.sellerName}
+          onClose={() => setAcceptingOffer(null)}
+          onAccepted={async () => {
+            setAcceptingOffer(null);
+            await loadInteractions();
+            onRefresh();
+          }}
+        />
+      )}
       <div className="modal-dialog lg">
         <div className="modal-header">
           <div>
@@ -4007,26 +4133,30 @@ function SellerLeadDrawer({
                         </td>
                         <td>
                           {o.status === 'OFFERED' && (
-                            <div style={{ display: 'flex', gap: '4px' }}>
-                              <button
-                                className="btn-primary btn-sm"
-                                onClick={async () => {
-                                  if (!user) return;
-                                  await salesApi.recordOfferResponse(user, lead.id, o.id, { decision: 'ACCEPTED' });
-                                  await loadInteractions();
-                                  onRefresh();
-                                }}
-                              >
-                                Accepted
-                              </button>
+                            <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              {/* Acceptance is a legally meaningful act by the seller: the API only accepts it from the seller's own
+                                  signed-in app session (SELLER_ACCEPTANCE_REQUIRES_CUSTOMER_AUTHENTICATION), never from staff. */}
+                              {isWalkInLead ? (
+                                <button className="btn-primary btn-sm" onClick={() => setAcceptingOffer({ id: o.id, offerAmountPaise: o.offerAmountPaise })}>
+                                  Accept in person
+                                </button>
+                              ) : (
+                                <span style={{ fontSize: '0.78rem', color: 'var(--muted)', maxWidth: '170px', lineHeight: 1.3 }}>
+                                  Awaiting the seller to accept in the V MOTIV app
+                                </span>
+                              )}
                               <button
                                 className="btn-danger btn-sm"
                                 onClick={async () => {
                                   if (!user) return;
                                   const reason = prompt('Enter customer decline reason (e.g. Price too low, expecting higher offer):') || 'Price not acceptable';
-                                  await salesApi.recordOfferResponse(user, lead.id, o.id, { decision: 'DECLINED', declineReason: reason });
-                                  await loadInteractions();
-                                  onRefresh();
+                                  try {
+                                    await salesApi.recordOfferResponse(user, lead.id, o.id, { decision: 'DECLINED', declineReason: reason });
+                                    await loadInteractions();
+                                    onRefresh();
+                                  } catch (error) {
+                                    window.alert(error instanceof Error ? error.message : 'Could not record the decline. Please try again.');
+                                  }
                                 }}
                               >
                                 Declined

@@ -1,4 +1,5 @@
 import React, { useState, useEffect, type FC, type FormEvent } from 'react';
+import { VehicleMakeModel } from './VehicleMakeModel';
 import { modalIsOpen, useAutoRefresh } from '../autoRefresh';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
@@ -120,7 +121,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [walkInStartTime, setWalkInStartTime] = useState('10:00');
   const [walkInDays, setWalkInDays] = useState(2);
   const [walkInLicenseNumber, setWalkInLicenseNumber] = useState('');
-  const [walkInLicenseExpiry, setWalkInLicenseExpiry] = useState(oneYearFromNow());
+  const [walkInLicenseExpiry, setWalkInLicenseExpiry] = useState('');
   const [walkInExperienceYears, setWalkInExperienceYears] = useState(5);
   const [walkInLicenseFrontUrl, setWalkInLicenseFrontUrl] = useState('');
   const [walkInLicenseBackUrl, setWalkInLicenseBackUrl] = useState('');
@@ -130,6 +131,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [walkInStartOdo, setWalkInStartOdo] = useState<number>(0);
   const [walkInFuelPercent, setWalkInFuelPercent] = useState<number>(100);
   const [walkInNotes, setWalkInNotes] = useState('');
+  // Price preview computed by the API so the counter shows exactly what will be charged (GST rate, hourly part, km package).
+  const [walkInQuote, setWalkInQuote] = useState<Awaited<ReturnType<typeof api.walkInQuote>> | null>(null);
 
   interface LocalFileItem {
     file: File;
@@ -187,10 +190,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
   // Documentation / Compliance state
   const [onboardPermitNumber, setOnboardPermitNumber] = useState('');
-  const [onboardPermitExpiry, setOnboardPermitExpiry] = useState(oneYearFromNow());
+  const [onboardPermitExpiry, setOnboardPermitExpiry] = useState('');
   const [onboardInsurancePolicy, setOnboardInsurancePolicy] = useState('');
-  const [onboardInsuranceExpiry, setOnboardInsuranceExpiry] = useState(oneYearFromNow());
-  const [onboardFitnessExpiry, setOnboardFitnessExpiry] = useState(oneYearFromNow());
+  const [onboardInsuranceExpiry, setOnboardInsuranceExpiry] = useState('');
+  const [onboardFitnessExpiry, setOnboardFitnessExpiry] = useState('');
 
   // Images state
   const [onboardImages, setOnboardImages] = useState<string[]>([
@@ -447,6 +450,19 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     return () => { cancelled = true; };
   }, [walkInModalOpen, walkInStartDate, walkInStartTime, walkInDays]);
 
+  useEffect(() => {
+    if (!walkInModalOpen || !walkInVehicleId) { setWalkInQuote(null); return; }
+    const start = new Date(`${walkInStartDate}T${walkInStartTime}:00`);
+    if (isNaN(start.getTime())) return;
+    const end = new Date(start.getTime() + walkInDays * 24 * 3600 * 1000);
+    let cancelled = false;
+    api
+      .walkInQuote(user, { vehicleId: walkInVehicleId, startTime: start.toISOString(), endTime: end.toISOString() })
+      .then(next => { if (!cancelled) setWalkInQuote(next); })
+      .catch(() => { if (!cancelled) setWalkInQuote(null); });
+    return () => { cancelled = true; };
+  }, [walkInModalOpen, walkInVehicleId, walkInStartDate, walkInStartTime, walkInDays]);
+
   // opts.silent = background refresh (no spinner, throws on failure so the refresher can back off).
   const loadData = async (opts: { silent?: boolean } = {}) => {
     const silent = opts.silent === true;
@@ -662,10 +678,14 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     setActionBusy(true);
     try {
       const reg = onboardReg.toUpperCase().replace(/\s/g, '');
-      const oneYear = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString();
-      const permitExp = onboardPermitExpiry ? new Date(`${onboardPermitExpiry}T00:00:00.000Z`).toISOString() : oneYear;
-      const insExp = onboardInsuranceExpiry ? new Date(`${onboardInsuranceExpiry}T00:00:00.000Z`).toISOString() : oneYear;
-      const fitExp = onboardFitnessExpiry ? new Date(`${onboardFitnessExpiry}T00:00:00.000Z`).toISOString() : oneYear;
+      const toIso = (value: string) => new Date(`${value}T00:00:00.000Z`).toISOString();
+      if (!onboardVin.trim() || !onboardPermitNumber.trim() || !onboardInsurancePolicy.trim() || !onboardPermitExpiry || !onboardInsuranceExpiry || !onboardFitnessExpiry) {
+        onError('VIN, commercial permit, insurance policy and fitness certificate details (numbers and expiry dates) are required.');
+        return;
+      }
+      const permitExp = toIso(onboardPermitExpiry);
+      const insExp = toIso(onboardInsuranceExpiry);
+      const fitExp = toIso(onboardFitnessExpiry);
 
       const uploadedLocalUrls: string[] = [];
       for (const item of onboardLocalFiles) {
@@ -673,14 +693,12 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         uploadedLocalUrls.push(url);
       }
       const allImages = [...onboardImages, ...uploadedLocalUrls];
-      const vehicleImages = allImages.length > 0 ? allImages : [
-        'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'
-      ];
+      const vehicleImages = allImages;
 
       await api.createRentalFleetVehicle(user, {
         fleetNumber: onboardFleetNumber.trim() || `VMF-${Math.floor(100 + Math.random() * 899)}`,
         registrationNumber: reg,
-        vin: onboardVin.toUpperCase().replace(/\s/g, '') || `VIN-RENTAL-${Date.now()}`,
+        vin: onboardVin.toUpperCase().replace(/\s/g, ''),
         make: onboardMake.trim(),
         model: onboardModel.trim(),
         variant: onboardVariant.trim() || undefined,
@@ -693,12 +711,13 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         baseDailyRatePaise: onboardDailyRateRupees * 100,
         baseHourlyRatePaise: (onboardHourlyRateRupees || Math.round(onboardDailyRateRupees / 10)) * 100,
         securityDepositPaise: onboardDepositRupees * 100,
-        includedKmPerDay: Number(onboardIncludedKm) || 250,
-        includedDailyKm: Number(onboardIncludedKm) || 250,
-        extraKmRatePaise: onboardExtraKmRateRupees * 100,
-        commercialPermitNumber: onboardPermitNumber.trim() || `KA-COMM-${reg.slice(-4) || 'RENTAL'}`,
+        // Blank means "use the hub's policy"; the API refuses when neither exists (no hidden 250 km / ₹12).
+        includedKmPerDay: Number(onboardIncludedKm) || undefined,
+        includedDailyKm: Number(onboardIncludedKm) || undefined,
+        extraKmRatePaise: onboardExtraKmRateRupees ? onboardExtraKmRateRupees * 100 : undefined,
+        commercialPermitNumber: onboardPermitNumber.trim(),
         commercialPermitExpiry: permitExp,
-        insurancePolicyNumber: onboardInsurancePolicy.trim() || `POL-VM-${reg.slice(-4) || 'RENTAL'}`,
+        insurancePolicyNumber: onboardInsurancePolicy.trim(),
         insuranceExpiry: insExp,
         fitnessCertExpiry: fitExp,
         images: vehicleImages,
@@ -926,14 +945,14 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         startTime: startDateTime.toISOString(),
         endTime: endDateTime.toISOString(),
         licenseNumber: walkInLicenseNumber.toUpperCase().trim() || 'DL-WALKIN',
-        licenseExpiry: walkInLicenseExpiry ? new Date(walkInLicenseExpiry).toISOString() : new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString(),
+        licenseExpiry: new Date(walkInLicenseExpiry).toISOString(),
         drivingExperienceYears: Number(walkInExperienceYears) || 3,
         licenseFrontUrl: finalFront || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80',
         licenseBackUrl: finalBack || 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=800&q=80',
         paymentMethod: walkInPaymentMethod,
         transactionReference: walkInPaymentTxRef.trim() || `COUNTER-${Date.now()}`,
         startOdometerKm: Number(walkInStartOdo) || undefined,
-        fuelPercent: Number(walkInFuelPercent) || 100,
+        fuelPercent: Number(walkInFuelPercent),
         notes: walkInNotes,
         immediateHandover: walkInImmediateHandover,
       });
@@ -1794,7 +1813,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                     onChange={e => {
                       setWalkInVehicleId(e.target.value);
                       const veh = fleet.find(v => v.id === e.target.value);
-                      if (veh) setWalkInStartOdo(veh.odometerKm || 0);
+                      if (veh) {
+                        // Hand-over readings start from what the vehicle itself last recorded, never from a made-up default.
+                        setWalkInStartOdo(veh.odometerKm || 0);
+                        setWalkInFuelPercent(typeof veh.fuelLevelPercent === 'number' ? veh.fuelLevelPercent : 100);
+                      }
                     }}
                     style={{ width: '100%', fontSize: '0.95rem', fontWeight: 600 }}
                   >
@@ -2038,9 +2061,11 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                     const selVeh = fleet.find(v => v.id === walkInVehicleId);
                     const daily = selVeh ? Number(BigInt(selVeh.baseDailyRatePaise) / 100n) : 0;
                     const dep = selVeh ? Number(BigInt(selVeh.securityDepositPaise) / 100n) : 0;
-                    const base = daily * walkInDays;
-                    const tax = Math.round(base * 0.18);
-                    const total = base + tax + dep;
+                    const q = walkInQuote && walkInQuote.vehicleId === walkInVehicleId ? walkInQuote : null;
+                    const rupees = (paise: string | undefined) => (paise === undefined ? 0 : Number(BigInt(paise) / 100n));
+                    const base = q ? rupees(q.baseFarePaise) : 0;
+                    const tax = q ? rupees(q.taxPaise) : 0;
+                    const total = q ? rupees(q.totalPayablePaise) : 0;
                     return (
                       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: '0.75rem', marginBottom: '1rem', background: 'var(--surface)', padding: '0.75rem', borderRadius: '6px' }}>
                         <div>
@@ -2048,16 +2073,29 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                           <div style={{ fontWeight: 700 }}>₹{daily.toLocaleString('en-IN')}/day</div>
                         </div>
                         <div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>BASE ({walkInDays} DAYS)</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>BASE ({q ? q.days : walkInDays} DAYS)</div>
                           <div style={{ fontWeight: 700 }}>₹{base.toLocaleString('en-IN')}</div>
                         </div>
                         <div>
-                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>GST (18%)</div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>GST ({q ? q.gstPercent : '…'}%)</div>
                           <div style={{ fontWeight: 700 }}>₹{tax.toLocaleString('en-IN')}</div>
                         </div>
                         <div>
                           <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>SECURITY DEPOSIT</div>
                           <div style={{ fontWeight: 700 }}>₹{dep.toLocaleString('en-IN')}</div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--muted)' }}>KM PACKAGE</div>
+                          {(() => {
+                            const perDay = q?.includedKmPerDay ?? 0;
+                            const extra = q ? Math.round(Number(q.extraKmRatePaise) / 100) : 0;
+                            return (
+                              <>
+                                <div style={{ fontWeight: 700 }}>{q ? q.includedKm.toLocaleString('en-IN') : '…'} km</div>
+                                <small style={{ color: 'var(--muted)' }}>{perDay} km/day · ₹{extra}/extra km</small>
+                              </>
+                            );
+                          })()}
                         </div>
                         <div>
                           <div style={{ fontSize: '0.7rem', color: 'var(--accent)' }}>TOTAL PAYABLE</div>
@@ -2100,11 +2138,15 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem', marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid rgba(16, 185, 129, 0.2)' }}>
                       <div>
                         <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Current Odometer (km)</label>
-                        <input type="number" className="input" value={walkInStartOdo} onChange={e => setWalkInStartOdo(Number(e.target.value))} style={{ width: '100%', marginTop: '3px' }} />
+                        <input type="number" className="input" min={fleet.find(v => v.id === walkInVehicleId)?.odometerKm || 0} value={walkInStartOdo} onChange={e => setWalkInStartOdo(Number(e.target.value))} style={{ width: '100%', marginTop: '3px' }} />
+                        {(() => {
+                          const recorded = fleet.find(v => v.id === walkInVehicleId)?.odometerKm;
+                          return recorded ? <small style={{ color: 'var(--muted)' }}>Vehicle record: {recorded.toLocaleString('en-IN')} km (cannot go lower)</small> : null;
+                        })()}
                       </div>
                       <div>
                         <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Fuel Level (%)</label>
-                        <input type="number" className="input" min={10} max={100} value={walkInFuelPercent} onChange={e => setWalkInFuelPercent(Number(e.target.value))} style={{ width: '100%', marginTop: '3px' }} />
+                        <input type="number" className="input" min={0} max={100} value={walkInFuelPercent} onChange={e => setWalkInFuelPercent(Number(e.target.value))} style={{ width: '100%', marginTop: '3px' }} />
                       </div>
                     </div>
                   )}
@@ -2281,30 +2323,12 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                         style={{ width: '100%', marginTop: '4px' }}
                       />
                     </div>
-                    <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Make / Manufacturer *</label>
-                      <input
-                        type="text"
-                        className="input"
-                        required
-                        placeholder="e.g. Hyundai, Tata, Toyota"
-                        value={onboardMake}
-                        onChange={e => setOnboardMake(e.target.value)}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Model *</label>
-                      <input
-                        type="text"
-                        className="input"
-                        required
-                        placeholder="e.g. Creta, Nexon EV, Innova"
-                        value={onboardModel}
-                        onChange={e => setOnboardModel(e.target.value)}
-                        style={{ width: '100%', marginTop: '4px' }}
-                      />
-                    </div>
+                    <VehicleMakeModel
+                      make={onboardMake}
+                      model={onboardModel}
+                      onChange={(nextMake, nextModel) => { setOnboardMake(nextMake); setOnboardModel(nextModel); }}
+                      loadItems={api.masterData}
+                    />
                     <div>
                       <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Variant & Trim</label>
                       <input
@@ -2821,8 +2845,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '0.875rem' }}>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Commercial Permit Number</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Commercial Permit Number *</label>
                       <input
+                        required
                         type="text"
                         className="input font-mono"
                         placeholder="e.g. COMM-KA01MK1234"
@@ -2832,8 +2857,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Commercial Permit Expiry</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Commercial Permit Expiry *</label>
                       <input
+                        required
                         type="date"
                         className="input"
                         value={onboardPermitExpiry}
@@ -2842,8 +2868,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Insurance Policy Number</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Insurance Policy Number *</label>
                       <input
+                        required
                         type="text"
                         className="input font-mono"
                         placeholder="e.g. POL-VM-1234"
@@ -2853,8 +2880,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Insurance Expiry Date</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Insurance Expiry Date *</label>
                       <input
+                        required
                         type="date"
                         className="input"
                         value={onboardInsuranceExpiry}
@@ -2863,8 +2891,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fitness Certificate Expiry</label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fitness Certificate Expiry *</label>
                       <input
+                        required
                         type="date"
                         className="input"
                         value={onboardFitnessExpiry}

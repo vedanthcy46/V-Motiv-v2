@@ -254,6 +254,8 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             }
           },
         },
+        // A stock photo is not a driving licence: the sample option exists in development builds only.
+        ...(__DEV__ ? [
         {
           text: 'Use Sample Document (Preview)',
           onPress: () => {
@@ -269,6 +271,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             }
           },
         },
+        ] : []),
         { text: 'Cancel', style: 'cancel' },
       ]
     );

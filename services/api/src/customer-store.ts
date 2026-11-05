@@ -1,4 +1,5 @@
 import { computeInventoryFacets, makeSpellings, type FacetFilters, type FacetRow } from './inventory-facets.js';
+import { canonicalMakeModel, loadMakeAliasGroups } from './vehicle-names.js';
 import { dropOrphanedChildren, normalizeMasterDataCategory } from './master-data-rules.js';
 import { Prisma, PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
@@ -518,6 +519,7 @@ export class PrismaCustomerStore implements CustomerStore {
     const { search = '', page = 1, limit = 20, city, fuelType, transmission, make, model, bodyType, color, minYear, maxYear, maxOdometerKm, minPricePaise, maxPricePaise, features, sort = 'newest' } = filters;
     const user = uid ? await this.user(uid) : null;
     const makes = make ? make.split(',').map(m => m.trim()).filter(Boolean) : [];
+    const aliasGroups = makes.length ? await loadMakeAliasGroups(this.db as any) : undefined;
     const models = model ? model.split(',').map(m => m.trim()).filter(Boolean) : [];
     const featureList = features ? features.split('|').map(f => f.trim()).filter(Boolean) : [];
     const vehicleFilters: Prisma.VehicleWhereInput = {
@@ -525,7 +527,7 @@ export class PrismaCustomerStore implements CustomerStore {
       ...(fuelType ? { fuelType: { equals: fuelType, mode: 'insensitive' } } : {}),
       ...(transmission ? { transmission: { equals: transmission, mode: 'insensitive' } } : {}),
       // 'Maruti Suzuki' also matches stock entered as 'Maruti' or 'Suzuki' (and similar aliases).
-      ...(makes.length ? { make: { in: makeSpellings(makes), mode: 'insensitive' } } : {}),
+      ...(makes.length ? { make: { in: makeSpellings(makes, aliasGroups), mode: 'insensitive' } } : {}),
       ...(models.length === 1 ? { model: { equals: models[0], mode: 'insensitive' } } : models.length > 1 ? { model: { in: models, mode: 'insensitive' } } : {}),
       ...(bodyType ? { bodyType: { equals: bodyType, mode: 'insensitive' } } : {}),
       ...(featureList.length ? { features: { hasEvery: featureList } } : {}),
@@ -593,7 +595,7 @@ export class PrismaCustomerStore implements CustomerStore {
       minPricePaise: filters.minPricePaise,
       maxPricePaise: filters.maxPricePaise,
     };
-    return computeInventoryFacets(facetRows, f);
+    return computeInventoryFacets(facetRows, f, await loadMakeAliasGroups(this.db as any));
   }
   async vehicle(uid: string | undefined, id: string) {
     const user = uid ? await this.user(uid) : null;
@@ -757,10 +759,13 @@ export class PrismaCustomerStore implements CustomerStore {
       if (existing) return leadJson(existing, this.db);
     }
     const { inspectionDate, ...rest } = input;
+    const names = await canonicalMakeModel(this.db as any, input.make, input.model);
     const lead = await this.db.$transaction(async tx => {
       const created = await tx.acquisitionLead.create({
         data: {
           ...rest,
+          make: names.make,
+          model: names.model,
           city,
           expectedPricePaise: input.expectedPricePaise === undefined ? undefined : BigInt(input.expectedPricePaise),
           inspectionDate: inspectionDate ? new Date(`${inspectionDate}T00:00:00.000Z`) : undefined,

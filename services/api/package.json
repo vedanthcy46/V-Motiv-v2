@@ -19,6 +19,7 @@
     "db:repair-platform": "node repair-platform-schema.mjs",
     "db:seed": "tsx --env-file-if-exists=.env prisma/seed.ts",
     "db:unseed": "tsx --env-file-if-exists=.env prisma/unseed.ts",
+    "db:normalize-names": "tsx --env-file-if-exists=.env prisma/normalize-vehicle-names.ts",
     "seed:rental-demo": "tsx --env-file-if-exists=.env scripts/seed-rental-demo.ts",
     "unseed:rental-demo": "tsx --env-file-if-exists=.env scripts/remove-rental-demo.ts",
     "bootstrap:admin": "tsx --env-file-if-exists=.env scripts/bootstrap-admin.ts",

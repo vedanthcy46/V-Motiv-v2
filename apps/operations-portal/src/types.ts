@@ -418,7 +418,8 @@ export type ServiceJobItem = {
   status: ServiceJobStatus;
   scheduledDate: string;
   scheduledTimeSlot: string;
-  fulfillmentType: 'DOORSTEP_PICKUP' | 'HUB_DROP';
+  // Same values as the database enum ServiceFulfillmentType.
+  fulfillmentType: 'PICKUP_AND_RETURN' | 'SELF_DROP_AT_HUB';
   pickupAddress?: string | null;
   customerNotes?: string | null;
   customerSymptoms?: string | null;
@@ -600,6 +601,8 @@ export type RentalFleetItem = {
   fuelType: string;
   color: string;
   odometerKm?: number;
+  /** Fuel / charge level last recorded on the vehicle (%). */
+  fuelLevelPercent?: number;
   images?: string[];
   features?: string[];
   commercialPermitNumber?: string | null;

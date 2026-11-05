@@ -1,4 +1,5 @@
 import type { User } from 'firebase/auth';
+import type { MasterItem } from './vehicleCatalog';
 import type {
   AcquisitionCase,
   AcquisitionOfferItem,
@@ -370,6 +371,15 @@ export const api = {
   updateServicePaymentPolicy: (u: User, body: Record<string, any>) =>
     call<any>(u, '/operations/service/payment-policy', { method: 'PUT', body: JSON.stringify(body) }),
 
+  /** Administrator-managed master data (public). Used for make/model pickers; forms fall back to typing if it fails. */
+  masterData: async (): Promise<MasterItem[]> => {
+    const response = await fetch(`${base}/master-data`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error('MASTER_DATA_UNAVAILABLE');
+    return (await response.json()) as MasterItem[];
+  },
+  /** Counter price preview computed by the API (same maths as the booking itself). */
+  walkInQuote: (u: User, body: { vehicleId: string; startTime: string; endTime: string }) =>
+    call<{ vehicleId: string; days: number; gstPercent: number; baseFarePaise: string; taxPaise: string; securityDepositPaise: string; totalPayablePaise: string; includedKm: number; includedKmPerDay: number; extraKmRatePaise: string }>(u, '/operations/rentals/walkin-quote', { method: 'POST', body: JSON.stringify(body) }),
   /** Cheap change tokens per data domain (see services/api/src/pulse.ts). */
   pulse: async (u: User, domains: string[], fresh = false) =>
     (await call<{ tokens: Record<string, string> }>(u, `/pulse?domains=${domains.join(',')}${fresh ? '&fresh=1' : ''}`)).tokens,

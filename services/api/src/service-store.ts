@@ -22,6 +22,8 @@ import {
   ServicePaymentStatus,
   Prisma,
 } from '@prisma/client';
+import { nextServiceDue } from './service-intervals.js';
+import { canonicalMakeModel } from './vehicle-names.js';
 import { currentCalendarYear } from './calendar.js';
 import crypto from 'node:crypto';
 import { HttpError } from './errors.js';
@@ -1407,8 +1409,8 @@ export class PrismaServiceStore {
       const vehicle = await tx.customerVehicle.create({
         data: {
           userId: user.id,
-          make: input.make.trim(),
-          model: input.model.trim(),
+          make: (await canonicalMakeModel(tx as any, input.make, input.model)).make,
+          model: (await canonicalMakeModel(tx as any, input.make, input.model)).model,
           year: input.year,
           variant: input.variant ? input.variant.trim() : null,
           fuelType: input.fuelType.toUpperCase(),
@@ -1421,9 +1423,7 @@ export class PrismaServiceStore {
           photoUrls: input.photoUrls ? (Array.isArray(input.photoUrls) ? input.photoUrls : [input.photoUrls]) : Prisma.JsonNull,
           notes: input.notes ? input.notes.trim() : null,
           isPreferred: shouldBePreferred,
-          // Estimate next service: +10,000 km or 6 months if odometer provided
-          nextServiceDueKm: input.odometerKm ? input.odometerKm + 10000 : null,
-          nextServiceDueDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+          // No service has happened yet, so there is no real next-due date; it is set after a periodic service (service-intervals.ts).
         },
       });
 
@@ -2197,6 +2197,8 @@ export class PrismaServiceStore {
       customerSymptoms?: string;
       scheduledDate?: string;
       scheduledTimeSlot?: string;
+      fulfillmentType?: ServiceFulfillmentType | 'PICKUP_AND_RETURN' | 'SELF_DROP_AT_HUB';
+      pickupAddress?: { line1: string; line2?: string | null; city: string; pincode: string; instructions?: string | null } | null;
       immediateIntake?: boolean;
       intakeOdometerKm?: number;
       intakeFuelPercent?: number;
@@ -2270,23 +2272,31 @@ export class PrismaServiceStore {
         });
       }
 
-      // 2. Find or create Vehicle
+      // 2. Find or create Vehicle (names use the catalogue spelling when the car is in the master data)
+      const names = await canonicalMakeModel(tx as any, input.vehicleMake, input.vehicleModel);
       let vehicle = await tx.customerVehicle.findFirst({
         where: {
           userId: customer.id,
           ...(input.registrationNumber
             ? { registrationNumber: input.registrationNumber.trim().toUpperCase() }
-            : { make: input.vehicleMake.trim(), model: input.vehicleModel.trim() }),
+            : { make: { equals: names.make, mode: 'insensitive' }, model: { equals: names.model, mode: 'insensitive' } }),
           isArchived: false,
         },
       });
+      const intakeOdometerKm = input.intakeOdometerKm ?? input.odometerKm;
+      if (input.immediateIntake && vehicle && typeof intakeOdometerKm === 'number' && intakeOdometerKm < (vehicle.odometerKm ?? 0)) {
+        throw new HttpError(400, 'ODOMETER_BELOW_RECORDED', `Odometer cannot be lower than this vehicle's recorded ${(vehicle.odometerKm ?? 0).toLocaleString('en-IN')} km.`);
+      }
+      if (input.intakeFuelPercent !== undefined && (input.intakeFuelPercent < 0 || input.intakeFuelPercent > 100)) {
+        throw new HttpError(400, 'INVALID_FUEL_LEVEL');
+      }
 
       if (!vehicle) {
         vehicle = await tx.customerVehicle.create({
           data: {
             userId: customer.id,
-            make: input.vehicleMake.trim(),
-            model: input.vehicleModel.trim(),
+            make: names.make,
+            model: names.model,
             year: input.vehicleYear || currentCalendarYear(),
             fuelType: (input.fuelType || 'PETROL').toUpperCase(),
             transmission: (input.transmission || 'MANUAL').toUpperCase(),
@@ -2304,7 +2314,11 @@ export class PrismaServiceStore {
 
       const scheduledDate = input.scheduledDate || new Date().toISOString().slice(0, 10);
       const scheduledTimeSlot = input.scheduledTimeSlot || '10:00-12:00';
-      const initialStatus = input.immediateIntake
+      // A doorstep booking cannot be checked in at the counter: the car is still with the customer until our driver collects it.
+      const isDoorstep = input.fulfillmentType === 'PICKUP_AND_RETURN';
+      if (isDoorstep && !input.pickupAddress?.line1?.trim()) throw new HttpError(400, 'PICKUP_ADDRESS_REQUIRED');
+      const intakeNow = Boolean(input.immediateIntake) && !isDoorstep;
+      const initialStatus = intakeNow
         ? ServiceRequestStatus.CHECKED_IN
         : ServiceRequestStatus.APPOINTMENT_SCHEDULED;
 
@@ -2322,7 +2336,9 @@ export class PrismaServiceStore {
             bookingChannel: 'WALK_IN_OFFLINE',
             requirements: input.customerSymptoms?.trim() || 'Walk-in customer intake at workshop desk',
           }),
-          fulfillmentType: ServiceFulfillmentType.SELF_DROP_AT_HUB,
+          fulfillmentType: isDoorstep ? ServiceFulfillmentType.PICKUP_AND_RETURN : ServiceFulfillmentType.SELF_DROP_AT_HUB,
+          pickupAddress: isDoorstep ? JSON.stringify(input.pickupAddress) : Prisma.JsonNull,
+          returnAddress: isDoorstep ? JSON.stringify(input.pickupAddress) : Prisma.JsonNull,
           status: initialStatus,
           scheduledDate,
           scheduledTimeSlot,
@@ -2330,13 +2346,13 @@ export class PrismaServiceStore {
       });
 
       // 5. If immediate intake, create intake custody record
-      if (input.immediateIntake) {
+      if (intakeNow) {
         await tx.serviceCustodyRecord.create({
           data: {
             serviceRequestId: sr.id,
             type: 'CHECK_IN',
             odometerKm: input.intakeOdometerKm || input.odometerKm || vehicle.odometerKm || 0,
-            fuelChargeLevel: `${input.intakeFuelPercent || 50}%`,
+            fuelChargeLevel: `${input.intakeFuelPercent ?? 50}%`,
             keyCount: 1,
             preExistingDamageNotes: input.intakeNotes?.trim() || 'Walk-in intake inspected at service desk',
             custodyOfficerId: actorId,
@@ -2344,6 +2360,10 @@ export class PrismaServiceStore {
             customerAcknowledged: true,
           },
         });
+        // Keep the vehicle record in step with what was read at the counter (it can only go up).
+        if (typeof intakeOdometerKm === 'number' && intakeOdometerKm > (vehicle.odometerKm ?? 0)) {
+          await tx.customerVehicle.update({ where: { id: vehicle.id }, data: { odometerKm: intakeOdometerKm } });
+        }
       }
 
       // 6. Optional Walk-In Counter Advance Payment / Deposit
@@ -3217,6 +3237,10 @@ export class PrismaServiceStore {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
     assertServiceJobOpen(sr);
+    const checkIn = await this.db.serviceCustodyRecord.findFirst({ where: { serviceRequestId: sr.id, type: 'CHECK_IN' }, orderBy: { recordedAt: 'desc' }, select: { odometerKm: true } });
+    if (checkIn && input.odometerKm < checkIn.odometerKm) {
+      throw new HttpError(400, 'ODOMETER_BELOW_CHECK_IN', `Release odometer cannot be lower than the ${checkIn.odometerKm.toLocaleString('en-IN')} km recorded at check-in.`);
+    }
 
     return this.db.$transaction(async tx => {
       const record = await tx.serviceCustodyRecord.create({
@@ -3243,8 +3267,8 @@ export class PrismaServiceStore {
         data: {
           odometerKm: input.odometerKm,
           lastServiceDate: new Date(),
-          nextServiceDueKm: input.odometerKm + 10000,
-          nextServiceDueDate: new Date(Date.now() + 180 * 24 * 60 * 60 * 1000),
+          // Only a periodic service resets the schedule (an AC repair does not); intervals are configurable.
+          ...(nextServiceDue(sr.categoryKey, input.odometerKm) ?? {}),
         },
       });
 

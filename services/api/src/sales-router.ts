@@ -121,6 +121,7 @@ const offerInput = z.object({
 const valuationInput = z.object({ inspectionReportId: uuid, expectedResalePaise: z.coerce.bigint().positive(), refurbishmentPaise: z.coerce.bigint().min(0n).optional(), otherCostsPaise: z.coerce.bigint().min(0n).optional(), requiredMarginPaise: z.coerce.bigint().min(0n).optional(), recommendedPurchasePaise: z.coerce.bigint().positive(), notes: z.string().trim().max(2_000).optional(), autoApprove: z.boolean().optional() }).strict();
 const valuationDecisionInput = z.object({ version: z.number().int().positive(), decision: z.enum(['APPROVE', 'REJECT']), reason: z.string().trim().max(1_000).optional() }).strict();
 
+const inPersonConfirmInput = z.object({ challengeId: z.string().uuid(), code: z.string().regex(/^\d{6}$/) }).strict();
 const offerResponseInput = z.object({
   decision: z.enum(['ACCEPTED', 'DECLINED']),
   declineReason: z.string().trim().max(500).optional(),
@@ -286,6 +287,8 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   router.get('/acquisition-offers', async (req, res) => res.json(await deps.store.acquisitionOffers(res.locals.salesActor, acquisitionOfferQuery.parse(req.query))));
   router.get('/seller-leads/:id/offers', async (req, res) => res.json(await deps.store.getAcquisitionOffers(res.locals.salesActor, uuid.parse(req.params.id))));
   router.post('/seller-leads/:id/offers', async (req, res) => res.status(201).json(await deps.store.proposeAcquisitionOffer(res.locals.salesActor, uuid.parse(req.params.id), offerInput.parse(req.body))));
+  router.post('/seller-leads/:id/offers/:offerId/in-person-acceptance/start', async (req, res) => res.status(201).json(await deps.store.startInPersonAcceptance(res.locals.salesActor, uuid.parse(req.params.id), uuid.parse(req.params.offerId))));
+  router.post('/seller-leads/:id/offers/:offerId/in-person-acceptance/confirm', async (req, res) => res.json(await deps.store.confirmInPersonAcceptance(res.locals.salesActor, uuid.parse(req.params.id), uuid.parse(req.params.offerId), inPersonConfirmInput.parse(req.body))));
   router.post('/seller-leads/:id/offers/:offerId/decision', async (req, res) => res.json(await deps.store.recordSellerOfferResponse(res.locals.salesActor, uuid.parse(req.params.id), uuid.parse(req.params.offerId), offerResponseInput.parse(req.body))));
 
   // Buyer leads (Purchase enquiries)

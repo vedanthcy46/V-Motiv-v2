@@ -16,8 +16,11 @@ import {
   type TestDriveStatus,
   type VehicleReservationStatus,
 } from '@prisma/client';
+import { canonicalMakeModel } from './vehicle-names.js';
 import crypto from 'node:crypto';
 import { HttpError } from './errors.js';
+import { CODE_TTL_MS, MAX_ATTEMPTS, MAX_SENDS_PER_HOUR, RESEND_COOLDOWN_MS, challengeStatus, codeMatches, generateCode, hashCode, isWalkInSeller, maskPhone, smsText } from './in-person-acceptance.js';
+import { otpSecretFromEnv, smsSenderFromEnv, type SmsSender } from './sms.js';
 
 export const salesRoles: EmployeeRole[] = ['SALES_EXECUTIVE', 'OPERATIONS_MANAGER', 'PRICING_APPROVER', 'ADMIN', 'SUPER_ADMIN'];
 export const globalSalesRoles: EmployeeRole[] = ['SUPER_ADMIN', 'ADMIN', 'OPERATIONS_MANAGER'];
@@ -135,6 +138,8 @@ export interface SalesStore {
     decision: 'ACCEPTED' | 'DECLINED';
     declineReason?: string;
   }): Promise<unknown>;
+  startInPersonAcceptance(actor: SalesActor, leadId: string, offerId: string): Promise<unknown>;
+  confirmInPersonAcceptance(actor: SalesActor, leadId: string, offerId: string, input: { challengeId: string; code: string }): Promise<unknown>;
 
   // Buyer Leads
   buyerLeads(actor: SalesActor, query: { page: number; limit: number; search?: string; status?: PurchaseEnquiryStatus }): Promise<unknown>;
@@ -317,7 +322,7 @@ const leadSelect = {
 } satisfies Prisma.AcquisitionLeadSelect;
 
 export class PrismaSalesStore implements SalesStore {
-  constructor(private db: PrismaClient) {}
+  constructor(private db: PrismaClient, private smsSender?: SmsSender) {}
 
   async actor(uid: string): Promise<SalesActor> {
     const employee = await this.db.employee.findFirst({
@@ -460,6 +465,7 @@ export class PrismaSalesStore implements SalesStore {
     sellerNotes?: string;
   }) {
     const branch = actor.branches.find(b => b.city.toLowerCase() === input.city.toLowerCase()) || actor.branches[0];
+    const names = await canonicalMakeModel(this.db as any, input.make, input.model);
     return this.db.$transaction(async tx => {
       // Find or create customer user
       const placeholderEmail = `manual-${crypto.randomBytes(4).toString('hex')}@vmotiv.internal`;
@@ -480,8 +486,8 @@ export class PrismaSalesStore implements SalesStore {
           sellerPhone: input.sellerPhone,
           city: input.city,
           pincode: input.pincode,
-          make: input.make,
-          model: input.model,
+          make: names.make,
+          model: names.model,
           variant: input.variant,
           manufacturingYear: input.manufacturingYear,
           fuelType: input.fuelType,
@@ -1528,6 +1534,134 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
       throw new HttpError(409, 'OFFER_PROPOSAL_REQUIRES_APPROVED_VALUATION');
     }
     throw new HttpError(403, 'OFFER_ISSUANCE_REQUIRES_PRICING_AUTHORITY');
+  }
+
+  private async loadWalkInOffer(actor: SalesActor, leadId: string, offerId: string) {
+    const lead = await this.db.acquisitionLead.findFirst({
+      where: { id: leadId, ...scope(actor) },
+      select: { id: true, referenceCode: true, userId: true, status: true, sellerPhone: true, make: true, model: true, user: { select: { email: true, firebaseUid: true } } },
+    });
+    if (!lead) throw new HttpError(404, 'SELLER_LEAD_NOT_FOUND');
+    // Sellers who have an app account must accept in the app; staff can never accept on their behalf.
+    if (!isWalkInSeller(lead.user)) throw new HttpError(409, 'SELLER_MUST_ACCEPT_IN_APP');
+    if (lead.status !== 'OFFERED') throw new HttpError(409, 'LEAD_NOT_AWAITING_SELLER_RESPONSE');
+    const offer = await this.db.acquisitionOffer.findFirst({ where: { id: offerId, leadId } });
+    if (!offer) throw new HttpError(404, 'ACQUISITION_OFFER_NOT_FOUND');
+    if (offer.status !== 'OFFERED') throw new HttpError(409, 'OFFER_NOT_ACTIONABLE');
+    if (offer.validUntil.getTime() <= Date.now()) throw new HttpError(410, 'OFFER_EXPIRED');
+    return { lead, offer };
+  }
+
+  /** Step 1: text a one-time code to the phone number on the walk-in lead. Staff never see the code. */
+  async startInPersonAcceptance(actor: SalesActor, leadId: string, offerId: string) {
+    const secret = otpSecretFromEnv(process.env);
+    const send = this.smsSender ?? smsSenderFromEnv(process.env);
+    // Fail closed: a code that cannot be delivered (or hashed safely) must never exist.
+    if (!secret || !send) throw new HttpError(503, 'SMS_NOT_CONFIGURED');
+    const { lead, offer } = await this.loadWalkInOffer(actor, leadId, offerId);
+
+    const now = new Date();
+    const recent = await this.db.sellerOfferAcceptanceChallenge.findMany({
+      where: { offerId, createdAt: { gt: new Date(now.getTime() - 60 * 60_000) } },
+      orderBy: { createdAt: 'desc' },
+      select: { createdAt: true },
+    });
+    if (recent[0] && now.getTime() - recent[0].createdAt.getTime() < RESEND_COOLDOWN_MS) throw new HttpError(429, 'OTP_RESEND_TOO_SOON');
+    if (recent.length >= MAX_SENDS_PER_HOUR) throw new HttpError(429, 'OTP_SEND_LIMIT_REACHED');
+
+    const id = crypto.randomUUID();
+    const code = generateCode();
+    const expiresAt = new Date(now.getTime() + CODE_TTL_MS);
+    // Only the newest code works: retire any earlier unused ones for this offer.
+    await this.db.sellerOfferAcceptanceChallenge.updateMany({ where: { offerId, consumedAt: null }, data: { consumedAt: now } });
+    await this.db.sellerOfferAcceptanceChallenge.create({
+      data: { id, offerId, leadId, phone: lead.sellerPhone, codeHash: hashCode(code, id, secret), offerVersion: offer.version, createdById: actor.userId, expiresAt },
+    });
+    try {
+      const rupees = (Number(offer.offerAmountPaise) / 100).toLocaleString('en-IN');
+      await send(lead.sellerPhone, smsText(code, `${lead.make} ${lead.model}`, rupees));
+    } catch (error) {
+      await this.db.sellerOfferAcceptanceChallenge.deleteMany({ where: { id } });
+      console.warn('[ACCEPTANCE_SMS_FAILED]', (error as Error)?.message);
+      throw new HttpError(502, 'SMS_DELIVERY_FAILED');
+    }
+    await this.db.auditEvent.create({
+      data: { actorId: actor.userId, action: 'SELLER_OFFER_ACCEPTANCE_CODE_SENT', entityType: 'AcquisitionOffer', entityId: offerId, details: { leadId, challengeId: id, phone: maskPhone(lead.sellerPhone) } },
+    });
+    return { challengeId: id, phoneMasked: maskPhone(lead.sellerPhone), expiresAt, resendAfterSeconds: RESEND_COOLDOWN_MS / 1000 };
+  }
+
+  /** Step 2: the seller gives the code they received; a correct code records the acceptance exactly like the app does. */
+  async confirmInPersonAcceptance(actor: SalesActor, leadId: string, offerId: string, input: { challengeId: string; code: string }) {
+    const secret = otpSecretFromEnv(process.env);
+    if (!secret) throw new HttpError(503, 'SMS_NOT_CONFIGURED');
+    const { lead, offer } = await this.loadWalkInOffer(actor, leadId, offerId);
+
+    const challenge = await this.db.sellerOfferAcceptanceChallenge.findFirst({ where: { id: input.challengeId, offerId, leadId } });
+    // Only the staff member who sent the code can complete it, so the audit trail names one witness.
+    if (!challenge || challenge.createdById !== actor.userId) throw new HttpError(404, 'ACCEPTANCE_CODE_NOT_FOUND');
+    if (challenge.offerVersion !== offer.version) throw new HttpError(409, 'OFFER_CHANGED_REQUEST_NEW_CODE');
+    const now = new Date();
+    const status = challengeStatus(challenge, now);
+    if (status === 'USED') throw new HttpError(409, 'ACCEPTANCE_CODE_ALREADY_USED');
+    if (status === 'EXPIRED') throw new HttpError(410, 'ACCEPTANCE_CODE_EXPIRED');
+    if (status === 'LOCKED') throw new HttpError(429, 'ACCEPTANCE_CODE_LOCKED');
+
+    // Count the attempt before checking it, atomically, so parallel guesses cannot beat the limit.
+    const counted = await this.db.sellerOfferAcceptanceChallenge.updateMany({
+      where: { id: challenge.id, consumedAt: null, attempts: { lt: MAX_ATTEMPTS } },
+      data: { attempts: { increment: 1 } },
+    });
+    if (counted.count === 0) throw new HttpError(429, 'ACCEPTANCE_CODE_LOCKED');
+    if (!codeMatches(input.code, challenge.id, secret, challenge.codeHash)) {
+      throw new HttpError(400, 'ACCEPTANCE_CODE_INVALID', `Incorrect code. ${Math.max(MAX_ATTEMPTS - challenge.attempts - 1, 0)} attempts left.`);
+    }
+
+    return this.db.$transaction(async tx => {
+      const claimed = await tx.sellerOfferAcceptanceChallenge.updateMany({ where: { id: challenge.id, consumedAt: null }, data: { consumedAt: now } });
+      if (claimed.count === 0) throw new HttpError(409, 'ACCEPTANCE_CODE_ALREADY_USED');
+      const accepted = await tx.acquisitionOffer.updateMany({
+        where: { id: offerId, leadId, status: 'OFFERED', version: offer.version },
+        data: { status: 'ACCEPTED', acceptedAt: now, version: { increment: 1 } },
+      });
+      if (accepted.count === 0) throw new HttpError(409, 'OFFER_NOT_ACTIONABLE');
+      await tx.acquisitionLead.update({ where: { id: leadId }, data: { status: 'ACCEPTED' } });
+      const acquisitionCase = await tx.acquisitionCase.create({
+        data: {
+          leadId,
+          offerId,
+          sellerAcceptedByUserId: lead.userId,
+          acceptedAt: now,
+          documents: { create: [
+            { documentType: 'SELLER_IDENTITY', status: 'REQUESTED' },
+            { documentType: 'VEHICLE_REGISTRATION', status: 'REQUESTED' },
+            { documentType: 'SELLER_AUTHORITY', status: 'REQUESTED' },
+            { documentType: 'LIEN_OR_HYPOTHECATION', status: 'REQUESTED' },
+            { documentType: 'PURCHASE_AGREEMENT', status: 'REQUESTED' },
+          ] },
+        },
+      });
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'ACQUISITION_OFFER_ACCEPTED',
+          entityType: 'AcquisitionOffer',
+          entityId: offerId,
+          details: {
+            acquisitionCaseId: acquisitionCase.id,
+            source: 'IN_PERSON_OTP',
+            challengeId: challenge.id,
+            verifiedPhone: maskPhone(challenge.phone),
+            witnessEmployeeId: actor.userId,
+            offerVersion: offer.version,
+          },
+        },
+      });
+      await tx.auditEvent.create({
+        data: { actorId: actor.userId, action: 'ACQUISITION_CASE_CREATED', entityType: 'AcquisitionCase', entityId: acquisitionCase.id, details: { leadId, offerId } },
+      });
+      return { id: offerId, status: 'ACCEPTED' as const, acceptedAt: now, acquisitionCaseId: acquisitionCase.id, acceptedVia: 'IN_PERSON_OTP' as const };
+    });
   }
 
   async recordSellerOfferResponse(actor: SalesActor, leadId: string, offerId: string, input: {

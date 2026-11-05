@@ -357,7 +357,7 @@ export function ServiceHomeScreen() {
             line1: pickupAddress.line1.trim(),
             line2: pickupAddress.line2?.trim() || undefined,
             city: pickupAddress.city?.trim() || userCity,
-            pincode: pickupAddress.pincode ? pickupAddress.pincode.replace(/\s+/g, '').trim() : (userCity.toLowerCase().includes('chennai') ? '600032' : '560103'),
+            pincode: pickupAddress.pincode.replace(/\s+/g, '').trim(), // required above; never substitute a made-up pincode
             instructions: pickupAddress.instructions?.trim() || undefined,
           }
         : undefined;

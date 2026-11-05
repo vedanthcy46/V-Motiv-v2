@@ -186,6 +186,9 @@ const walkInServiceSchema = z.object({
   customerSymptoms: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(2000).optional().nullable()),
   scheduledDate: z.preprocess((v) => typeof v === 'string' && v.trim() ? (v.includes('T') ? v.slice(0, 10) : v.trim()) : undefined, z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional().nullable()),
   scheduledTimeSlot: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(50).optional().nullable()),
+  // How the car reaches us: the customer drives in (default) or we collect it from their address.
+  fulfillmentType: z.enum(['PICKUP_AND_RETURN', 'SELF_DROP_AT_HUB']).default('SELF_DROP_AT_HUB'),
+  pickupAddress: addressSchema.optional().nullable(),
   immediateIntake: z.coerce.boolean().default(true),
   intakeOdometerKm: z.preprocess((v) => v === '' || v === null || v === undefined ? undefined : Number(v), z.coerce.number().int().min(0).max(2_000_000).optional().nullable()),
   intakeFuelPercent: z.preprocess((v) => v === '' || v === null || v === undefined ? undefined : Number(v), z.coerce.number().int().min(0).max(100).optional().nullable()),
@@ -193,7 +196,11 @@ const walkInServiceSchema = z.object({
   advancePaymentAmountRupees: z.preprocess((v) => v === '' || v === null || v === undefined ? undefined : Number(v), z.coerce.number().min(0).max(10_000_000).optional().nullable()),
   paymentMethod: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(50).optional().nullable()),
   transactionReference: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(100).optional().nullable()),
-}).passthrough();
+}).passthrough().superRefine((val, ctx) => {
+  if (val.fulfillmentType === 'PICKUP_AND_RETURN' && (!val.pickupAddress || !val.pickupAddress.line1)) {
+    ctx.addIssue({ code: 'custom', path: ['pickupAddress'], message: 'Pickup address required for PICKUP_AND_RETURN' });
+  }
+});
 
 const paymentVerifySchema = z.object({
   verified: z.boolean(),

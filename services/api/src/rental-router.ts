@@ -126,7 +126,8 @@ const walkinRentalBookingSchema = z.object({
   paymentMethod: z.string().trim().default('UPI'),
   transactionReference: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(100).optional().nullable()),
   startOdometerKm: z.preprocess((v) => v === '' || v === null || v === undefined ? undefined : Number(v), z.coerce.number().int().min(0).optional().nullable()),
-  fuelPercent: z.preprocess((v) => v === '' || v === null || v === undefined ? 100 : Number(v), z.coerce.number().int().min(0).max(100).default(100)),
+  // Absent means "as recorded on the vehicle" (never an invented 100%).
+  fuelPercent: z.preprocess((v) => v === '' || v === null || v === undefined ? undefined : Number(v), z.coerce.number().int().min(0).max(100).optional()),
   notes: z.preprocess((v) => typeof v === 'string' && v.trim() ? v.trim() : undefined, z.string().max(1000).optional().nullable()),
   immediateHandover: z.coerce.boolean().default(false),
 }).passthrough();
@@ -751,6 +752,16 @@ export function createRentalOperationsRouter(deps: {
     try {
       const vehicleId = uuid.parse(req.params.id);
       res.json(await deps.store.deleteFleetVehicle(vehicleId));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Price preview for the counter (same maths as the booking itself)
+  router.post('/walkin-quote', requireRentalRole(['RENTAL_MANAGER', 'RENTAL_DISPATCH', 'HUB_MANAGER', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
+    try {
+      const input = parse(z.object({ vehicleId: z.string().uuid(), startTime: z.coerce.date(), endTime: z.coerce.date() }), req.body);
+      res.json(await deps.store.quoteWalkIn(input.vehicleId, input.startTime, input.endTime));
     } catch (e) {
       next(e);
     }

@@ -1,4 +1,5 @@
 import type { User } from 'firebase/auth';
+import type { MasterItem } from './vehicleCatalog';
 
 function resolveApiBase(): string {
   const env = (import.meta.env.VITE_API_BASE || '').trim();
@@ -141,6 +142,8 @@ export type ReportsData = {
 
 export type SellerLead = {
   id: string;
+  /** The account the lead hangs off. Walk-in leads use a placeholder `@vmotiv.internal` account that can never sign in. */
+  user?: { email?: string | null } | null;
   referenceCode: string;
   sellerName: string;
   sellerPhone: string;
@@ -582,6 +585,12 @@ export type AcquisitionOfferItem = {
 };
 
 export const salesApi = {
+  /** Administrator-managed master data (public). Used for make/model pickers; forms fall back to typing if it fails. */
+  masterData: async (): Promise<MasterItem[]> => {
+    const response = await fetch(`${base}/master-data`, { headers: { Accept: 'application/json' } });
+    if (!response.ok) throw new Error('MASTER_DATA_UNAVAILABLE');
+    return (await response.json()) as MasterItem[];
+  },
   /** Cheap change tokens (outside the /sales prefix); see services/api/src/pulse.ts. */
   pulse: async (u: User, domains: string[], fresh = false) =>
     (await callDirect<{ tokens: Record<string, string> }>(u, `/pulse?domains=${domains.join(',')}${fresh ? '&fresh=1' : ''}`)).tokens,
@@ -666,6 +675,11 @@ export const salesApi = {
     call<Array<{ id: string; offerAmountPaise: string; status: string; validUntil: string; terms: string | null; createdAt: string; version?: number; declineReason?: string | null; acceptedAt?: string | null; declinedAt?: string | null }>>(user, `/seller-leads/${leadId}/offers`),
   proposeAcquisitionOffer: (user: User, leadId: string, input: { valuationId?: string; offerAmountPaise: string; validUntil?: string; terms?: string; reason?: string }) =>
     call<{ id: string; status: string; message?: string }>(user, `/seller-leads/${leadId}/offers`, { method: 'POST', body: JSON.stringify(input) }),
+  /** Walk-in sellers only: text a one-time code to the seller's phone (staff never see it). */
+  startInPersonAcceptance: (user: User, leadId: string, offerId: string) =>
+    call<{ challengeId: string; phoneMasked: string; expiresAt: string; resendAfterSeconds: number }>(user, `/seller-leads/${leadId}/offers/${offerId}/in-person-acceptance/start`, { method: 'POST' }),
+  confirmInPersonAcceptance: (user: User, leadId: string, offerId: string, input: { challengeId: string; code: string }) =>
+    call<{ id: string; status: string }>(user, `/seller-leads/${leadId}/offers/${offerId}/in-person-acceptance/confirm`, { method: 'POST', body: JSON.stringify(input) }),
   recordOfferResponse: (user: User, leadId: string, offerId: string, input: { decision: 'ACCEPTED' | 'DECLINED'; declineReason?: string }) =>
     call<{ id: string; status: string }>(user, `/seller-leads/${leadId}/offers/${offerId}/decision`, { method: 'POST', body: JSON.stringify(input) }),
   getValuations: (user: User, leadId: string) =>

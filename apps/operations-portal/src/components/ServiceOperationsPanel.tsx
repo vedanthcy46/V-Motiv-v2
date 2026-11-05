@@ -1,4 +1,5 @@
 import React, { useState, useEffect, type FC, type FormEvent } from 'react';
+import { VehicleMakeModel } from './VehicleMakeModel';
 import { modalIsOpen, useAutoRefresh } from '../autoRefresh';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
@@ -118,6 +119,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const [walkInCategoryKey, setWalkInCategoryKey] = useState('periodic-maintenance');
   const [walkInSymptoms, setWalkInSymptoms] = useState('');
   const [walkInImmediateIntake, setWalkInImmediateIntake] = useState(true);
+  const [walkInFulfillment, setWalkInFulfillment] = useState<'SELF_DROP_AT_HUB' | 'PICKUP_AND_RETURN'>('SELF_DROP_AT_HUB');
+  const [walkInPickup, setWalkInPickup] = useState({ line1: '', city: '', pincode: '', instructions: '' });
   const [walkInIntakeNotes, setWalkInIntakeNotes] = useState('');
   const [walkInIntakeFuel, setWalkInIntakeFuel] = useState<number>(50);
   const [walkInCollectPayment, setWalkInCollectPayment] = useState(false);
@@ -157,6 +160,9 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
 
   // Return
   const [returnOdometer, setReturnOdometer] = useState<number>(0);
+  // Release readings are entered at the counter, never defaulted: fuel starts empty and the acknowledgement unticked.
+  const [returnFuel, setReturnFuel] = useState<string>('');
+  const [returnAcknowledged, setReturnAcknowledged] = useState(false);
   const [returnNotes, setReturnNotes] = useState('Vehicle delivered to customer with invoice and warranty booklet.');
 
   // Cancellation state
@@ -353,7 +359,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     setActionBusy(true);
     try {
       await api.recordServiceCustody(user, activeJob.id, {
-        intakeType: activeJob.fulfillmentType === 'DOORSTEP_PICKUP' ? 'DOORSTEP_HANDOVER' : 'WORKSHOP_DROP',
+        intakeType: activeJob.fulfillmentType === 'PICKUP_AND_RETURN' ? 'DOORSTEP_HANDOVER' : 'WORKSHOP_DROP',
         odometerKm: Number(intakeOdometer),
         fuelPercent: Number(intakeFuel),
         exteriorNotes: intakeNotes || 'Visual inspection complete. No major dents observed.',
@@ -510,20 +516,29 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
   const handleReturnSubmit = async (e: FormEvent) => {
     e.preventDefault();
     if (!activeJob) return;
+    if (returnFuel === '' || Number(returnFuel) < 0 || Number(returnFuel) > 100) {
+      onError('Enter the fuel / charge level (0-100%) the vehicle is leaving with.');
+      return;
+    }
+    if (!returnAcknowledged) {
+      onError('Confirm that the customer has inspected and accepted the vehicle.');
+      return;
+    }
     setActionBusy(true);
     try {
       await api.recordServiceReturn(user, activeJob.id, {
         type: 'CHECK_OUT',
         odometerKm: Number(returnOdometer),
         returnOdometerKm: Number(returnOdometer),
-        fuelChargeLevel: '50%',
-        fuelPercent: 50,
+        fuelChargeLevel: `${Number(returnFuel)}%`,
+        fuelPercent: Number(returnFuel),
         preExistingDamageNotes: returnNotes || 'Vehicle delivered with invoice and warranty booklet.',
         returnNotes: returnNotes || 'Vehicle delivered with invoice and warranty booklet.',
         handoverByPerson: activeJob.customer?.displayName || 'Customer Pickup / Delivery',
-        customerAcknowledged: true,
-        customerSigned: true,
+        customerAcknowledged: returnAcknowledged,
       });
+      setReturnFuel('');
+      setReturnAcknowledged(false);
       onSuccess(`Vehicle for ${activeJob.requestNumber} released and handover recorded successfully.`);
       await refreshActiveJob(activeJob.id);
     } catch (err: any) {
@@ -547,6 +562,10 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
       onError('Vehicle make and model are required');
       return;
     }
+    if (walkInFulfillment === 'PICKUP_AND_RETURN' && (!walkInPickup.line1.trim() || !walkInPickup.city.trim() || !/^\d{6}$/.test(walkInPickup.pincode.replace(/\s+/g, '')))) {
+      onError('Enter the pickup address, city and a 6-digit pincode for the doorstep collection.');
+      return;
+    }
     setWalkInSubmitting(true);
     try {
       const job = await api.createWalkInServiceJob(user, {
@@ -563,9 +582,13 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         odometerKm: Number(walkInOdometer) || undefined,
         categoryKey: walkInCategoryKey || 'periodic-maintenance',
         customerSymptoms: walkInSymptoms.trim() || undefined,
-        immediateIntake: walkInImmediateIntake,
+        immediateIntake: walkInImmediateIntake && walkInFulfillment === 'SELF_DROP_AT_HUB',
+        fulfillmentType: walkInFulfillment,
+        pickupAddress: walkInFulfillment === 'PICKUP_AND_RETURN'
+          ? { line1: walkInPickup.line1.trim(), city: walkInPickup.city.trim(), pincode: walkInPickup.pincode.replace(/\s+/g, ''), instructions: walkInPickup.instructions.trim() || undefined }
+          : undefined,
         intakeOdometerKm: Number(walkInOdometer) || undefined,
-        intakeFuelPercent: Number(walkInIntakeFuel) || 50,
+        intakeFuelPercent: Number(walkInIntakeFuel),
         intakeNotes: walkInIntakeNotes.trim() || undefined,
         advancePaymentAmountRupees: walkInCollectPayment && walkInAdvancePayment > 0 ? Number(walkInAdvancePayment) : undefined,
         paymentMethod: walkInCollectPayment && walkInAdvancePayment > 0 ? walkInPaymentMethod : undefined,
@@ -845,7 +868,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       {job.categoryKey?.replace(/-/g, ' ')}
                     </div>
                     <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                      {job.fulfillmentType === 'DOORSTEP_PICKUP' ? '🚚 Pickup & Return' : '🏢 Hub Drop'}
+                      {job.fulfillmentType === 'PICKUP_AND_RETURN' ? '🚚 Pickup & Return' : '🏢 Hub Drop'}
                     </div>
                     {(() => {
                       const qaReq = typeof job.questionAnswers === 'object' && job.questionAnswers !== null
@@ -1082,7 +1105,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               {[
                 { id: 'details', label: 'Overview & Requirements' },
                 { id: 'schedule', label: isJobCancelled ? '🔒 Schedule' : (isJobConcluded ? '✓ Schedule' : '1. Schedule') },
-                { id: 'dispatch', label: isJobCancelled ? '🔒 Dispatch' : (isJobConcluded ? '✓ Dispatch' : '2. Dispatch') },
+                { id: 'dispatch', label: isJobCancelled ? '🔒 Dispatch' : (isJobConcluded ? '✓ Dispatch' : (activeJob?.fulfillmentType === 'SELF_DROP_AT_HUB' ? '2. Dispatch (not needed)' : '2. Dispatch')) },
                 { id: 'custody', label: isJobCancelled ? '🔒 Intake' : (isJobConcluded ? '✓ Intake' : '3. Intake & Custody') },
                 { id: 'estimate', label: isJobCancelled ? '🔒 Estimate' : (isJobConcluded ? '✓ Estimate' : '4. Estimate & Approval') },
                 { id: 'qc', label: isJobCancelled ? '🔒 QC' : (isJobConcluded ? '✓ QC' : '5. Quality Control') },
@@ -1210,7 +1233,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     <div style={{ background: 'var(--surface-secondary)', padding: '0.75rem', borderRadius: '6px' }}>
                       <span style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>LOGISTICS & HUB</span>
                       <div><strong>{activeJob.hub?.name || 'Local Hub'} ({activeJob.hub?.city})</strong></div>
-                      <div>Fulfillment: {activeJob.fulfillmentType === 'DOORSTEP_PICKUP' ? 'Doorstep Pickup' : 'Self Drop at Hub'}</div>
+                      <div>Fulfillment: {activeJob.fulfillmentType === 'PICKUP_AND_RETURN' ? 'Doorstep Pickup' : 'Self Drop at Hub'}</div>
                       {activeJob.pickupAddress && <div style={{ fontSize: '0.8rem' }}>Pickup: {String(activeJob.pickupAddress)}</div>}
                     </div>
                     <div style={{ background: 'var(--surface-secondary)', padding: '0.75rem', borderRadius: '6px' }}>
@@ -1429,8 +1452,16 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>✅</div>
                     <h4 style={{ margin: 0, color: '#10b981' }}>Dispatch & Logistics Completed</h4>
                     <p style={{ margin: '6px 0 0', fontSize: '0.85rem', color: 'var(--muted)' }}>
-                      Fulfillment type: {activeJob.fulfillmentType === 'DOORSTEP_PICKUP' ? 'Doorstep Pickup & Return' : 'Self Drop at Workshop Hub'}.
+                      Fulfillment type: {activeJob.fulfillmentType === 'PICKUP_AND_RETURN' ? 'Doorstep Pickup & Return' : 'Self Drop at Workshop Hub'}.
                     </p>
+                  </div>
+                ) : activeJob.fulfillmentType === 'SELF_DROP_AT_HUB' ? (
+                  <div style={{ padding: '1.5rem', background: 'var(--surface-secondary)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                    <h4 style={{ margin: 0 }}>🏢 Customer drops the vehicle at the hub</h4>
+                    <p style={{ margin: '8px 0 12px', fontSize: '0.875rem', color: 'var(--muted)' }}>
+                      This booking is a self-drop, so no pickup or delivery driver is needed. Record the vehicle when it arrives in the Intake step.
+                    </p>
+                    <button type="button" className="btn-primary btn-gold button primary" onClick={() => setActionTab('custody')}>Go to Intake & Custody</button>
                   </div>
                 ) : (
                   <form onSubmit={handleDispatchSubmit}>
@@ -2226,6 +2257,26 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                             </div>
                           </div>
 
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                            <div>
+                              <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fuel / Charge Level at Departure (%) *</label>
+                              <input
+                                type="number"
+                                className="input"
+                                required
+                                min={0}
+                                max={100}
+                                value={returnFuel}
+                                onChange={e => setReturnFuel(e.target.value)}
+                                style={{ width: '100%', marginTop: '4px' }}
+                              />
+                            </div>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.8125rem', fontWeight: 600, alignSelf: 'end', paddingBottom: '0.5rem' }}>
+                              <input type="checkbox" checked={returnAcknowledged} onChange={e => setReturnAcknowledged(e.target.checked)} />
+                              Customer has inspected and accepted the vehicle *
+                            </label>
+                          </div>
+
                           <div style={{ marginTop: '1rem' }}>
                             <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Handover & Departure Notes</label>
                             <textarea
@@ -2387,30 +2438,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     3. Vehicle Specifications *
                   </div>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem' }}>
-                    <div>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Make *</label>
-                      <input
-                        type="text"
-                        className="input"
-                        required
-                        placeholder="e.g. Hyundai, Honda"
-                        value={walkInVehicleMake}
-                        onChange={e => setWalkInVehicleMake(e.target.value)}
-                        style={{ width: '100%', marginTop: '3px' }}
-                      />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Model *</label>
-                      <input
-                        type="text"
-                        className="input"
-                        required
-                        placeholder="e.g. Creta, City"
-                        value={walkInVehicleModel}
-                        onChange={e => setWalkInVehicleModel(e.target.value)}
-                        style={{ width: '100%', marginTop: '3px' }}
-                      />
-                    </div>
+                    <VehicleMakeModel
+                      make={walkInVehicleMake}
+                      model={walkInVehicleModel}
+                      onChange={(nextMake, nextModel) => { setWalkInVehicleMake(nextMake); setWalkInVehicleModel(nextModel); }}
+                      loadItems={api.masterData}
+                    />
                     <div>
                       <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Model Year *</label>
                       <input
@@ -2479,8 +2512,38 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                   />
                 </div>
 
-                {/* 5. IMMEDIATE INTAKE CHECK-IN OPTION */}
+                {/* 4b. HOW THE CAR REACHES US */}
                 <div style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px' }}>
+                  <label style={{ fontSize: '0.75rem', fontWeight: 700, textTransform: 'uppercase', color: 'var(--accent)' }}>How is the car coming in? *</label>
+                  <select className="select" value={walkInFulfillment} onChange={e => setWalkInFulfillment(e.target.value as 'SELF_DROP_AT_HUB' | 'PICKUP_AND_RETURN')} style={{ width: '100%', marginTop: '3px' }}>
+                    <option value="SELF_DROP_AT_HUB">Customer drives it to the hub</option>
+                    <option value="PICKUP_AND_RETURN">Doorstep pickup & return (we collect it)</option>
+                  </select>
+                  {walkInFulfillment === 'PICKUP_AND_RETURN' && (
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '0.75rem', marginTop: '0.75rem' }}>
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Pickup address *</label>
+                        <input type="text" className="input" required value={walkInPickup.line1} onChange={e => setWalkInPickup({ ...walkInPickup, line1: e.target.value })} style={{ width: '100%', marginTop: '3px' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>City *</label>
+                        <input type="text" className="input" required value={walkInPickup.city} onChange={e => setWalkInPickup({ ...walkInPickup, city: e.target.value })} style={{ width: '100%', marginTop: '3px' }} />
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Pincode *</label>
+                        <input type="text" className="input" required inputMode="numeric" maxLength={6} value={walkInPickup.pincode} onChange={e => setWalkInPickup({ ...walkInPickup, pincode: e.target.value.replace(/\D/g, '') })} style={{ width: '100%', marginTop: '3px' }} />
+                      </div>
+                      <div style={{ gridColumn: '1 / -1' }}>
+                        <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Instructions for the driver</label>
+                        <input type="text" className="input" value={walkInPickup.instructions} onChange={e => setWalkInPickup({ ...walkInPickup, instructions: e.target.value })} style={{ width: '100%', marginTop: '3px' }} />
+                      </div>
+                      <small style={{ gridColumn: '1 / -1', color: 'var(--muted)' }}>The car is still with the customer, so it is booked as an appointment. Dispatch a driver from the job's Dispatch step.</small>
+                    </div>
+                  )}
+                </div>
+
+                {/* 5. IMMEDIATE INTAKE CHECK-IN OPTION */}
+                <div hidden={walkInFulfillment === 'PICKUP_AND_RETURN'} style={{ background: 'var(--surface-secondary)', padding: '1rem', borderRadius: '8px' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 700 }}>
                     <input
                       type="checkbox"

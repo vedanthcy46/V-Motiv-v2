@@ -1,4 +1,6 @@
 import { PrismaClient, Prisma, RentalVehicleStatus, RentalBlockReason, RentalBookingStatus, RentalDriverKycStatus, RentalExtensionStatus, RentalHoldStatus, RentalPaymentType, RentalPaymentStatus } from '@prisma/client';
+import { canonicalMakeModel } from './vehicle-names.js';
+import { gstOn, rentalGstPercent } from './rental-pricing.js';
 import { HttpError } from './errors.js';
 import { assertGatewayPaymentSignature } from './payment-signature.js';
 import { assertCapturedAmount } from './razorpay-gateway.js';
@@ -199,8 +201,8 @@ export class PrismaRentalStore {
       baseFarePaise += BigInt(remainderHours) * vehicle.baseHourlyRatePaise;
     }
 
-    // 18% GST on rental fare (CGST 9% + SGST 9%)
-    const taxPaise = (baseFarePaise * 18n) / 100n;
+    // GST on the rental fare (rate: rental-pricing.ts)
+    const taxPaise = gstOn(baseFarePaise);
     const securityDepositPaise = vehicle.securityDepositPaise;
     const totalPayablePaise = baseFarePaise + taxPaise + securityDepositPaise;
 
@@ -1479,7 +1481,7 @@ export class PrismaRentalStore {
       if (remHours > 0) {
         additionalFarePaise += BigInt(remHours) * booking.vehicle.baseHourlyRatePaise;
       }
-      const additionalTaxPaise = (additionalFarePaise * 18n) / 100n;
+      const additionalTaxPaise = gstOn(additionalFarePaise);
       const totalPayablePaise = additionalFarePaise + additionalTaxPaise;
 
       const extension = await tx.rentalExtension.create({
@@ -2486,25 +2488,39 @@ export class PrismaRentalStore {
     const regClean = input.registrationNumber.trim().toUpperCase();
     const oneYearLater = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
     const fleetNumber = input.fleetNumber?.trim() || `VMF-${Math.floor(100 + Math.random() * 899)}`;
-    const commercialPermitNumber = input.commercialPermitNumber?.trim() || `COMM-${regClean}`;
-    const commercialPermitExpiry = input.commercialPermitExpiry ? new Date(input.commercialPermitExpiry) : oneYearLater;
-    const insurancePolicyNumber = input.insurancePolicyNumber?.trim() || `POL-${regClean}`;
-    const insuranceExpiry = input.insuranceExpiry ? new Date(input.insuranceExpiry) : oneYearLater;
-    const fitnessCertExpiry = input.fitnessCertExpiry ? new Date(input.fitnessCertExpiry) : oneYearLater;
+    // Compliance documents are facts about the car, never defaults: a made-up permit/policy number or a "valid for a year"
+    // expiry would let an uninsured or unpermitted car be rented out.
+    const commercialPermitNumber = input.commercialPermitNumber?.trim();
+    const insurancePolicyNumber = input.insurancePolicyNumber?.trim();
+    const commercialPermitExpiry = input.commercialPermitExpiry ? new Date(input.commercialPermitExpiry) : null;
+    const insuranceExpiry = input.insuranceExpiry ? new Date(input.insuranceExpiry) : null;
+    const fitnessCertExpiry = input.fitnessCertExpiry ? new Date(input.fitnessCertExpiry) : null;
+    if (!input.vin?.trim() || !commercialPermitNumber || !insurancePolicyNumber || !commercialPermitExpiry || !insuranceExpiry || !fitnessCertExpiry
+      || [commercialPermitExpiry, insuranceExpiry, fitnessCertExpiry].some(date => Number.isNaN(date.getTime()))) {
+      throw new HttpError(400, 'COMPLIANCE_DETAILS_REQUIRED', 'VIN, commercial permit, insurance policy and fitness certificate details (numbers and expiry dates) are required.');
+    }
     const baseDailyRatePaise = BigInt(input.baseDailyRatePaise);
     const baseHourlyRatePaise = input.baseHourlyRatePaise ? BigInt(input.baseHourlyRatePaise) : BigInt(Math.max(100, Math.round(Number(baseDailyRatePaise) / 10)));
     const securityDepositPaise = input.securityDepositPaise !== undefined ? BigInt(input.securityDepositPaise) : 500000n;
-    const includedKmPerDay = input.includedKmPerDay || input.includedDailyKm || 250;
-    const images = (input.images && input.images.length > 0) ? input.images : ['https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'];
     const resolvedHubId = await this.resolveHubId(input.hubId);
+    // No hidden 250 km / ₹12 defaults: the vehicle's allowance comes from what staff entered or from the hub's policy, else it is refused.
+    const onboardingHub = await this.db.serviceHub.findUnique({ where: { id: resolvedHubId }, select: { rentalIncludedKmPerDay: true, rentalExtraKmRatePaise: true } }).catch(() => null);
+    const includedKmPerDay = input.includedKmPerDay || input.includedDailyKm || onboardingHub?.rentalIncludedKmPerDay || 0;
+    const extraKmRate = input.extraKmRatePaise !== undefined && input.extraKmRatePaise !== '' ? BigInt(input.extraKmRatePaise) : onboardingHub?.rentalExtraKmRatePaise ?? null;
+    if (!includedKmPerDay || extraKmRate === null) {
+      throw new HttpError(400, 'KM_POLICY_REQUIRED', 'Enter the included km per day and the extra-km rate, or set them for this hub in the Admin portal first.');
+    }
+    // An empty list is honest; a stock photo of some other car is not.
+    const images = input.images && input.images.length > 0 ? input.images : [];
+    const names = await canonicalMakeModel(this.db as any, input.make, input.model);
 
     return await this.db.rentalFleetVehicle.create({
       data: {
         fleetNumber,
         registrationNumber: regClean,
         vin: input.vin.trim().toUpperCase(),
-        make: input.make.trim(),
-        model: input.model.trim(),
+        make: names.make,
+        model: names.model,
         variant: input.variant?.trim() || null,
         year: input.year,
         transmission: input.transmission as any,
@@ -2522,7 +2538,7 @@ export class PrismaRentalStore {
         baseHourlyRatePaise,
         securityDepositPaise,
         includedKmPerDay,
-        extraKmRatePaise: BigInt(input.extraKmRatePaise || 1200),
+        extraKmRatePaise: extraKmRate,
         features: (input.features || []) as any,
         status: RentalVehicleStatus.AVAILABLE,
       },
@@ -2757,6 +2773,29 @@ export class PrismaRentalStore {
    * Books a vehicle on the spot at an offline hub for an on-road rental.
    * Enforces mandatory driving license document upload, counter payment, and immediate handover option.
    */
+  /** Price preview for the counter: exactly what createWalkInBooking will charge, including the km package. */
+  async quoteWalkIn(vehicleId: string, startTime: Date, endTime: Date) {
+    if (endTime.getTime() <= startTime.getTime()) throw new HttpError(400, 'END_TIME_MUST_BE_AFTER_START_TIME');
+    const vehicle = await this.db.rentalFleetVehicle.findUnique({ where: { id: vehicleId }, include: { hub: true } });
+    if (!vehicle) throw new HttpError(404, 'VEHICLE_NOT_FOUND');
+    const quote = this.calculateQuote({ ...vehicle, hub: vehicle.hub }, startTime, endTime);
+    const km = resolveKmPolicy(vehicle, vehicle.hub);
+    return {
+      vehicleId,
+      days: Math.max(1, quote.billableDays + (quote.remainderHours > 0 ? 1 : 0)),
+      totalHours: quote.totalHours,
+      gstPercent: rentalGstPercent(),
+      baseFarePaise: quote.baseFarePaise.toString(),
+      taxPaise: quote.taxPaise.toString(),
+      securityDepositPaise: quote.securityDepositPaise.toString(),
+      totalPayablePaise: quote.totalPayablePaise.toString(),
+      includedKm: quote.includedKm,
+      includedKmPerDay: km.includedKmPerDay,
+      extraKmRatePaise: quote.extraKmRatePaise.toString(),
+      kmPolicySource: km.source,
+    };
+  }
+
   async createWalkInBooking(
     employeeId: string,
     input: {
@@ -2802,6 +2841,19 @@ export class PrismaRentalStore {
       throw new HttpError(409, `VEHICLE_NOT_AVAILABLE_FOR_RENTAL (${walkInAvailability.label})`, walkInAvailability.label);
     }
 
+    if (Number.isNaN(input.licenseExpiry.getTime()) || input.licenseExpiry.getTime() < input.endTime.getTime()) {
+      throw new HttpError(400, 'LICENSE_EXPIRES_BEFORE_RETURN', 'The driving licence must be valid until the return date.');
+    }
+
+    // Odometer and fuel at hand-over must agree with the vehicle's own record. The reading can only go up, and the fuel
+    // level defaults to what the vehicle last recorded (not an invented 100%).
+    const recordedOdometer = vehicle.odometerKm ?? 0;
+    if (input.immediateHandover && typeof input.startOdometerKm === 'number' && input.startOdometerKm < recordedOdometer) {
+      throw new HttpError(400, 'ODOMETER_BELOW_RECORDED', `Odometer cannot be lower than the vehicle's recorded ${recordedOdometer.toLocaleString('en-IN')} km.`);
+    }
+    const handoverOdometerKm = Math.max(input.startOdometerKm ?? recordedOdometer, recordedOdometer);
+    const handoverFuelPercent = typeof input.fuelPercent === 'number' ? input.fuelPercent : vehicle.fuelLevelPercent ?? 100;
+
     // Find or create customer
     const emailToUse = input.customerEmail?.trim()
       ? input.customerEmail.toLowerCase().trim()
@@ -2827,17 +2879,10 @@ export class PrismaRentalStore {
       });
     }
 
-    // Calculate quote
-    const durationMs = input.endTime.getTime() - input.startTime.getTime();
-    const days = Math.max(1, Math.ceil(durationMs / (24 * 3600 * 1000)));
-    const baseDailyRatePaise = BigInt(vehicle.baseDailyRatePaise);
-    const baseFarePaise = baseDailyRatePaise * BigInt(days);
-    const taxPaise = (baseFarePaise * 18n) / 100n;
-    const securityDepositPaise = BigInt(vehicle.securityDepositPaise);
-    const totalPayablePaise = baseFarePaise + taxPaise + securityDepositPaise;
-    const walkInKm = resolveKmPolicy(vehicle, vehicle.hub);
-    const includedKm = walkInKm.includedKmPerDay * days;
-    const extraKmRatePaise = walkInKm.extraKmRatePaise;
+    // Same pricing as the customer quote (hourly remainder, GST rate, hub km policy) so the counter and the app never disagree.
+    const quote = this.calculateQuote({ ...vehicle, hub: vehicle.hub }, input.startTime, input.endTime);
+    const days = Math.max(1, quote.billableDays + (quote.remainderHours > 0 ? 1 : 0));
+    const { baseFarePaise, taxPaise, securityDepositPaise, totalPayablePaise, includedKm, extraKmRatePaise } = quote;
 
     return await this.db.$transaction(async tx => {
       const count = await tx.rentalBooking.count();
@@ -2927,16 +2972,16 @@ export class PrismaRentalStore {
           create: {
             bookingId: booking.id,
             pickupTime: new Date(),
-            pickupOdometerKm: input.startOdometerKm ?? vehicle.odometerKm,
-            pickupFuelPercent: input.fuelPercent ?? 100,
+            pickupOdometerKm: handoverOdometerKm,
+            pickupFuelPercent: handoverFuelPercent,
             pickupStaffId: employeeId,
             pickupCustomerSigned: true,
             pickupNotes: input.notes || 'Verified on-road rental at hub counter - keys handed over.',
           },
           update: {
             pickupTime: new Date(),
-            pickupOdometerKm: input.startOdometerKm ?? vehicle.odometerKm,
-            pickupFuelPercent: input.fuelPercent ?? 100,
+            pickupOdometerKm: handoverOdometerKm,
+            pickupFuelPercent: handoverFuelPercent,
             pickupStaffId: employeeId,
             pickupCustomerSigned: true,
             pickupNotes: input.notes || 'Verified on-road rental at hub counter - keys handed over.',
@@ -2947,8 +2992,8 @@ export class PrismaRentalStore {
           where: { id: vehicle.id },
           data: {
             status: RentalVehicleStatus.ON_TRIP,
-            odometerKm: input.startOdometerKm ?? vehicle.odometerKm,
-            fuelLevelPercent: input.fuelPercent ?? 100,
+            odometerKm: handoverOdometerKm,
+            fuelLevelPercent: handoverFuelPercent,
           },
         });
       }
@@ -2997,7 +3042,7 @@ export class PrismaRentalStore {
               templateVersion: 'rental-trip-started-v1',
               eventKey: `rental-walkin-trip/${booking.id}`,
               subject: `Rental Trip Started [${bookingNumber}] · ${vehicleTitle}`,
-              text: `Your rental keys have been handed over and trip is now active!\n\nBooking: ${bookingNumber}\nVehicle: ${vehicleTitle}\nStart Odometer: ${(input.startOdometerKm ?? vehicle.odometerKm).toLocaleString('en-IN')} km\nStart Fuel: ${input.fuelPercent ?? 100}%\nReturn Scheduled: ${endStr}\n\nEmergency Roadside Helpline: 1800-866-848.\n\nSafe travels with V MOTIV!`,
+              text: `Your rental keys have been handed over and trip is now active!\n\nBooking: ${bookingNumber}\nVehicle: ${vehicleTitle}\nStart Odometer: ${handoverOdometerKm.toLocaleString('en-IN')} km\nStart Fuel: ${handoverFuelPercent}%\nReturn Scheduled: ${endStr}\n\nEmergency Roadside Helpline: 1800-866-848.\n\nSafe travels with V MOTIV!`,
             },
           });
         }
