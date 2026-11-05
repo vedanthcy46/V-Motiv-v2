@@ -445,6 +445,23 @@ async function pulseTokens(user: User, domains: string[], fresh = false): Promis
   return ((await response.json()) as { tokens: Record<string, string> }).tokens;
 }
 
+const inboxClients = new WeakMap<User, ApiClient>();
+function inbox<T>(user: User, path: string, init: RequestInit = {}): Promise<T> {
+  let client = inboxClients.get(user);
+  if (!client) {
+    client = createApiClient({ base, getToken: force => user.getIdToken(force) });
+    inboxClients.set(user, client);
+  }
+  return client.request<T>(path, init as never);
+}
+
+/** The shared in-app inbox (the same one every other portal and the mobile app read), outside the /finance prefix. */
+export const financeNotifications = (user: User) => ({
+  list: () => inbox<{ items: any[]; unreadCount: number }>(user, '/notifications?limit=20'),
+  markRead: (id: string) => inbox<unknown>(user, `/notifications/${id}/read`, { method: 'PATCH' }),
+  markAllRead: () => inbox<unknown>(user, '/notifications/read-all', { method: 'POST' }),
+});
+
 export const financeApi = {
   pulse: pulseTokens,
   me: (u: User) => call<FinanceActor>(u, '/me'),

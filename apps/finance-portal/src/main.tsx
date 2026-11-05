@@ -1,6 +1,6 @@
 import {
-  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader,
-  initTheme, modalIsOpen, mountLiveChangeBar, toast, useAutoRefresh, useChangeWatcher, type NavSection,
+  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader, StaffNotificationBell,
+  tabFromDeepLink, initTheme, modalIsOpen, mountLiveChangeBar, toast, useAutoRefresh, useChangeWatcher, type NavSection,
 } from '@vmotiv/ui';
 import { Component, useEffect, useRef, useState, type FC, type FormEvent, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -24,6 +24,7 @@ import {
 import { auth, firebaseConfigured } from './firebase';
 import {
   financeApi,
+  financeNotifications,
   ApiError,
   type FinanceActor,
   type DashboardMetrics,
@@ -575,6 +576,17 @@ function App() {
         title={tabTitles[tab]}
         toolbar={
           <>
+            {user ? (
+              <StaffNotificationBell
+                title="Finance notifications"
+                source={financeNotifications(user)}
+                onOpenItem={item => {
+                  const next = tabFromDeepLink(item.deepLink);
+                  if (next && next in tabTitles) setTab(next as TabKey);
+                  else if (item.deepLink?.includes('payoutId=')) setTab('seller-settlements');
+                }}
+              />
+            ) : null}
             <span className="badge badge-soft badge-warning hidden font-semibold sm:inline-flex">{(actor.roles[0] || 'FINANCE').replace(/_/g, ' ')}</span>
             <Button variant="ghost" size="sm" aria-label="Refresh data" title="Refresh data" loading={refreshing} onClick={() => void refreshAll()} icon={<IconRefresh />} />
           </>

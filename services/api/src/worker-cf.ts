@@ -189,7 +189,7 @@ function getOrCreateApp(): Express {
   expressApp = createApp({
     verify: verifyToken,
     store: new PrismaIdentityStore(db),
-    customer: new PrismaCustomerStore(db),
+    customer: new PrismaCustomerStore(db, notificationService),
     webOrigin: config.WEB_ORIGIN,
     adminWebOrigin,
     employeePortalOrigins: [
@@ -198,7 +198,7 @@ function getOrCreateApp(): Express {
     ],
     adminPortalDestinations: employeePortalOrigins,
     admin: new PrismaAdminStore(db),
-    sales: new PrismaSalesStore(db),
+    sales: new PrismaSalesStore(db, undefined, notificationService),
     inspection: new PrismaInspectionStore(db, undefined, notificationService),
     finance: new PrismaFinanceStore(db, notificationService),
     service: new PrismaServiceStore(db, notificationService),

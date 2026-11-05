@@ -1,3 +1,5 @@
+import type { NotificationService } from './notification/index.js';
+import { notifyOfferAccepted } from './acquisition-events.js';
 import { bodyTypeFilterValues, inferBodyType, refreshMasterBodyTypes } from './body-types.js';
 import { computeInventoryFacets, makeSpellings, type FacetFilters, type FacetRow } from './inventory-facets.js';
 import { canonicalMakeModel, loadMakeAliasGroups } from './vehicle-names.js';
@@ -505,7 +507,7 @@ function leadJson(lead: LeadWithDetails, db?: PrismaClient) {
 }
 
 export class PrismaCustomerStore implements CustomerStore {
-  constructor(private readonly db: PrismaClient) {}
+  constructor(private readonly db: PrismaClient, private readonly notificationService?: NotificationService) {}
   private async user(uid: string) {
     const user = await this.db.user.findUnique({ where: { firebaseUid: uid }, select: { id: true, email: true, status: true } });
     if (!user) throw new HttpError(404, 'PROFILE_NOT_REGISTERED');
@@ -863,10 +865,11 @@ export class PrismaCustomerStore implements CustomerStore {
           text: `You accepted the offer for your ${offer.lead.make} ${offer.lead.model}. Reference: ${offer.lead.referenceCode}. Our operations team will contact you to schedule document collection and handover.`,
         },
       });
-      return savedOffer;
+      return { savedOffer, caseId: acquisitionCase.id };
     });
 
-    return offerJson(updated);
+    await notifyOfferAccepted(this.notificationService, this.db as any, offer.lead, 'CUSTOMER_SELF_SERVICE', updated.caseId).catch(() => undefined);
+    return offerJson(updated.savedOffer);
   }
   async declineOffer(uid: string, offerId: string, input: { version: number; reason?: string }) {
     const user = await this.user(uid);

@@ -17,7 +17,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { auth, firebaseConfigured } from './firebase';
-import { api, ApiError } from './api';
+import { api, ApiError, operationsNotifications } from './api';
 import type {
   AcquisitionCase,
   Branch,
@@ -55,7 +55,7 @@ import {
 const ServiceOperationsPanel = lazy(() => import('./components/ServiceOperationsPanel').then(m => ({ default: m.ServiceOperationsPanel })));
 const RentalOperationsPanel = lazy(() => import('./components/RentalOperationsPanel').then(m => ({ default: m.RentalOperationsPanel })));
 import {
-  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader, SkeletonRows, toast,
+  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader, SkeletonRows, StaffNotificationBell, tabFromDeepLink, toast,
   initTheme, modalIsOpen, mountLiveChangeBar, registerViewHandler, useAutoRefresh, useChangeWatcher, type NavSection,
 } from '@vmotiv/ui';
 import './styles.css';
@@ -87,6 +87,55 @@ const DEFAULT_BODY_TYPES = [
   { code: 'CONVERTIBLE', name: 'Convertible' },
 ];
 const bodyTypeLabel = (code: string, options: Array<{ code: string; name: string }>) => options.find(option => option.code === code.toUpperCase())?.name ?? code;
+
+const MARKETPLACE_URL = 'https://www.vmotiv.in/buy';
+
+/** Mirrors the server's listing rules (services/api/src/listing-readiness.ts) so the studio shows what is missing before anyone presses save. */
+const MIN_LISTING_PHOTOS = 3;
+function computeListingGaps(f: { title: string; photoCount: number; color: string; registrationNumber: string; conditionSummary: string; branchId: string; price: string }): string[] {
+  const gaps: string[] = [];
+  if (f.title.trim().length < 3) gaps.push('A listing title');
+  if (f.price !== 'n/a' && !(Number(f.price) > 0)) gaps.push('A retail price');
+  if (f.photoCount < MIN_LISTING_PHOTOS) gaps.push(`At least ${MIN_LISTING_PHOTOS} photos (has ${f.photoCount})`);
+  if (!f.color.trim()) gaps.push('The exterior colour');
+  if (!f.registrationNumber.trim()) gaps.push('The registration number');
+  if (!f.conditionSummary.trim()) gaps.push('A condition summary for customers');
+  if (!f.branchId) gaps.push('The branch where the car is kept');
+  return gaps;
+}
+
+function isVersionConflict(err: unknown): boolean {
+  return err instanceof ApiError && err.status === 409 && /version.?conflict|stale|changed by someone/i.test(err.code);
+}
+
+/** Plain-language error for a failed action. A version conflict means a colleague changed the record first, so say so. */
+function describeError(err: unknown, fallback: string): string {
+  if (err instanceof ApiError) {
+    if (isVersionConflict(err)) return 'Someone else updated this record while you were editing. The latest data has been loaded; please check it and try again.';
+    return err.message && err.message !== err.code ? err.message : `${fallback} (${err.code})`;
+  }
+  return err instanceof Error ? err.message : fallback;
+}
+
+type DataGroup = 'dashboard' | 'requests' | 'inspectors' | 'cases' | 'inventory' | 'testDrives' | 'branches';
+const ALL_GROUPS: DataGroup[] = ['dashboard', 'requests', 'inspectors', 'cases', 'inventory', 'testDrives', 'branches'];
+/** What each screen actually shows, so a background refresh fetches only that instead of all seven lists. */
+const TAB_GROUPS: Record<TabKey, DataGroup[]> = {
+  overview: ['dashboard', 'requests', 'cases', 'inventory'],
+  dispatch: ['requests', 'inspectors'],
+  acquisitions: ['cases'],
+  documentation: ['cases'],
+  handover: ['cases', 'inventory'],
+  inventory: ['inventory'],
+  refurbishment: ['inventory'],
+  qc: ['inventory'],
+  studio: ['inventory', 'branches'],
+  publication: ['inventory', 'branches'],
+  deliveries: ['inventory', 'testDrives'],
+  service: ['dashboard'],
+  rentals: ['dashboard'],
+  team: ['inspectors'],
+};
 
 function needsQualityControl(stock: VehicleStockUnit) {
   const hasCompletedWorkOrder = stock.workOrders?.some(workOrder => workOrder.status === 'COMPLETED') ?? false;
@@ -260,12 +309,19 @@ function SignIn() {
 export const App: FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const activeTabRef = useRef<TabKey>('overview');
+  activeTabRef.current = activeTab;
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadWarning, setLoadWarning] = useState<string | null>(null);
   // Confirmations appear as toasts (a dialog may be open, or the page may have scrolled).
   const setSuccessMsg = (message: string | null) => { if (message) toast.success(message); };
   const reportError = (message: string | null) => { if (message) toast.error('Could not complete this action', { description: message }); };
+  // Failed save: explain it, and when a colleague got there first, reload so the screen shows what they changed.
+  const failAction = (err: unknown, fallback: string) => {
+    reportError(describeError(err, fallback));
+    if (isVersionConflict(err)) void loadAllData(user, true).catch(() => undefined);
+  };
 
   // Data states
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
@@ -362,6 +418,8 @@ export const App: FC = () => {
   const [stagedStudioFiles, setStagedStudioFiles] = useState<Array<{ id: string; file: File; previewUrl: string; name: string }>>([]);
   const [studioUploading, setStudioUploading] = useState(false);
   const [studioBranchId, setStudioBranchId] = useState('');
+  const [studioRegistration, setStudioRegistration] = useState('');
+  const [studioPrice, setStudioPrice] = useState('');
 
   const [publishModal, setPublishModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
   const [publishRetailPrice, setPublishRetailPrice] = useState<string>('');
@@ -381,6 +439,8 @@ export const App: FC = () => {
     setStudioSummary(stockItem.vehicle?.conditionSummary || '');
     setStudioBranchId(stockItem.branchId || stockItem.branch?.id || (branches[0]?.id ?? ''));
     setStudioPhotos((stockItem.vehicle?.listing?.media || []).map(m => m.url).join('\n'));
+    setStudioRegistration(stockItem.registrationNumber || '');
+    setStudioPrice(stockItem.vehicle?.listing?.pricePaise ? String(Number(BigInt(stockItem.vehicle.listing.pricePaise) / 100n)) : '');
     setStudioModal({ open: true, stockItem });
   };
 
@@ -432,22 +492,19 @@ export const App: FC = () => {
           return fallback;
         }
       };
-      const [m, r, ins, c, inv, td, br] = await Promise.all([
-        load('dashboard', api.dashboard(u), null),
-        load('inspection dispatch', api.inspectionRequests(u), []),
-        load('inspector availability', api.inspectors(u), []),
-        load('acquisitions', api.acquisitions(u), []),
-        load('inventory', api.inventory(u), []),
-        load('test drives', api.testDrives(u), { items: [] }),
-        load('branches', api.branches(u), []),
+      // A first or manual load fetches everything; a background refresh only what the open tab shows.
+      const groups = new Set<DataGroup>(silent ? TAB_GROUPS[activeTabRef.current] : ALL_GROUPS);
+      const want = <T,>(group: DataGroup, label: string, request: () => Promise<T>, apply: (value: T) => void, fallback: T) =>
+        groups.has(group) ? load(label, request(), fallback).then(apply) : Promise.resolve();
+      await Promise.all([
+        want('dashboard', 'dashboard', () => api.dashboard(u), setMetrics, null),
+        want('requests', 'inspection dispatch', () => api.inspectionRequests(u), setRequests, []),
+        want('inspectors', 'inspector availability', () => api.inspectors(u), setInspectors, []),
+        want('cases', 'acquisitions', () => api.acquisitions(u), setCases, []),
+        want('inventory', 'inventory', () => api.inventory(u), setInventory, []),
+        want('testDrives', 'test drives', () => api.testDrives(u), td => setTestDrives(Array.isArray(td) ? td : td?.items || []), { items: [] }),
+        want('branches', 'branches', () => api.branches(u), br => setBranches(br || []), []),
       ]);
-      setMetrics(m);
-      setRequests(r);
-      setInspectors(ins);
-      setCases(c);
-      setInventory(inv);
-      setTestDrives(Array.isArray(td) ? td : td?.items || []);
-      setBranches(br || []);
       if (unavailable.length) setLoadWarning(`Some live data could not be loaded: ${unavailable.join(', ')}. Retry after checking the API connection.`);
     } catch (err) {
       if (silent) throw err;
@@ -463,7 +520,13 @@ export const App: FC = () => {
   useChangeWatcher(['dispatch', 'rentals', 'service'], (domains, fresh) => api.pulse(user as User, domains, fresh), { enabled: Boolean(user) });
   useEffect(() => registerViewHandler(domain => { if (domain === 'dispatch' || domain === 'rentals' || domain === 'service') setActiveTab(domain); }), []);
 
-  // Removed auto-refresh interval per user request - user manually refreshes via refresh button
+  // Opening a tab brings its data up to date (background refreshes only fetch the tab that is open).
+  const lastRefreshedTab = useRef<TabKey>('overview');
+  useEffect(() => {
+    if (!user || lastRefreshedTab.current === activeTab) return;
+    lastRefreshedTab.current = activeTab;
+    void loadAllData(user, true).catch(() => undefined);
+  }, [activeTab, user]);
 
   // --- Handlers ---
   const handleAssignSubmit = async (e: FormEvent) => {
@@ -501,7 +564,30 @@ export const App: FC = () => {
       setAssignModal({ open: false });
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      reportError(err instanceof ApiError ? `Error: ${err.code}` : 'Assignment failed');
+      failAction(err, 'Assignment failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // One click, no dialog: mark documents VERIFIED straight from REQUESTED / RECEIVED / UNDER_REVIEW.
+  const verifyDocumentsNow = async (caseId: string, types: string[]) => {
+    if (!user || types.length === 0) return;
+    setLoading(true);
+    try {
+      const failed: string[] = [];
+      // In turn, not together: each update re-works the case's overall document status.
+      for (const documentType of types) {
+        try {
+          await api.updateDocument(user, caseId, { documentType, status: 'VERIFIED' });
+        } catch (err) {
+          failed.push(documentType.replace(/_/g, ' ') + (err instanceof ApiError ? ` (${err.code})` : ''));
+        }
+      }
+      if (failed.length) reportError(`Verified ${types.length - failed.length} of ${types.length}. Not verified: ${failed.join(', ')}`);
+      else setSuccessMsg(types.length === 1 ? 'Document verified' : `${types.length} documents verified`);
+      setDocSelection(prev => ({ ...prev, [caseId]: failed.length ? prev[caseId] ?? [] : [] }));
+      void loadAllData(user, true).catch(() => undefined);
     } finally {
       setLoading(false);
     }
@@ -532,7 +618,7 @@ export const App: FC = () => {
       setDocModal({ open: false });
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      reportError(err instanceof ApiError ? `Document Error: ${err.code}` : 'Update failed');
+      failAction(err, 'Update failed');
     } finally {
       setLoading(false);
     }
@@ -562,7 +648,7 @@ export const App: FC = () => {
       void loadAllData(user, true).catch(() => undefined);
       setActiveTab('inventory');
     } catch (err) {
-      reportError(err instanceof ApiError ? `Handover Error: ${err.code}` : 'Handover failed');
+      failAction(err, 'Handover failed');
     } finally {
       setLoading(false);
     }
@@ -580,7 +666,7 @@ export const App: FC = () => {
       setSuccessMsg(`Acquisition case ${caseItem.caseReference} completed! Ready for Stock Inward.`);
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      reportError(err instanceof ApiError ? `Gate Error: ${err.code}` : 'Acquisition completion failed');
+      failAction(err, 'Acquisition completion failed');
     } finally {
       setLoading(false);
     }
@@ -602,7 +688,7 @@ export const App: FC = () => {
       void loadAllData(user, true).catch(() => undefined);
       setActiveTab('inventory');
     } catch (err) {
-      reportError(err instanceof ApiError ? `Stock Inward Error: ${err.code}` : 'Stock inward failed');
+      failAction(err, 'Stock inward failed');
     } finally {
       setLoading(false);
     }
@@ -625,7 +711,7 @@ export const App: FC = () => {
       setSpecsModal({ open: false, registrationNumber: '', variant: '', bodyType: '', color: '', odometerKm: 0 });
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      reportError(err instanceof ApiError ? `Specs Error: ${err.code}` : 'Failed to update vehicle specs');
+      failAction(err, 'Failed to update vehicle specs');
     } finally {
       setLoading(false);
     }
@@ -648,7 +734,7 @@ export const App: FC = () => {
       setWoAction('');
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      reportError(err instanceof ApiError ? `Work Order Error: ${err.code}` : 'Failed to create work order');
+      failAction(err, 'Failed to create work order');
     } finally {
       setLoading(false);
     }
@@ -667,7 +753,7 @@ export const App: FC = () => {
       setSuccessMsg('Cost submitted for independent approver decision');
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      reportError(err instanceof ApiError ? `Approval Error: ${err.code}` : 'Submission failed');
+      failAction(err, 'Submission failed');
     } finally {
       setLoading(false);
     }
@@ -689,7 +775,7 @@ export const App: FC = () => {
       if (err instanceof ApiError && err.code === 'COST_SELF_APPROVAL_DENIED') {
         reportError('Cost Decision Error: Self-approval is not permitted under the four-eyes segregation policy. A different employee with Pricing Approver, Admin, or Super Admin role must approve this estimate.');
       } else {
-        reportError(err instanceof ApiError ? `Cost Decision Error: ${err.code}` : 'Decision failed');
+        failAction(err, 'Decision failed');
       }
     } finally {
       setLoading(false);
@@ -705,7 +791,7 @@ export const App: FC = () => {
       setSuccessMsg('Work order started. Stock status moved to IN_REFURBISHMENT.');
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      reportError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to start work order');
+      failAction(err, 'Failed to start work order');
     } finally {
       setLoading(false);
     }
@@ -724,7 +810,7 @@ export const App: FC = () => {
       setSuccessMsg('Work order completed! Stock moved to QC_PENDING.');
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      reportError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to complete work order');
+      failAction(err, 'Failed to complete work order');
     } finally {
       setLoading(false);
     }
@@ -758,7 +844,7 @@ export const App: FC = () => {
       setEditCostModal({ open: false });
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      reportError(err instanceof ApiError ? `Resubmit Error: ${err.code}` : 'Failed to resubmit cost');
+      failAction(err, 'Failed to resubmit cost');
     } finally {
       setLoading(false);
     }
@@ -786,7 +872,7 @@ export const App: FC = () => {
       setQcFindings('');
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      reportError(err instanceof ApiError ? `QC Error: ${err.code}` : 'Quality control submission failed');
+      failAction(err, 'Quality control submission failed');
     } finally {
       setLoading(false);
     }
@@ -827,26 +913,44 @@ export const App: FC = () => {
 
       const allUrls = [...existingUrls, ...newlyUploadedUrls];
 
-      await api.prepareListing(user, studioModal.stockItem.id, {
-        title: studioTitle,
-        color: studioColor || undefined,
-        conditionSummary: studioSummary || undefined,
-        mediaUrls: allUrls.length ? allUrls : undefined,
-        branchId: studioBranchId || undefined,
-        expectedVersion: studioModal.stockItem.version,
-      });
+      const live = studioModal.stockItem.status === 'LISTED';
+      if (live) {
+        // A live car is edited in place: it stays published, and customers see the change straight away.
+        const rupees = Number(studioPrice);
+        await api.updateListing(user, studioModal.stockItem.id, {
+          title: studioTitle.trim() || undefined,
+          color: studioColor.trim() || undefined,
+          conditionSummary: studioSummary.trim() || undefined,
+          registrationNumber: studioRegistration.trim() || undefined,
+          retailPricePaise: Number.isFinite(rupees) && rupees > 0 ? String(BigInt(Math.round(rupees)) * 100n) : undefined,
+          mediaUrls: allUrls,
+        });
+      } else {
+        // Registration number is a stock-level detail; keep it in step before the listing is prepared.
+        if (studioRegistration.trim() && studioRegistration.trim() !== (studioModal.stockItem.registrationNumber ?? '')) {
+          await api.updateListing(user, studioModal.stockItem.id, { registrationNumber: studioRegistration.trim() }).catch(() => undefined);
+        }
+        await api.prepareListing(user, studioModal.stockItem.id, {
+          title: studioTitle,
+          color: studioColor || undefined,
+          conditionSummary: studioSummary || undefined,
+          mediaUrls: allUrls.length ? allUrls : undefined,
+          branchId: studioBranchId || undefined,
+          expectedVersion: studioModal.stockItem.version,
+        });
+      }
 
       // Cleanup object URLs and staged files
       stagedStudioFiles.forEach(s => URL.revokeObjectURL(s.previewUrl));
       setStagedStudioFiles([]);
       setStudioPhotos(allUrls.join('\n'));
 
-      setSuccessMsg('Listing studio data saved. Status moved to LISTING_READY.');
+      setSuccessMsg(live ? 'Live listing updated. Customers see the change now.' : 'Listing studio data saved. Status moved to LISTING_READY.');
       setStudioModal({ open: false });
       void loadAllData(user, true).catch(() => undefined);
-      setActiveTab('publication');
+      if (!live) setActiveTab('publication');
     } catch (err) {
-      reportError(err instanceof ApiError ? `Studio Error: ${err.code}` : (err instanceof Error ? err.message : 'Failed to save listing studio details'));
+      failAction(err, 'Failed to save listing studio details');
     } finally {
       setLoading(false);
       setStudioUploading(false);
@@ -911,7 +1015,7 @@ export const App: FC = () => {
       void loadAllData(user, true).catch(() => undefined);
       setActiveTab('inventory');
     } catch (err) {
-      reportError(err instanceof ApiError ? `Publish Error: ${err.code}` : 'Publication failed');
+      failAction(err, 'Publication failed');
     } finally {
       setLoading(false);
     }
@@ -933,7 +1037,7 @@ export const App: FC = () => {
       setDeliveryModal({ open: false });
       void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      reportError(err instanceof ApiError ? `Delivery Error: ${err.code}` : 'Delivery failed');
+      failAction(err, 'Delivery failed');
     } finally {
       setLoading(false);
     }
@@ -1069,6 +1173,14 @@ export const App: FC = () => {
       title={TAB_LABELS[activeTab] || 'Workspace'}
       toolbar={
         <>
+          <StaffNotificationBell
+            title="Operations notifications"
+            source={operationsNotifications(user)}
+            onOpenItem={item => {
+              const next = tabFromDeepLink(item.deepLink);
+              if (next && next in TAB_GROUPS) setActiveTab(next as TabKey);
+            }}
+          />
           <span className="hidden text-sm text-base-content/65 md:inline">{user.email}</span>
           <span className="badge badge-soft badge-success hidden font-medium sm:inline-flex">MFA verified</span>
         </>
@@ -1772,7 +1884,16 @@ export const App: FC = () => {
                             <strong style={{ fontSize: '0.85rem' }}>{selected.length} selected</strong>
                             <button
                               type="button"
-                              className="btn-gold"
+                              className="btn-primary"
+                              style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem' }}
+                              disabled={loading}
+                              onClick={() => void verifyDocumentsNow(c.id, selected)}
+                            >
+                              Verify {selected.length} selected
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-secondary"
                               style={{ padding: '0.3rem 0.8rem', fontSize: '0.75rem' }}
                               onClick={() => {
                                 setDocModal({ open: true, caseId: c.id, docTypes: selected });
@@ -1780,7 +1901,7 @@ export const App: FC = () => {
                                 setDocNotes('');
                               }}
                             >
-                              Update Status of Selected
+                              Other status…
                             </button>
                             <button type="button" className="btn-secondary" style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }} onClick={() => setDocSelection(prev => ({ ...prev, [c.id]: [] }))}>Clear</button>
                           </div>
@@ -1827,22 +1948,34 @@ export const App: FC = () => {
                                 <td>{formatDate(doc.reviewedAt)}</td>
                                 <td>{doc.notes || '—'}</td>
                                 <td>
-                                  <button
-                                    className="btn-secondary"
-                                    style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
-                                    onClick={() => {
-                                      setDocModal({
-                                        open: true,
-                                        caseId: c.id,
-                                        docType: doc.documentType,
-                                        currentStatus: doc.status,
-                                      });
-                                      setDocStatus(doc.status === 'REQUESTED' ? 'RECEIVED' : doc.status === 'RECEIVED' ? 'UNDER_REVIEW' : 'VERIFIED');
-                                      setDocNotes(doc.notes || '');
-                                    }}
-                                  >
-                                    Update Status
-                                  </button>
+                                  <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+                                    {['REQUESTED', 'RECEIVED', 'UNDER_REVIEW'].includes(doc.status) ? (
+                                      <button
+                                        className="btn-primary"
+                                        style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
+                                        disabled={loading}
+                                        onClick={() => void verifyDocumentsNow(c.id, [doc.documentType])}
+                                      >
+                                        Verify
+                                      </button>
+                                    ) : null}
+                                    <button
+                                      className="btn-secondary"
+                                      style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
+                                      onClick={() => {
+                                        setDocModal({
+                                          open: true,
+                                          caseId: c.id,
+                                          docType: doc.documentType,
+                                          currentStatus: doc.status,
+                                        });
+                                        setDocStatus(doc.status === 'VERIFIED' ? 'REJECTED' : 'VERIFIED');
+                                        setDocNotes(doc.notes || '');
+                                      }}
+                                    >
+                                      {['REQUESTED', 'RECEIVED', 'UNDER_REVIEW'].includes(doc.status) ? 'Reject / waive…' : 'Change status'}
+                                    </button>
+                                  </div>
                                 </td>
                               </tr>
                             ))}
@@ -2105,13 +2238,13 @@ export const App: FC = () => {
                               </button>
                             ) : null}
 
-                            {['LISTING_PREPARATION', 'QC_PENDING', 'LISTING_READY'].includes(s.status) ? (
+                            {['LISTING_PREPARATION', 'QC_PENDING', 'LISTING_READY', 'LISTED'].includes(s.status) ? (
                               <button
                                 className="btn-secondary"
                                 style={{ padding: '0.3rem 0.6rem', fontSize: '0.75rem' }}
                                 onClick={() => openStudioModal(s)}
                               >
-                                Studio Specs
+                                {s.status === 'LISTED' ? 'Edit listing' : 'Studio Specs'}
                               </button>
                             ) : null}
 
@@ -2514,6 +2647,11 @@ export const App: FC = () => {
                         <div>
                           <strong>Studio Media:</strong> {mediaList.length ? `${mediaList.length} curated images ready` : 'No photos attached yet'}
                         </div>
+                        {s.listingGaps?.length ? (
+                          <div className="studio-checklist is-incomplete" style={{ marginTop: '0.5rem', marginBottom: 0 }}>
+                            <strong>Still needed</strong>: {s.listingGaps.map(g => g.label).join(', ')}
+                          </div>
+                        ) : null}
                       </div>
 
                       <div className="card-footer" style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
@@ -2524,11 +2662,11 @@ export const App: FC = () => {
                               style={{ fontSize: '0.8rem', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
                               onClick={() => openStudioModal(s)}
                             >
-                              🔒 View Specs (Read-Only)
+                              Edit live listing
                             </button>
                             {s.vehicle?.listing?.id ? (
                               <a
-                                href={`https://www.vmotiv.in/buy/${s.vehicle.listing.id}`}
+                                href={`${MARKETPLACE_URL}/${s.vehicle.listing.id}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="btn-outline"
@@ -2618,7 +2756,7 @@ export const App: FC = () => {
                             <span style={{ color: 'var(--success)', fontSize: '0.85rem', fontWeight: 600 }}>✓ Live Marketplace Listing</span>
                             {s.vehicle?.listing?.id ? (
                               <a
-                                href={`https://www.vmotiv.in/buy/${s.vehicle.listing.id}`}
+                                href={`${MARKETPLACE_URL}/${s.vehicle.listing.id}`}
                                 target="_blank"
                                 rel="noreferrer"
                                 className="btn-outline"
@@ -3485,24 +3623,35 @@ export const App: FC = () => {
       {/* ======================================================== */}
       {studioModal.open && studioModal.stockItem ? (() => {
         const isStudioListed = studioModal.stockItem.status === 'LISTED';
+        const savedPhotoCount = studioPhotos.split('\n').filter(u => u.trim().length > 5).length;
+        const studioGaps = computeListingGaps({
+          title: studioTitle,
+          photoCount: savedPhotoCount + stagedStudioFiles.length,
+          color: studioColor,
+          registrationNumber: studioRegistration,
+          conditionSummary: studioSummary,
+          branchId: studioBranchId,
+          price: isStudioListed ? studioPrice : 'n/a',
+        });
         return (
         <div className="modal-overlay">
           <div className="modal-dialog modal-dialog-lg">
             <div className="modal-header">
-              <h3>Listing Studio Specifications {isStudioListed ? '🔒 (Locked)' : ''}</h3>
+              <h3>{isStudioListed ? 'Edit Live Listing' : 'Listing Studio Specifications'}</h3>
               <button className="btn-close" onClick={closeStudioModal}>✕</button>
             </div>
             <form onSubmit={handleStudioSubmit}>
               <div className="modal-body">
                 {isStudioListed ? (
-                  <div style={{ padding: '0.75rem 1rem', background: 'color-mix(in oklab, var(--color-error) 12%, transparent)', border: '1px solid color-mix(in oklab, var(--color-error) 30%, transparent)', borderRadius: '6px', color: 'var(--color-error)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.85rem' }}>
-                    <span style={{ fontSize: '1.2rem' }}>🔒</span>
-                    <div>
-                      <strong>Published Marketplace Listing (Read-Only)</strong>
-                      <div>This vehicle is live on the retail marketplace. Once a vehicle is listed, its specifications, showroom location, and curated photos cannot be altered.</div>
-                    </div>
+                  <div className="studio-live-note">
+                    <strong>This car is live on the marketplace.</strong>
+                    <div>Changes you save here appear to customers straight away. A live listing must always stay complete, so a save is refused if it would leave anything below missing.</div>
                   </div>
                 ) : null}
+                <div className={`studio-checklist ${studioGaps.length ? 'is-incomplete' : 'is-complete'}`} role="status">
+                  <strong>{studioGaps.length ? `Still needed before this can be published (${studioGaps.length})` : 'Everything customers need is filled in'}</strong>
+                  {studioGaps.length ? <ul>{studioGaps.map(g => <li key={g}>{g}</li>)}</ul> : null}
+                </div>
 
                 <div className="form-group">
                   <label>Showroom Hub / Branch *</label>
@@ -3510,7 +3659,6 @@ export const App: FC = () => {
                     className="form-select"
                     value={studioBranchId}
                     onChange={e => setStudioBranchId(e.target.value)}
-                    disabled={isStudioListed}
                     required
                   >
                     <option value="">Select Showroom Branch *</option>
@@ -3530,7 +3678,6 @@ export const App: FC = () => {
                     className="form-input"
                     value={studioTitle}
                     onChange={e => setStudioTitle(e.target.value)}
-                    disabled={isStudioListed}
                     required
                   />
                 </div>
@@ -3543,9 +3690,32 @@ export const App: FC = () => {
                     placeholder="e.g. Polar White, Phantom Black"
                     value={studioColor}
                     onChange={e => setStudioColor(e.target.value)}
-                    disabled={isStudioListed}
                   />
                 </div>
+
+                <div className="form-group">
+                  <label>Registration number</label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="e.g. KA01AB1234"
+                    value={studioRegistration}
+                    onChange={e => setStudioRegistration(e.target.value.toUpperCase())}
+                  />
+                </div>
+
+                {isStudioListed ? (
+                  <div className="form-group">
+                    <label>Retail price (₹)</label>
+                    <input
+                      type="number"
+                      min={1}
+                      className="form-input"
+                      value={studioPrice}
+                      onChange={e => setStudioPrice(e.target.value)}
+                    />
+                  </div>
+                ) : null}
 
                 <div className="form-group">
                   <label>Condition & Highlight Summary</label>
@@ -3554,7 +3724,6 @@ export const App: FC = () => {
                     placeholder="Enter vehicle highlight summary for prospective buyers..."
                     value={studioSummary}
                     onChange={e => setStudioSummary(e.target.value)}
-                    disabled={isStudioListed}
                   />
                 </div>
 
@@ -3569,12 +3738,10 @@ export const App: FC = () => {
                       handleStudioPhotoSelect(e.target.files);
                       e.target.value = '';
                     }}
-                    disabled={isStudioListed || studioUploading || loading}
+                    disabled={studioUploading || loading}
                   />
                   <small style={{ color: 'var(--muted)' }}>
-                    {isStudioListed
-                      ? 'Photos are locked for published marketplace vehicles.'
-                      : studioUploading
+                    {studioUploading
                       ? 'Uploading staged photos securely to Cloudinary & saving listing…'
                       : 'Select photos to stage locally. Photos will ONLY be uploaded to Cloudinary when you click "Save Studio Specifications".'}
                   </small>
@@ -3616,7 +3783,7 @@ export const App: FC = () => {
                         {studioPhotos.split('\n').filter(Boolean).map((url, index) => (
                           <div key={url} style={{ position: 'relative' }}>
                             <img src={url} alt={`Listing photo ${index + 1}`} style={{ width: 92, height: 64, objectFit: 'cover', borderRadius: 6, border: '1px solid var(--border)' }} />
-                            {!isStudioListed ? (
+                            {(
                               <button
                                 type="button"
                                 aria-label={`Remove listing photo ${index + 1}`}
@@ -3625,8 +3792,8 @@ export const App: FC = () => {
                               >
                                 ×
                               </button>
-                            ) : null}
-                            {!isStudioListed && index > 0 ? (
+                            )}
+                            {index > 0 ? (
                               <button
                                 type="button"
                                 title="Make Primary / Hero Photo"
@@ -3653,29 +3820,30 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <button type="button" className="btn-secondary" onClick={closeStudioModal}>
-                  {isStudioListed ? 'Close' : 'Cancel'}
+                  Cancel
                 </button>
-                {isStudioListed ? (
-                  studioModal.stockItem.vehicle?.listing?.id ? (
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  {isStudioListed && studioModal.stockItem.vehicle?.listing?.id && MARKETPLACE_URL ? (
                     <a
-                      href={`https://www.vmotiv.in/buy/${studioModal.stockItem.vehicle.listing.id}`}
+                      href={`${MARKETPLACE_URL}/${studioModal.stockItem.vehicle.listing.id}`}
                       target="_blank"
                       rel="noreferrer"
-                      className="btn-primary"
-                      style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}
+                      className="btn-secondary"
+                      style={{ textDecoration: 'none' }}
                     >
-                      ↗ View on Marketplace
+                      ↗ View listing
                     </a>
-                  ) : null
-                ) : (
+                  ) : null}
                   <Button type="submit" loading={loading} disabled={studioUploading}>
                     {studioUploading
-                      ? 'Uploading to Cloudinary & Saving…'
+                      ? 'Uploading photos & saving…'
+                      : isStudioListed
+                      ? 'Save changes to live listing'
                       : stagedStudioFiles.length > 0
                       ? `Upload & Save (${stagedStudioFiles.length} Staged Photo${stagedStudioFiles.length === 1 ? '' : 's'})`
                       : 'Save Studio Specifications'}
                   </Button>
-                )}
+                </div>
               </div>
             </form>
           </div>
@@ -3739,15 +3907,19 @@ export const App: FC = () => {
                   </small>
                 </div>
 
-                <div style={{ padding: '0.75rem', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: '8px', fontSize: '0.8rem', color: 'var(--muted)' }}>
-                  <strong>Commercial Readiness Checklist:</strong>
-                  <ul style={{ paddingLeft: '1.25rem', marginTop: '0.35rem' }}>
-                    <li>Stock inward confirmed</li>
-                    <li>Refurbishment work orders signed off</li>
-                    <li>Independent QC review passed</li>
-                    <li>Photos & title prepared in Listing Studio</li>
-                  </ul>
-                </div>
+                {publishModal.stockItem.listingGaps?.length ? (
+                  <div className="studio-checklist is-incomplete" role="alert">
+                    <strong>Cannot publish yet. Still needed in Listing Studio:</strong>
+                    <ul>{publishModal.stockItem.listingGaps.map(g => <li key={g.key}>{g.label}</li>)}</ul>
+                    <button type="button" className="btn-secondary" style={{ marginTop: '0.5rem' }} onClick={() => { const item = publishModal.stockItem!; setPublishModal({ open: false }); openStudioModal(item); }}>
+                      Open Listing Studio
+                    </button>
+                  </div>
+                ) : (
+                  <div className="studio-checklist is-complete">
+                    <strong>Listing is complete.</strong> Title, photos, colour, registration, condition summary and branch are all filled in.
+                  </div>
+                )}
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setPublishModal({ open: false })}>Cancel</button>

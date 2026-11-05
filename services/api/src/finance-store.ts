@@ -219,7 +219,12 @@ export class PrismaFinanceStore {
       ...(id ? { id } : {}),
       ...(actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role))
         ? {}
-        : { lead: { inspectionRequests: { some: { branchId: { in: actor.branchIds } } } } }),
+        : { OR: [
+            { lead: { inspectionRequests: { some: { branchId: { in: actor.branchIds } } } } },
+            // Walk-in and manually entered leads have no inspection request; they belong to the branch that took them.
+            { lead: { assignments: { some: { branchId: { in: actor.branchIds } } } } },
+            { handover: { is: { branchId: { in: actor.branchIds } } } },
+          ] }),
     };
   }
 
@@ -508,6 +513,7 @@ export class PrismaFinanceStore {
         category: 'FINANCE',
         priority: 'HIGH',
         recipientRoles: ['FINANCE_APPROVER', 'FINANCE_MANAGER', 'SUPER_ADMIN'],
+        recipientPermissions: ['finance.payout.approve'],
         title: 'Payout approval requested',
         body: `Seller payout of ₹${Number(payout.amountPaise / 100n).toLocaleString('en-IN')} for ${payout.beneficiaryName} is ready for approval.`,
         actionUrl: `/finance?payoutId=${payout.id}`,
@@ -612,6 +618,28 @@ export class PrismaFinanceStore {
           details: { reason },
         },
       });
+
+      // Tell the person who prepared it what happened, and (when approved) whoever can pay it.
+      if (this.notificationService) {
+        const amount = `₹${Number(payout.amountPaise / 100n).toLocaleString('en-IN')}`;
+        await this.notificationService.dispatchDomainEvent(
+          {
+            type: 'FINANCE_PAYOUT_APPROVED',
+            category: 'FINANCE',
+            priority: 'HIGH',
+            recipientUserIds: [payout.requestedByEmployeeId],
+            ...(decision === 'APPROVE' ? { recipientPermissions: ['finance.payout.execute'] } : {}),
+            title: decision === 'APPROVE' ? 'Payout approved: ready to pay' : 'Payout put on hold',
+            body: decision === 'APPROVE'
+              ? `Seller payout of ${amount} for ${payout.beneficiaryName} is approved. Make the transfer and record the bank reference.`
+              : `Seller payout of ${amount} for ${payout.beneficiaryName} was put on hold: ${reason}`,
+            actionUrl: `/finance?payoutId=${id}`,
+            referenceId: id,
+            entityType: 'FinancePayoutInstruction',
+          },
+          tx
+        );
+      }
 
       return payoutView(updated);
     });

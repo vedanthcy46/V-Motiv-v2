@@ -428,3 +428,29 @@
   background: color-mix(in oklab, var(--color-primary) 90%, transparent);
 }
 
+
+/* Listing Studio: live-edit note and "what is still missing" checklist */
+.studio-live-note {
+  margin-bottom: 1rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid color-mix(in oklab, var(--color-info) 35%, transparent);
+  background: color-mix(in oklab, var(--color-info) 10%, transparent);
+  border-radius: var(--radius-box, 0.5rem);
+  font-size: 0.85rem;
+}
+.studio-checklist {
+  margin-bottom: 1.25rem;
+  padding: 0.7rem 1rem;
+  border-radius: var(--radius-box, 0.5rem);
+  font-size: 0.85rem;
+  border: 1px solid transparent;
+}
+.studio-checklist ul { margin: 0.4rem 0 0; padding-left: 1.1rem; list-style: disc; }
+.studio-checklist.is-incomplete {
+  border-color: color-mix(in oklab, var(--color-warning) 40%, transparent);
+  background: color-mix(in oklab, var(--color-warning) 12%, transparent);
+}
+.studio-checklist.is-complete {
+  border-color: color-mix(in oklab, var(--color-success) 40%, transparent);
+  background: color-mix(in oklab, var(--color-success) 12%, transparent);
+}

@@ -35,6 +35,14 @@ export type DomainEventType =
   | 'FINANCE_PAYOUT_APPROVAL_REQUESTED'
   | 'FINANCE_PAYOUT_VERIFIED'
   | 'FINANCE_BUYER_PAYMENT_VERIFIED'
+  | 'FINANCE_PAYOUT_APPROVED'
+  | 'FINANCE_READY_FOR_PAYMENT'
+  // Acquisition, stock and listing hand-offs between Operations and Finance
+  | 'ACQUISITION_OFFER_ACCEPTED_STAFF'
+  | 'VEHICLE_STOCK_INWARD'
+  | 'VEHICLE_QC_PASSED'
+  | 'VEHICLE_LISTING_READY'
+  | 'REFURBISHMENT_COST_APPROVAL_REQUESTED'
   // Service Lifecycle
   | 'SERVICE_REQUEST_SUBMITTED'
   | 'SERVICE_APPOINTMENT_SCHEDULED'
@@ -107,6 +115,8 @@ export interface DomainEventPayload {
   recipientUserIds?: string[];
   // Fallback recipient roles to look up if no explicit user IDs given
   recipientRoles?: string[];
+  // People who hold any of these permissions (directly or through a role), e.g. 'finance.payout.approve'
+  recipientPermissions?: string[];
   branchId?: string;
   // Specific channels to target (defaults to policy)
   channels?: NotificationChannel[];

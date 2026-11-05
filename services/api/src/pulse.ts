@@ -23,6 +23,13 @@ export const STAFF_DOMAINS: Record<string, Probe[]> = {
     { model: 'vehicleStockUnit', field: 'updatedAt' },
     { model: 'vehicleHandover', field: 'updatedAt' },
     { model: 'testDriveRequest', field: 'updatedAt' },
+    // Steps that were invisible to other screens until someone pressed Refresh:
+    { model: 'acquisitionDocumentReview', field: 'updatedAt' },
+    { model: 'acquisitionSettlement', field: 'updatedAt' },
+    { model: 'refurbishmentWorkOrder', field: 'updatedAt' },
+    { model: 'refurbishmentCostApproval', field: 'updatedAt' },
+    { model: 'qualityControlReport', field: 'updatedAt' },
+    { model: 'vehicleListing', field: 'updatedAt' },
   ],
   review: [
     { model: 'inspectionReport', field: 'updatedAt' },
