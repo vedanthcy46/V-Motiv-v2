@@ -8,13 +8,19 @@ The first vertical slice implements seller acquisition payouts only. It reuses `
 
 ## Financial control flow
 
-1. Finance prepares one idempotent payout instruction after required acquisition documents are verified.
-2. The preparer submits it for approval.
-3. A different employee with `finance.payout.approve` approves or places it on hold.
-4. A separate employee with `finance.payout.execute` records a real manual bank reference. This changes the instruction to `RECONCILIATION_PENDING`; it does not claim payment success.
-5. A third employee with `finance.payout.verify` records controlled evidence and verifies the payout. Only then is the shared acquisition settlement set to `PAYMENT_VERIFIED`.
+A seller payout takes three steps and at least two people.
+
+1. **Send for approval.** Finance prepares the payout (beneficiary, account, method) once the acquisition documents are verified. Preparing it is the request for approval; there is no separate "draft" to submit.
+2. **Approve.** A different employee with `finance.payout.approve` approves it, or puts it on hold with a note.
+3. **Mark as paid.** An employee with `finance.payout.execute` who did not prepare the payout records the bank reference / UTR (and, optionally, a link to the bank advice). This records the transfer and confirms it in one step: the settlement becomes `PAYMENT_VERIFIED`, and Operations, Sales and the seller are notified.
+
+Rules that still hold: the preparer cannot approve or pay their own payout, a bank reference can only be used once, and the bank statement import matches the reference afterwards as the independent check. Refunds work the same way (request, approve, mark as paid).
+
+The earlier chain (prepare, submit, approve, record execution, confirm reconciliation) needed four different people. Its endpoints (`/submit`, `/execute`, `/reconcile`) remain so that payouts already in flight can be finished: releasing may be done by the approver, and confirming must be done by someone other than the preparer and the person who recorded the transfer.
 
 The existing Operations custody/completion gate continues to require `PAYMENT_VERIFIED` and therefore cannot be bypassed by the Finance UI.
+
+Finance screens refresh by themselves at each hand-off: payout changes, newly accepted offers and verified documents all signal the Finance portal.
 
 ## New records
 

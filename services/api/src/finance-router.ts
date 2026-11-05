@@ -35,6 +35,16 @@ const executeInput = z.object({
   companyBankAccountId: uuid.or(z.literal('')).optional().transform(v => v || undefined),
 });
 
+/** Record the bank payment and confirm it in one step (replaces execute + reconcile). */
+const payInput = z.object({
+  version: z.number().int().positive().optional(),
+  bankReference: z.string().trim().min(1).max(160),
+  evidenceUri: z.string().trim().max(1000).optional(),
+  kind: z.enum(['BANK_STATEMENT', 'PROVIDER_SETTLEMENT', 'MANUAL_BANK_CONFIRMATION']).optional(),
+  notes: z.string().trim().max(2000).optional(),
+  companyBankAccountId: uuid.or(z.literal('')).optional().transform(v => v || undefined),
+});
+
 const verifyInput = z.object({
   version: z.number().int().positive().optional(),
   kind: z.enum(['BANK_STATEMENT', 'PROVIDER_SETTLEMENT', 'MANUAL_BANK_CONFIRMATION']),
@@ -364,6 +374,23 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
     }
   });
 
+  router.post('/payout-instructions/:id/pay', async (req, res, next) => {
+    try {
+      const input = payInput.parse(req.body);
+      res.json(
+        await deps.store.payPayout(res.locals.financeActor, uuid.parse(req.params.id), input.version, {
+          bankReference: input.bankReference,
+          evidenceUri: input.evidenceUri,
+          kind: input.kind,
+          notes: input.notes,
+          companyBankAccountId: input.companyBankAccountId,
+        })
+      );
+    } catch (error) {
+      next(error);
+    }
+  });
+
   router.post('/payout-instructions/:id/reconcile', async (req, res, next) => {
     try {
       const input = verifyInput.parse(req.body);
@@ -375,7 +402,7 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
           {
             ...input,
             observedAt: input.observedAt || new Date(),
-            evidenceUri: input.evidenceUri || 'https://private-evidence.vmotiv.in/manual-confirmation',
+            evidenceUri: input.evidenceUri || undefined,
           } as any
         )
       );
@@ -575,6 +602,15 @@ export function createFinanceRouter(deps: { verify: VerifyToken; store: PrismaFi
           input.notes
         )
       );
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  router.post('/refunds/:id/pay', async (req, res, next) => {
+    try {
+      const input = payInput.parse(req.body);
+      res.json(await deps.store.payRefund(res.locals.financeActor, uuid.parse(req.params.id), input.version, input.bankReference, input.evidenceUri));
     } catch (error) {
       next(error);
     }

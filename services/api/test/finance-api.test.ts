@@ -117,6 +117,8 @@ function setupFinanceApp(activeActor: FinanceActor, overrides: Partial<PrismaFin
       bankReference: 'UTR-123456',
       version: 4,
     }),
+    payPayout: vi.fn().mockResolvedValue({ id: PAYOUT_ID, status: 'PAID_VERIFIED', bankReference: 'UTR-ONE-STEP', version: 4 }),
+    payRefund: vi.fn().mockResolvedValue({ id: PAYOUT_ID, status: 'REFUNDED_VERIFIED', bankReference: 'UTR-REFUND', version: 4 }),
     verifyPayout: vi.fn().mockResolvedValue({
       id: PAYOUT_ID,
       status: 'RECONCILED',
@@ -420,6 +422,35 @@ describe('Finance Portal Engine & REST API', () => {
       'Disbursed via HDFC portal',
       undefined
     );
+  });
+
+  it('records the bank payment and confirms it in one request, without made-up evidence links', async () => {
+    const { app, financeStore } = setupFinanceApp(approverActor);
+
+    const res = await request(app)
+      .post(`/api/v2/finance/payout-instructions/${PAYOUT_ID}/pay`)
+      .set('Authorization', 'Bearer approver-token')
+      .send({ version: 3, bankReference: 'UTR-ONE-STEP', companyBankAccountId: '' });
+
+    expect(res.status).toBe(200);
+    expect(res.body.status).toBe('PAID_VERIFIED');
+    expect(financeStore.payPayout).toHaveBeenCalledWith(expect.anything(), PAYOUT_ID, 3, expect.objectContaining({ bankReference: 'UTR-ONE-STEP', evidenceUri: undefined }));
+
+    const missing = await request(app)
+      .post(`/api/v2/finance/payout-instructions/${PAYOUT_ID}/pay`)
+      .set('Authorization', 'Bearer approver-token')
+      .send({ version: 3 });
+    expect(missing.status).toBe(400);
+  });
+
+  it('pays a refund in one request as well', async () => {
+    const { app, financeStore } = setupFinanceApp(approverActor);
+    const res = await request(app)
+      .post(`/api/v2/finance/refunds/${PAYOUT_ID}/pay`)
+      .set('Authorization', 'Bearer approver-token')
+      .send({ bankReference: 'UTR-REFUND' });
+    expect(res.status).toBe(200);
+    expect(financeStore.payRefund).toHaveBeenCalledWith(expect.anything(), PAYOUT_ID, undefined, 'UTR-REFUND', undefined);
   });
 
   it('edits bank-account metadata and removes an account through protected finance endpoints', async () => {

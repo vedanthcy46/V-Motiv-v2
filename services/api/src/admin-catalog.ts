@@ -57,7 +57,7 @@ export const permissionCatalog = {
   'finance.settlement.read': 'Read branch-scoped seller settlement cases and masked financial instructions.',
   'finance.settlement.prepare': 'Prepare seller payout instructions from verified acquisition settlements.',
   'finance.payout.approve': 'Independently approve seller payout instructions.',
-  'finance.payout.execute': 'Record a controlled manual payout execution reference.',
+  'finance.payout.execute': 'Record the bank payment for an approved payout (bank reference and evidence) and confirm it.',
   'finance.payout.verify': 'Independently record financial evidence and verify a payout.',
   'finance.audit.read': 'Read authorized finance workflow audit events.',
 } as const;

@@ -482,6 +482,12 @@ export const financeApi = {
       method: 'POST',
       body: JSON.stringify(body),
     }),
+  /** Records the bank payment and confirms it in one step (the old execute + reconcile pair needed two more people). */
+  payPayout: (u: User, payoutId: string, body: { version: number; bankReference: string; companyBankAccountId?: string; evidenceUri?: string; notes?: string }) =>
+    call<PayoutInstruction>(u, `/payout-instructions/${payoutId}/pay`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
   reconcilePayout: (u: User, payoutId: string, body: { version: number; kind: string; reference: string; evidenceUri?: string; observedAt: string }) =>
     call<PayoutInstruction>(u, `/payout-instructions/${payoutId}/reconcile`, {
       method: 'POST',
@@ -568,6 +574,11 @@ export const financeApi = {
     }),
   executeRefund: (u: User, refundId: string, body: { bankReference: string; companyBankAccountId?: string; notes?: string }) =>
     call<RefundCase>(u, `/refunds/${refundId}/execute`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    }),
+  payRefund: (u: User, refundId: string, body: { version?: number; bankReference: string; evidenceUri?: string }) =>
+    call<RefundCase>(u, `/refunds/${refundId}/pay`, {
       method: 'POST',
       body: JSON.stringify(body),
     }),

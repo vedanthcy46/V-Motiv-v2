@@ -472,6 +472,8 @@ export class PrismaFinanceStore {
           paymentMethod: input.paymentMethod,
           idempotencyKey: input.idempotencyKey,
           requestedByEmployeeId: actor.userId,
+          // Preparing a payout is the request for approval: there is no separate "draft" step to submit.
+          status: 'APPROVAL_PENDING',
         },
       });
 
@@ -486,12 +488,55 @@ export class PrismaFinanceStore {
             amountPaise: payout.amountPaise.toString(),
             payoutPurpose: payout.payoutPurpose,
             paymentMethod: payout.paymentMethod,
+            submittedForApproval: true,
           },
         },
       });
 
+      await this.notifyApprovers(tx, payout);
+
       return payoutView(payout);
     });
+  }
+
+  /** Tells the people who can approve that a seller payout is waiting for them. */
+  private async notifyApprovers(tx: Prisma.TransactionClient, payout: { id: string; amountPaise: bigint; beneficiaryName: string }) {
+    if (!this.notificationService) return;
+    await this.notificationService.dispatchDomainEvent(
+      {
+        type: 'FINANCE_PAYOUT_APPROVAL_REQUESTED',
+        category: 'FINANCE',
+        priority: 'HIGH',
+        recipientRoles: ['FINANCE_APPROVER', 'FINANCE_MANAGER', 'SUPER_ADMIN'],
+        title: 'Payout approval requested',
+        body: `Seller payout of ₹${Number(payout.amountPaise / 100n).toLocaleString('en-IN')} for ${payout.beneficiaryName} is ready for approval.`,
+        actionUrl: `/finance?payoutId=${payout.id}`,
+        referenceId: payout.id,
+        entityType: 'FinancePayoutInstruction',
+      },
+      tx
+    );
+  }
+
+  /** Tells Operations, Sales and the seller that the seller has been paid and custody handover can go ahead. */
+  private async notifyPayoutVerified(tx: Prisma.TransactionClient, payout: { amountPaise: bigint; settlement: { acquisitionCaseId: string; acquisitionCase: { lead: { id: string; userId: string | null; make: string; model: string; referenceCode: string } } } }) {
+    if (!this.notificationService) return;
+    const lead = payout.settlement.acquisitionCase.lead;
+    await this.notificationService.dispatchDomainEvent(
+      {
+        type: 'FINANCE_PAYOUT_VERIFIED',
+        category: 'FINANCE',
+        priority: 'HIGH',
+        recipientRoles: ['OPERATIONS', 'SALES_MANAGER', 'SUPER_ADMIN'],
+        recipientUserIds: lead?.userId ? [lead.userId] : undefined,
+        title: `Payout verified: ₹${Number(payout.amountPaise / 100n).toLocaleString('en-IN')}`,
+        body: `Seller payment for ${lead.make} ${lead.model} (${lead.referenceCode}) is confirmed with bank evidence. Vehicle custody handover can go ahead.`,
+        actionUrl: `/selling/${lead.id}`,
+        referenceId: payout.settlement.acquisitionCaseId,
+        entityType: 'AcquisitionSettlement',
+      },
+      tx
+    );
   }
 
   async submitPayout(actor: FinanceActor, id: string, version: number | undefined) {
@@ -523,23 +568,7 @@ export class PrismaFinanceStore {
         },
       });
 
-      // Dispatch notification to approvers
-      if (this.notificationService) {
-        await this.notificationService.dispatchDomainEvent(
-          {
-            type: 'FINANCE_PAYOUT_APPROVAL_REQUESTED',
-            category: 'FINANCE',
-            priority: 'HIGH',
-            recipientRoles: ['FINANCE_APPROVER', 'FINANCE_MANAGER', 'SUPER_ADMIN'],
-            title: `Payout Approval Requested`,
-            body: `Seller payout of ₹${Number(payout.amountPaise / 100n).toLocaleString('en-IN')} for ${payout.beneficiaryName} is ready for authorization.`,
-            actionUrl: `/finance?payoutId=${id}`,
-            referenceId: id,
-            entityType: 'FinancePayoutInstruction',
-          },
-          tx
-        );
-      }
+      await this.notifyApprovers(tx, payout);
 
       return payoutView(updated);
     });
@@ -609,10 +638,8 @@ export class PrismaFinanceStore {
       }
       throw new HttpError(409, 'PAYOUT_NOT_EXECUTABLE');
     }
-    if (
-      [payout.requestedByEmployeeId, payout.approvedByEmployeeId].includes(actor.userId) &&
-      !actor.roles.includes('SUPER_ADMIN')
-    ) {
+    // The person who prepared the payout cannot also release it; the approver may (two people are enough).
+    if (payout.requestedByEmployeeId === actor.userId && !actor.roles.includes('SUPER_ADMIN')) {
       throw new HttpError(409, 'PAYOUT_EXECUTION_SEPARATION_REQUIRED');
     }
 
@@ -682,6 +709,93 @@ export class PrismaFinanceStore {
     }
   }
 
+  /**
+   * Records that the bank transfer was made AND confirms it, in one step. Replaces the old "record execution" then
+   * "confirm reconciliation" pair, which needed two more people. Still required: a bank reference / UTR, a payout that
+   * somebody other than the preparer approved, and the person recording the payment is not the one who prepared it.
+   * The bank statement import still matches the reference afterwards as the independent check.
+   */
+  async payPayout(
+    actor: FinanceActor,
+    id: string,
+    version: number | undefined,
+    input: { bankReference: string; evidenceUri?: string; kind?: string; notes?: string; companyBankAccountId?: string; observedAt?: Date }
+  ) {
+    requirePermission(actor, 'finance.payout.execute');
+    const bankReference = input.bankReference.trim();
+    if (!bankReference) throw new HttpError(400, 'BANK_REFERENCE_REQUIRED');
+    const payout = await this.db.financePayoutInstruction.findUnique({
+      where: { id },
+      include: { settlement: { include: { acquisitionCase: { include: { lead: true } } } } },
+    });
+    if (!payout) throw new HttpError(404, 'PAYOUT_NOT_FOUND');
+    if (payout.status === 'PAID_VERIFIED' && payout.bankReference === bankReference) return payoutView(payout);
+    if (version !== undefined && payout.version !== version) throw new HttpError(409, 'PAYOUT_VERSION_CONFLICT');
+    if (payout.status !== 'APPROVED') throw new HttpError(409, 'PAYOUT_NOT_EXECUTABLE');
+    if (payout.requestedByEmployeeId === actor.userId && !actor.roles.includes('SUPER_ADMIN')) {
+      throw new HttpError(409, 'PAYOUT_EXECUTION_SEPARATION_REQUIRED');
+    }
+    const existingRef = await this.db.financePayoutInstruction.findFirst({ where: { bankReference, id: { not: id } }, select: { id: true } });
+    if (existingRef) throw new HttpError(409, 'BANK_REFERENCE_ALREADY_EXISTS');
+
+    try {
+      return await this.db.$transaction(async tx => {
+        const now = new Date();
+        const evidence = await tx.financePaymentEvidence.create({
+          data: {
+            payoutInstructionId: id,
+            kind: (input.kind as never) || 'MANUAL_BANK_CONFIRMATION',
+            reference: bankReference,
+            evidenceUri: input.evidenceUri?.trim() || `bank-reference:${bankReference}`,
+            observedAt: input.observedAt ?? now,
+            recordedByEmployeeId: actor.userId,
+          },
+        });
+        const updated = await tx.financePayoutInstruction.update({
+          where: { id },
+          data: {
+            status: 'PAID_VERIFIED',
+            bankReference,
+            executionNotes: input.notes?.trim() || payout.executionNotes,
+            executedByEmployeeId: actor.userId,
+            executedAt: now,
+            verifiedByEmployeeId: actor.userId,
+            verifiedAt: now,
+            version: { increment: 1 },
+          },
+        });
+        await tx.acquisitionSettlement.update({
+          where: { id: payout.settlementId },
+          data: { status: 'PAYMENT_VERIFIED', transactionReference: bankReference, verifiedByEmployeeId: actor.userId, verifiedAt: now, version: { increment: 1 } },
+        });
+        await tx.acquisitionCase.update({
+          where: { id: payout.settlement.acquisitionCaseId },
+          data: { settlementStatus: 'PAYMENT_VERIFIED', version: { increment: 1 } },
+        });
+        if (input.companyBankAccountId) {
+          await tx.companyBankAccount.update({
+            where: { id: input.companyBankAccountId },
+            data: { balancePaise: { decrement: payout.amountPaise } },
+          }).catch(err => { console.warn('Company bank account balance decrement warning:', err?.message); });
+        }
+        await tx.auditEvent.create({
+          data: {
+            actorId: actor.userId,
+            action: 'FINANCE_PAYOUT_PAID_VERIFIED',
+            entityType: 'FinancePayoutInstruction',
+            entityId: id,
+            details: { bankReference, evidenceId: evidence.id, companyBankAccountId: input.companyBankAccountId, oneStep: true },
+          },
+        });
+        await this.notifyPayoutVerified(tx, payout);
+        return payoutView({ ...updated, evidence: [evidence] });
+      });
+    } catch (error: any) {
+      if (error?.code === 'P2002') throw new HttpError(409, 'BANK_REFERENCE_ALREADY_EXISTS');
+      throw error;
+    }
+  }
+
   async verifyPayout(
     actor: FinanceActor,
     id: string,
@@ -709,9 +823,7 @@ export class PrismaFinanceStore {
       throw new HttpError(409, 'PAYOUT_NOT_READY_FOR_RECONCILIATION');
     }
     if (
-      [payout.requestedByEmployeeId, payout.approvedByEmployeeId, payout.executedByEmployeeId].includes(
-        actor.userId
-      ) &&
+      [payout.requestedByEmployeeId, payout.executedByEmployeeId].includes(actor.userId) &&
       !actor.roles.includes('SUPER_ADMIN')
     ) {
       throw new HttpError(409, 'PAYOUT_RECONCILIATION_SEPARATION_REQUIRED');
@@ -723,7 +835,7 @@ export class PrismaFinanceStore {
           payoutInstructionId: id,
           kind: input.kind,
           reference: input.reference,
-          evidenceUri: input.evidenceUri || 'https://evidence.vmotiv.in/manual-confirmation',
+          evidenceUri: input.evidenceUri?.trim() || `bank-reference:${input.reference}`,
           observedAt: input.observedAt,
           recordedByEmployeeId: actor.userId,
         },
@@ -769,25 +881,7 @@ export class PrismaFinanceStore {
         },
       });
 
-      // Dispatch event for Seller and Operations
-      if (this.notificationService) {
-        const lead = payout.settlement.acquisitionCase.lead;
-        await this.notificationService.dispatchDomainEvent(
-          {
-            type: 'FINANCE_PAYOUT_VERIFIED',
-            category: 'FINANCE',
-            priority: 'HIGH',
-            recipientRoles: ['OPERATIONS', 'SALES_MANAGER', 'SUPER_ADMIN'],
-            recipientUserIds: lead?.userId ? [lead.userId] : undefined,
-            title: `Payout Verified: ₹${Number(payout.amountPaise / 100n).toLocaleString('en-IN')}`,
-            body: `Seller payment for ${lead.make} ${lead.model} (${lead.referenceCode}) has been verified with independent bank evidence. Vehicle custody handover is now eligible.`,
-            actionUrl: `/selling/${lead.id}`,
-            referenceId: payout.settlement.acquisitionCaseId,
-            entityType: 'AcquisitionSettlement',
-          },
-          tx
-        );
-      }
+      await this.notifyPayoutVerified(tx, payout);
 
       return payoutView({ ...updated, evidence: [evidence] });
     });
@@ -1834,10 +1928,8 @@ export class PrismaFinanceStore {
     if (!refund) throw new HttpError(404, 'REFUND_NOT_FOUND');
     if (version !== undefined && refund.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
     if (refund.status !== 'APPROVED') throw new HttpError(409, 'REFUND_NOT_EXECUTABLE');
-    if (
-      [refund.requestedByEmployeeId, refund.approvedByEmployeeId].includes(actor.userId) &&
-      !actor.roles.includes('SUPER_ADMIN')
-    ) {
+    // The person who requested the refund cannot also release it; the approver may (two people are enough).
+    if (refund.requestedByEmployeeId === actor.userId && !actor.roles.includes('SUPER_ADMIN')) {
       throw new HttpError(409, 'REFUND_EXECUTION_SEPARATION_REQUIRED');
     }
 
@@ -1866,6 +1958,39 @@ export class PrismaFinanceStore {
     return refundView(updated);
   }
 
+  /** Records the bank transfer for an approved refund and confirms it in one step (replaces "execute" then "verify"). */
+  async payRefund(actor: FinanceActor, id: string, version: number | undefined, bankReference: string, evidenceUri?: string) {
+    requirePermission(actor, 'finance.refund.execute');
+    const reference = bankReference.trim();
+    if (!reference) throw new HttpError(400, 'BANK_REFERENCE_REQUIRED');
+    const refund = await this.db.refundCase.findUnique({ where: { id } });
+    if (!refund) throw new HttpError(404, 'REFUND_NOT_FOUND');
+    if (refund.status === 'REFUNDED_VERIFIED' && refund.bankReference === reference) return refundView(refund);
+    if (version !== undefined && refund.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
+    if (refund.status !== 'APPROVED') throw new HttpError(409, 'REFUND_NOT_EXECUTABLE');
+    if (refund.requestedByEmployeeId === actor.userId && !actor.roles.includes('SUPER_ADMIN')) {
+      throw new HttpError(409, 'REFUND_EXECUTION_SEPARATION_REQUIRED');
+    }
+    const now = new Date();
+    const updated = await this.db.refundCase.update({
+      where: { id },
+      data: {
+        status: 'REFUNDED_VERIFIED',
+        bankReference: reference,
+        evidenceUri: evidenceUri?.trim() || `bank-reference:${reference}`,
+        executedByEmployeeId: actor.userId,
+        executedAt: now,
+        verifiedByEmployeeId: actor.userId,
+        verifiedAt: now,
+        version: { increment: 1 },
+      },
+    });
+    await this.db.auditEvent.create({
+      data: { actorId: actor.userId, action: 'FINANCE_REFUND_PAID_VERIFIED', entityType: 'RefundCase', entityId: id, details: { bankReference: reference, refundNumber: refund.refundNumber, oneStep: true } },
+    });
+    return refundView(updated);
+  }
+
   async verifyRefund(actor: FinanceActor, id: string, version: number | undefined) {
     requirePermission(actor, 'finance.refund.verify');
     const refund = await this.db.refundCase.findUnique({ where: { id } });
@@ -1873,9 +1998,7 @@ export class PrismaFinanceStore {
     if (version !== undefined && refund.version !== version) throw new HttpError(409, 'VERSION_CONFLICT');
     if (refund.status !== 'PROCESSING') throw new HttpError(409, 'REFUND_NOT_PROCESSING');
     if (
-      [refund.requestedByEmployeeId, refund.approvedByEmployeeId, refund.executedByEmployeeId].includes(
-        actor.userId
-      ) &&
+      [refund.requestedByEmployeeId, refund.executedByEmployeeId].includes(actor.userId) &&
       !actor.roles.includes('SUPER_ADMIN')
     ) {
       throw new HttpError(409, 'REFUND_RECONCILIATION_SEPARATION_REQUIRED');
