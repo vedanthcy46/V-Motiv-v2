@@ -1,5 +1,6 @@
 import type { EmployeeRole, Prisma, PrismaClient } from '@prisma/client';
 import { catalogMasterData } from './master-data-seed.js';
+import { inferBodyType } from './body-types.js';
 
 export const permissionCatalog = {
   'admin.portal.access': 'Enter the Admin Control Centre.',
@@ -186,7 +187,14 @@ const baseMasterData = [
 /** Everything the platform starts with: the app's former built-in catalogue plus body types, extra transmissions and document types. */
 export const canonicalMasterData: Array<{ category: string; code: string; name: string; parentCode: string | null; metadata?: Record<string, unknown> }> = (() => {
   const seen = new Set<string>();
-  return [...catalogMasterData, ...baseMasterData].filter(item => {
+  const makeNames = new Map(catalogMasterData.filter(item => item.category === 'MAKE').map(item => [item.code, item.name]));
+  // Every car model starts with its body type, so Admin shows it and administrators can change it.
+  const withBodyType = (item: (typeof catalogMasterData)[number]) => {
+    if (item.category !== 'MODEL') return item;
+    const bodyType = inferBodyType(makeNames.get(item.parentCode ?? ''), item.name);
+    return bodyType ? { ...item, metadata: { ...(item.metadata ?? {}), bodyType } } : item;
+  };
+  return [...catalogMasterData.map(withBodyType), ...baseMasterData].filter(item => {
     const key = `${item.category}:${item.code}`;
     if (seen.has(key)) return false;
     seen.add(key);

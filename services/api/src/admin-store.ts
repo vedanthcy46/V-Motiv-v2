@@ -57,6 +57,7 @@ export type BusinessSellingQuery = { page: number; limit: number; status?: strin
 export type BusinessBuyingQuery = { page: number; limit: number; status?: string; search?: string };
 export type BusinessInventoryQuery = { page: number; limit: number; status?: string; search?: string };
 import { normalizeMasterDataCode, validateMasterDataShape } from './master-data-rules.js';
+import { canonicalBodyType, refreshMasterBodyTypes } from './body-types.js';
 
 export type MasterDataItemInput = { category: string; code: string; name: string; parentCode?: string; metadata?: Record<string, unknown> };
 export type MasterDataUpdateInput = { name?: string; active?: boolean; metadata?: Record<string, unknown> };
@@ -1247,6 +1248,33 @@ export class PrismaAdminStore implements AdminStore {
     });
   }
 
+  /**
+   * A car model can carry a body type (metadata.bodyType) so customers can filter by it. The value must be an active
+   * BODY_TYPE item from this same master data; it is stored as that item's code. Blank clears it.
+   */
+  private async checkedModelMetadata(metadata: Record<string, unknown> | undefined): Promise<Record<string, unknown> | undefined> {
+    if (!metadata || !('bodyType' in metadata)) return metadata;
+    const { bodyType, ...rest } = metadata;
+    if (bodyType === null || bodyType === undefined || (typeof bodyType === 'string' && !bodyType.trim())) return rest;
+    if (typeof bodyType !== 'string') throw new HttpError(400, 'INVALID_BODY_TYPE');
+    const code = canonicalBodyType(bodyType);
+    const known = code ? await this.db.masterDataItem.findFirst({ where: { category: 'BODY_TYPE', code, active: true } }) : null;
+    if (!known) throw new HttpError(400, 'INVALID_BODY_TYPE');
+    return { ...rest, bodyType: known.code };
+  }
+
+  /** Cars of this model that have no body type yet pick up the one just set; cars with their own explicit choice are untouched. */
+  private async applyModelBodyType(model: { name: string; parentCode: string | null }, bodyType: string | undefined) {
+    await refreshMasterBodyTypes(this.db as any, true);
+    if (!bodyType || !model.parentCode) return;
+    const make = await this.db.masterDataItem.findUnique({ where: { category_code: { category: 'MAKE', code: model.parentCode } } });
+    if (!make) return;
+    await this.db.vehicle.updateMany({
+      where: { bodyType: null, model: { equals: model.name, mode: 'insensitive' }, make: { equals: make.name, mode: 'insensitive' } },
+      data: { bodyType },
+    });
+  }
+
   async createMasterDataItem(actor: AdminActor, input: MasterDataItemInput) {
     requirePermission(actor, 'masterdata.manage');
     const shape = validateMasterDataShape(input);
@@ -1258,15 +1286,18 @@ export class PrismaAdminStore implements AdminStore {
     }
     const existing = await this.db.masterDataItem.findUnique({ where: { category_code: { category: shape.category, code: shape.code } } });
     if (existing) throw new HttpError(409, 'MASTER_DATA_ITEM_ALREADY_EXISTS');
+    // Only car models carry a body type.
+    const metadata = shape.category === 'MODEL' ? await this.checkedModelMetadata(input.metadata) : input.metadata;
     const item = await this.db.masterDataItem.create({
       data: {
         category: shape.category,
         code: shape.code,
         name: input.name.trim(),
         parentCode,
-        metadata: (input.metadata || {}) as Prisma.InputJsonValue,
+        metadata: (metadata || {}) as Prisma.InputJsonValue,
       },
     });
+    if (item.category === 'MODEL') await this.applyModelBodyType(item, (metadata as { bodyType?: string } | undefined)?.bodyType);
     await this.db.auditEvent.create({
       data: {
         actorId: actor.userId,
@@ -1281,21 +1312,30 @@ export class PrismaAdminStore implements AdminStore {
 
   async updateMasterDataItem(actor: AdminActor, id: string, input: MasterDataUpdateInput) {
     requirePermission(actor, 'masterdata.manage');
+    let metadata = input.metadata;
+    if (metadata) {
+      const current = await this.db.masterDataItem.findUnique({ where: { id }, select: { category: true } });
+      if (!current) throw new HttpError(404, 'MASTER_DATA_ITEM_NOT_FOUND');
+      if (current.category === 'MODEL') metadata = await this.checkedModelMetadata(metadata);
+    }
     const item = await this.db.masterDataItem.update({
       where: { id },
       data: {
         ...(typeof input.name === 'string' ? { name: input.name.trim() } : {}),
         ...(typeof input.active === 'boolean' ? { active: input.active } : {}),
-        ...(input.metadata ? { metadata: input.metadata as Prisma.InputJsonValue } : {}),
+        ...(metadata ? { metadata: metadata as Prisma.InputJsonValue } : {}),
       },
     });
+    if (item.category === 'MODEL' && (metadata || typeof input.active === 'boolean')) {
+      await this.applyModelBodyType(item, item.active ? (item.metadata as { bodyType?: string } | null)?.bodyType : undefined);
+    }
     await this.db.auditEvent.create({
       data: {
         actorId: actor.userId,
         action: 'MASTER_DATA_UPDATED',
         entityType: 'MasterDataItem',
         entityId: item.id,
-        details: { active: item.active, name: item.name },
+        details: { active: item.active, name: item.name, ...(item.category === 'MODEL' ? { bodyType: (item.metadata as { bodyType?: string } | null)?.bodyType ?? null } : {}) },
       },
     });
     return item;

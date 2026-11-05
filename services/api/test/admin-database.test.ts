@@ -160,4 +160,24 @@ describe.skipIf(!url)('Admin foundation with real PostgreSQL', () => {
     expect(audit).not.toBeNull();
     await expect(store.actor(invitedUid)).rejects.toMatchObject({ status: 403, code: 'ADMIN_ACCESS_DENIED' });
   });
+
+  it('stores a body type on a car model, rejects unknown ones, and fills cars that have none', async () => {
+    const make = await store.createMasterDataItem(actor, { category: 'MAKE', code: `ACME${suffix}`.toUpperCase(), name: `Acme${suffix}` }) as { code: string; name: string };
+    const bad = store.createMasterDataItem(actor, { category: 'MODEL', code: `BAD${suffix}`.toUpperCase(), name: 'Bad', parentCode: make.code, metadata: { bodyType: 'SPACESHIP' } });
+    await expect(bad).rejects.toMatchObject({ code: 'INVALID_BODY_TYPE' });
+
+    const model = await store.createMasterDataItem(actor, { category: 'MODEL', code: `ROAD${suffix}`.toUpperCase(), name: 'Roadster', parentCode: make.code, metadata: { bodyType: 'hatchback' } }) as { id: string; metadata: { bodyType?: string } };
+    expect(model.metadata.bodyType).toBe('HATCHBACK');
+
+    const vehicle = await db.vehicle.create({ data: { make: make.name, model: 'Roadster', variant: 'X', manufacturingYear: 2020, fuelType: 'PETROL', transmission: 'MANUAL', odometerKm: 1000 } });
+    const chosen = await db.vehicle.create({ data: { make: make.name, model: 'Roadster', variant: 'Y', manufacturingYear: 2020, fuelType: 'PETROL', transmission: 'MANUAL', odometerKm: 1000, bodyType: 'SEDAN' } });
+
+    const updated = await store.updateMasterDataItem(actor, model.id, { metadata: { bodyType: 'SUV' } }) as { metadata: { bodyType?: string } };
+    expect(updated.metadata.bodyType).toBe('SUV');
+    expect((await db.vehicle.findUniqueOrThrow({ where: { id: vehicle.id } })).bodyType).toBe('SUV');
+    expect((await db.vehicle.findUniqueOrThrow({ where: { id: chosen.id } })).bodyType).toBe('SEDAN'); // an explicit choice is kept
+
+    const cleared = await store.updateMasterDataItem(actor, model.id, { metadata: { bodyType: '' } }) as { metadata: { bodyType?: string } };
+    expect(cleared.metadata.bodyType).toBeUndefined();
+  });
 });

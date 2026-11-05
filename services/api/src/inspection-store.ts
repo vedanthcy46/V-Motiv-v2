@@ -1,6 +1,6 @@
 import { type InspectionAnswerStatus, type InspectionDefectSeverity, Prisma, PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
-import { inferBodyType, resolveBodyType } from './body-types.js';
+import { inferBodyType, refreshMasterBodyTypes, resolveBodyType } from './body-types.js';
 import { INSPECTOR_INELIGIBILITY_MESSAGES, inspectorIneligibility } from './inspector-eligibility.js';
 import { knownTemplateItem, templateFor, currentTemplate, isItemApplicable, type InspectionTemplateItem } from './inspection-template.js';
 import { InspectionMediaService } from './inspection-media.js';
@@ -1320,6 +1320,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
   }
 
   async stockUnits(actor: InspectionActor) {
+    await refreshMasterBodyTypes(this.db as any);
     checkRole(actor, stockReadRoles);
     const units = await this.db.vehicleStockUnit.findMany({
       where: this.stockScope(actor),
@@ -1441,6 +1442,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
   }
 
   async updateStockVehicleSpecs(actor: InspectionActor, stockId: string, input: { registrationNumber?: string; variant?: string; bodyType?: string; color?: string; odometerKm?: number }) {
+    await refreshMasterBodyTypes(this.db as any);
     checkRole(actor, operationsRoles);
     const stock = await this.db.vehicleStockUnit.findFirst({
       where: this.stockScope(actor, stockId),
@@ -1681,6 +1683,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     branchId?: string;
     expectedVersion: number;
   }) {
+    await refreshMasterBodyTypes(this.db as any);
     checkRole(actor, listingRoles);
     const stock = await this.db.vehicleStockUnit.findFirst({
       where: this.stockScope(actor, stockId),
@@ -1890,6 +1893,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     title?: string;
     branchId?: string;
   }) {
+    await refreshMasterBodyTypes(this.db as any);
     checkRole(actor, publishRoles);
     const stock = await this.db.vehicleStockUnit.findFirst({
       where: this.stockScope(actor, stockId),
