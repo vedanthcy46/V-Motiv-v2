@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FC, type FormEvent } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type FC, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   GoogleAuthProvider,
@@ -51,11 +51,16 @@ import {
   IconService,
   IconStudio,
 } from './icons';
-import { ServiceOperationsPanel } from './components/ServiceOperationsPanel';
-import { RentalOperationsPanel } from './components/RentalOperationsPanel';
-import { modalIsOpen, useAutoRefresh, useChangeWatcher } from './autoRefresh';
-import { mountLiveChangeBar, registerViewHandler } from './LiveChangeBar';
+// The two big workshop and rental screens are only downloaded when their tab is opened.
+const ServiceOperationsPanel = lazy(() => import('./components/ServiceOperationsPanel').then(m => ({ default: m.ServiceOperationsPanel })));
+const RentalOperationsPanel = lazy(() => import('./components/RentalOperationsPanel').then(m => ({ default: m.RentalOperationsPanel })));
+import {
+  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader, SkeletonRows, toast,
+  initTheme, modalIsOpen, mountLiveChangeBar, registerViewHandler, useAutoRefresh, useChangeWatcher, type NavSection,
+} from '@vmotiv/ui';
 import './styles.css';
+
+initTheme();
 
 type TabKey =
   | 'overview'
@@ -72,6 +77,16 @@ type TabKey =
   | 'service'
   | 'rentals'
   | 'team';
+
+const DEFAULT_BODY_TYPES = [
+  { code: 'HATCHBACK', name: 'Hatchback' },
+  { code: 'SEDAN', name: 'Sedan' },
+  { code: 'SUV', name: 'SUV' },
+  { code: 'MUV', name: 'MUV' },
+  { code: 'COUPE', name: 'Coupe' },
+  { code: 'CONVERTIBLE', name: 'Convertible' },
+];
+const bodyTypeLabel = (code: string, options: Array<{ code: string; name: string }>) => options.find(option => option.code === code.toUpperCase())?.name ?? code;
 
 function needsQualityControl(stock: VehicleStockUnit) {
   const hasCompletedWorkOrder = stock.workOrders?.some(workOrder => workOrder.status === 'COMPLETED') ?? false;
@@ -150,149 +165,6 @@ function formatDate(dateStr?: string | null): string {
 // ==========================================
 // 2-STEP VERIFICATION (MFA CHALLENGE DIALOG)
 // ==========================================
-function MfaChallengeDialog({
-  auth,
-  resolver,
-  onClose,
-  onSuccess,
-}: {
-  auth: Auth;
-  resolver: MultiFactorResolver;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-  const [verificationId, setVerificationId] = useState('');
-  const [code, setCode] = useState('');
-  const [sending, setSending] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [error, setError] = useState('');
-
-  const phoneHint = resolver.hints.find(
-    hint => hint.factorId === PhoneMultiFactorGenerator.FACTOR_ID
-  ) as PhoneMultiFactorInfo | undefined;
-
-  const sendOtp = async () => {
-    if (!phoneHint) {
-      setError('No registered phone number found for 2-step verification.');
-      return;
-    }
-    setSending(true);
-    setError('');
-    try {
-      if (recaptchaVerifierRef.current) {
-        try { recaptchaVerifierRef.current.clear(); } catch { /* ignore */ }
-        recaptchaVerifierRef.current = null;
-      }
-      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-      });
-      const phoneProvider = new PhoneAuthProvider(auth);
-      const vId = await phoneProvider.verifyPhoneNumber(
-        { multiFactorHint: phoneHint, session: resolver.session },
-        recaptchaVerifierRef.current
-      );
-      setVerificationId(vId);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to send SMS code. Please try again.');
-    } finally {
-      setSending(false);
-    }
-  };
-
-  useEffect(() => {
-    void sendOtp();
-    return () => {
-      try {
-        recaptchaVerifierRef.current?.clear();
-      } catch {
-        // ignore
-      }
-    };
-  }, []);
-
-  const submit = async (e: FormEvent) => {
-    e.preventDefault();
-    if (!verificationId || code.trim().length !== 6) return;
-    setVerifying(true);
-    setError('');
-    try {
-      const cred = PhoneAuthProvider.credential(verificationId, code.trim());
-      const assertion = PhoneMultiFactorGenerator.assertion(cred);
-      await resolver.resolveSignIn(assertion);
-      onSuccess();
-    } catch (err: any) {
-      setError(err?.message || 'Invalid or expired 6-digit verification code.');
-      setVerifying(false);
-    }
-  };
-
-  const phoneDisplay = phoneHint?.phoneNumber || 'your registered mobile number';
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal-dialog modal-dialog-md">
-        <div className="modal-header">
-          <div>
-            <span className="eyebrow">2-STEP VERIFICATION</span>
-            <h3>Phone Verification</h3>
-          </div>
-          <button type="button" className="btn-close" onClick={onClose} aria-label="Close">
-            <IconCross />
-          </button>
-        </div>
-        <form onSubmit={submit}>
-          <div className="modal-body">
-            {error && <div className="error-banner">{error}</div>}
-            <p style={{ color: 'var(--muted)', fontSize: '13px', marginBottom: '14px' }}>
-              {sending
-                ? `Sending 6-digit verification code to ${phoneDisplay}…`
-                : `A 6-digit verification code was sent via SMS to ${phoneDisplay}. Enter the code below to complete sign-in.`}
-            </p>
-            <div className="form-group">
-              <label style={{ fontSize: '0.8125rem', fontWeight: 600, color: 'var(--muted)' }}>
-                6-digit Verification Code *
-              </label>
-              <input
-                autoFocus
-                required
-                className="form-input font-mono"
-                style={{ fontSize: '1.25rem', letterSpacing: '0.25em', textAlign: 'center' }}
-                placeholder="123456"
-                maxLength={6}
-                value={code}
-                onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
-              />
-            </div>
-            <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                className="btn-secondary btn-sm"
-                disabled={sending}
-                onClick={sendOtp}
-              >
-                {sending ? 'Resending…' : 'Resend Code via SMS'}
-              </button>
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button type="button" className="btn-secondary" onClick={onClose}>
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={verifying || sending || code.length !== 6}
-            >
-              {verifying ? 'Verifying…' : 'Verify & Continue'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 // ==========================================
 // AUTH SCREEN (SPLIT PANE CORPORATE THEME)
 // ==========================================
@@ -359,59 +231,28 @@ function SignIn() {
 
   return (
     <>
-      <main className="auth-shell">
-        <section className="auth-panel">
-          <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-          <p className="eyebrow">OPERATIONS & FLEET MANAGEMENT PORTAL</p>
-          <h1>Authorized Operations Workspace</h1>
-          <p>
-            Sign in with your authorized V MOTIV corporate Google account to coordinate physical inspections, custody handover, refurbishment, QC, and retail delivery.
-          </p>
-          <div className="auth-actions">
-            {firebaseConfigured ? (
-              <button
-                type="button"
-                className="btn-primary"
-                onClick={login}
-                disabled={busy}
-                style={{ minHeight: '44px', padding: '0.75rem 1.75rem', fontSize: '0.95rem' }}
-              >
-                {busy ? 'Connecting to Google…' : 'Continue with Google'}
-              </button>
-            ) : (
-              <div className="error-banner">Firebase configuration is missing for this environment.</div>
-            )}
-          </div>
-          {error && <div className="error-banner">{error}</div>}
-        </section>
-        <aside className="auth-aside">
-          <div>
-            <span className="kicker">Workflow 01 · Inspection & Handover</span>
-            <strong>Dispatch & Vehicle Custody</strong>
-            <span>Inspector dispatch, documentation verification, physical handover with digital custody gate.</span>
-          </div>
-          <div>
-            <span className="kicker">Workflow 02 · Refurbishment & QC</span>
-            <strong>Workshop & Studio Certification</strong>
-            <span>Multi-category repair work orders, independent quality control audit, 360° studio photography.</span>
-          </div>
-          <div>
-            <span className="kicker">Workflow 03 · Retail & Fulfillment</span>
-            <strong>Publication & Customer Handover</strong>
-            <span>Verified retail listing publication, showroom test drive coordination, and secure vehicle delivery.</span>
-          </div>
-        </aside>
-      </main>
+      <AuthLayout
+        portalName="Operations"
+        eyebrow="Operations and fleet management"
+        title="Authorised operations workspace"
+        description="Sign in with your authorised V MOTIV corporate Google account to coordinate physical inspections, custody handover, refurbishment, quality control and retail delivery."
+        points={[
+          { title: 'Dispatch and vehicle custody', text: 'Inspector dispatch, documentation checks and physical handover with a digital custody gate.' },
+          { title: 'Workshop and studio certification', text: 'Repair work orders, independent quality control and 360° studio photography.' },
+          { title: 'Publication and customer handover', text: 'Verified retail listings, showroom test drives and secure vehicle delivery.' },
+        ]}
+      >
+        {firebaseConfigured ? (
+          <Button size="lg" block loading={busy} onClick={login}>{busy ? 'Connecting to Google…' : 'Continue with Google'}</Button>
+        ) : (
+          <Alert tone="error">Firebase configuration is missing for this environment.</Alert>
+        )}
+        {error ? <Alert tone="error">{error}</Alert> : null}
+      </AuthLayout>
 
       {mfaResolver && auth && (
-        <MfaChallengeDialog
-          auth={auth}
-          resolver={mfaResolver}
-          onClose={() => setMfaResolver(null)}
-          onSuccess={() => setMfaResolver(null)}
-        />
+        <MfaChallengeModal auth={auth} resolver={mfaResolver} onClose={() => setMfaResolver(null)} onSuccess={() => setMfaResolver(null)} />
       )}
-      <div id="recaptcha-container" />
     </>
   );
 }
@@ -419,11 +260,12 @@ function SignIn() {
 export const App: FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loadWarning, setLoadWarning] = useState<string | null>(null);
-  const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  // Confirmations appear as toasts (a dialog may be open, or the page may have scrolled).
+  const setSuccessMsg = (message: string | null) => { if (message) toast.success(message); };
+  const reportError = (message: string | null) => { if (message) toast.error('Could not complete this action', { description: message }); };
 
   // Data states
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
@@ -495,9 +337,20 @@ export const App: FC = () => {
     stockItem?: VehicleStockUnit;
     registrationNumber: string;
     variant: string;
+    bodyType: string;
     color: string;
     odometerKm: number;
-  }>({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 });
+  }>({ open: false, registrationNumber: '', variant: '', bodyType: '', color: '', odometerKm: 0 });
+  // Body types come from the administrator-managed list; these are used until it loads.
+  const [bodyTypeOptions, setBodyTypeOptions] = useState<Array<{ code: string; name: string }>>(DEFAULT_BODY_TYPES);
+  useEffect(() => {
+    void api.masterData()
+      .then(items => {
+        const fromMaster = items.filter(item => item.category === 'BODY_TYPE').map(item => ({ code: item.code, name: item.name }));
+        if (fromMaster.length) setBodyTypeOptions(fromMaster);
+      })
+      .catch(() => undefined);
+  }, []);
 
   const [branches, setBranches] = useState<Branch[]>([]);
   const [studioModal, setStudioModal] = useState<{ open: boolean; stockItem?: VehicleStockUnit }>({ open: false });
@@ -550,14 +403,6 @@ export const App: FC = () => {
   const [buyerName, setBuyerName] = useState('');
   const [buyerPhone, setBuyerPhone] = useState('');
   const [deliveryNotes, setDeliveryNotes] = useState('');
-
-  // Auto-clear notification
-  useEffect(() => {
-    if (successMsg) {
-      const timer = setTimeout(() => setSuccessMsg(null), 5000);
-      return () => clearTimeout(timer);
-    }
-  }, [successMsg]);
 
   // Auth observer
   useEffect(() => {
@@ -630,7 +475,7 @@ export const App: FC = () => {
       const scheduledAt = assignDate ? new Date(assignDate).toISOString() : undefined;
       if (assignModal.request.assignment) {
         if (!scheduledAt) {
-          setError('A date and time are required to reschedule an inspection.');
+          reportError('A date and time are required to reschedule an inspection.');
           return;
         }
         await api.rescheduleInspection(user, assignModal.request.id, {
@@ -654,9 +499,9 @@ export const App: FC = () => {
         setSuccessMsg('Inspection assigned successfully');
       }
       setAssignModal({ open: false });
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Assignment failed');
+      reportError(err instanceof ApiError ? `Error: ${err.code}` : 'Assignment failed');
     } finally {
       setLoading(false);
     }
@@ -681,13 +526,13 @@ export const App: FC = () => {
           failedLabels.push(documentType.replace(/_/g, ' ') + (err instanceof ApiError ? ' (' + err.code + ')' : ''));
         }
       }
-      if (failedTypes.length > 0) setError('Updated ' + (types.length - failedTypes.length) + ' of ' + types.length + '. Not updated: ' + failedLabels.join(', '));
+      if (failedTypes.length > 0) reportError('Updated ' + (types.length - failedTypes.length) + ' of ' + types.length + '. Not updated: ' + failedLabels.join(', '));
       else setSuccessMsg(types.length === 1 ? `Document ${types[0]} updated to ${docStatus}` : `${types.length} documents updated to ${docStatus}`);
       setDocSelection(prev => ({ ...prev, [caseId]: failedTypes }));
       setDocModal({ open: false });
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      setError(err instanceof ApiError ? `Document Error: ${err.code}` : 'Update failed');
+      reportError(err instanceof ApiError ? `Document Error: ${err.code}` : 'Update failed');
     } finally {
       setLoading(false);
     }
@@ -714,10 +559,10 @@ export const App: FC = () => {
       });
       setSuccessMsg('Custody recorded. The acquisition was completed and moved into Stock Inventory for QC.');
       setHandoverModal({ open: false });
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
       setActiveTab('inventory');
     } catch (err) {
-      setError(err instanceof ApiError ? `Handover Error: ${err.code}` : 'Handover failed');
+      reportError(err instanceof ApiError ? `Handover Error: ${err.code}` : 'Handover failed');
     } finally {
       setLoading(false);
     }
@@ -733,9 +578,9 @@ export const App: FC = () => {
         completionNotes: 'All document, settlement and custody gates verified.',
       });
       setSuccessMsg(`Acquisition case ${caseItem.caseReference} completed! Ready for Stock Inward.`);
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      setError(err instanceof ApiError ? `Gate Error: ${err.code}` : 'Acquisition completion failed');
+      reportError(err instanceof ApiError ? `Gate Error: ${err.code}` : 'Acquisition completion failed');
     } finally {
       setLoading(false);
     }
@@ -754,10 +599,10 @@ export const App: FC = () => {
       });
       setSuccessMsg(`Stock Inward Created! Stock Code: ${stock.stockCode}`);
       setStockInwardModal({ open: false });
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
       setActiveTab('inventory');
     } catch (err) {
-      setError(err instanceof ApiError ? `Stock Inward Error: ${err.code}` : 'Stock inward failed');
+      reportError(err instanceof ApiError ? `Stock Inward Error: ${err.code}` : 'Stock inward failed');
     } finally {
       setLoading(false);
     }
@@ -772,14 +617,15 @@ export const App: FC = () => {
       await api.updateStockVehicleSpecs(user, specsModal.stockItem.id, {
         registrationNumber: specsModal.registrationNumber.trim().toUpperCase() || undefined,
         variant: specsModal.variant.trim() || undefined,
+        bodyType: specsModal.bodyType,
         color: specsModal.color.trim() || undefined,
         odometerKm: specsModal.odometerKm || undefined,
       });
       setSuccessMsg('Vehicle specs & registration plate updated');
-      setSpecsModal({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 });
-      await loadAllData();
+      setSpecsModal({ open: false, registrationNumber: '', variant: '', bodyType: '', color: '', odometerKm: 0 });
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      setError(err instanceof ApiError ? `Specs Error: ${err.code}` : 'Failed to update vehicle specs');
+      reportError(err instanceof ApiError ? `Specs Error: ${err.code}` : 'Failed to update vehicle specs');
     } finally {
       setLoading(false);
     }
@@ -800,9 +646,9 @@ export const App: FC = () => {
       setSuccessMsg('Refurbishment work order created');
       setWorkOrderModal({ open: false });
       setWoAction('');
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      setError(err instanceof ApiError ? `Work Order Error: ${err.code}` : 'Failed to create work order');
+      reportError(err instanceof ApiError ? `Work Order Error: ${err.code}` : 'Failed to create work order');
     } finally {
       setLoading(false);
     }
@@ -819,9 +665,9 @@ export const App: FC = () => {
         reason: 'Authorized workshop cost estimation submitted for approval',
       });
       setSuccessMsg('Cost submitted for independent approver decision');
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      setError(err instanceof ApiError ? `Approval Error: ${err.code}` : 'Submission failed');
+      reportError(err instanceof ApiError ? `Approval Error: ${err.code}` : 'Submission failed');
     } finally {
       setLoading(false);
     }
@@ -838,12 +684,12 @@ export const App: FC = () => {
         reason: decision === 'APPROVE' ? 'Approved within budget policy' : 'Rejected - quote exceeds threshold',
       });
       setSuccessMsg(`Cost approval ${decision === 'APPROVE' ? 'APPROVED' : 'REJECTED'}`);
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
       if (err instanceof ApiError && err.code === 'COST_SELF_APPROVAL_DENIED') {
-        setError('Cost Decision Error: Self-approval is not permitted under the four-eyes segregation policy. A different employee with Pricing Approver, Admin, or Super Admin role must approve this estimate.');
+        reportError('Cost Decision Error: Self-approval is not permitted under the four-eyes segregation policy. A different employee with Pricing Approver, Admin, or Super Admin role must approve this estimate.');
       } else {
-        setError(err instanceof ApiError ? `Cost Decision Error: ${err.code}` : 'Decision failed');
+        reportError(err instanceof ApiError ? `Cost Decision Error: ${err.code}` : 'Decision failed');
       }
     } finally {
       setLoading(false);
@@ -857,9 +703,9 @@ export const App: FC = () => {
     try {
       await api.startWorkOrder(user, woId, version);
       setSuccessMsg('Work order started. Stock status moved to IN_REFURBISHMENT.');
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to start work order');
+      reportError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to start work order');
     } finally {
       setLoading(false);
     }
@@ -876,9 +722,9 @@ export const App: FC = () => {
         notes: 'Refurbishment completed and ready for independent QC inspection.',
       });
       setSuccessMsg('Work order completed! Stock moved to QC_PENDING.');
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to complete work order');
+      reportError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to complete work order');
     } finally {
       setLoading(false);
     }
@@ -897,7 +743,7 @@ export const App: FC = () => {
     if (!user || !wo) return;
     const costPaise = Math.round(parseFloat(editCostValue) * 100);
     if (isNaN(costPaise) || costPaise <= 0) {
-      setError('Please enter a valid cost amount in rupees.');
+      reportError('Please enter a valid cost amount in rupees.');
       return;
     }
     setLoading(true);
@@ -910,9 +756,9 @@ export const App: FC = () => {
       });
       setSuccessMsg('Revised cost resubmitted for approval');
       setEditCostModal({ open: false });
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      setError(err instanceof ApiError ? `Resubmit Error: ${err.code}` : 'Failed to resubmit cost');
+      reportError(err instanceof ApiError ? `Resubmit Error: ${err.code}` : 'Failed to resubmit cost');
     } finally {
       setLoading(false);
     }
@@ -938,9 +784,9 @@ export const App: FC = () => {
       setSuccessMsg(`Quality Control verdict: ${qcDecision}. Stock status updated.`);
       setQcModal({ open: false });
       setQcFindings('');
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      setError(err instanceof ApiError ? `QC Error: ${err.code}` : 'Quality control submission failed');
+      reportError(err instanceof ApiError ? `QC Error: ${err.code}` : 'Quality control submission failed');
     } finally {
       setLoading(false);
     }
@@ -997,10 +843,10 @@ export const App: FC = () => {
 
       setSuccessMsg('Listing studio data saved. Status moved to LISTING_READY.');
       setStudioModal({ open: false });
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
       setActiveTab('publication');
     } catch (err) {
-      setError(err instanceof ApiError ? `Studio Error: ${err.code}` : (err instanceof Error ? err.message : 'Failed to save listing studio details'));
+      reportError(err instanceof ApiError ? `Studio Error: ${err.code}` : (err instanceof Error ? err.message : 'Failed to save listing studio details'));
     } finally {
       setLoading(false);
       setStudioUploading(false);
@@ -1028,7 +874,7 @@ export const App: FC = () => {
       }
       setStagedStudioFiles(current => [...current, ...newStaged]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Could not stage listing photo.');
+      reportError(err instanceof Error ? err.message : 'Could not stage listing photo.');
     }
   };
 
@@ -1045,11 +891,11 @@ export const App: FC = () => {
     if (!user || !publishModal.stockItem) return;
     const price = BigInt(publishRetailPrice || '0') * 100n;
     if (price <= 0n) {
-      setError('Please enter a valid retail price in Rupees.');
+      reportError('Please enter a valid retail price in Rupees.');
       return;
     }
     if (!publishBranchId) {
-      setError('Please select a showroom / branch to list this vehicle.');
+      reportError('Please select a showroom / branch to list this vehicle.');
       return;
     }
     setLoading(true);
@@ -1062,10 +908,10 @@ export const App: FC = () => {
       });
       setSuccessMsg(`Vehicle published to customer marketplace! Stock code: ${publishModal.stockItem.stockCode}`);
       setPublishModal({ open: false });
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
       setActiveTab('inventory');
     } catch (err) {
-      setError(err instanceof ApiError ? `Publish Error: ${err.code}` : 'Publication failed');
+      reportError(err instanceof ApiError ? `Publish Error: ${err.code}` : 'Publication failed');
     } finally {
       setLoading(false);
     }
@@ -1085,9 +931,9 @@ export const App: FC = () => {
       });
       setSuccessMsg(`Vehicle delivered to ${buyerName}! Status updated to SOLD.`);
       setDeliveryModal({ open: false });
-      await loadAllData();
+      void loadAllData(user, true).catch(() => undefined);
     } catch (err) {
-      setError(err instanceof ApiError ? `Delivery Error: ${err.code}` : 'Delivery failed');
+      reportError(err instanceof ApiError ? `Delivery Error: ${err.code}` : 'Delivery failed');
     } finally {
       setLoading(false);
     }
@@ -1143,16 +989,9 @@ export const App: FC = () => {
   // Auth screen
   if (!firebaseConfigured) {
     return (
-      <main className="auth-shell">
-        <section className="auth-panel">
-          <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-          <p className="eyebrow">CONFIGURATION REQUIRED</p>
-          <h1>Environment Missing</h1>
-          <p>
-            Please configure VITE_FIREBASE_* and VITE_API_BASE environment variables.
-          </p>
-        </section>
-      </main>
+      <CenterState eyebrow="Configuration required" title="Environment missing">
+        <p>Please configure the VITE_FIREBASE_* and VITE_API_BASE environment variables.</p>
+      </CenterState>
     );
   }
 
@@ -1177,222 +1016,72 @@ export const App: FC = () => {
     team: 'Operations Team & Tasks',
   };
 
+  const selectTab = (key: TabKey) => {
+    setActiveTab(key);
+    if (['dispatch', 'acquisitions', 'documentation', 'handover', 'inventory'].includes(key)) setStatusFilter('ALL');
+  };
+  const navSections: NavSection<TabKey>[] = [
+    {
+      title: 'Fleet and dispatch',
+      items: [
+        { key: 'overview', label: 'Overview', icon: <IconDashboard /> },
+        { key: 'dispatch', label: 'Inspection dispatch', icon: <IconDispatch />, badge: metrics?.unassigned },
+      ],
+    },
+    {
+      title: 'Post-inspection and custody',
+      items: [
+        { key: 'acquisitions', label: 'Acquisitions and valuation', icon: <IconAcquisitions />, badge: metrics?.acquisitions?.documentationRequired },
+        { key: 'documentation', label: 'Seller documentation', icon: <IconDocuments /> },
+        { key: 'handover', label: 'Custody handover', icon: <IconHandover />, badge: metrics?.acquisitions?.handoverReady || metrics?.acquisitions?.settlementReady },
+      ],
+    },
+    {
+      title: 'Vehicle preparation',
+      items: [
+        { key: 'inventory', label: 'Stock inventory', icon: <IconInventory />, badge: inventory.length },
+        { key: 'refurbishment', label: 'Workshop repairs', icon: <IconRefurbishment />, badge: metrics?.refurbishment?.pendingCostApprovals },
+        { key: 'qc', label: 'Quality control', icon: <IconQC />, badge: metrics?.stock?.qcPending },
+      ],
+    },
+    {
+      title: 'Marketplace and delivery',
+      items: [
+        { key: 'studio', label: 'Listing studio', icon: <IconStudio />, badge: metrics?.stock?.listingPreparation },
+        { key: 'publication', label: 'Retail publication', icon: <IconPublish />, badge: metrics?.stock?.listingReady },
+        { key: 'deliveries', label: 'Test drives and delivery', icon: <IconDelivery />, badge: testDrives.length },
+        { key: 'service', label: 'Car service and hubs', icon: <IconService /> },
+        { key: 'rentals', label: 'Rental fleet and trips', icon: <IconRentals /> },
+        { key: 'team', label: 'Operations team', icon: <IconLock /> },
+      ],
+    },
+  ];
+
   return (
-    <div className="app-shell">
-      {/* Left Sidebar Navigation (Matching Admin Panel) */}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="brand">
-          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-          <span>Operations</span>
-        </div>
-
-        <nav aria-label="Operations Primary Navigation">
-          <div className="sidebar-nav-section">Fleet & Dispatch</div>
-          <button
-            type="button"
-            className={activeTab === 'overview' ? 'active' : ''}
-            onClick={() => { setActiveTab('overview'); setSidebarOpen(false); }}
-          >
-            <IconDashboard />
-            <span>Overview</span>
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'dispatch' ? 'active' : ''}
-            onClick={() => { setActiveTab('dispatch'); setStatusFilter('ALL'); setSidebarOpen(false); }}
-          >
-            <IconDispatch />
-            <span>Inspection Dispatch</span>
-            {metrics?.unassigned ? <span className="tab-badge">{metrics.unassigned}</span> : null}
-          </button>
-
-          <div className="sidebar-nav-section">Post-Inspection & Custody</div>
-          <button
-            type="button"
-            className={activeTab === 'acquisitions' ? 'active' : ''}
-            onClick={() => { setActiveTab('acquisitions'); setStatusFilter('ALL'); setSidebarOpen(false); }}
-          >
-            <IconAcquisitions />
-            <span>Acquisitions & Valuation</span>
-            {metrics?.acquisitions?.documentationRequired ? (
-              <span className="tab-badge">{metrics.acquisitions.documentationRequired}</span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'documentation' ? 'active' : ''}
-            onClick={() => { setActiveTab('documentation'); setStatusFilter('ALL'); setSidebarOpen(false); }}
-          >
-            <IconDocuments />
-            <span>Seller Documentation</span>
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'handover' ? 'active' : ''}
-            onClick={() => { setActiveTab('handover'); setStatusFilter('ALL'); setSidebarOpen(false); }}
-          >
-            <IconHandover />
-            <span>Custody Handover</span>
-            {metrics?.acquisitions?.handoverReady ? (
-              <span className="tab-badge">{metrics.acquisitions.handoverReady}</span>
-            ) : metrics?.acquisitions?.settlementReady ? (
-              <span className="tab-badge">{metrics.acquisitions.settlementReady}</span>
-            ) : null}
-          </button>
-
-          <div className="sidebar-nav-section">Vehicle Preparation</div>
-          <button
-            type="button"
-            className={activeTab === 'inventory' ? 'active' : ''}
-            onClick={() => { setActiveTab('inventory'); setStatusFilter('ALL'); setSidebarOpen(false); }}
-          >
-            <IconInventory />
-            <span>Stock Inventory</span>
-            {inventory.length ? <span className="tab-badge">{inventory.length}</span> : null}
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'refurbishment' ? 'active' : ''}
-            onClick={() => { setActiveTab('refurbishment'); setSidebarOpen(false); }}
-          >
-            <IconRefurbishment />
-            <span>Workshop Repairs</span>
-            {metrics?.refurbishment?.pendingCostApprovals ? (
-              <span className="tab-badge" style={{ background: 'var(--yellow)', color: 'var(--navy)' }}>{metrics.refurbishment.pendingCostApprovals} cost</span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'qc' ? 'active' : ''}
-            onClick={() => { setActiveTab('qc'); setSidebarOpen(false); }}
-          >
-            <IconQC />
-            <span>Quality Control</span>
-            {metrics?.stock?.qcPending ? <span className="tab-badge">{metrics.stock.qcPending}</span> : null}
-          </button>
-
-          <div className="sidebar-nav-section">Marketplace & Delivery</div>
-          <button
-            type="button"
-            className={activeTab === 'studio' ? 'active' : ''}
-            onClick={() => { setActiveTab('studio'); setSidebarOpen(false); }}
-          >
-            <IconStudio />
-            <span>Listing Studio</span>
-            {metrics?.stock?.listingPreparation ? (
-              <span className="tab-badge">{metrics.stock.listingPreparation}</span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'publication' ? 'active' : ''}
-            onClick={() => { setActiveTab('publication'); setSidebarOpen(false); }}
-          >
-            <IconPublish />
-            <span>Retail Publication</span>
-            {metrics?.stock?.listingReady ? (
-              <span className="tab-badge">{metrics.stock.listingReady}</span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'deliveries' ? 'active' : ''}
-            onClick={() => { setActiveTab('deliveries'); setSidebarOpen(false); }}
-          >
-            <IconDelivery />
-            <span>Test Drives & Delivery</span>
-            {testDrives.length ? <span className="tab-badge">{testDrives.length}</span> : null}
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'service' ? 'active' : ''}
-            onClick={() => { setActiveTab('service'); setSidebarOpen(false); }}
-          >
-            <IconService />
-            <span>Car Service & Hubs</span>
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'rentals' ? 'active' : ''}
-            onClick={() => { setActiveTab('rentals'); setSidebarOpen(false); }}
-          >
-            <IconRentals />
-            <span>Rental Fleet & Trips</span>
-          </button>
-          <button
-            type="button"
-            className={activeTab === 'team' ? 'active' : ''}
-            onClick={() => { setActiveTab('team'); setSidebarOpen(false); }}
-          >
-            <IconLock />
-            <span>Operations Team</span>
-          </button>
-        </nav>
-
-        <div className="sidebar-account">
-          <span>{user.displayName || user.email}</span>
-          <small>Operations & Fleet Manager</small>
-          <button type="button" onClick={() => void signOut(auth!)}>
-            <IconLogout /> Sign out
-          </button>
-        </div>
-      </aside>
-
-      {sidebarOpen && <button className="scrim" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
-
-      <div className="app-main">
-        {/* Topbar (Matching Admin Panel) */}
-        <header className="topbar">
-          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
-            <button
-              type="button"
-              className="icon-button mobile-menu"
-              aria-label={sidebarOpen ? 'Close navigation' : 'Open navigation'}
-              aria-expanded={sidebarOpen}
-              onClick={() => setSidebarOpen(!sidebarOpen)}
-            >
-              {sidebarOpen ? <IconCross /> : <IconMenu />}
-            </button>
-            <div>
-              <span className="breadcrumb">V MOTIV Operations /</span>
-              <strong>{TAB_LABELS[activeTab] || 'Workspace'}</strong>
-            </div>
-          </div>
-          <div className="identity">
-            <span>{user.email}</span>
-            <span className="mfa-badge">MFA verified</span>
-          </div>
-        </header>
-
-        {/* Main Content Area */}
-        <main id="main" className="main-content" tabIndex={-1}>
+    <AppShell
+      portalName="Operations"
+      sections={navSections}
+      active={activeTab}
+      onSelect={selectTab}
+      account={{ name: user.displayName || user.email || 'Operations', role: 'Operations and fleet manager' }}
+      onSignOut={() => void signOut(auth!)}
+      context="V MOTIV Operations"
+      title={TAB_LABELS[activeTab] || 'Workspace'}
+      toolbar={
+        <>
+          <span className="hidden text-sm text-base-content/65 md:inline">{user.email}</span>
+          <span className="badge badge-soft badge-success hidden font-medium sm:inline-flex">MFA verified</span>
+        </>
+      }
+    >
         {/* Alerts */}
-        {error ? (
-          <aside className="alert-error" role="alert">
-            <span>{error}</span>
-            <button type="button" aria-label="Dismiss error" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }} onClick={() => setError(null)}>
-              <IconCross />
-            </button>
-          </aside>
-        ) : null}
+        {error ? <Alert tone="error" className="mb-4" onDismiss={() => setError(null)}>{error}</Alert> : null}
 
         {loadWarning ? (
-          <aside className="alert-warning" role="status">
-            <span>{loadWarning}</span>
-            <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-              <button type="button" className="btn-secondary btn-sm" onClick={() => void loadAllData()} disabled={loading}>Retry</button>
-              <button type="button" aria-label="Dismiss loading warning" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }} onClick={() => setLoadWarning(null)}><IconCross /></button>
-            </div>
-          </aside>
-        ) : null}
-
-        {successMsg ? (
-          <aside className="alert-success" role="status">
-            <span><IconCheck /> {successMsg}</span>
-            <button type="button" aria-label="Dismiss success message" style={{ background: 'transparent', border: 'none', cursor: 'pointer', color: 'inherit' }} onClick={() => setSuccessMsg(null)}>
-              <IconCross />
-            </button>
-          </aside>
+          <Alert tone="warning" className="mb-4" onDismiss={() => setLoadWarning(null)}>
+            <span>{loadWarning}</span>{' '}
+            <Button size="xs" variant="secondary" loading={loading} onClick={() => void loadAllData()}>Retry</Button>
+          </Alert>
         ) : null}
 
         {/* ======================================================== */}
@@ -1620,7 +1309,7 @@ export const App: FC = () => {
                           <div style={{ display: 'flex', alignItems: 'center', gap: '0.4rem', flexWrap: 'wrap' }}>
                             <strong>{r.lead.make} {r.lead.model}{r.lead.variant ? ` ${r.lead.variant}` : ''}</strong>
                             {r.lead.registrationNumber ? (
-                              <span style={{ padding: '1px 6px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>
+                              <span style={{ padding: '1px 6px', background: 'color-mix(in oklab, var(--color-base-content) 8%, transparent)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '0.75rem', fontWeight: 700, letterSpacing: '0.5px' }}>
                                 {r.lead.registrationNumber}
                               </span>
                             ) : null}
@@ -1710,9 +1399,9 @@ export const App: FC = () => {
                                   try {
                                     await api.cancelInspection(user, r.id, 'Cancelled via operations dispatch');
                                     setSuccessMsg('Inspection request cancelled');
-                                    await loadAllData();
+                                    void loadAllData(user, true).catch(() => undefined);
                                   } catch (e) {
-                                    setError('Failed to cancel request');
+                                    reportError('Failed to cancel request');
                                   }
                                 }}
                               >
@@ -1831,7 +1520,7 @@ export const App: FC = () => {
                       </div>
 
                       {c.stockUnit ? (
-                        <div style={{ padding: '0.5rem', background: 'var(--success-bg)', border: '1px solid rgba(97, 217, 154, 0.3)', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--success)', fontWeight: 600 }}>
+                        <div style={{ padding: '0.5rem', background: 'var(--success-bg)', border: '1px solid color-mix(in oklab, var(--color-success) 30%, transparent)', borderRadius: '6px', fontSize: '0.8rem', color: 'var(--success)', fontWeight: 600 }}>
                           ✓ Inwarded to Stock: {c.stockUnit.stockCode} ({c.stockUnit.status})
                         </div>
                       ) : null}
@@ -1960,7 +1649,7 @@ export const App: FC = () => {
 
               {/* Documentation Filter Bar */}
               <div style={{
-                background: 'rgba(255, 255, 255, 0.03)',
+                background: 'color-mix(in oklab, var(--color-base-content) 3%, transparent)',
                 border: '1px solid var(--border)',
                 borderRadius: '8px',
                 padding: '12px 16px',
@@ -2030,7 +1719,7 @@ export const App: FC = () => {
                     <button
                       type="button"
                       className="btn-secondary"
-                      style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', color: '#f87171' }}
+                      style={{ padding: '0.4rem 0.8rem', fontSize: '0.8rem', color: 'var(--color-error)' }}
                       onClick={resetDocFilters}
                     >
                       Clear Filters
@@ -2079,7 +1768,7 @@ export const App: FC = () => {
                       {(() => {
                         const selected = (docSelection[c.id] ?? []).filter(t => displayedDocs.some(d => d.documentType === t));
                         return selected.length > 0 ? (
-                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', background: 'rgba(245, 158, 11, 0.1)', borderBottom: '1px solid var(--border)' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', padding: '0.6rem 1rem', background: 'color-mix(in oklab, var(--color-primary) 10%, transparent)', borderBottom: '1px solid var(--border)' }}>
                             <strong style={{ fontSize: '0.85rem' }}>{selected.length} selected</strong>
                             <button
                               type="button"
@@ -2118,7 +1807,7 @@ export const App: FC = () => {
                           </thead>
                           <tbody>
                             {displayedDocs.map(doc => (
-                              <tr key={doc.id} style={docTypeFilter !== 'ALL' ? { background: 'rgba(255, 255, 255, 0.04)' } : undefined}>
+                              <tr key={doc.id} style={docTypeFilter !== 'ALL' ? { background: 'color-mix(in oklab, var(--color-base-content) 4%, transparent)' } : undefined}>
                                 <td>
                                   <input
                                     type="checkbox"
@@ -2219,7 +1908,7 @@ export const App: FC = () => {
                         padding: '0.6rem',
                         borderRadius: '6px',
                         background: settlementDone ? 'var(--success-bg)' : 'var(--warning-bg)',
-                        border: settlementDone ? '1px solid rgba(97, 217, 154, 0.3)' : '1px solid rgba(247, 181, 3, 0.3)',
+                        border: settlementDone ? '1px solid color-mix(in oklab, var(--color-success) 30%, transparent)' : '1px solid color-mix(in oklab, var(--color-primary) 30%, transparent)',
                         color: settlementDone ? 'var(--success)' : 'var(--warning)',
                         fontSize: '0.8rem',
                         display: 'flex',
@@ -2337,13 +2026,13 @@ export const App: FC = () => {
                         <td>
                           <strong>{s.manufacturingYear} {s.make} {s.model}{s.variant ? ` ${s.variant}` : ''}</strong>
                           <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>
-                            {[s.fuelType, s.transmission, s.color || 'Standard'].filter(Boolean).join(' · ')}
+                            {[s.bodyType ? bodyTypeLabel(s.bodyType, bodyTypeOptions) : '', s.fuelType, s.transmission, s.color || 'Standard'].filter(Boolean).join(' · ')}
                           </div>
                         </td>
                         <td>
                           <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
                             {s.registrationNumber ? (
-                              <span style={{ display: 'inline-block', width: 'fit-content', padding: '1px 6px', background: 'rgba(255, 255, 255, 0.06)', border: '1px solid var(--border)', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.5px', fontSize: '0.8125rem' }}>
+                              <span style={{ display: 'inline-block', width: 'fit-content', padding: '1px 6px', background: 'color-mix(in oklab, var(--color-base-content) 6%, transparent)', border: '1px solid var(--border)', borderRadius: '4px', fontWeight: 700, letterSpacing: '0.5px', fontSize: '0.8125rem' }}>
                                 {s.registrationNumber}
                               </span>
                             ) : (
@@ -2382,6 +2071,7 @@ export const App: FC = () => {
                                   stockItem: s,
                                   registrationNumber: s.registrationNumber || '',
                                   variant: s.variant || '',
+                                  bodyType: s.bodyType || '',
                                   color: s.color || '',
                                   odometerKm: s.odometerKm || 0,
                                 });
@@ -2801,7 +2491,7 @@ export const App: FC = () => {
                       {heroPhoto ? (
                         <div style={{ height: '140px', overflow: 'hidden', borderTopLeftRadius: 'var(--radius-md)', borderTopRightRadius: 'var(--radius-md)', background: 'var(--surface-2)', position: 'relative' }}>
                           <img src={heroPhoto} alt={s.model} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
-                          <span style={{ position: 'absolute', bottom: '8px', right: '8px', background: 'rgba(2, 11, 24, 0.85)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', color: 'var(--text)', border: '1px solid var(--border)' }}>
+                          <span style={{ position: 'absolute', bottom: '8px', right: '8px', background: 'var(--scrim)', padding: '2px 8px', borderRadius: '4px', fontSize: '0.75rem', color: 'var(--text)', border: '1px solid var(--border)' }}>
                             {mediaList.length} photo{mediaList.length === 1 ? '' : 's'}
                           </span>
                         </div>
@@ -2908,7 +2598,7 @@ export const App: FC = () => {
                         <div className="gate-indicator passed">✓ Studio Specifications & Photos Attached</div>
 
                         {isPublished ? (
-                          <div style={{ marginTop: '0.5rem', padding: '0.6rem', background: 'var(--success-bg)', border: '1px solid rgba(97, 217, 154, 0.3)', borderRadius: '6px', color: 'var(--success)', fontWeight: 600 }}>
+                          <div style={{ marginTop: '0.5rem', padding: '0.6rem', background: 'var(--success-bg)', border: '1px solid color-mix(in oklab, var(--color-success) 30%, transparent)', borderRadius: '6px', color: 'var(--success)', fontWeight: 600 }}>
                             ✓ Live in V MOTIV Catalog at {formatRupees(s.vehicle?.listing?.pricePaise)}
                           </div>
                         ) : null}
@@ -3011,9 +2701,9 @@ export const App: FC = () => {
                                 try {
                                   await api.updateTestDriveStatus(user, td.id, 'CONFIRMED');
                                   setSuccessMsg('Test drive appointment confirmed');
-                                  await loadAllData();
+                                  void loadAllData(user, true).catch(() => undefined);
                                 } catch (e) {
-                                  setError('Failed to confirm test drive');
+                                  reportError('Failed to confirm test drive');
                                 }
                               }}
                             >
@@ -3027,9 +2717,9 @@ export const App: FC = () => {
                                 try {
                                   await api.updateTestDriveStatus(user, td.id, 'COMPLETED');
                                   setSuccessMsg('Test drive marked as completed');
-                                  await loadAllData();
+                                  void loadAllData(user, true).catch(() => undefined);
                                 } catch (e) {
-                                  setError('Failed to update test drive');
+                                  reportError('Failed to update test drive');
                                 }
                               }}
                             >
@@ -3060,24 +2750,28 @@ export const App: FC = () => {
         {/* VIEW 12: CAR SERVICE OPERATIONS                           */}
         {/* ======================================================== */}
         {activeTab === 'service' ? (
-          <ServiceOperationsPanel
-            user={user}
-            branches={branches}
-            onError={err => setError(err)}
-            onSuccess={msg => setSuccessMsg(msg)}
-          />
+          <Suspense fallback={<SkeletonRows rows={6} />}>
+            <ServiceOperationsPanel
+              user={user}
+              branches={branches}
+              onError={err => reportError(err)}
+              onSuccess={msg => setSuccessMsg(msg)}
+            />
+          </Suspense>
         ) : null}
 
         {/* ======================================================== */}
         {/* VIEW 13: RENTAL FLEET & OPERATIONS                        */}
         {/* ======================================================== */}
         {activeTab === 'rentals' ? (
-          <RentalOperationsPanel
-            user={user}
-            branches={branches}
-            onError={err => setError(err)}
-            onSuccess={msg => setSuccessMsg(msg)}
-          />
+          <Suspense fallback={<SkeletonRows rows={6} />}>
+            <RentalOperationsPanel
+              user={user}
+              branches={branches}
+              onError={err => reportError(err)}
+              onSuccess={msg => setSuccessMsg(msg)}
+            />
+          </Suspense>
         ) : null}
 
         {/* ======================================================== */}
@@ -3128,8 +2822,6 @@ export const App: FC = () => {
             </div>
           </div>
         ) : null}
-        </main>
-      </div>
 
       {/* ======================================================== */}
       {/* MODAL: ASSIGN INSPECTOR                                  */}
@@ -3185,7 +2877,7 @@ export const App: FC = () => {
                     </div>
                   </div>
                   {assignModal.request.lead.registrationNumber ? (
-                    <span style={{ padding: '2px 8px', background: 'rgba(255,255,255,0.08)', border: '1px solid var(--border)', borderRadius: '4px', fontWeight: 700, fontSize: '0.82rem', letterSpacing: '0.5px' }}>
+                    <span style={{ padding: '2px 8px', background: 'color-mix(in oklab, var(--color-base-content) 8%, transparent)', border: '1px solid var(--border)', borderRadius: '4px', fontWeight: 700, fontSize: '0.82rem', letterSpacing: '0.5px' }}>
                       {assignModal.request.lead.registrationNumber}
                     </span>
                   ) : (
@@ -3209,7 +2901,7 @@ export const App: FC = () => {
                     ))}
                   </select>
                   {assignableInspectors.length === 0 && (
-                    <div role="alert" style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: '#fbbf24', fontWeight: 600 }}>
+                    <div role="alert" style={{ marginTop: '0.5rem', fontSize: '0.8125rem', color: 'var(--color-warning)', fontWeight: 600 }}>
                       No active inspector is assigned to this request's branch{assignModal.request.lead.city ? ` (${assignModal.request.lead.city})` : ''}. Add an inspector to that branch in the Admin portal, then reopen this dialog.
                     </div>
                   )}
@@ -3254,7 +2946,7 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setAssignModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading}>Confirm Assignment</button>
+                <Button type="submit" loading={loading}>Confirm Assignment</Button>
               </div>
             </form>
           </div>
@@ -3306,7 +2998,7 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setDocModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading}>{docModal.docTypes && docModal.docTypes.length > 1 ? `Update ${docModal.docTypes.length} Documents` : 'Update Document Status'}</button>
+                <Button type="submit" loading={loading}>{docModal.docTypes && docModal.docTypes.length > 1 ? `Update ${docModal.docTypes.length} Documents` : 'Update Document Status'}</Button>
               </div>
             </form>
           </div>
@@ -3433,7 +3125,7 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setHandoverModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading}>Save Custody Record</button>
+                <Button type="submit" loading={loading}>Save Custody Record</Button>
               </div>
             </form>
           </div>
@@ -3494,7 +3186,7 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setStockInwardModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading || !inwardBranchId}>Inward Vehicle to Stock</button>
+                <Button type="submit" loading={loading} disabled={!inwardBranchId}>Inward Vehicle to Stock</Button>
               </div>
             </form>
           </div>
@@ -3509,7 +3201,7 @@ export const App: FC = () => {
           <div className="modal-dialog modal-dialog-md">
             <div className="modal-header">
               <h3>Edit Vehicle Specs & Registration Plate</h3>
-              <button className="btn-close" onClick={() => setSpecsModal({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 })}>✕</button>
+              <button className="btn-close" onClick={() => setSpecsModal({ open: false, registrationNumber: '', variant: '', bodyType: '', color: '', odometerKm: 0 })}>✕</button>
             </div>
             <form onSubmit={handleSaveSpecs}>
               <div className="modal-body">
@@ -3544,6 +3236,19 @@ export const App: FC = () => {
                 </div>
 
                 <div className="form-group">
+                  <label>Body type</label>
+                  <select
+                    className="form-select"
+                    value={specsModal.bodyType}
+                    onChange={e => setSpecsModal({ ...specsModal, bodyType: e.target.value })}
+                  >
+                    <option value="">Detect from make and model</option>
+                    {bodyTypeOptions.map(option => <option key={option.code} value={option.code}>{option.name}</option>)}
+                  </select>
+                  <small className="helper">Customers filter cars by this (Hatchback, Sedan, SUV…). Leave it on automatic unless the car is an exception.</small>
+                </div>
+
+                <div className="form-group">
                   <label>Exterior Color</label>
                   <input
                     type="text"
@@ -3569,13 +3274,13 @@ export const App: FC = () => {
                 <button
                   type="button"
                   className="btn-secondary"
-                  onClick={() => setSpecsModal({ open: false, registrationNumber: '', variant: '', color: '', odometerKm: 0 })}
+                  onClick={() => setSpecsModal({ open: false, registrationNumber: '', variant: '', bodyType: '', color: '', odometerKm: 0 })}
                 >
                   Cancel
                 </button>
-                <button type="submit" className="btn-primary" disabled={loading}>
+                <Button type="submit" loading={loading}>
                   {loading ? 'Saving…' : 'Save Vehicle Specs'}
-                </button>
+                </Button>
               </div>
             </form>
           </div>
@@ -3652,7 +3357,7 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setWorkOrderModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading}>Create Work Order</button>
+                <Button type="submit" loading={loading}>Create Work Order</Button>
               </div>
             </form>
           </div>
@@ -3716,7 +3421,7 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setEditCostModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading}>Resubmit for Approval</button>
+                <Button type="submit" loading={loading}>Resubmit for Approval</Button>
               </div>
             </form>
           </div>
@@ -3768,7 +3473,7 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setQcModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading}>Submit QC Decision</button>
+                <Button type="submit" loading={loading}>Submit QC Decision</Button>
               </div>
             </form>
           </div>
@@ -3790,7 +3495,7 @@ export const App: FC = () => {
             <form onSubmit={handleStudioSubmit}>
               <div className="modal-body">
                 {isStudioListed ? (
-                  <div style={{ padding: '0.75rem 1rem', background: 'rgba(239, 68, 68, 0.12)', border: '1px solid rgba(239, 68, 68, 0.3)', borderRadius: '6px', color: '#FCA5A5', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.85rem' }}>
+                  <div style={{ padding: '0.75rem 1rem', background: 'color-mix(in oklab, var(--color-error) 12%, transparent)', border: '1px solid color-mix(in oklab, var(--color-error) 30%, transparent)', borderRadius: '6px', color: 'var(--color-error)', marginBottom: '1.25rem', display: 'flex', alignItems: 'center', gap: '0.6rem', fontSize: '0.85rem' }}>
                     <span style={{ fontSize: '1.2rem' }}>🔒</span>
                     <div>
                       <strong>Published Marketplace Listing (Read-Only)</strong>
@@ -3882,17 +3587,17 @@ export const App: FC = () => {
                       </div>
                       <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
                         {stagedStudioFiles.map((staged, sIdx) => (
-                          <div key={staged.id} style={{ position: 'relative', border: '2px dashed var(--yellow)', borderRadius: 8, padding: 2, background: 'rgba(247, 181, 3, 0.05)' }}>
+                          <div key={staged.id} style={{ position: 'relative', border: '2px dashed var(--yellow)', borderRadius: 8, padding: 2, background: 'color-mix(in oklab, var(--color-primary) 5%, transparent)' }}>
                             <img src={staged.previewUrl} alt={`Staged photo ${sIdx + 1}`} style={{ width: 92, height: 64, objectFit: 'cover', borderRadius: 6, display: 'block' }} />
                             <button
                               type="button"
                               aria-label={`Discard staged photo ${sIdx + 1}`}
                               onClick={() => removeStagedStudioPhoto(staged.id)}
-                              style={{ position: 'absolute', top: -7, right: -7, borderRadius: 99, border: 0, width: 22, height: 22, cursor: 'pointer', background: 'var(--red, #EF4444)', color: '#fff', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                              style={{ position: 'absolute', top: -7, right: -7, borderRadius: 99, border: 0, width: 22, height: 22, cursor: 'pointer', background: 'var(--red, var(--color-error))', color: '#fff', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                             >
                               ×
                             </button>
-                            <span style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(0, 0, 0, 0.75)', color: 'var(--yellow)', fontSize: '0.62rem', padding: '1px 4px', borderRadius: 3 }}>
+                            <span style={{ position: 'absolute', bottom: 4, left: 4, background: 'var(--scrim)', color: 'var(--yellow)', fontSize: '0.62rem', padding: '1px 4px', borderRadius: 3 }}>
                               Staged
                             </span>
                           </div>
@@ -3916,7 +3621,7 @@ export const App: FC = () => {
                                 type="button"
                                 aria-label={`Remove listing photo ${index + 1}`}
                                 onClick={() => setStudioPhotos(current => current.split('\n').filter(item => item !== url).join('\n'))}
-                                style={{ position: 'absolute', top: -7, right: -7, borderRadius: 99, border: 0, width: 22, height: 22, cursor: 'pointer', background: 'var(--red, #EF4444)', color: '#fff', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                                style={{ position: 'absolute', top: -7, right: -7, borderRadius: 99, border: 0, width: 22, height: 22, cursor: 'pointer', background: 'var(--red, var(--color-error))', color: '#fff', fontSize: '12px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
                               >
                                 ×
                               </button>
@@ -3930,12 +3635,12 @@ export const App: FC = () => {
                                   const reordered = [url, ...photos.filter(p => p !== url)];
                                   setStudioPhotos(reordered.join('\n'));
                                 }}
-                                style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(2, 11, 24, 0.85)', color: 'var(--yellow)', border: '1px solid var(--border)', borderRadius: 4, fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}
+                                style={{ position: 'absolute', bottom: 4, left: 4, background: 'var(--scrim)', color: 'var(--yellow)', border: '1px solid var(--border)', borderRadius: 4, fontSize: '0.65rem', padding: '1px 5px', cursor: 'pointer' }}
                               >
                                 ★ Cover
                               </button>
                             ) : index === 0 ? (
-                              <span style={{ position: 'absolute', bottom: 4, left: 4, background: 'rgba(247, 181, 3, 0.9)', color: '#000', fontWeight: 700, borderRadius: 4, fontSize: '0.65rem', padding: '1px 5px' }}>
+                              <span style={{ position: 'absolute', bottom: 4, left: 4, background: 'color-mix(in oklab, var(--color-primary) 90%, transparent)', color: '#000', fontWeight: 700, borderRadius: 4, fontSize: '0.65rem', padding: '1px 5px' }}>
                                 Cover
                               </span>
                             ) : null}
@@ -3963,13 +3668,13 @@ export const App: FC = () => {
                     </a>
                   ) : null
                 ) : (
-                  <button type="submit" className="btn-gold" disabled={loading || studioUploading}>
+                  <Button type="submit" loading={loading} disabled={studioUploading}>
                     {studioUploading
                       ? 'Uploading to Cloudinary & Saving…'
                       : stagedStudioFiles.length > 0
                       ? `Upload & Save (${stagedStudioFiles.length} Staged Photo${stagedStudioFiles.length === 1 ? '' : 's'})`
                       : 'Save Studio Specifications'}
-                  </button>
+                  </Button>
                 )}
               </div>
             </form>
@@ -4046,7 +3751,7 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setPublishModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading}>Publish to Marketplace</button>
+                <Button type="submit" loading={loading}>Publish to Marketplace</Button>
               </div>
             </form>
           </div>
@@ -4108,7 +3813,7 @@ export const App: FC = () => {
               </div>
               <div className="modal-footer">
                 <button type="button" className="btn-secondary" onClick={() => setDeliveryModal({ open: false })}>Cancel</button>
-                <button type="submit" className="btn-gold" disabled={loading}>Complete Buyer Delivery</button>
+                <Button type="submit" loading={loading}>Complete Buyer Delivery</Button>
               </div>
             </form>
           </div>
@@ -4185,7 +3890,7 @@ export const App: FC = () => {
                 </div>
               ) : null}
 
-              <div style={{ padding: '0.65rem 0.85rem', background: 'rgba(97, 217, 154, 0.08)', border: '1px solid rgba(97, 217, 154, 0.3)', borderRadius: '6px', fontSize: '0.78rem', color: 'var(--success)' }}>
+              <div style={{ padding: '0.65rem 0.85rem', background: 'color-mix(in oklab, var(--color-success) 8%, transparent)', border: '1px solid color-mix(in oklab, var(--color-success) 30%, transparent)', borderRadius: '6px', fontSize: '0.78rem', color: 'var(--success)' }}>
                 ✓ Physical handover finalized and registered in immutable AuditEvent compliance log.
               </div>
             </div>
@@ -4195,7 +3900,7 @@ export const App: FC = () => {
           </div>
         </div>
       ) : null}
-    </div>
+    </AppShell>
   );
 };
 

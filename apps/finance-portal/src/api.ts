@@ -1,30 +1,20 @@
 import type { User } from 'firebase/auth';
 
-const base = ((import.meta.env.VITE_API_BASE || 'http://localhost:4100/api/v2').replace(/\/$/, ''))
-  .replace('https://vmotiv.in', 'https://api.vmotiv.in')
-  .replace('https://www.vmotiv.in', 'https://api.vmotiv.in');
+import { ApiError, createApiClient, resolveApiBase, type ApiClient } from '@vmotiv/ui';
 
-export class ApiError extends Error {
-  constructor(public code: string) {
-    super(code);
-  }
-}
+export { ApiError };
 
-async function call<T>(user: User, path: string, init: RequestInit = {}): Promise<T> {
-  const token = await user.getIdToken();
-  const response = await fetch(`${base}/finance${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...init.headers,
-    },
-  });
-  if (!response.ok) {
-    const data = await response.json().catch(() => ({ code: 'REQUEST_FAILED' }));
-    throw new ApiError(data.code || 'REQUEST_FAILED');
+const base = resolveApiBase(import.meta.env.VITE_API_BASE);
+const clients = new WeakMap<User, ApiClient>();
+
+/** Finance API calls share one client per signed-in user (request de-duplication, token refresh, retry, progress bar). */
+function call<T>(user: User, path: string, init: RequestInit = {}): Promise<T> {
+  let client = clients.get(user);
+  if (!client) {
+    client = createApiClient({ base, prefix: '/finance', getToken: force => user.getIdToken(force) });
+    clients.set(user, client);
   }
-  return response.json();
+  return client.request<T>(path, init as never);
 }
 
 export interface FinanceActor {
@@ -78,7 +68,7 @@ function normaliseDashboard(data: FinanceDashboardResponse): DashboardMetrics {
 
 function parseStatementFeed(rawText: string) {
   const rows = rawText.trim().split(/\r?\n/).filter(Boolean);
-  if (rows.length < 2) throw new ApiError('STATEMENT_REQUIRES_HEADER_AND_ENTRY');
+  if (rows.length < 2) throw new ApiError(400, 'STATEMENT_REQUIRES_HEADER_AND_ENTRY');
   const parseRow = (line: string) => {
     const values: string[] = [];
     let cell = ''; let quote = false;
@@ -95,7 +85,7 @@ function parseStatementFeed(rawText: string) {
   const index = (name: string) => headers.indexOf(name);
   const dateIndex = index('date');
   const narrationIndex = Math.max(index('narration'), index('description'));
-  if (dateIndex < 0 || narrationIndex < 0) throw new ApiError('STATEMENT_COLUMNS_DATE_AND_NARRATION_REQUIRED');
+  if (dateIndex < 0 || narrationIndex < 0) throw new ApiError(400, 'STATEMENT_COLUMNS_DATE_AND_NARRATION_REQUIRED');
   const numericPaise = (value: string) => String(Math.round((Number(value.replace(/,/g, '')) || 0) * 100));
   const entries = rows.slice(1).map(line => {
     const cells = parseRow(line);
@@ -107,7 +97,7 @@ function parseStatementFeed(rawText: string) {
       creditPaise: index('credit') >= 0 ? numericPaise(cells[index('credit')]) : '0',
     };
   }).filter(entry => entry.entryDate && entry.description);
-  if (!entries.length) throw new ApiError('STATEMENT_HAS_NO_VALID_ENTRIES');
+  if (!entries.length) throw new ApiError(400, 'STATEMENT_HAS_NO_VALID_ENTRIES');
   return entries;
 }
 
@@ -451,7 +441,7 @@ export interface AuditLogEntry {
 async function pulseTokens(user: User, domains: string[], fresh = false): Promise<Record<string, string>> {
   const token = await user.getIdToken();
   const response = await fetch(`${base}/pulse?domains=${domains.join(',')}${fresh ? '&fresh=1' : ''}`, { headers: { Authorization: `Bearer ${token}` } });
-  if (!response.ok) throw new ApiError('PULSE_FAILED');
+  if (!response.ok) throw new ApiError(400, 'PULSE_FAILED');
   return ((await response.json()) as { tokens: Record<string, string> }).tokens;
 }
 

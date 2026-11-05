@@ -203,7 +203,7 @@ const VEHICLES = [
     color: 'Super White',
     ownershipCount: 1,
     city: 'Bengaluru',
-    bodyType: 'MPV',
+    bodyType: 'MUV',
     engineCapacityCc: 2393,
     pricePaise: 199000000n, // ₹19,90,000
     title: '2021 Toyota Innova Crysta 2.4 VX 7 STR',

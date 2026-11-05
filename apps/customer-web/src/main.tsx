@@ -13,7 +13,10 @@ import { auth, configured } from './firebase';
 import { friendlyError, syncProfile, type Profile } from './account-api';
 import { fetchCities, fetchUserDrives } from './api';
 import type { CityItem, ListingItem } from './types';
+import { Toaster, initTheme, RequestProgress } from '@vmotiv/ui';
 import './styles.css';
+
+initTheme();
 
 // Components
 import { Navbar } from './components/Navbar';
@@ -1072,6 +1075,8 @@ function App() {
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
+    <RequestProgress />
     <App />
+    <Toaster />
   </React.StrictMode>
 );

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import type { User } from 'firebase/auth';
 import type { ListingItem } from '../types';
-import { fetchInventory, fetchInventoryFacets, fetchUserDrives, formatLakh } from '../api';
+import { bodyTypeLabel, fetchInventory, fetchInventoryFacets, fetchUserDrives, formatLakh } from '../api';
 
 interface AvailableCarsProps {
   user?: User | null;
@@ -21,9 +21,11 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [fuelFilter, setFuelFilter] = useState<string>('ALL');
   const [transmissionFilter, setTransmissionFilter] = useState<string>('ALL');
+  const [bodyFilter, setBodyFilter] = useState<string>('ALL');
   // Filter chips come from what is really in stock (falls back to the classic three if the request fails).
   const [fuelChips, setFuelChips] = useState<string[]>(['Petrol', 'Diesel']);
   const [transmissionChips, setTransmissionChips] = useState<string[]>(['Automatic']);
+  const [bodyChips, setBodyChips] = useState<string[]>([]);
   useEffect(() => {
     let active = true;
     fetchInventoryFacets()
@@ -31,6 +33,7 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({
         if (!active) return;
         if (facets.fuelTypes.length) setFuelChips(facets.fuelTypes.map((f) => f.value));
         if (facets.transmissions.length) setTransmissionChips(facets.transmissions.map((t) => t.value));
+        setBodyChips(facets.bodyTypes.map((b) => b.value));
       })
       .catch(() => undefined);
     return () => {
@@ -98,6 +101,7 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({
         limit: 6,
         fuelType: fuelFilter !== 'ALL' ? fuelFilter : undefined,
         transmission: transmissionFilter !== 'ALL' ? transmissionFilter : undefined,
+        bodyType: bodyFilter !== 'ALL' ? bodyFilter : undefined,
       });
       setCars(res.items || []);
     } catch (err: any) {
@@ -110,7 +114,7 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({
 
   useEffect(() => {
     void loadCars();
-  }, [fuelFilter, transmissionFilter]);
+  }, [fuelFilter, transmissionFilter, bodyFilter]);
 
   return (
     <section id="cars" className="available-cars-section">
@@ -128,10 +132,11 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({
           <div className="filter-chips-row" role="group" aria-label="Filter vehicles by fuel type">
             <button
               type="button"
-              className={`chip ${fuelFilter === 'ALL' && transmissionFilter === 'ALL' ? 'active' : ''}`}
+              className={`chip ${fuelFilter === 'ALL' && transmissionFilter === 'ALL' && bodyFilter === 'ALL' ? 'active' : ''}`}
               onClick={() => {
                 setFuelFilter('ALL');
                 setTransmissionFilter('ALL');
+                setBodyFilter('ALL');
               }}
             >
               All Cars
@@ -144,6 +149,16 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({
                 onClick={() => setFuelFilter(fuelFilter.toLowerCase() === fuel.toLowerCase() ? 'ALL' : fuel)}
               >
                 {fuel}
+              </button>
+            ))}
+            {bodyChips.map((body) => (
+              <button
+                key={body}
+                type="button"
+                className={`chip ${bodyFilter.toLowerCase() === body.toLowerCase() ? 'active' : ''}`}
+                onClick={() => setBodyFilter(bodyFilter.toLowerCase() === body.toLowerCase() ? 'ALL' : body)}
+              >
+                {bodyTypeLabel(body)}
               </button>
             ))}
             {transmissionChips.map((transmission) => (
@@ -206,6 +221,7 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({
                 onClick={() => {
                   setFuelFilter('ALL');
                   setTransmissionFilter('ALL');
+                  setBodyFilter('ALL');
                 }}
               >
                 Clear Filters
@@ -261,6 +277,12 @@ export const AvailableCars: React.FC<AvailableCarsProps> = ({
                         <span className="spec-label">Fuel</span>
                         <span className="spec-value">{car.fuelType}</span>
                       </div>
+                      {car.bodyType ? (
+                        <div className="spec-item">
+                          <span className="spec-label">Body</span>
+                          <span className="spec-value">{bodyTypeLabel(car.bodyType)}</span>
+                        </div>
+                      ) : null}
                       <div className="spec-item">
                         <span className="spec-label">Transmission</span>
                         <span className="spec-value">{car.transmission}</span>

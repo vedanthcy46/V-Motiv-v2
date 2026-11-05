@@ -50,8 +50,9 @@ export function joinTokens(tokens: Record<string, string>, domains: string[]): s
   return domains.map(domain => tokens[domain] ?? '').join('|');
 }
 
+/** True while any dialog is on screen (shared Modal, drawers, native <dialog> and legacy overlays): never refresh under someone typing. */
 export function modalIsOpen(): boolean {
-  return typeof document !== 'undefined' && Boolean(document.querySelector('.modal-overlay, dialog[open]'));
+  return typeof document !== 'undefined' && Boolean(document.querySelector('[role="dialog"][aria-modal="true"], .modal-overlay, dialog[open]'));
 }
 
 export interface PulseOptions {

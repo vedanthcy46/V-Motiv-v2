@@ -1,5 +1,6 @@
 import { type InspectionAnswerStatus, type InspectionDefectSeverity, Prisma, PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
+import { inferBodyType, resolveBodyType } from './body-types.js';
 import { INSPECTOR_INELIGIBILITY_MESSAGES, inspectorIneligibility } from './inspector-eligibility.js';
 import { knownTemplateItem, templateFor, currentTemplate, isItemApplicable, type InspectionTemplateItem } from './inspection-template.js';
 import { InspectionMediaService } from './inspection-media.js';
@@ -891,7 +892,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
       stkSold,
       pendingCostApprovals,
       recentEvents,
-    ] = await this.db.$transaction([
+    ] = await Promise.all([
       this.db.inspectionRequest.count({ where: { ...requestScope, assignment: null, status: 'REQUESTED' } }),
       this.db.inspectionRequest.count({ where: { ...requestScope, status: 'SCHEDULED' } }),
       this.db.inspectionRequest.count({ where: { ...requestScope, status: 'IN_PROGRESS' } }),
@@ -1406,6 +1407,8 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
       const registrationYear = u.vehicle?.registrationYear || (lead as any)?.registrationYear || null;
       const registrationCity = u.vehicle?.city || (lead as any)?.registrationCity || (lead as any)?.city || null;
       const ownershipCount = u.vehicle?.ownershipCount || (lead as any)?.ownershipCount || null;
+      // Shown in the Operations stock list; falls back to the catalogue so older stock is never blank.
+      const bodyType = u.vehicle?.bodyType || inferBodyType(u.make, u.model);
 
       // Self-heal: If database record had null registrationNumber or variant, persist resolved fields asynchronously
       if (!u.registrationNumber && registrationNumber) {
@@ -1427,6 +1430,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
         ...u,
         registrationNumber,
         variant,
+        bodyType,
         color,
         registrationYear,
         registrationCity,
@@ -1436,11 +1440,11 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     });
   }
 
-  async updateStockVehicleSpecs(actor: InspectionActor, stockId: string, input: { registrationNumber?: string; variant?: string; color?: string; odometerKm?: number }) {
+  async updateStockVehicleSpecs(actor: InspectionActor, stockId: string, input: { registrationNumber?: string; variant?: string; bodyType?: string; color?: string; odometerKm?: number }) {
     checkRole(actor, operationsRoles);
     const stock = await this.db.vehicleStockUnit.findFirst({
       where: this.stockScope(actor, stockId),
-      include: { acquisitionCase: { select: { leadId: true } }, vehicle: { select: { id: true } } },
+      include: { acquisitionCase: { select: { leadId: true } }, vehicle: { select: { id: true, bodyType: true } } },
     });
     if (!stock) throw new HttpError(404, 'STOCK_UNIT_NOT_FOUND');
 
@@ -1462,6 +1466,10 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
             ...(input.variant?.trim() ? { variant: input.variant.trim() } : {}),
             ...(input.color !== undefined ? { color: input.color.trim() || null } : {}),
             ...(input.odometerKm !== undefined ? { odometerKm: input.odometerKm } : {}),
+            // A blank choice means "work it out from the model"; an explicit choice always wins.
+            ...(input.bodyType !== undefined || !stock.vehicle.bodyType
+              ? { bodyType: resolveBodyType({ bodyType: input.bodyType, make: stock.make, model: stock.model }) }
+              : {}),
           },
         }).catch(() => undefined);
       }
@@ -1663,6 +1671,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
 
   async prepareListing(actor: InspectionActor, stockId: string, input: {
     title: string;
+    bodyType?: string;
     features?: string[];
     color?: string;
     conditionSummary?: string;
@@ -1779,6 +1788,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
             city: vehicleCity,
             color: resolvedColor,
             registrationYear: resolvedRegYear,
+            bodyType: resolveBodyType({ bodyType: input.bodyType, make: stock.make, model: stock.model }),
             ownershipCount: resolvedOwnership,
             conditionSummary: input.conditionSummary,
             inspectionSummary: input.inspectionSummary,
@@ -1806,6 +1816,8 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
             city: vehicleCity,
             color: resolvedColor || undefined,
             registrationYear: resolvedRegYear || undefined,
+            // Keep an existing value unless staff chose one; otherwise fill it from the make and model.
+            bodyType: resolveBodyType({ bodyType: input.bodyType, make: stock.make, model: stock.model }) ?? stock.vehicle?.bodyType ?? undefined,
             ownershipCount: resolvedOwnership || undefined,
             variant: resolvedVariant || undefined,
             conditionSummary: input.conditionSummary,
@@ -1949,6 +1961,8 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
           where: { id: stock.vehicleId },
           data: {
             city: branch.city,
+            // Every published car carries a body type so the customer filter can find it.
+            ...(stock.vehicle?.bodyType ? {} : { bodyType: inferBodyType(stock.make, stock.model) ?? undefined }),
           },
         });
       }

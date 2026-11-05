@@ -242,7 +242,7 @@ export class PrismaFinanceStore {
       bankAccounts,
       receiptTotals,
       expenseTotals,
-    ] = await this.db.$transaction([
+    ] = await Promise.all([
       this.db.acquisitionCase.count({ where: { ...scope, status: 'SETTLEMENT_READY' } }),
       this.db.financePayoutInstruction.count({
         where: { status: 'APPROVAL_PENDING', settlement: { acquisitionCase: scope } },
@@ -983,6 +983,7 @@ export class PrismaFinanceStore {
               make: 'Hyundai',
               model: 'Creta',
               variant: 'SX (O)',
+              bodyType: 'SUV',
               manufacturingYear: 2022,
               odometerKm: 28000,
               fuelType: 'PETROL',

@@ -1,5 +1,6 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
+import tailwindcss from '@tailwindcss/vite';
 
 const localhostOrigin: Plugin = {
   name: 'localhost-oauth-origin',
@@ -17,7 +18,7 @@ const localhostOrigin: Plugin = {
 };
 
 export default defineConfig({
-  plugins: [react(), localhostOrigin],
+  plugins: [tailwindcss(), react(), localhostOrigin],
   publicDir: 'public',
   server: {
     port: 3300,

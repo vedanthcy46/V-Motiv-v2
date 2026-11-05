@@ -1,5 +1,7 @@
-import { modalIsOpen, useAutoRefresh, useChangeWatcher } from './autoRefresh';
-import { mountLiveChangeBar } from './LiveChangeBar';
+import {
+  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader,
+  initTheme, modalIsOpen, mountLiveChangeBar, toast, useAutoRefresh, useChangeWatcher, type NavSection,
+} from '@vmotiv/ui';
 import { Component, useEffect, useRef, useState, type FC, type FormEvent, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -67,6 +69,8 @@ import {
 } from './icons';
 import './styles.css';
 
+initTheme();
+
 class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boolean; error: Error | null }> {
   state: { hasError: boolean; error: Error | null } = { hasError: false, error: null };
   static getDerivedStateFromError(error: Error) {
@@ -78,15 +82,13 @@ class ErrorBoundary extends Component<{ children: ReactNode }, { hasError: boole
   render() {
     if (this.state.hasError) {
       return (
-        <main className="center-state">
-          <img className="state-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-          <p className="eyebrow">Finance Control Centre</p>
-          <h1>An unexpected error occurred</h1>
+        <CenterState
+          eyebrow="Finance Control Centre"
+          title="An unexpected error occurred"
+          actions={<Button onClick={() => window.location.reload()}>Reload application</Button>}
+        >
           <p>{this.state.error?.message || 'Please refresh the page to continue.'}</p>
-          <button className="button primary" onClick={() => window.location.reload()}>
-            Reload Application
-          </button>
-        </main>
+        </CenterState>
       );
     }
     return this.props.children;
@@ -195,14 +197,39 @@ type TabKey =
   | 'profitability'
   | 'audit';
 
+type DataGroup = 'dashboard' | 'settlements' | 'obligations' | 'receipts' | 'refunds' | 'expenses' | 'vendors' | 'banking' | 'exceptions' | 'ledger' | 'invoices' | 'profitability' | 'audit';
+const ALL_GROUPS: readonly DataGroup[] = ['dashboard', 'settlements', 'obligations', 'receipts', 'refunds', 'expenses', 'vendors', 'banking', 'exceptions', 'ledger', 'invoices', 'profitability', 'audit'];
+/** Which lists a saved dialog can change; anything not listed here refreshes in the second wave. */
+const MODAL_REFRESH: Record<string, readonly DataGroup[]> = {
+  PAYOUT_MANAGE: ['dashboard', 'settlements'],
+  RECORD_RECEIPT: ['dashboard', 'receipts', 'obligations'],
+  VERIFY_RECEIPT: ['dashboard', 'receipts'],
+  ALLOCATE_RECEIPT: ['dashboard', 'receipts', 'obligations'],
+  CREATE_OBLIGATION: ['dashboard', 'obligations'],
+  RECORD_OBLIGATION_PAYMENT: ['dashboard', 'obligations', 'receipts'],
+  REQUEST_REFUND: ['dashboard', 'refunds'],
+  MANAGE_REFUND: ['dashboard', 'refunds'],
+  NEW_EXPENSE: ['dashboard', 'expenses'],
+  MANAGE_EXPENSE: ['dashboard', 'expenses'],
+  NEW_VENDOR: ['vendors'],
+  NEW_BANK_ACCOUNT: ['banking'],
+  EDIT_BANK_ACCOUNT: ['banking'],
+  REMOVE_BANK_ACCOUNT: ['banking'],
+  IMPORT_STATEMENT: ['banking', 'exceptions'],
+  MATCH_STATEMENT_ENTRY: ['banking', 'exceptions', 'receipts'],
+  RESOLVE_EXCEPTION: ['dashboard', 'exceptions'],
+  POST_JOURNAL: ['ledger'],
+  ISSUE_INVOICE: ['dashboard', 'invoices'],
+};
+
 function App() {
   const [user, setUser] = useState<User | null>(null);
   const [actor, setActor] = useState<FinanceActor | null>(null);
   const [loading, setLoading] = useState(true);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [tab, setTab] = useState<TabKey>('overview');
   const [search, setSearch] = useState('');
   const [busy, setBusy] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
   const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null);
   const [enrollMfaOpen, setEnrollMfaOpen] = useState(false);
@@ -230,75 +257,64 @@ function App() {
   const [activeModal, setActiveModal] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<any>(null);
 
+  // Data is fetched in groups so that an action only reloads what it can have changed.
   // silent = background refresh: keeps the current data if a request fails and throws so the refresher can back off.
-  const loadFinanceData = async (currentUser: User, silent = false) => {
+  const loadFinanceData = async (currentUser: User, silent = false, only?: readonly DataGroup[]) => {
+    const want = (group: DataGroup) => !only || only.includes(group);
     try {
       const unavailable: string[] = [];
-      const load = <T,>(label: string, request: Promise<T>, fallback: T) =>
-        request.catch(loadError => {
+      const load = <T,>(group: DataGroup, label: string, request: () => Promise<T>, fallback: T, apply: (value: T) => void) => {
+        if (!want(group)) return Promise.resolve();
+        return request().then(apply, loadError => {
           if (silent) throw loadError;
           console.warn(`[FINANCE PORTAL] ${label} unavailable`, loadError);
           unavailable.push(label);
-          return fallback;
+          apply(fallback);
         });
-      const [
-        dash,
-        settle,
-        obs,
-        recs,
-        refs,
-        exps,
-        vens,
-        banks,
-        stmts,
-        excs,
-        coas,
-        pers,
-        jrnls,
-        invs,
-        prof,
-        logs,
-      ] = await Promise.all([
-        load('Treasury overview', financeApi.dashboard(currentUser), null),
-        load('Seller settlements', financeApi.settlements(currentUser), []),
-        load('Buyer collections', financeApi.obligations(currentUser), []),
-        load('Incoming receipts', financeApi.receipts(currentUser), []),
-        load('Refunds', financeApi.refunds(currentUser), []),
-        load('Vehicle expenses', financeApi.expenses(currentUser), []),
-        load('Vendors', financeApi.vendors(currentUser), []),
-        load('Bank accounts', financeApi.bankAccounts(currentUser), []),
-        load('Bank statements', financeApi.bankStatements(currentUser), []),
-        load('Reconciliation exceptions', financeApi.exceptions(currentUser), []),
-        load('Chart of accounts', financeApi.chartOfAccounts(currentUser), []),
-        load('Accounting periods', financeApi.accountingPeriods(currentUser), []),
-        load('Journal entries', financeApi.journals(currentUser), []),
-        load('Tax invoices', financeApi.invoices(currentUser), []),
-        load('Unit profitability', financeApi.profitability(currentUser), []),
-        load('Audit trail', financeApi.auditTrail(currentUser), []),
+      };
+      await Promise.all([
+        load('dashboard', 'Treasury overview', () => financeApi.dashboard(currentUser), null, value => { if (value) setDashboard(value); }),
+        load('settlements', 'Seller settlements', () => financeApi.settlements(currentUser), [], setSettlements),
+        load('obligations', 'Buyer collections', () => financeApi.obligations(currentUser), [], setObligations),
+        load('receipts', 'Incoming receipts', () => financeApi.receipts(currentUser), [], setReceipts),
+        load('refunds', 'Refunds', () => financeApi.refunds(currentUser), [], setRefunds),
+        load('expenses', 'Vehicle expenses', () => financeApi.expenses(currentUser), [], setExpenses),
+        load('vendors', 'Vendors', () => financeApi.vendors(currentUser), [], setVendors),
+        load('banking', 'Bank accounts', () => financeApi.bankAccounts(currentUser), [], setBankAccounts),
+        load('banking', 'Bank statements', () => financeApi.bankStatements(currentUser), [], setStatements),
+        load('exceptions', 'Reconciliation exceptions', () => financeApi.exceptions(currentUser), [], setExceptions),
+        load('ledger', 'Chart of accounts', () => financeApi.chartOfAccounts(currentUser), [], setAccounts),
+        load('ledger', 'Accounting periods', () => financeApi.accountingPeriods(currentUser), [], setPeriods),
+        load('ledger', 'Journal entries', () => financeApi.journals(currentUser), [], setJournals),
+        load('invoices', 'Tax invoices', () => financeApi.invoices(currentUser), [], setInvoices),
+        load('profitability', 'Unit profitability', () => financeApi.profitability(currentUser), [], setProfitability),
+        load('audit', 'Audit trail', () => financeApi.auditTrail(currentUser), [], setAuditTrail),
       ]);
-
-      if (dash) setDashboard(dash);
-      setSettlements(settle);
-      setObligations(obs);
-      setReceipts(recs);
-      setRefunds(refs);
-      setExpenses(exps);
-      setVendors(vens);
-      setBankAccounts(banks);
-      setStatements(stmts);
-      setExceptions(excs);
-      setAccounts(coas);
-      setPeriods(pers);
-      setJournals(jrnls);
-      setInvoices(invs);
-      setProfitability(prof);
-      setAuditTrail(logs);
       setError(unavailable.length
         ? `${unavailable.join(', ')} could not be loaded. Confirm the assigned finance permissions, then refresh.`
         : '');
     } catch (e: any) {
       if (silent) throw e;
       setError(errorMessage(e));
+    }
+  };
+
+  /**
+   * After a save: refresh the lists that save can change first, so they are right within a moment, then bring the
+   * remaining lists up to date in the background. The person is never kept waiting for either.
+   */
+  const refreshAfterAction = async (currentUser: User, modal: string | null) => {
+    const first = MODAL_REFRESH[modal ?? ''] ?? ALL_GROUPS;
+    try {
+      await loadFinanceData(currentUser, true, first);
+      const rest = ALL_GROUPS.filter(group => !first.includes(group));
+      if (rest.length) {
+        // Gentle second wave: two requests at a time keeps the page responsive for the next click.
+        await new Promise(resolve => setTimeout(resolve, 1500));
+        await loadFinanceData(currentUser, true, rest);
+      }
+    } catch {
+      // The silent refresher retries on its own.
     }
   };
 
@@ -414,16 +430,26 @@ function App() {
     setUser(null);
   };
 
+  const refreshAll = async () => {
+    if (!user || refreshing) return;
+    setRefreshing(true);
+    try { await loadFinanceData(user); } finally { setRefreshing(false); }
+  };
+
   const runAction = async (task: () => Promise<unknown>) => {
+    if (busy) return;
     setBusy(true);
-    setError('');
     try {
       await task();
-      if (user) await loadFinanceData(user);
+      // Saved: close the dialog straight away and tell the person; the lists refresh behind it.
+      const modal = activeModal;
       setActiveModal(null);
       setSelectedItem(null);
+      setError('');
+      toast.success('Saved', { description: 'Your change was recorded.' });
+      if (user) void refreshAfterAction(user, modal);
     } catch (e: any) {
-      setError(errorMessage(e));
+      toast.error('Could not complete this action', { description: errorMessage(e) });
     } finally {
       setBusy(false);
     }
@@ -431,90 +457,44 @@ function App() {
 
   if (!firebaseConfigured || !auth) {
     return (
-      <main className="center-state">
-        <img className="state-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-        <p className="eyebrow">Finance Control Centre</p>
-        <h1>Firebase configuration required</h1>
+      <CenterState eyebrow="Finance Control Centre" title="Firebase configuration required">
         <p>Set the Finance Portal Firebase and API environment variables before using this workspace.</p>
-      </main>
+      </CenterState>
     );
   }
 
-  if (loading) {
-    return (
-      <main className="center-state" aria-busy="true">
-        <img className="state-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-        <div className="spinner" />
-        <p>Verifying identity and finance access.</p>
-      </main>
-    );
-  }
+  if (loading) return <PageLoader label="Verifying identity and finance access" />;
 
-  // Not signed in or not authorized as finance actor -> Show exact Admin Portal split Auth page
+  // Not signed in, or not authorised as a finance officer
   if (!user || !actor) {
     const isMfaIssue = error.includes('multi-factor') || error.includes('Firebase MFA') || error.includes('MFA_REQUIRED');
     return (
       <>
-        <main className="auth-shell">
-          <section className="auth-panel">
-            <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-            <p className="eyebrow">FINANCE CONTROL CENTRE</p>
-            <h1>Govern dealership treasury with accountable access.</h1>
-            <p>
-              Employee identity, branch scope, permissions and multi-factor status are verified by the V MOTIV backend on every protected request.
-            </p>
-            <div className="auth-actions">
-              {!user ? (
-                <button className="button primary" onClick={googleSignIn} disabled={busy}>
-                  {busy ? 'Connecting to Google...' : 'Continue with Google'}
-                </button>
-              ) : isMfaIssue ? (
-                <button className="button primary" onClick={() => setEnrollMfaOpen(true)}>
-                  Set Up Phone 2FA
-                </button>
-              ) : (
-                <button className="button primary" onClick={googleSignIn} disabled={busy}>
-                  Continue with Google
-                </button>
-              )}
-              {user && (
-                <button className="button secondary" onClick={logout}>
-                  Use another account
-                </button>
-              )}
-            </div>
-            {error && (
-              <div className="alert error" role="alert">
-                <strong>Access not granted</strong>
-                <span>{error}</span>
-              </div>
-            )}
-            <p className="security-note">
-              Google Sign-In alone never creates Finance access. MFA and backend authorization required.
-            </p>
-          </section>
-          <aside className="auth-aside" aria-label="Security controls">
-            <div>
-              <span className="kicker">Identity</span>
-              <strong>Verified Google employee account</strong>
-            </div>
-            <div>
-              <span className="kicker">Authorization</span>
-              <strong>Server-controlled roles and branch scope</strong>
-            </div>
-            <div>
-              <span className="kicker">Assurance</span>
-              <strong>Multi-factor authentication (MFA) enforced</strong>
-            </div>
-            <div>
-              <span className="kicker">Accountability</span>
-              <strong>Treasury movements and approvals are immutably audited</strong>
-            </div>
-          </aside>
-        </main>
+        <AuthLayout
+          portalName="Finance"
+          eyebrow="Finance Control Centre"
+          title="Govern dealership treasury with accountable access"
+          description="Employee identity, branch scope, permissions and multi-factor status are verified by the V MOTIV backend on every protected request."
+          points={[
+            { title: 'Verified Google employee account', text: 'Identity is checked against the employee directory on every request.' },
+            { title: 'Server-controlled roles and branch scope', text: 'Google sign-in alone never creates Finance access.' },
+            { title: 'Multi-factor authentication enforced', text: 'A verified second factor is required for treasury actions.' },
+            { title: 'Immutable audit trail', text: 'Treasury movements and approvals are recorded and cannot be edited.' },
+          ]}
+        >
+          {!user ? (
+            <Button size="lg" block loading={busy} onClick={googleSignIn}>{busy ? 'Connecting to Google…' : 'Continue with Google'}</Button>
+          ) : isMfaIssue ? (
+            <Button size="lg" block onClick={() => setEnrollMfaOpen(true)}>Set up phone 2-step verification</Button>
+          ) : (
+            <Button size="lg" block loading={busy} onClick={googleSignIn}>Continue with Google</Button>
+          )}
+          {user ? <Button variant="secondary" block onClick={logout}>Use another account</Button> : null}
+          {error ? <Alert tone="error" title="Access not granted">{error}</Alert> : null}
+        </AuthLayout>
 
         {mfaResolver && auth && (
-          <MfaChallengeDialog
+          <MfaChallengeModal
             auth={auth}
             resolver={mfaResolver}
             onClose={() => setMfaResolver(null)}
@@ -540,167 +520,68 @@ function App() {
     );
   }
 
-  const selectTab = (nextTab: TabKey) => {
-    setTab(nextTab);
-    setSidebarOpen(false);
+  const navSections: NavSection<TabKey>[] = [
+    {
+      title: 'Treasury',
+      items: [
+        { key: 'overview', label: 'Overview', icon: <IconDashboard /> },
+        { key: 'seller-settlements', label: 'Seller settlements', icon: <IconSellerSettlements />, badge: dashboard?.pendingApproval },
+        { key: 'buyer-collections', label: 'Buyer collections', icon: <IconBuyerCollections />, badge: dashboard?.activeObligations },
+        { key: 'receipts', label: 'Incoming receipts', icon: <IconVerification /> },
+        { key: 'refunds', label: 'Refunds and reversals', icon: <IconRefunds /> },
+        { key: 'expenses', label: 'Vehicle expenses', icon: <IconExpenses /> },
+      ],
+    },
+    {
+      title: 'Banking and books',
+      items: [
+        { key: 'vendors', label: 'Vendors and payees', icon: <IconVendors /> },
+        { key: 'banking', label: 'Bank accounts and rec', icon: <IconBankAccounts /> },
+        { key: 'exceptions', label: 'Exceptions', icon: <IconClock />, badge: dashboard?.exceptions },
+        { key: 'ledger', label: 'Financial ledger', icon: <IconLedger /> },
+        { key: 'invoices', label: 'Tax invoices', icon: <IconInvoices /> },
+        { key: 'profitability', label: 'Unit profitability', icon: <IconProfitability /> },
+        { key: 'audit', label: 'Audit trail', icon: <IconAudit /> },
+      ],
+    },
+  ];
+
+  const tabTitles: Record<TabKey, string> = {
+    overview: 'Treasury overview',
+    'seller-settlements': 'Seller settlements and payouts',
+    'buyer-collections': 'Buyer payment obligations',
+    receipts: 'Incoming payment receipts',
+    refunds: 'Customer refunds and reversals',
+    expenses: 'Vehicle refurbishment expenses',
+    vendors: 'Authorised dealership vendors',
+    banking: 'Bank accounts and statement feeds',
+    exceptions: 'Reconciliation exceptions queue',
+    ledger: 'Chart of accounts and general ledger',
+    invoices: 'Commercial tax invoices',
+    profitability: 'Vehicle unit profitability',
+    audit: 'Immutable financial audit trail',
   };
 
   return (
     <>
-      <a className="skip-link" href="#main">Skip to main content</a>
-      <div className="app-shell">
-        {/* Sidebar - Exact Admin Portal Structure */}
-        <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`}>
-        <div className="brand">
-          <div className="brand-main">
-            <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-            <span>FINANCE</span>
-          </div>
-          <button
-            type="button"
-            className="close-sidebar-btn"
-            aria-label="Close menu"
-            onClick={() => setSidebarOpen(false)}
-          >
-            ✕
-          </button>
-        </div>
-
-        <nav aria-label="Primary navigation">
-          <button className={tab === 'overview' ? 'active' : ''} onClick={() => selectTab('overview')}>
-            <IconDashboard />
-            <span>Overview</span>
-          </button>
-          <button className={tab === 'seller-settlements' ? 'active' : ''} onClick={() => selectTab('seller-settlements')}>
-            <IconSellerSettlements />
-            <span>Seller Settlements</span>
-            {dashboard?.pendingApproval ? <span className="count-badge">{dashboard.pendingApproval}</span> : null}
-          </button>
-          <button className={tab === 'buyer-collections' ? 'active' : ''} onClick={() => selectTab('buyer-collections')}>
-            <IconBuyerCollections />
-            <span>Buyer Collections</span>
-            {dashboard?.activeObligations ? <span className="count-badge">{dashboard.activeObligations}</span> : null}
-          </button>
-          <button className={tab === 'receipts' ? 'active' : ''} onClick={() => selectTab('receipts')}>
-            <IconVerification />
-            <span>Incoming Receipts</span>
-          </button>
-          <button className={tab === 'refunds' ? 'active' : ''} onClick={() => selectTab('refunds')}>
-            <IconRefunds />
-            <span>Refunds & Reversals</span>
-          </button>
-          <button className={tab === 'expenses' ? 'active' : ''} onClick={() => selectTab('expenses')}>
-            <IconExpenses />
-            <span>Vehicle Expenses</span>
-          </button>
-          <button className={tab === 'vendors' ? 'active' : ''} onClick={() => selectTab('vendors')}>
-            <IconVendors />
-            <span>Vendors & Payees</span>
-          </button>
-          <button className={tab === 'banking' ? 'active' : ''} onClick={() => selectTab('banking')}>
-            <IconBankAccounts />
-            <span>Bank Accounts & Rec</span>
-          </button>
-          <button className={tab === 'exceptions' ? 'active' : ''} onClick={() => selectTab('exceptions')}>
-            <IconClock />
-            <span>Exceptions</span>
-            {dashboard?.exceptions ? (
-              <span className="count-badge" style={{ color: 'var(--danger)', borderColor: 'rgba(255,124,134,0.4)', background: 'rgba(255,124,134,0.1)' }}>
-                {dashboard.exceptions}
-              </span>
-            ) : null}
-          </button>
-          <button className={tab === 'ledger' ? 'active' : ''} onClick={() => selectTab('ledger')}>
-            <IconLedger />
-            <span>Financial Ledger</span>
-          </button>
-          <button className={tab === 'invoices' ? 'active' : ''} onClick={() => selectTab('invoices')}>
-            <IconInvoices />
-            <span>Tax Invoices</span>
-          </button>
-          <button className={tab === 'profitability' ? 'active' : ''} onClick={() => selectTab('profitability')}>
-            <IconProfitability />
-            <span>Unit Profitability</span>
-          </button>
-          <button className={tab === 'audit' ? 'active' : ''} onClick={() => selectTab('audit')}>
-            <IconAudit />
-            <span>Audit Trail</span>
-          </button>
-        </nav>
-
-        <div className="sidebar-account">
-          <span>{actor.displayName || user.email}</span>
-          <small>{actor.roles.join(' · ') || 'Authorized Finance Officer'}</small>
-          <button type="button" onClick={logout}>
-            <IconLogout /> Sign Out
-          </button>
-        </div>
-      </aside>
-
-      {sidebarOpen && (
-        <button
-          type="button"
-          className="scrim"
-          aria-label="Close navigation"
-          onClick={() => setSidebarOpen(false)}
-        />
-      )}
-
-      {/* Main Container - Exact Admin Portal Topbar & Content */}
-      <div className="app-main">
-        <header className="topbar">
-          <div className="topbar-left">
-            <button
-              type="button"
-              className="icon-button mobile-menu"
-              aria-label="Open menu"
-              aria-expanded={sidebarOpen}
-              onClick={() => setSidebarOpen(true)}
-            >
-              <IconMenu />
-            </button>
-            <div className="mobile-brand">
-              <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-              <span>FINANCE</span>
-            </div>
-            <div>
-              <span className="breadcrumb">FINANCE CONTROL CENTRE</span>
-              <strong>
-                {tab === 'overview' && 'Treasury Overview'}
-                {tab === 'seller-settlements' && 'Seller Settlements & Payouts'}
-                {tab === 'buyer-collections' && 'Buyer Payment Obligations'}
-                {tab === 'receipts' && 'Incoming Payment Receipts'}
-                {tab === 'refunds' && 'Customer Refunds & Reversals'}
-                {tab === 'expenses' && 'Vehicle Refurbishment Expenses'}
-                {tab === 'vendors' && 'Authorized Dealership Vendors'}
-                {tab === 'banking' && 'Bank Accounts & Statement Feeds'}
-                {tab === 'exceptions' && 'Reconciliation Exceptions Queue'}
-                {tab === 'ledger' && 'Dealership Chart of Accounts & GL'}
-                {tab === 'invoices' && 'Commercial Tax Invoices'}
-                {tab === 'profitability' && 'Vehicle Unit Profitability Matrix'}
-                {tab === 'audit' && 'Immutable Financial Audit Trail'}
-              </strong>
-            </div>
-          </div>
-
-          <div className="identity">
-            <span className="privileged-badge">{actor.roles[0] || 'FINANCE'}</span>
-            <span>{actor.displayName || user.email}</span>
-            <button className="button secondary small" onClick={() => loadFinanceData(user)} title="Refresh">
-              <IconRefresh />
-            </button>
-            <button className="button secondary small" onClick={logout} title="Sign Out">
-              <IconLogout />
-            </button>
-          </div>
-        </header>
-
-        <main id="main">
+      <AppShell
+        portalName="Finance"
+        sections={navSections}
+        active={tab}
+        onSelect={setTab}
+        account={{ name: actor.displayName || user.email || 'Finance officer', role: actor.roles.join(' · ') || 'Authorised finance officer' }}
+        onSignOut={logout}
+        context="Finance Control Centre"
+        title={tabTitles[tab]}
+        toolbar={
+          <>
+            <span className="badge badge-soft badge-warning hidden font-semibold sm:inline-flex">{(actor.roles[0] || 'FINANCE').replace(/_/g, ' ')}</span>
+            <Button variant="ghost" size="sm" aria-label="Refresh data" title="Refresh data" loading={refreshing} onClick={() => void refreshAll()} icon={<IconRefresh />} />
+          </>
+        }
+      >
           {error && (
-            <div className="alert error" role="alert">
-              <strong>Action Notice</strong>
-              <span>{error}</span>
-            </div>
+            <Alert tone="warning" title="Some data could not be loaded" className="mb-4" onDismiss={() => setError('')}>{error}</Alert>
           )}
 
           {/* TAB 1: OVERVIEW */}
@@ -1778,8 +1659,6 @@ function App() {
               </div>
             </div>
           )}
-        </main>
-      </div>
 
       {/* MODAL 1: PAYOUT PREPARE & PROGRESS */}
       {activeModal === 'PAYOUT_MANAGE' && selectedItem && (
@@ -2006,7 +1885,7 @@ function App() {
           onAction={runAction}
         />
       )}
-      </div>
+      </AppShell>
     </>
   );
 }
@@ -2014,154 +1893,6 @@ function App() {
 // --------------------------------------------------------------------------
 // Multi-Factor Authentication Challenge Dialog (Exact Admin Portal Pattern)
 // --------------------------------------------------------------------------
-
-function MfaChallengeDialog({
-  auth,
-  resolver,
-  onClose,
-  onSuccess,
-}: {
-  auth: Auth;
-  resolver: MultiFactorResolver;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const ref = useRef<HTMLDialogElement>(null);
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-  const [verificationId, setVerificationId] = useState('');
-  const [code, setCode] = useState('');
-  const [sending, setSending] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [error, setError] = useState('');
-
-  const phoneHint = resolver.hints.find(
-    hint => hint.factorId === PhoneMultiFactorGenerator.FACTOR_ID
-  ) as PhoneMultiFactorInfo | undefined;
-
-  useEffect(() => {
-    const el = ref.current;
-    if (el && !el.open) {
-      try {
-        el.showModal();
-      } catch {
-        el.setAttribute('open', '');
-      }
-    }
-    return () => {
-      try {
-        recaptchaVerifierRef.current?.clear();
-      } catch {
-        // ignore
-      }
-    };
-  }, []);
-
-  async function sendOtp() {
-    if (!phoneHint) {
-      setError('No registered phone number found on this account.');
-      return;
-    }
-    setSending(true);
-    setError('');
-    try {
-      if (recaptchaVerifierRef.current) {
-        try { recaptchaVerifierRef.current.clear(); } catch {}
-        recaptchaVerifierRef.current = null;
-      }
-      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-      });
-      const phoneProvider = new PhoneAuthProvider(auth);
-      const vId = await phoneProvider.verifyPhoneNumber(
-        { multiFactorHint: phoneHint, session: resolver.session },
-        recaptchaVerifierRef.current
-      );
-      setVerificationId(vId);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to send SMS code. Please try again.');
-    } finally {
-      setSending(false);
-    }
-  }
-
-  useEffect(() => {
-    void sendOtp();
-  }, []);
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (!verificationId || code.trim().length !== 6) return;
-    setVerifying(true);
-    setError('');
-    try {
-      const cred = PhoneAuthProvider.credential(verificationId, code.trim());
-      const assertion = PhoneMultiFactorGenerator.assertion(cred);
-      await resolver.resolveSignIn(assertion);
-      onSuccess();
-    } catch (err: any) {
-      setError(err?.message || 'Invalid or expired verification code.');
-      setVerifying(false);
-    }
-  }
-
-  const phoneDisplay = phoneHint?.phoneNumber || 'your registered mobile number';
-
-  return (
-    <dialog ref={ref} onCancel={onClose} className="dialog compact">
-      <form onSubmit={submit}>
-        <header>
-          <div>
-            <p className="eyebrow">2-Step Verification</p>
-            <h2>Phone Verification</h2>
-          </div>
-          <button type="button" className="icon-button" aria-label="Close" onClick={onClose}>
-            <IconCross />
-          </button>
-        </header>
-
-        {error && <div className="alert error" role="alert">{error}</div>}
-
-        <p className="helper" style={{ margin: '1rem 0' }}>
-          An SMS with a 6-digit verification code has been dispatched to <strong>{phoneDisplay}</strong>. Enter the code below to complete authorization.
-        </p>
-
-        <label style={{ display: 'block', margin: '1rem 0' }}>
-          Verification Code
-          <input
-            type="text"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            maxLength={6}
-            placeholder="123456"
-            value={code}
-            onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
-            autoFocus
-            required
-            style={{ fontSize: '1.25rem', letterSpacing: '0.25em', textAlign: 'center' }}
-          />
-        </label>
-
-        <footer>
-          <button
-            type="button"
-            className="button secondary"
-            disabled={sending || verifying}
-            onClick={() => void sendOtp()}
-          >
-            {sending ? 'Sending...' : 'Resend Code'}
-          </button>
-          <button
-            type="submit"
-            className="button primary"
-            disabled={!verificationId || code.trim().length !== 6 || verifying}
-          >
-            {verifying ? 'Verifying...' : 'Verify & Enter'}
-          </button>
-        </footer>
-      </form>
-    </dialog>
-  );
-}
 
 function MfaEnrollDialog({
   auth,

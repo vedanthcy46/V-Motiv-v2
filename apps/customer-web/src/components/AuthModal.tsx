@@ -20,7 +20,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   if (!isOpen) return null;
 
   return (
-    <div className="modal-backdrop" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
+    <div className="modal-overlay" role="dialog" aria-modal="true" aria-labelledby="auth-modal-title">
       <div className="modal-dialog auth-modal-dialog">
         <button
           type="button"

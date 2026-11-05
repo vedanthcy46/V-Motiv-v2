@@ -1,0 +1,130 @@
+/* Application chrome: sidebar, topbar, content area, footer, auth + status screens. Same markup in every portal. */
+.vm-shell { display: grid; grid-template-columns: 16.5rem minmax(0, 1fr); min-height: 100dvh; background: var(--color-base-200); }
+.vm-main { min-width: 0; display: flex; flex-direction: column; min-height: 100dvh; }
+.vm-content { flex: 1; width: min(100%, 92rem); margin: 0 auto; padding: clamp(1rem, 2.4vw, 2rem); animation: vm-rise-in 0.22s ease backwards; }
+
+/* Sidebar (always brand navy) */
+.vm-sidebar {
+  position: sticky; top: 0; height: 100dvh; z-index: 40; display: flex; flex-direction: column;
+  background: var(--vm-chrome); color: var(--vm-chrome-text); border-right: 1px solid var(--vm-chrome-line);
+}
+.vm-sidebar-brand { display: flex; align-items: center; gap: 0.6rem; padding: 1.1rem 1.1rem 0.9rem; border-bottom: 1px solid var(--vm-chrome-line); }
+.vm-sidebar-brand img { height: 2.4rem; width: auto; max-width: 8.5rem; object-fit: contain; }
+.vm-sidebar-tag {
+  margin-left: auto; padding: 0.15rem 0.5rem; border-radius: 999px; font-size: 0.6875rem; font-weight: 600;
+  letter-spacing: 0.04em; color: var(--color-primary); border: 1px solid color-mix(in oklab, var(--color-primary) 45%, transparent);
+}
+.vm-sidebar-nav { flex: 1; overflow-y: auto; padding: 0.5rem 0.65rem 1rem; }
+.vm-nav-title { padding: 1rem 0.65rem 0.35rem; font-size: 0.6875rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: color-mix(in oklab, var(--vm-chrome-text) 62%, transparent); }
+.vm-nav-item {
+  position: relative; display: flex; align-items: center; gap: 0.7rem; width: 100%; min-height: 2.4rem; padding: 0.5rem 0.7rem;
+  border: 0; border-radius: 0.55rem; background: transparent; color: var(--vm-chrome-text); text-align: left; font-size: 0.875rem; font-weight: 500;
+  cursor: pointer; transition: background-color 0.15s, color 0.15s;
+}
+.vm-nav-item:hover { background: rgb(255 255 255 / 0.06); color: var(--vm-chrome-strong); text-decoration: none; }
+.vm-nav-item[aria-current='page'] { background: color-mix(in oklab, var(--color-primary) 16%, transparent); color: var(--vm-chrome-strong); }
+.vm-nav-item[aria-current='page']::before { content: ''; position: absolute; left: -0.65rem; top: 0.35rem; bottom: 0.35rem; width: 3px; border-radius: 0 3px 3px 0; background: var(--color-primary); }
+.vm-nav-item svg { opacity: 0.85; }
+.vm-nav-badge { margin-left: auto; }
+.vm-sidebar-foot { padding: 0.8rem 0.9rem 1rem; border-top: 1px solid var(--vm-chrome-line); display: grid; gap: 0.5rem; }
+.vm-account { display: flex; align-items: center; gap: 0.65rem; min-width: 0; }
+.vm-avatar {
+  display: grid; place-items: center; flex: none; width: 2.1rem; height: 2.1rem; border-radius: 50%; font-size: 0.8rem; font-weight: 700;
+  background: color-mix(in oklab, var(--color-primary) 20%, transparent); color: var(--color-primary);
+}
+.vm-account-name { color: var(--vm-chrome-strong); font-size: 0.8125rem; font-weight: 600; line-height: 1.25; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-account-role { color: color-mix(in oklab, var(--vm-chrome-text) 80%, transparent); font-size: 0.75rem; text-transform: capitalize; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-sidebar-foot .vm-nav-item { min-height: 2.2rem; }
+
+/* Topbar */
+.vm-topbar {
+  position: sticky; top: 0; z-index: 30; display: flex; align-items: center; justify-content: space-between; gap: 1rem; min-height: 3.75rem;
+  padding: 0 clamp(1rem, 2.4vw, 2rem); background: color-mix(in oklab, var(--color-base-100) 92%, transparent); backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--color-base-300);
+}
+.vm-topbar-left, .vm-topbar-right { display: flex; align-items: center; gap: 0.75rem; min-width: 0; }
+.vm-crumb { min-width: 0; line-height: 1.2; }
+.vm-crumb small { display: block; color: color-mix(in oklab, var(--color-base-content) 58%, transparent); font-size: 0.75rem; }
+.vm-crumb strong { display: block; font-size: 0.9375rem; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.vm-menu-btn { display: none; }
+.vm-scrim { display: none; }
+
+/* Navy topbar variant for workspaces without a sidebar (the logo is designed for a dark ground) */
+.vm-topbar-brand { background: var(--vm-chrome); border-bottom-color: var(--vm-chrome-line); color: var(--vm-chrome-text); backdrop-filter: none; }
+.vm-topbar-brand .btn-ghost { color: var(--vm-chrome-text); }
+.vm-topbar-brand .btn-ghost:hover { background: rgb(255 255 255 / 0.08); color: #fff; }
+.vm-topbar-brand .vm-sidebar-tag { margin-left: 0; }
+.vm-topbar-brand .vm-user { font-size: 0.8125rem; color: var(--vm-chrome-text); }
+.vm-topbar-brand .vm-user strong { color: #fff; font-weight: 600; }
+
+/* Footer */
+.vm-footer { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 0.5rem 1.5rem; padding: 0.9rem clamp(1rem, 2.4vw, 2rem); border-top: 1px solid var(--color-base-300); background: var(--color-base-100); color: color-mix(in oklab, var(--color-base-content) 60%, transparent); font-size: 0.8125rem; }
+.vm-footer nav { display: flex; gap: 1rem; flex-wrap: wrap; }
+.vm-footer a { color: inherit; }
+
+/* Auth + centred status screens */
+.vm-auth { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(20rem, 0.9fr); min-height: 100dvh; background: var(--color-base-100); }
+.vm-auth-brand {
+  display: flex; flex-direction: column; justify-content: center; padding: clamp(2rem, 7vw, 6rem);
+  background: radial-gradient(circle at 15% 10%, rgb(247 181 3 / 0.1), transparent 26rem), var(--vm-chrome); color: var(--vm-chrome-text);
+}
+.vm-auth-brand img { width: 12rem; height: auto; margin-bottom: 2rem; }
+.vm-auth-brand h1 { color: #fff; font-size: clamp(1.8rem, 3vw, 2.5rem); margin: 0.25rem 0 0.75rem; }
+.vm-auth-brand p { max-width: 38rem; color: var(--vm-chrome-text); }
+.vm-auth-panel { display: flex; flex-direction: column; justify-content: center; gap: 1.1rem; padding: clamp(2rem, 5vw, 4.5rem); }
+.vm-auth-panel .vm-points { display: grid; gap: 0.9rem; margin-top: 0.5rem; }
+.vm-auth-panel .vm-point { padding: 0.9rem 1rem; border: 1px solid var(--color-base-300); border-left: 3px solid var(--color-primary); border-radius: 0.5rem; background: var(--color-base-200); }
+.vm-auth-panel .vm-point strong { display: block; }
+.vm-auth-panel .vm-point span { color: color-mix(in oklab, var(--color-base-content) 65%, transparent); font-size: 0.875rem; }
+.vm-center { min-height: 100dvh; display: grid; place-items: center; padding: 2rem; text-align: center; background: var(--color-base-200); }
+.vm-center > div { max-width: 32rem; display: grid; gap: 0.75rem; justify-items: center; }
+.vm-center img { width: 10rem; height: auto; }
+.vm-center p { color: color-mix(in oklab, var(--color-base-content) 68%, transparent); }
+
+.vm-eyebrow { font-size: 0.75rem; font-weight: 600; letter-spacing: 0.06em; text-transform: uppercase; color: color-mix(in oklab, var(--color-base-content) 58%, transparent); }
+.vm-auth-brand .vm-eyebrow { color: var(--color-primary); }
+
+/* Older sign-in markup (.auth-shell / .auth-panel / .auth-aside) renders exactly like <AuthLayout/> */
+.auth-shell { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(20rem, 0.9fr); min-height: 100dvh; background: var(--color-base-100); }
+.auth-panel { display: flex; flex-direction: column; justify-content: center; padding: clamp(2rem, 7vw, 6rem); background: radial-gradient(circle at 15% 10%, rgb(247 181 3 / 0.1), transparent 26rem), var(--vm-chrome); color: var(--vm-chrome-text); }
+.auth-panel h1 { color: #fff; font-size: clamp(1.8rem, 3vw, 2.5rem); margin: 0.25rem 0 0.75rem; }
+.auth-panel > p { max-width: 38rem; color: var(--vm-chrome-text); margin-bottom: 0.5rem; }
+.auth-panel .eyebrow { color: var(--color-primary); }
+.auth-panel code { background: rgb(255 255 255 / 0.1); color: #fff; }
+.auth-logo { width: 12rem; height: auto; margin-bottom: 2rem; }
+.auth-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 1.25rem 0; }
+.auth-aside { display: flex; flex-direction: column; justify-content: center; gap: 0.9rem; padding: clamp(2rem, 5vw, 4.5rem); }
+.auth-aside > div { padding: 0.9rem 1rem; border: 1px solid var(--color-base-300); border-left: 3px solid var(--color-primary); border-radius: 0.5rem; background: var(--color-base-200); }
+.auth-aside strong { display: block; }
+.auth-aside span:not(.kicker) { color: color-mix(in oklab, var(--color-base-content) 65%, transparent); font-size: 0.875rem; }
+.security-note { font-size: 0.8125rem; color: color-mix(in oklab, var(--vm-chrome-text) 80%, transparent); }
+@media (max-width: 760px) { .auth-shell { grid-template-columns: 1fr; } .auth-panel, .auth-aside { padding: 2rem 1.25rem; } }
+
+@media (max-width: 1023px) {
+  .vm-shell { grid-template-columns: 1fr; }
+  .vm-sidebar { position: fixed; inset: 0 auto 0 0; width: min(18rem, 86vw); transform: translateX(-105%); transition: transform 0.22s ease; box-shadow: var(--shadow-lg); }
+  .vm-sidebar[data-open='true'] { transform: none; }
+  .vm-scrim { display: block; position: fixed; inset: 0; z-index: 35; border: 0; background: var(--scrim); animation: vm-fade-in 0.15s ease both; }
+  .vm-menu-btn { display: inline-flex; }
+}
+@media (max-width: 760px) {
+  .vm-auth { grid-template-columns: 1fr; }
+  .vm-auth-brand, .vm-auth-panel { padding: 2rem 1.25rem; }
+  .vm-crumb small { display: none; }
+}
+
+/* Inline notes on the always-navy sign-in panel */
+.vm-note { margin-top: 1rem; padding: 0.9rem 1rem; border: 1px solid rgb(255 255 255 / 0.16); border-radius: 0.6rem; background: rgb(255 255 255 / 0.06); color: var(--vm-chrome-text); }
+.vm-note-title { margin: 0 0 0.25rem; font-weight: 600; color: #fff; font-size: 0.875rem; }
+.vm-note-text { margin: 0 0 0.65rem; font-size: 0.8125rem; }
+.vm-note .button.secondary { background: rgb(255 255 255 / 0.1); border-color: rgb(255 255 255 / 0.2); color: #fff; box-shadow: none; }
+
+/* Public site navigation and footer (navy in both themes) */
+.vm-navbar { background: var(--vm-chrome); border-bottom: 1px solid var(--vm-chrome-line); box-shadow: 0 4px 20px rgb(6 26 56 / 0.18); color: var(--vm-chrome-text); }
+.vm-navbar .btn-ghost { color: var(--vm-chrome-text); }
+.vm-navbar .btn-ghost:hover { background: rgb(255 255 255 / 0.08); color: #fff; }
+.vm-navbar-link { padding: 0.4rem 0.75rem; border-radius: 0.5rem; color: var(--vm-chrome-text); font-size: 0.9375rem; font-weight: 500; transition: color 0.15s, background-color 0.15s; }
+.vm-navbar-link:hover { color: #fff; background: rgb(255 255 255 / 0.07); text-decoration: none; }
+.vm-navbar-mobile { background: var(--vm-chrome); border-top: 1px solid var(--vm-chrome-line); }
+.vm-sitefooter { background: var(--vm-chrome); color: var(--vm-chrome-text); border-top: 1px solid var(--vm-chrome-line); }
+.vm-sitefooter a { color: inherit; }

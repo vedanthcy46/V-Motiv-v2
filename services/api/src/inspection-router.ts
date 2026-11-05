@@ -1,5 +1,6 @@
 import express, { Router } from 'express';
 import { z } from 'zod';
+import { normalizeBodyType } from './body-types.js';
 import { inspectorMfaGuard } from './inspector-mfa.js';
 import { authentication, type Identity, type VerifyToken } from './auth.js';
 import { PrismaInspectionStore } from './inspection-store.js';
@@ -106,9 +107,11 @@ const stockInwardInput = z.object({
   physicalLocation: z.string().trim().min(3).max(500),
   notes: z.string().trim().max(2_000).optional(),
 }).strict();
+const bodyTypeInput = z.string().trim().max(40).refine(value => value === '' || normalizeBodyType(value) !== null, 'Unknown body type').optional();
 const stockSpecsInput = z.object({
   registrationNumber: z.string().trim().max(30).optional(),
   variant: z.string().trim().max(100).optional(),
+  bodyType: bodyTypeInput,
   color: z.string().trim().max(60).optional(),
   odometerKm: z.number().int().min(0).max(2_000_000).optional(),
 }).strict();
@@ -128,6 +131,7 @@ const qualityControlDecisionInput = z.object({ expectedVersion: z.number().int()
 
 const prepareListingInput = z.object({
   title: z.string().trim().min(3).max(200),
+  bodyType: bodyTypeInput,
   features: z.array(z.string().trim()).optional(),
   color: z.string().trim().optional(),
   conditionSummary: z.string().trim().max(2_000).optional(),

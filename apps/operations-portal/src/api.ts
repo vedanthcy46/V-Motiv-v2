@@ -21,78 +21,21 @@ import type {
   VehicleStockUnit,
 } from './types';
 
-function resolveApiBase(): string {
-  const env = (import.meta.env.VITE_API_BASE || '').trim();
-  const raw = (env || 'http://localhost:4100/api/v2')
-    .replace('https://vmotiv.in', 'https://api.vmotiv.in')
-    .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
-    .replace(/\/$/, '');
-  if (raw.endsWith('/api/v2') || raw.endsWith('/api/v1')) {
-    return raw;
+import { ApiError, createApiClient, resolveApiBase, type ApiClient } from '@vmotiv/ui';
+
+export { ApiError };
+
+const base = resolveApiBase(import.meta.env.VITE_API_BASE);
+const clients = new WeakMap<User, ApiClient>();
+
+/** One shared client per signed-in user: request de-duplication, token refresh, retry, extension-safe fetch and the global progress bar. */
+function call<T>(user: User, path: string, init: RequestInit = {}): Promise<T> {
+  let client = clients.get(user);
+  if (!client) {
+    client = createApiClient({ base, preferMessage: true, getToken: force => user.getIdToken(force) });
+    clients.set(user, client);
   }
-  return `${raw}/api/v2`;
-}
-const base = resolveApiBase();
-
-export class ApiError extends Error {
-  constructor(public status: number, public code: string) {
-    super(code);
-    this.name = 'ApiError';
-  }
-}
-
-async function call<T>(user: User, path: string, init: RequestInit = {}, retry = true): Promise<T> {
-  const token = await user.getIdToken(!retry);
-  const requestInit: RequestInit = {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...init.headers,
-    },
-    signal: init.signal ?? AbortSignal.timeout(20_000),
-  };
-
-  let response: Response;
-  try {
-    response = await fetch(`${base}${path}`, requestInit);
-  } catch (err: any) {
-    // If a browser extension (e.g. 200.js / M_ID) monkey-patched fetch and threw an error
-    if (
-      err instanceof TypeError &&
-      (String(err?.message).includes('M_ID') || String(err?.stack).includes('200.js'))
-    ) {
-      const iframe = document.createElement('iframe');
-      iframe.style.display = 'none';
-      document.body.appendChild(iframe);
-      const cleanFetch = iframe.contentWindow?.fetch;
-      if (cleanFetch) {
-        response = await cleanFetch(`${base}${path}`, requestInit);
-        setTimeout(() => {
-          try { iframe.remove(); } catch { /* ignore */ }
-        }, 1000);
-      } else {
-        iframe.remove();
-        throw err;
-      }
-    } else {
-      throw err;
-    }
-  }
-
-  if (response.status === 401 && retry) {
-    await user.getIdToken(true);
-    return call<T>(user, path, init, false);
-  }
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({ code: 'REQUEST_FAILED' }))) as { code?: string; message?: string };
-    const errorMsg = (body.message && body.message !== body.code) ? body.message : (body.code || 'REQUEST_FAILED');
-    throw new ApiError(response.status, errorMsg);
-  }
-
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
+  return client.request<T>(path, init as never);
 }
 
 export const api = {
@@ -209,7 +152,7 @@ export const api = {
   updateStockVehicleSpecs: (
     u: User,
     stockId: string,
-    body: { registrationNumber?: string; variant?: string; color?: string; odometerKm?: number }
+    body: { registrationNumber?: string; variant?: string; bodyType?: string; color?: string; odometerKm?: number }
   ) => call<unknown>(u, `/operations/inventory/${stockId}/vehicle-specs`, { method: 'PATCH', body: JSON.stringify(body) }),
 
   // --- Refurbishment Work Orders & Cost Approvals ---

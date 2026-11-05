@@ -362,7 +362,7 @@ export class PrismaSalesStore implements SalesStore {
       eligibleInventory,
       pendingValuationsCount,
       pendingDiscountsCount,
-    ] = await this.db.$transaction([
+    ] = await Promise.all([
       this.db.acquisitionLead.count({ where: { ...where, status: 'SUBMITTED' } }),
       this.db.acquisitionLead.count({ where: { ...where, status: 'QUALIFYING' } }),
       this.db.acquisitionLead.count({ where: { ...where, status: 'INSPECTION_SCHEDULED' } }),
@@ -415,7 +415,7 @@ export class PrismaSalesStore implements SalesStore {
         ],
       } : {}),
     };
-    const [items, total] = await this.db.$transaction([
+    const [items, total] = await Promise.all([
       this.db.acquisitionLead.findMany({
         where,
         select: leadSelect,
@@ -1734,7 +1734,7 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
         ],
       } : {}),
     };
-    const [items, total] = await this.db.$transaction([
+    const [items, total] = await Promise.all([
       this.db.purchaseEnquiry.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -1834,7 +1834,7 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
         ],
       } : {}),
     };
-    const [items, total] = await this.db.$transaction([
+    const [items, total] = await Promise.all([
       this.db.vehicleListing.findMany({
         where,
         orderBy: { publishedAt: 'desc' },
@@ -1932,7 +1932,7 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
       } : {}),
     };
     if (!actor.globalScope && !actor.branches.length) throw new HttpError(403, 'SALES_BRANCH_SCOPE_REQUIRED');
-    const [items, total] = await this.db.$transaction([
+    const [items, total] = await Promise.all([
       this.db.testDriveRequest.findMany({
         where,
         orderBy: [{ requestedDate: 'asc' }, { timeSlot: 'asc' }],
@@ -2053,7 +2053,7 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
       ...(query.status ? { status: query.status } : {}),
       ...(actor.globalScope ? {} : { listing: { vehicle: { city: { in: actor.branches.map(b => b.city), mode: 'insensitive' } } } }),
     };
-    const [items, total] = await this.db.$transaction([
+    const [items, total] = await Promise.all([
       this.db.buyerQuotation.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -2425,7 +2425,7 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
       ...(query.status ? { status: query.status } : {}),
       ...(actor.globalScope ? {} : { listing: { vehicle: { city: { in: actor.branches.map(b => b.city), mode: 'insensitive' } } } }),
     };
-    const [items, total] = await this.db.$transaction([
+    const [items, total] = await Promise.all([
       this.db.vehicleReservation.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -2591,7 +2591,7 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
         ],
       } : {}),
     };
-    const [items, total] = await this.db.$transaction([
+    const [items, total] = await Promise.all([
       this.db.user.findMany({
         where,
         orderBy: { createdAt: 'desc' },
@@ -2671,7 +2671,7 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
       inspectionCount,
       offerCount,
       testDriveStats,
-    ] = await this.db.$transaction([
+    ] = await Promise.all([
       (this.db.acquisitionLead as any).groupBy({
         by: ['status'],
         where,

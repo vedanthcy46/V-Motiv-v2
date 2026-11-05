@@ -1,8 +1,10 @@
-// Floating action bar: tells staff that something changed which they did not do themselves (a customer booking, an enquiry,
+// Floating notice: tells staff that something changed which they did not do themselves (a customer booking, an enquiry,
 // a payment). Fed by useChangeWatcher; the data on screen refreshes by itself, the bar makes sure the change is noticed.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { subscribeChanges } from './autoRefresh';
+import { CountBadge } from '../components/Badge';
+import { Icon } from '../components/Icon';
 
 export interface LiveChangeBarProps {
   /** Plain-language name for each watched domain, e.g. { rentals: 'Rental bookings' }. */
@@ -57,56 +59,22 @@ export function LiveChangeBar({ labels }: LiveChangeBarProps) {
   if (domains.length === 0) return null;
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      style={{
-        position: 'fixed',
-        left: '50%',
-        bottom: '1.25rem',
-        transform: 'translateX(-50%)',
-        zIndex: 1200,
-        maxWidth: 'min(640px, calc(100vw - 2rem))',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '0.75rem',
-        flexWrap: 'wrap',
-        padding: '0.7rem 0.9rem 0.7rem 1rem',
-        background: '#0b2140',
-        color: '#f8fafc',
-        border: '1px solid #f59e0b',
-        borderRadius: '999px',
-        boxShadow: '0 12px 36px rgba(0, 0, 0, 0.55)',
-        fontSize: '0.875rem',
-      }}
-    >
-      <span aria-hidden="true" style={{ width: 10, height: 10, borderRadius: '50%', background: '#f59e0b', boxShadow: '0 0 0 4px rgba(245, 158, 11, 0.25)', flexShrink: 0 }} />
-      <span style={{ fontWeight: 700 }}>New activity</span>
-      <span style={{ color: '#cbd5e1', display: 'flex', gap: '0.5rem', flexWrap: 'wrap' }}>
+    <div role="status" aria-live="polite" className="vm-live-bar alert border-base-300 bg-base-100 py-2.5 pl-4 pr-2 shadow-lg">
+      <span className="relative flex size-2.5" aria-hidden="true">
+        <span className="absolute inline-flex size-full animate-ping rounded-full bg-primary opacity-60" />
+        <span className="relative inline-flex size-2.5 rounded-full bg-primary" />
+      </span>
+      <span className="text-sm font-semibold">New activity</span>
+      <span className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-base-content/70">
         {domains.map(domain => (
-          <span key={domain} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.35rem' }}>
+          <span key={domain} className="inline-flex items-center gap-1.5">
             {labels[domain] ?? domain}
-            {pending[domain]! > 1 ? <span style={{ background: 'rgba(245, 158, 11, 0.2)', borderRadius: 999, padding: '0 0.4rem', fontSize: '0.75rem' }}>×{pending[domain]}</span> : null}
-            {onView ? (
-              <button
-                type="button"
-                onClick={() => { onView(domain); dismiss(); }}
-                style={{ background: '#f59e0b', color: '#0b1a30', border: 'none', borderRadius: 999, padding: '0.2rem 0.7rem', fontWeight: 700, fontSize: '0.75rem', cursor: 'pointer' }}
-              >
-                View
-              </button>
-            ) : null}
+            {pending[domain]! > 1 ? <CountBadge count={pending[domain]!} tone="neutral" /> : null}
+            {onView ? <button type="button" className="btn btn-primary btn-xs" onClick={() => { onView(domain); dismiss(); }}>View</button> : null}
           </span>
         ))}
       </span>
-      <button
-        type="button"
-        onClick={dismiss}
-        aria-label="Dismiss"
-        style={{ background: 'transparent', color: '#94a3b8', border: 'none', cursor: 'pointer', fontSize: '1rem', lineHeight: 1, padding: '0.1rem 0.3rem' }}
-      >
-        ✕
-      </button>
+      <button type="button" className="btn btn-ghost btn-square btn-xs" onClick={dismiss} aria-label="Dismiss"><Icon name="close" size={14} /></button>
     </div>
   );
 }

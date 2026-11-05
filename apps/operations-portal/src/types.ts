@@ -211,6 +211,8 @@ export type VehicleStockUnit = {
   make: string;
   model: string;
   variant?: string | null;
+  /** Canonical code (HATCHBACK, SEDAN, SUV, MUV, COUPE, CONVERTIBLE); worked out from make and model when not set by hand. */
+  bodyType?: string | null;
   color?: string | null;
   registrationYear?: number | null;
   registrationCity?: string | null;

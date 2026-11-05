@@ -206,7 +206,7 @@ export class PrismaAdminStore implements AdminStore {
   async dashboard(actor: AdminActor) {
     requirePermission(actor, 'employee.read');
     const branchScope = actor.roles.includes('SUPER_ADMIN') ? undefined : { branchAssignments: { some: { branchId: { in: actor.branches.map(branch => branch.id) } } } };
-    const [active, suspended, deactivated, invitations, approvals, supportCases, recentAudit] = await this.db.$transaction([
+    const [active, suspended, deactivated, invitations, approvals, supportCases, recentAudit] = await Promise.all([
       this.db.employee.count({ where: { ...branchScope, status: 'ACTIVE', active: true } }),
       this.db.employee.count({ where: { ...branchScope, status: 'SUSPENDED' } }),
       this.db.employee.count({ where: { ...branchScope, status: 'DEACTIVATED' } }),
@@ -457,7 +457,7 @@ export class PrismaAdminStore implements AdminStore {
         { user: { email: { contains: query.search, mode: 'insensitive' } } }, { user: { displayName: { contains: query.search, mode: 'insensitive' } } },
       ] } : {}),
     };
-    const [total, items] = await this.db.$transaction([
+    const [total, items] = await Promise.all([
       this.db.supportCase.count({ where }),
       this.db.supportCase.findMany({ where, orderBy: { updatedAt: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit, include: { user: { select: { email: true, displayName: true, preferredCity: true } }, replies: { orderBy: { createdAt: 'asc' }, select: { id: true, authorType: true, body: true, createdAt: true } } } }),
     ]);
@@ -654,7 +654,7 @@ export class PrismaAdminStore implements AdminStore {
       ...(query.branchId ? { branchAssignments: { some: { branchId: query.branchId } } } : scopedBranches ? { branchAssignments: { some: { branchId: { in: scopedBranches } } } } : {}),
     };
     if (query.branchId && scopedBranches && !scopedBranches.includes(query.branchId)) throw new HttpError(403, 'BRANCH_SCOPE_DENIED');
-    const [total, rows] = await this.db.$transaction([
+    const [total, rows] = await Promise.all([
       this.db.employee.count({ where }),
       this.db.employee.findMany({ where, include: actorInclude, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit }),
     ]);
@@ -715,7 +715,7 @@ export class PrismaAdminStore implements AdminStore {
       scopeWhere = { NOT: { scopeBranchIds: { hasSome: unassigned.map(branch => branch.id) } } };
     }
     const where: Prisma.ApprovalRequestWhereInput = { ...(query.status ? { status: query.status } : {}), ...scopeWhere };
-    const [total, items] = await this.db.$transaction([
+    const [total, items] = await Promise.all([
       this.db.approvalRequest.count({ where }),
       this.db.approvalRequest.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (query.page - 1) * query.limit, take: query.limit, include: { requester: { include: { user: { select: { displayName: true, email: true } } } }, decision: { include: { actor: { include: { user: { select: { displayName: true, email: true } } } } } } } }),
     ]);
@@ -1063,7 +1063,7 @@ export class PrismaAdminStore implements AdminStore {
   async audit(actor: AdminActor, page: number, limit: number) {
     requirePermission(actor, 'audit.read');
     const where: Prisma.AuditEventWhereInput = actor.roles.includes('SUPER_ADMIN') ? {} : { OR: [{ actorId: actor.userId }, { actor: { employee: { branchAssignments: { some: { branchId: { in: actor.branches.map(branch => branch.id) } } } } } }] };
-    const [total, items] = await this.db.$transaction([
+    const [total, items] = await Promise.all([
       this.db.auditEvent.count({ where }),
       this.db.auditEvent.findMany({ where, orderBy: { createdAt: 'desc' }, skip: (page - 1) * limit, take: limit, select: { id: true, actorId: true, action: true, entityType: true, entityId: true, outcome: true, correlationId: true, details: true, createdAt: true } }),
     ]);
@@ -1088,7 +1088,7 @@ export class PrismaAdminStore implements AdminStore {
       ...searchWhere,
       ...(query.status ? { status: query.status as any } : {}),
     };
-    const [total, items, statusCounts] = await this.db.$transaction([
+    const [total, items, statusCounts] = await Promise.all([
       this.db.acquisitionLead.count({ where }),
       this.db.acquisitionLead.findMany({
         where,
@@ -1126,7 +1126,7 @@ export class PrismaAdminStore implements AdminStore {
     requirePermission(actor, 'business.oversight.read');
     const branchCities = actor.branches.map(b => b.city);
     const scopeWhere = actor.roles.includes('SUPER_ADMIN') ? {} : { serviceCity: { in: branchCities } };
-    const [testDrivesTotal, testDrives, enquiriesTotal, enquiries] = await this.db.$transaction([
+    const [testDrivesTotal, testDrives, enquiriesTotal, enquiries] = await Promise.all([
       this.db.testDriveRequest.count({ where: scopeWhere }),
       this.db.testDriveRequest.findMany({
         where: scopeWhere,
@@ -1181,7 +1181,7 @@ export class PrismaAdminStore implements AdminStore {
         ],
       } : {}),
     };
-    const [total, items, statusCounts] = await this.db.$transaction([
+    const [total, items, statusCounts] = await Promise.all([
       this.db.vehicleListing.count({ where }),
       this.db.vehicleListing.findMany({
         where,
@@ -1213,7 +1213,7 @@ export class PrismaAdminStore implements AdminStore {
 
   async businessFinance(actor: AdminActor) {
     requirePermission(actor, 'business.oversight.read');
-    const [activeListings, totalLeads, offers, pendingPayouts] = await this.db.$transaction([
+    const [activeListings, totalLeads, offers, pendingPayouts] = await Promise.all([
       this.db.vehicleListing.findMany({
         where: { status: 'PUBLISHED' },
         select: { pricePaise: true },
@@ -1304,7 +1304,7 @@ export class PrismaAdminStore implements AdminStore {
   async communicationsOutbox(actor: AdminActor, query: CommunicationsOutboxQuery) {
     requirePermission(actor, 'email.delivery.read');
     const where: Prisma.EmailOutboxWhereInput = query.state ? { state: query.state as any } : {};
-    const [total, items, stateCounts] = await this.db.$transaction([
+    const [total, items, stateCounts] = await Promise.all([
       this.db.emailOutbox.count({ where }),
       this.db.emailOutbox.findMany({
         where,
@@ -1372,7 +1372,7 @@ export class PrismaAdminStore implements AdminStore {
       ...(actor.roles.includes('SUPER_ADMIN') ? {} : { user: { preferredCity: { in: cities } } }),
       ...(query.status ? { status: query.status } : {}),
     };
-    const [total, items] = await this.db.$transaction([
+    const [total, items] = await Promise.all([
       this.db.privacyRequest.count({ where }),
       this.db.privacyRequest.findMany({
         where,
@@ -1422,7 +1422,7 @@ export class PrismaAdminStore implements AdminStore {
   async exportJobs(actor: AdminActor, page: number, limit: number) {
     requirePermission(actor, 'export.create');
     const where: Prisma.ExportJobWhereInput = actor.roles.includes('SUPER_ADMIN') ? {} : { requesterId: actor.userId };
-    const [total, items] = await this.db.$transaction([
+    const [total, items] = await Promise.all([
       this.db.exportJob.count({ where }),
       this.db.exportJob.findMany({
         where,

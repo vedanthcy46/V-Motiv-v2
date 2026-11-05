@@ -1,5 +1,7 @@
-import { useAutoRefresh, useChangeWatcher } from './autoRefresh';
-import { mountLiveChangeBar } from './LiveChangeBar';
+import {
+  ApiError, AuthLayout, Button, CenterState, EmptyState, Alert, Modal, MfaChallengeModal, NotificationBell, PageLoader, SimpleShell, StatusBadge, TableSkeleton,
+  createApiClient, describeApiError, initTheme, mountLiveChangeBar, resolveApiBase, toast, useAutoRefresh, useChangeWatcher, type ApiClient,
+} from '@vmotiv/ui';
 import { useEffect, useState, useMemo, useRef } from 'react';
 import { createRoot } from 'react-dom/client';
 import { getApp, getApps, initializeApp } from 'firebase/app';
@@ -21,6 +23,8 @@ import {
   type User,
 } from 'firebase/auth';
 import './styles.css';
+
+initTheme();
 
 function isInvalidRegNumberOrUuid(val: unknown): boolean {
   if (!val || typeof val !== 'string') return true;
@@ -111,38 +115,17 @@ const config = {
 
 const configured = Object.values(config).every(val => typeof val === 'string' && val.trim());
 const auth = configured ? (getApps().length ? getAuth(getApp()) : getAuth(initializeApp(config))) : null;
-function resolveApiBase(): string {
-  const env = (import.meta.env.VITE_API_BASE || '').trim();
-  const raw = (env || 'http://localhost:4100/api/v2')
-    .replace('https://vmotiv.in', 'https://api.vmotiv.in')
-    .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
-    .replace(/\/$/, '');
-  if (raw.endsWith('/api/v2') || raw.endsWith('/api/v1')) {
-    return raw;
-  }
-  return `${raw}/api/v2`;
-}
-const base = resolveApiBase();
+const base = resolveApiBase(import.meta.env.VITE_API_BASE);
+const clients = new WeakMap<User, ApiClient>();
 
-async function api<T>(user: User, path: string, init: RequestInit = {}) {
-  const token = await user.getIdToken();
-  const response = await fetch(`${base}${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...init.headers,
-    },
-  });
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({}))) as { code?: string; message?: string };
-    const err = new Error(body.code || body.message || `HTTP_${response.status}`);
-    (err as any).status = response.status;
-    (err as any).code = body.code;
-    throw err;
+/** One shared client per signed-in user: request de-duplication, token refresh, retry and the global progress bar. */
+function api<T>(user: User, path: string, init: RequestInit = {}) {
+  let client = clients.get(user);
+  if (!client) {
+    client = createApiClient({ base, getToken: force => user.getIdToken(force) });
+    clients.set(user, client);
   }
-  return response.json() as Promise<T>;
+  return client.request<T>(path, init as never);
 }
 
 function AuthenticatedImage({ user, reportId, mediaId, alt }: { user: User; reportId: string; mediaId: string; alt: string }) {
@@ -176,7 +159,7 @@ function AuthenticatedImage({ user, reportId, mediaId, alt }: { user: User; repo
 
   if (loading) {
     return (
-      <div style={{ width: '100%', height: '100%', background: '#07182f', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: 'var(--muted)' }}>
+      <div style={{ width: '100%', height: '100%', background: 'var(--color-base-200)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: 'var(--muted)' }}>
         Loading evidence...
       </div>
     );
@@ -184,208 +167,13 @@ function AuthenticatedImage({ user, reportId, mediaId, alt }: { user: User; repo
 
   if (!src) {
     return (
-      <div style={{ width: '100%', height: '100%', background: '#07182f', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: 'var(--muted)' }}>
+      <div style={{ width: '100%', height: '100%', background: 'var(--color-base-200)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '11px', color: 'var(--muted)' }}>
         Unavailable
       </div>
     );
   }
 
   return <img src={src} alt={alt} />;
-}
-
-function MfaChallengeDialog({
-  auth,
-  resolver,
-  onClose,
-  onSuccess,
-}: {
-  auth: Auth;
-  resolver: MultiFactorResolver;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-  const [verificationId, setVerificationId] = useState('');
-  const [code, setCode] = useState('');
-  const [sending, setSending] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [error, setError] = useState('');
-
-  const phoneHint = resolver.hints.find(
-    hint => hint.factorId === PhoneMultiFactorGenerator.FACTOR_ID
-  ) as PhoneMultiFactorInfo | undefined;
-
-  const sendOtp = async () => {
-    if (!phoneHint) {
-      setError('No registered phone number found for 2-step verification.');
-      return;
-    }
-    setSending(true);
-    setError('');
-    try {
-      if (recaptchaVerifierRef.current) {
-        try { recaptchaVerifierRef.current.clear(); } catch { /* ignore */ }
-        recaptchaVerifierRef.current = null;
-      }
-      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-      });
-      const phoneProvider = new PhoneAuthProvider(auth);
-      const vId = await phoneProvider.verifyPhoneNumber(
-        { multiFactorHint: phoneHint, session: resolver.session },
-        recaptchaVerifierRef.current
-      );
-      setVerificationId(vId);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to send SMS code. Please try again.');
-    } finally {
-      setSending(false);
-    }
-  };
-
-  useEffect(() => {
-    void sendOtp();
-    return () => {
-      try {
-        recaptchaVerifierRef.current?.clear();
-      } catch {
-        // ignore
-      }
-    };
-  }, []);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!verificationId || code.trim().length !== 6) return;
-    setVerifying(true);
-    setError('');
-    try {
-      const cred = PhoneAuthProvider.credential(verificationId, code.trim());
-      const assertion = PhoneMultiFactorGenerator.assertion(cred);
-      await resolver.resolveSignIn(assertion);
-      onSuccess();
-    } catch (err: any) {
-      setError(err?.message || 'Invalid or expired 6-digit verification code.');
-      setVerifying(false);
-    }
-  };
-
-  const phoneDisplay = phoneHint?.phoneNumber || 'your registered mobile number';
-
-  return (
-    <div className="modal-overlay" style={{ zIndex: 1100 }}>
-      <div className="modal-dialog" style={{ maxWidth: '440px', width: '92%' }}>
-        <div className="modal-header">
-          <div>
-            <span className="eyebrow">2-STEP VERIFICATION</span>
-            <h3 style={{ margin: 0 }}>Two-Factor Security</h3>
-          </div>
-          <button
-            type="button"
-            className="btn-outline"
-            style={{ minHeight: '30px', padding: '2px 8px' }}
-            onClick={onClose}
-          >
-            ✕
-          </button>
-        </div>
-        <form onSubmit={submit}>
-          <div className="modal-body" style={{ padding: '1.25rem' }}>
-            {error && <div className="error-banner" style={{ marginBottom: '12px' }}>{error}</div>}
-            <p style={{ color: 'var(--muted)', fontSize: '13.5px', lineHeight: 1.5, marginBottom: '16px' }}>
-              {sending
-                ? `Sending 6-digit verification code to ${phoneDisplay}…`
-                : `A 6-digit verification code was sent via SMS to ${phoneDisplay}. Enter the code below to complete sign-in.`}
-            </p>
-            <div style={{ marginBottom: '16px' }}>
-              <label
-                style={{
-                  display: 'block',
-                  marginBottom: '6px',
-                  fontSize: '12px',
-                  fontWeight: 700,
-                  color: 'var(--text-secondary)',
-                }}
-              >
-                6-DIGIT VERIFICATION CODE *
-              </label>
-              <input
-                type="text"
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                pattern="[0-9]{6}"
-                maxLength={6}
-                placeholder="123456"
-                autoFocus
-                required
-                value={code}
-                onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
-                style={{
-                  width: '100%',
-                  background: '#07182f',
-                  border: '1.5px solid var(--border)',
-                  borderRadius: '8px',
-                  padding: '12px',
-                  fontSize: '24px',
-                  letterSpacing: '8px',
-                  textAlign: 'center',
-                  color: '#fff',
-                  fontWeight: 700,
-                  outline: 'none',
-                }}
-              />
-            </div>
-            {phoneHint && (
-              <div style={{ textAlign: 'center', marginTop: '10px' }}>
-                <button
-                  type="button"
-                  disabled={sending || verifying}
-                  onClick={sendOtp}
-                  style={{
-                    background: 'none',
-                    border: 'none',
-                    color: 'var(--yellow)',
-                    fontSize: '13px',
-                    fontWeight: 600,
-                    cursor: 'pointer',
-                    textDecoration: 'underline',
-                  }}
-                >
-                  {sending ? 'Sending new code…' : "Didn't receive SMS? Resend code"}
-                </button>
-              </div>
-            )}
-          </div>
-          <div
-            className="modal-footer"
-            style={{
-              padding: '1rem 1.25rem',
-              display: 'flex',
-              gap: '10px',
-              justifyContent: 'flex-end',
-              borderTop: '1px solid var(--border)',
-            }}
-          >
-            <button
-              type="button"
-              className="button btn-secondary"
-              onClick={onClose}
-              disabled={verifying}
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              className="button btn-primary"
-              disabled={verifying || sending || code.trim().length !== 6}
-            >
-              {verifying ? 'Verifying…' : 'Verify & Continue'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
 }
 
 export function App() {
@@ -403,6 +191,11 @@ export function App() {
   const [unreadNotifsCount, setUnreadNotifsCount] = useState(0);
   const [notifsOpen, setNotifsOpen] = useState(false);
   const [busy, setBusy] = useState<boolean>(false);
+  const [authReady, setAuthReady] = useState<boolean>(!auth);
+  const [queueLoading, setQueueLoading] = useState<boolean>(false);
+  const [opening, setOpening] = useState<string | null>(null);
+  const [pendingDecision, setPendingDecision] = useState<string>('');
+  const reloadTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   const [error, setError] = useState<string>('');
   const [mfaResolver, setMfaResolver] = useState<MultiFactorResolver | null>(null);
 
@@ -410,7 +203,7 @@ export function App() {
     if (!activeUser) return;
     const silent = opts.silent === true;
     if (!silent) {
-      setBusy(true);
+      setQueueLoading(true);
       setError('');
     }
     try {
@@ -427,11 +220,17 @@ export function App() {
       if (code === 'INSPECTION_ACCESS_DENIED' || e?.status === 403) {
         setError('Access Restricted: Your account does not have Inspection Reviewer privileges. Please sign in with an authorized Reviewer or Administrator account (e.g. vmotiv.v@gmail.com).');
       } else {
-        setError(e instanceof Error ? e.message : 'Unable to load review queue.');
+        setError(describeApiError(e));
       }
     } finally {
-      if (!silent) setBusy(false);
+      if (!silent) setQueueLoading(false);
     }
+  };
+
+  /** Typing in the search box filters the list instantly in the browser; the server is asked once typing pauses. */
+  const scheduleQueueReload = (activeUser: User | null, sort: typeof sortOrder, status: typeof statusFilter, query: string) => {
+    if (reloadTimer.current) clearTimeout(reloadTimer.current);
+    reloadTimer.current = setTimeout(() => { void loadQueue(activeUser, sort, status, query); }, 350);
   };
 
   // New submitted reports reach the review queue without a manual refresh.
@@ -489,6 +288,7 @@ export function App() {
 
     return onAuthStateChanged(auth, nextUser => {
       setUser(nextUser);
+      setAuthReady(true);
       if (nextUser) {
         void loadQueue(nextUser);
         void loadNotifications(nextUser);
@@ -535,51 +335,48 @@ export function App() {
   }
 
   async function openReport(item: QueueItem) {
-    if (!user) return;
-    setBusy(true);
+    if (!user || opening) return;
+    setOpening(item.id);
     setError('');
     try {
-      const rep = await api<Report>(user, `/inspection-review/reports/${item.id}`);
+      // The report and its revision diff are independent: fetch them together.
+      const [rep, d] = await Promise.all([
+        api<Report>(user, `/inspection-review/reports/${item.id}`),
+        api<RevisionDiff>(user, `/inspection-review/reports/${item.id}/diff`).catch(() => null),
+      ]);
       setReport(rep);
       setReason('');
       setActiveTab('checklist');
-
-      if (rep.parentReport) {
-        const d = await api<RevisionDiff>(user, `/inspection-review/reports/${item.id}/diff`);
-        setDiff(d);
-      } else {
-        setDiff(null);
-      }
+      setDiff(rep.parentReport ? d : null);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Unable to load report.');
+      toast.error('Could not open this report', { description: describeApiError(e) });
     } finally {
-      setBusy(false);
+      setOpening(null);
     }
   }
 
   async function recordDecision(decision: 'APPROVE' | 'REQUEST_CORRECTION' | 'REJECT') {
-    if (!user || !report) return;
+    if (!user || !report || busy) return;
 
     if (decision !== 'APPROVE' && !reason.trim()) {
-      setError('A documented reason is required when requesting a correction or rejecting a report.');
+      toast.warning('A reason is required', { description: 'Document why you are requesting a correction or rejecting this report.' });
       return;
     }
 
     setBusy(true);
-    setError('');
     try {
       await api(user, `/inspection-review/reports/${report.id}/decision`, {
         method: 'POST',
-        body: JSON.stringify({
-          decision,
-          reason: reason.trim() || undefined,
-        }),
+        body: JSON.stringify({ decision, reason: reason.trim() || undefined }),
       });
+      toast.success(decision === 'APPROVE' ? 'Report approved' : decision === 'REJECT' ? 'Report rejected' : 'Correction requested');
+      // The decision is saved; take the report out of the queue immediately and refresh the list in the background.
+      setItems(current => current.filter(item => item.id !== report.id));
       setReport(null);
       setDiff(null);
-      await loadQueue();
+      void loadQueue(user, sortOrder, statusFilter, search, { silent: true }).catch(() => undefined);
     } catch (e) {
-      setError(e instanceof Error ? e.message : 'Decision could not be recorded.');
+      toast.error('Decision could not be recorded', { description: describeApiError(e) });
     } finally {
       setBusy(false);
     }
@@ -599,306 +396,153 @@ export function App() {
 
   if (!configured) {
     return (
-      <main className="auth-shell">
-        <section className="auth-panel">
-          <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-          <p className="eyebrow">CONFIGURATION REQUIRED</p>
-          <h1>Environment Missing</h1>
-          <p>
-            Firebase public environment variables are required. Set <code>VITE_FIREBASE_API_KEY</code>, <code>VITE_FIREBASE_PROJECT_ID</code> in <code>.env</code>.
-          </p>
-        </section>
-      </main>
+      <CenterState eyebrow="Configuration required" title="Environment missing">
+        <p>Firebase public environment variables are required. Set <code>VITE_FIREBASE_API_KEY</code> and <code>VITE_FIREBASE_PROJECT_ID</code> in <code>.env</code>.</p>
+      </CenterState>
     );
   }
 
-  // --- Sign-in Screen (Identical to Admin & Sales Portals) ---
+  if (!authReady) return <PageLoader label="Checking your session" />;
+
   if (!user) {
     return (
       <>
-        <main className="auth-shell">
-          <section className="auth-panel">
-            <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-            <p className="eyebrow">QUALITY CONTROL & GOVERNANCE</p>
-            <h1>Independent Inspection Review</h1>
-            <p>
-              Sign in with your authorized Quality Reviewer, Operations Manager, or Administrator credentials. Field inspectors are prohibited from approving their own submissions.
-            </p>
-            <div className="auth-actions">
-              <button className="button btn-primary" onClick={login} disabled={busy}>
-                {busy ? 'Connecting to Google…' : 'Continue with Google'}
-              </button>
-            </div>
-            {error && <div className="error-banner">{error}</div>}
-          </section>
-
-          <aside className="auth-aside">
-            <div>
-              <span className="kicker">Stage 1 · Evidence Audit</span>
-              <strong>Full Physical & Photo Evidence</strong>
-              <span>16-section checklist audit, odometer corroboration, and stamped VIN cross-referencing.</span>
-            </div>
-            <div>
-              <span className="kicker">Stage 2 · Accountable Verdict</span>
-              <strong>Approve, Rework, or Reject</strong>
-              <span>Sealed approvals feed pricing and acquisition workflows without allowing silent changes.</span>
-            </div>
-            <div>
-              <span className="kicker">Governance Boundary</span>
-              <strong>Separation of Responsibilities</strong>
-              <span>Systematically prevents self-approval and preserves immutable historical revisions.</span>
-            </div>
-          </aside>
-        </main>
-
+        <AuthLayout
+          portalName="Inspection Review"
+          eyebrow="Quality control and governance"
+          title="Independent inspection review"
+          description="Sign in with your authorised Quality Reviewer, Operations Manager or Administrator account. Field inspectors cannot approve their own submissions."
+          points={[
+            { title: 'Evidence audit', text: '16-section checklist review, odometer corroboration and stamped VIN cross-referencing.' },
+            { title: 'Accountable verdict', text: 'Approve, request rework or reject. Sealed approvals feed pricing and acquisition without silent changes.' },
+            { title: 'Separation of duties', text: 'Self-approval is blocked and every historical revision is preserved.' },
+          ]}
+        >
+          <Button size="lg" block loading={busy} onClick={login}>{busy ? 'Connecting to Google…' : 'Continue with Google'}</Button>
+          {error ? <Alert tone="error">{error}</Alert> : null}
+        </AuthLayout>
         {mfaResolver && auth && (
-          <MfaChallengeDialog
-            auth={auth}
-            resolver={mfaResolver}
-            onClose={() => setMfaResolver(null)}
-            onSuccess={() => setMfaResolver(null)}
-          />
+          <MfaChallengeModal auth={auth} resolver={mfaResolver} onClose={() => setMfaResolver(null)} onSuccess={() => setMfaResolver(null)} />
         )}
-        <div id="recaptcha-container" />
       </>
     );
   }
 
-  // --- Authenticated Workspace View ---
   return (
-    <>
-      {/* Topbar (Matching Admin and Sales) */}
-      <header className="topbar">
-        <div className="brand-lockup">
-          <img src="/brand/vmotiv-header-brand.png" alt="V MOTIV" onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }} />
-          <span className="brand-pill">INSPECTION REVIEW</span>
-        </div>
-        <div className="topbar-user" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          {/* Notification Bell */}
-          <div style={{ position: 'relative' }}>
-            <button
-              className="btn-outline"
-              style={{ padding: '6px 10px', position: 'relative', cursor: 'pointer' }}
-              onClick={() => setNotifsOpen(!notifsOpen)}
-              title="Notifications"
-            >
-              🔔
-              {unreadNotifsCount > 0 && (
-                <span
-                  style={{
-                    position: 'absolute',
-                    top: '-4px',
-                    right: '-4px',
-                    background: '#EF4444',
-                    color: '#fff',
-                    borderRadius: '10px',
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    padding: '1px 5px',
-                  }}
-                >
-                  {unreadNotifsCount}
-                </span>
-              )}
-            </button>
-
-            {notifsOpen && (
-              <div
-                style={{
-                  position: 'absolute',
-                  right: 0,
-                  top: '42px',
-                  width: '320px',
-                  maxHeight: '400px',
-                  overflowY: 'auto',
-                  background: '#07162C',
-                  border: '1px solid #1A3B6B',
-                  borderRadius: '8px',
-                  boxShadow: '0 8px 24px rgba(0,0,0,0.5)',
-                  zIndex: 9999,
-                  padding: '12px',
-                }}
-              >
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px', borderBottom: '1px solid #1A3B6B', paddingBottom: '6px' }}>
-                  <strong style={{ fontSize: '13px' }}>Review Notifications</strong>
-                  {unreadNotifsCount > 0 && (
-                    <button className="text-button" style={{ fontSize: '11px', color: '#F7B503', cursor: 'pointer' }} onClick={markAllRead}>
-                      Mark all read
-                    </button>
-                  )}
-                </div>
-                {notifications.length === 0 ? (
-                  <p style={{ color: '#8899A6', fontSize: '12px', textAlign: 'center', padding: '16px 0' }}>No notifications</p>
-                ) : (
-                  notifications.map(n => (
-                    <div
-                      key={n.id}
-                      style={{
-                        padding: '8px 0',
-                        borderBottom: '1px solid rgba(255,255,255,0.06)',
-                        opacity: n.read ? 0.7 : 1,
-                        cursor: 'pointer',
-                      }}
-                      onClick={async () => {
-                        if (!n.read) {
-                          await api(user, `/api/v2/notifications/${n.id}/read`, { method: 'PATCH' }).catch(() => {});
-                          setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: true } : item));
-                          setUnreadNotifsCount(prev => Math.max(0, prev - 1));
-                        }
-                        if (n.entityId) {
-                          const target = items.find(i => i.id === n.entityId);
-                          if (target) openReport(target);
-                        }
-                      }}
-                    >
-                      <div style={{ fontWeight: n.read ? 600 : 700, fontSize: '12px', color: n.read ? '#fff' : '#F7B503' }}>
-                        {n.title}
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#8899A6', marginTop: '2px' }}>{n.body}</div>
-                    </div>
-                  ))
-                )}
-              </div>
-            )}
-          </div>
-
-          <span>Reviewer: <strong>{user.email}</strong></span>
-          <button className="btn-outline" style={{ minHeight: '34px', padding: '4px 12px', fontSize: '0.8rem' }} onClick={() => signOut(auth!)}>
-            Sign out
-          </button>
-        </div>
-      </header>
-
-      <div className="workspace-container">
-        {error && <div className="error-banner">{error}</div>}
+    <SimpleShell
+      portalName="Inspection Review"
+      wide
+      toolbar={
+        <>
+          <NotificationBell
+            title="Review notifications"
+            items={notifications}
+            unread={unreadNotifsCount}
+            onMarkAllRead={markAllRead}
+            onOpenItem={async n => {
+              if (!n.read) {
+                await api(user, `/api/v2/notifications/${n.id}/read`, { method: 'PATCH' }).catch(() => undefined);
+                setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, read: true } : item));
+                setUnreadNotifsCount(prev => Math.max(0, prev - 1));
+              }
+              const entityId = (n as { entityId?: string }).entityId;
+              const target = entityId ? items.find(i => i.id === entityId) : undefined;
+              if (target) void openReport(target);
+            }}
+          />
+          <span className="vm-user hidden sm:inline">Reviewer: <strong>{user.email}</strong></span>
+          <Button variant="ghost" size="sm" onClick={() => signOut(auth!)}>Sign out</Button>
+        </>
+      }
+    >
+      <div>
+        {error && <Alert tone="error" className="mb-4" onDismiss={() => setError('')}>{error}</Alert>}
 
         <div className="layout-grid">
           {/* Left Panel: Review Queue */}
           <aside className="panel">
             <div className="panel-header">
-              <h2>Review Queue</h2>
-              <span className="badge badge-amber">{filteredItems.length} Awaiting</span>
+              <h2>Review queue</h2>
+              <span className="badge badge-amber">{filteredItems.length} awaiting</span>
             </div>
 
             <input
-              type="text"
-              className="search-input"
-              placeholder="Search by car, lead code, seller..."
+              type="search"
+              aria-label="Search the review queue"
+              placeholder="Search by car, lead code or seller"
               value={search}
               onChange={e => {
                 setSearch(e.target.value);
-                void loadQueue(user, sortOrder, statusFilter, e.target.value);
+                scheduleQueueReload(user, sortOrder, statusFilter, e.target.value);
               }}
             />
 
-            {/* Filter pills and Sort order */}
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', margin: '8px 0' }}>
-              <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+            <div className="queue-filters">
+              <div className="flex w-full gap-1" role="group" aria-label="Filter by status">
                 {(['ALL', 'SUBMITTED', 'UNDER_REVIEW', 'REWORK_REQUIRED', 'APPROVED'] as const).map(st => (
                   <button
                     key={st}
-                    className={`btn-outline ${statusFilter === st ? 'active' : ''}`}
-                    style={{
-                      flex: '1 1 auto',
-                      minWidth: '70px',
-                      padding: '4px 6px',
-                      fontSize: '11px',
-                      background: statusFilter === st ? 'rgba(247, 181, 3, 0.15)' : 'transparent',
-                      borderColor: statusFilter === st ? '#F7B503' : '#1A3B6B',
-                      color: statusFilter === st ? '#F7B503' : '#8899A6',
-                      cursor: 'pointer',
-                    }}
+                    type="button"
+                    aria-pressed={statusFilter === st}
+                    className={`btn btn-xs flex-1 ${statusFilter === st ? 'btn-primary' : 'btn-outline'}`}
                     onClick={() => {
                       setStatusFilter(st);
                       void loadQueue(user, sortOrder, st, search);
                     }}
                   >
-                    {st === 'ALL'
-                      ? 'All'
-                      : st === 'SUBMITTED'
-                      ? 'Submitted'
-                      : st === 'UNDER_REVIEW'
-                      ? 'Under Review'
-                      : st === 'REWORK_REQUIRED'
-                      ? 'Rework'
-                      : 'Approved'}
+                    {st === 'ALL' ? 'All' : st === 'SUBMITTED' ? 'New' : st === 'UNDER_REVIEW' ? 'Review' : st === 'REWORK_REQUIRED' ? 'Rework' : 'Done'}
                   </button>
                 ))}
               </div>
-
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '11px', color: '#8899A6' }}>
-                <span>Sort order:</span>
+              <label className="queue-sort">
+                <span>Sort by</span>
                 <select
+                  className="select select-sm"
                   value={sortOrder}
                   onChange={e => {
-                    const next = e.target.value as any;
+                    const next = e.target.value as typeof sortOrder;
                     setSortOrder(next);
                     void loadQueue(user, next, statusFilter, search);
                   }}
-                  style={{
-                    background: '#07162C',
-                    color: '#fff',
-                    border: '1px solid #1A3B6B',
-                    borderRadius: '4px',
-                    padding: '2px 6px',
-                    fontSize: '11px',
-                  }}
                 >
-                  <option value="submitted_desc">Newest submitted first</option>
-                  <option value="submitted_asc">Oldest submitted first</option>
+                  <option value="submitted_desc">Newest first</option>
+                  <option value="submitted_asc">Oldest first</option>
                 </select>
-              </div>
+              </label>
             </div>
 
-            <div className="queue-scroll">
-              {filteredItems.length ? (
+            <div className="queue-scroll" aria-busy={queueLoading}>
+              {queueLoading && items.length === 0 ? (
+                <TableSkeleton rows={5} columns={1} />
+              ) : filteredItems.length ? (
                 filteredItems.map(item => (
-                  <div
+                  <button
+                    type="button"
                     key={item.id}
                     className={`queue-item ${report?.id === item.id ? 'active' : ''}`}
+                    aria-current={report?.id === item.id ? 'true' : undefined}
                     onClick={() => openReport(item)}
                   >
-                    <div className="queue-item-top">
-                      <span className="queue-item-vehicle">
-                        {item.request.lead.manufacturingYear} {item.request.lead.make} {item.request.lead.model}
-                      </span>
-                      <span className="badge badge-blue">REV {item.revision}</span>
-                    </div>
-                    <div className="queue-item-seller">
-                      {item.request.lead.sellerName} · {item.request.lead.city}
-                    </div>
-                    <div className="queue-item-meta">
+                    <span className="queue-item-top">
+                      <span className="queue-item-vehicle">{item.request.lead.manufacturingYear} {item.request.lead.make} {item.request.lead.model}</span>
+                      <span className="badge badge-blue">Rev {item.revision}</span>
+                    </span>
+                    <span className="queue-item-seller">{item.request.lead.sellerName} · {item.request.lead.city}</span>
+                    <span className="queue-item-meta">
                       <span>{item.request.lead.referenceCode}</span>
-                      <span>{item._count.defects} Defects · {item._count.media} Photos</span>
-                    </div>
-                    <div style={{ marginTop: '4px' }}>
-                      <span
-                        className={`badge ${
-                          item.status === 'APPROVED'
-                            ? 'badge-success'
-                            : item.status === 'REWORK_REQUIRED'
-                            ? 'badge-danger'
-                            : item.status === 'UNDER_REVIEW'
-                            ? 'badge-amber'
-                            : 'badge-blue'
-                        }`}
-                        style={{ fontSize: '10px' }}
-                      >
-                        {item.status.replace(/_/g, ' ')}
-                      </span>
-                    </div>
-                  </div>
+                      <span>{item._count.defects} defects · {item._count.media} photos</span>
+                    </span>
+                    <span className="mt-1"><StatusBadge status={item.status} size="sm" /></span>
+                  </button>
                 ))
               ) : (
-                <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--muted)', fontSize: '0.88rem' }}>
-                  No inspection reports currently awaiting review.
-                </div>
+                <EmptyState title="Nothing waiting for review" description="New inspection reports appear here as soon as inspectors submit them." />
               )}
             </div>
           </aside>
 
           {/* Right Panel: Detailed Inspection Report */}
-          <main className="panel">
+          <section className="panel" aria-live="polite">
             {report ? (
               <div className="detail-box">
                 <div className="detail-head-card">
@@ -1040,7 +684,7 @@ export function App() {
                         </div>
                       ))
                     ) : (
-                      <p style={{ color: 'var(--muted)', fontStyle: 'italic', fontSize: '0.88rem' }}>No defects recorded for this vehicle.</p>
+                      <p className="muted">No defects recorded for this vehicle.</p>
                     )}
                   </div>
                 )}
@@ -1059,7 +703,7 @@ export function App() {
                         ))}
                       </div>
                     ) : (
-                      <p style={{ color: 'var(--muted)', fontStyle: 'italic', fontSize: '0.88rem' }}>No evidence photos submitted with this report.</p>
+                      <p className="muted">No evidence photos submitted with this report.</p>
                     )}
                   </div>
                 )}
@@ -1074,7 +718,7 @@ export function App() {
                       </p>
                     )}
 
-                    <h4 style={{ fontSize: '0.9rem', color: 'var(--yellow)', margin: '1rem 0 0.5rem', fontFamily: 'var(--font-heading)' }}>Checklist Changes</h4>
+                    <h4 className="section-label">Checklist Changes</h4>
                     {diff.answerDiffs && diff.answerDiffs.length ? (
                       diff.answerDiffs.map(ad => (
                         <div key={ad.itemKey} className="diff-card">
@@ -1098,7 +742,7 @@ export function App() {
                       <p style={{ fontSize: '0.85rem', color: 'var(--muted)' }}>No checklist differences detected.</p>
                     )}
 
-                    <h4 style={{ fontSize: '0.9rem', color: 'var(--yellow)', margin: '1.2rem 0 0.5rem', fontFamily: 'var(--font-heading)' }}>Defect Changes</h4>
+                    <h4 className="section-label">Defect Changes</h4>
                     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
                       <div>
                         <span className="info-label">New Defects</span>
@@ -1132,7 +776,7 @@ export function App() {
 
                 {/* Independent Review Decision Box */}
                 <div className="decision-panel">
-                  <h3 style={{ fontSize: '1.05rem', fontWeight: 700, color: '#fff', marginBottom: '0.5rem' }}>
+                  <h3>
                     Accountable Review Decision
                   </h3>
                   <p style={{ fontSize: '0.84rem', color: 'var(--muted)', lineHeight: 1.5 }}>
@@ -1147,49 +791,42 @@ export function App() {
                   />
 
                   <div className="decision-actions">
-                    <button className="btn-approve" disabled={busy} onClick={() => recordDecision('APPROVE')}>
-                      ✓ Approve Inspection Report
-                    </button>
-                    <button className="btn-secondary" disabled={busy} onClick={() => recordDecision('REQUEST_CORRECTION')}>
-                      ↩ Return for Rework
-                    </button>
-                    <button className="btn-danger" disabled={busy} onClick={() => recordDecision('REJECT')}>
-                      ✕ Reject Report
-                    </button>
+                    <Button variant="success" disabled={busy} loading={busy && pendingDecision === 'APPROVE'} onClick={() => { setPendingDecision('APPROVE'); void recordDecision('APPROVE'); }}>
+                      Approve report
+                    </Button>
+                    <Button variant="secondary" disabled={busy} loading={busy && pendingDecision === 'REQUEST_CORRECTION'} onClick={() => { setPendingDecision('REQUEST_CORRECTION'); void recordDecision('REQUEST_CORRECTION'); }}>
+                      Return for rework
+                    </Button>
+                    <Button variant="danger" disabled={busy} loading={busy && pendingDecision === 'REJECT'} onClick={() => { setPendingDecision('REJECT'); void recordDecision('REJECT'); }}>
+                      Reject report
+                    </Button>
                   </div>
                 </div>
               </div>
             ) : (
-              <div style={{ textAlign: 'center', padding: '4rem 1rem', color: 'var(--muted)' }}>
-                <h3 style={{ color: '#fff', marginBottom: '0.5rem' }}>Select an inspection from the queue</h3>
-                <p style={{ fontSize: '0.88rem', maxWidth: '30rem', margin: '0 auto' }}>
-                  Review vehicle identity verification, physical checklist checks, defects, and evidence photos before recording an authorized decision.
-                </p>
-              </div>
+              <EmptyState
+                title="Select an inspection from the queue"
+                description="Review vehicle identity, checklist results, defects and evidence photos before recording a decision."
+              />
             )}
-          </main>
+          </section>
         </div>
       </div>
 
-      {/* Modal Photo Zoom */}
+      {/* Photo zoom */}
       {selectedPhoto && report && (
-        <div className="modal-overlay" onClick={() => setSelectedPhoto(null)}>
-          <div className="modal-card" onClick={e => e.stopPropagation()}>
-            <div className="modal-img-container">
-              <AuthenticatedImage user={user} reportId={report.id} mediaId={selectedPhoto} alt="Zoomed Evidence" />
-            </div>
-            <div className="modal-footer">
-              <span style={{ fontWeight: 700, fontSize: '0.9rem', color: '#fff', fontFamily: 'var(--font-heading)' }}>
-                {report.media.find(m => m.id === selectedPhoto)?.logicalMediaId}
-              </span>
-              <button className="btn-outline" style={{ minHeight: '34px', padding: '4px 14px' }} onClick={() => setSelectedPhoto(null)}>
-                Close
-              </button>
-            </div>
+        <Modal
+          size="xl"
+          title={report.media.find(m => m.id === selectedPhoto)?.logicalMediaId ?? 'Evidence photo'}
+          onClose={() => setSelectedPhoto(null)}
+          footer={<Button variant="secondary" onClick={() => setSelectedPhoto(null)}>Close</Button>}
+        >
+          <div className="modal-img-container">
+            <AuthenticatedImage user={user} reportId={report.id} mediaId={selectedPhoto} alt="Zoomed evidence" />
           </div>
-        </div>
+        </Modal>
       )}
-    </>
+    </SimpleShell>
   );
 }
 

@@ -1,5 +1,7 @@
-import { useAutoRefresh, useChangeWatcher } from './autoRefresh';
-import { mountLiveChangeBar } from './LiveChangeBar';
+import {
+  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, NotificationBell, PageLoader, SkeletonCards, StatusBadge, toast,
+  describeApiError, initTheme, mountLiveChangeBar, useAutoRefresh, useChangeWatcher, type NavSection, type NotificationItem,
+} from '@vmotiv/ui';
 import { VehicleMakeModel } from './components/VehicleMakeModel';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
@@ -43,6 +45,8 @@ import {
 } from './api.js';
 import { Icons } from './icons.js';
 import './styles.css';
+
+initTheme();
 
 type PageKey =
   | 'overview'
@@ -96,143 +100,6 @@ const statusBadgeClass = (status: string): string => {
 // ==========================================
 // 2-STEP VERIFICATION (MFA CHALLENGE DIALOG)
 // ==========================================
-function MfaChallengeDialog({
-  auth,
-  resolver,
-  onClose,
-  onSuccess,
-}: {
-  auth: Auth;
-  resolver: MultiFactorResolver;
-  onClose: () => void;
-  onSuccess: () => void;
-}) {
-  const recaptchaVerifierRef = useRef<RecaptchaVerifier | null>(null);
-  const [verificationId, setVerificationId] = useState('');
-  const [code, setCode] = useState('');
-  const [sending, setSending] = useState(false);
-  const [verifying, setVerifying] = useState(false);
-  const [error, setError] = useState('');
-
-  const phoneHint = resolver.hints.find(
-    hint => hint.factorId === PhoneMultiFactorGenerator.FACTOR_ID
-  ) as PhoneMultiFactorInfo | undefined;
-
-  const sendOtp = async () => {
-    if (!phoneHint) {
-      setError('No registered phone number found for 2-step verification.');
-      return;
-    }
-    setSending(true);
-    setError('');
-    try {
-      if (recaptchaVerifierRef.current) {
-        try { recaptchaVerifierRef.current.clear(); } catch { /* ignore */ }
-        recaptchaVerifierRef.current = null;
-      }
-      recaptchaVerifierRef.current = new RecaptchaVerifier(auth, 'recaptcha-container', {
-        size: 'invisible',
-      });
-      const phoneProvider = new PhoneAuthProvider(auth);
-      const vId = await phoneProvider.verifyPhoneNumber(
-        { multiFactorHint: phoneHint, session: resolver.session },
-        recaptchaVerifierRef.current
-      );
-      setVerificationId(vId);
-    } catch (err: any) {
-      setError(err?.message || 'Failed to send SMS code. Please try again.');
-    } finally {
-      setSending(false);
-    }
-  };
-
-  useEffect(() => {
-    void sendOtp();
-    return () => {
-      try {
-        recaptchaVerifierRef.current?.clear();
-      } catch {
-        // ignore
-      }
-    };
-  }, []);
-
-  const submit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!verificationId || code.trim().length !== 6) return;
-    setVerifying(true);
-    setError('');
-    try {
-      const cred = PhoneAuthProvider.credential(verificationId, code.trim());
-      const assertion = PhoneMultiFactorGenerator.assertion(cred);
-      await resolver.resolveSignIn(assertion);
-      onSuccess();
-    } catch (err: any) {
-      setError(err?.message || 'Invalid or expired 6-digit verification code.');
-      setVerifying(false);
-    }
-  };
-
-  const phoneDisplay = phoneHint?.phoneNumber || 'your registered mobile number';
-
-  return (
-    <div className="modal-overlay">
-      <div className="modal-dialog">
-        <div className="modal-header">
-          <div>
-            <span className="eyebrow">2-STEP VERIFICATION</span>
-            <h3>Phone Verification</h3>
-          </div>
-          <button type="button" onClick={onClose}><Icons.Close size={18} /></button>
-        </div>
-        <form onSubmit={submit}>
-          <div className="modal-body">
-            {error && <div className="error-banner">{error}</div>}
-            <p style={{ color: 'var(--muted)', fontSize: '13px', marginBottom: '14px' }}>
-              {sending
-                ? `Sending 6-digit verification code to ${phoneDisplay}…`
-                : `A 6-digit verification code was sent via SMS to ${phoneDisplay}. Enter the code below to complete sign-in.`}
-            </p>
-            <div className="form-group">
-              <label className="form-label">6-digit Verification Code *</label>
-              <input
-                autoFocus
-                required
-                className="form-input font-mono"
-                style={{ fontSize: '1.25rem', letterSpacing: '0.25em', textAlign: 'center' }}
-                placeholder="123456"
-                maxLength={6}
-                value={code}
-                onChange={e => setCode(e.target.value.replace(/\D/g, ''))}
-              />
-            </div>
-            <div style={{ marginTop: '8px', display: 'flex', justifyContent: 'flex-end' }}>
-              <button
-                type="button"
-                className="btn-secondary btn-sm"
-                disabled={sending}
-                onClick={sendOtp}
-              >
-                {sending ? 'Resending…' : 'Resend Code via SMS'}
-              </button>
-            </div>
-          </div>
-          <div className="modal-footer">
-            <button type="button" className="btn-outline" onClick={onClose}>Cancel</button>
-            <button
-              type="submit"
-              className="btn-primary"
-              disabled={verifying || sending || code.length !== 6}
-            >
-              {verifying ? 'Verifying…' : 'Verify & Continue'}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
-  );
-}
-
 // ==========================================
 // AUTH SCREEN (IDENTICAL ADMIN THEME)
 // ==========================================
@@ -299,51 +166,28 @@ function SignIn() {
 
   return (
     <>
-      <main className="auth-shell">
-        <section className="auth-panel">
-          <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-          <p className="eyebrow">SALES EXECUTIVE PORTAL</p>
-          <h1>Authorized Sales Workspace</h1>
-          <p>Sign in with your authorized V MOTIV corporate Google account to manage buyer & seller opportunities.</p>
-          <div className="auth-actions">
-            {firebaseConfigured ? (
-              <button className="button btn-primary" onClick={login} disabled={busy}>
-                {busy ? 'Connecting to Google…' : 'Continue with Google'}
-              </button>
-            ) : (
-              <div className="error-banner">Firebase configuration is missing for this environment.</div>
-            )}
-          </div>
-          {error && <div className="error-banner">{error}</div>}
-        </section>
-        <aside className="auth-aside">
-          <div>
-            <span className="kicker">Workflow A · Buy</span>
-            <strong>Vehicle Acquisition & Valuation</strong>
-            <span>Seller lead qualification, physical inspections, and approved offers.</span>
-          </div>
-          <div>
-            <span className="kicker">Workflow B · Sell</span>
-            <strong>Inventory & Retail Fulfillment</strong>
-            <span>Inbound buyer enquiries, showroom test drives, and quotations.</span>
-          </div>
-          <div>
-            <span className="kicker">Security & Governance</span>
-            <strong>Role & Branch Scoped</strong>
-            <span>Strict server-side enforcement backed by PostgreSQL transactional audit checks.</span>
-          </div>
-        </aside>
-      </main>
+      <AuthLayout
+        portalName="Sales"
+        eyebrow="Sales executive portal"
+        title="Authorised sales workspace"
+        description="Sign in with your authorised V MOTIV corporate Google account to manage buyer and seller opportunities."
+        points={[
+          { title: 'Buy: vehicle acquisition and valuation', text: 'Seller lead qualification, physical inspections and approved offers.' },
+          { title: 'Sell: inventory and retail fulfilment', text: 'Inbound buyer enquiries, showroom test drives and quotations.' },
+          { title: 'Role and branch scoped', text: 'Strict server-side enforcement backed by transactional audit checks.' },
+        ]}
+      >
+        {firebaseConfigured ? (
+          <Button size="lg" block loading={busy} onClick={login}>{busy ? 'Connecting to Google…' : 'Continue with Google'}</Button>
+        ) : (
+          <Alert tone="error">Firebase configuration is missing for this environment.</Alert>
+        )}
+        {error ? <Alert tone="error">{error}</Alert> : null}
+      </AuthLayout>
 
       {mfaResolver && auth && (
-        <MfaChallengeDialog
-          auth={auth}
-          resolver={mfaResolver}
-          onClose={() => setMfaResolver(null)}
-          onSuccess={() => setMfaResolver(null)}
-        />
+        <MfaChallengeModal auth={auth} resolver={mfaResolver} onClose={() => setMfaResolver(null)} onSuccess={() => setMfaResolver(null)} />
       )}
-      <div id="recaptcha-container" />
     </>
   );
 }
@@ -355,14 +199,13 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [actor, setActor] = useState<Actor | null>(null);
   const [page, setPage] = useState<PageKey>('overview');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
   const [error, setError] = useState('');
 
   // Notifications dropdown state
   const [notifications, setNotifications] = useState<NotificationData | null>(null);
-  const [showNotifs, setShowNotifs] = useState(false);
 
   // Data states
   const [dashboard, setDashboard] = useState<DashboardData | null>(null);
@@ -431,17 +274,20 @@ function App() {
         unavailable.push(label);
         return fallback;
       });
-      const [actorData, dashData, notifData] = await Promise.all([
+      // Who I am, the dashboard counts and my alerts load at the same time as the data for the open page,
+      // instead of one group after the other.
+      const headTask = Promise.all([
         actor ? Promise.resolve(actor) : salesApi.me(currentUser),
         page === 'overview' || !dashboard ? salesApi.dashboard(currentUser) : Promise.resolve(dashboard),
         optional('notifications', salesApi.notifications(currentUser), notifications),
-      ]);
-      if (actorData) setActor(actorData);
-      if (dashData) setDashboard(dashData);
-      if (notifData) setNotifications(notifData);
-      setDenied(false);
+      ]).then(([actorData, dashData, notifData]) => {
+        if (actorData) setActor(actorData);
+        if (dashData) setDashboard(dashData);
+        if (notifData) setNotifications(notifData);
+        setDenied(false);
+      });
 
-      // Load data based on current page
+      const pageTask = (async () => {
       if (page === 'overview') {
         const [sellersRes, tasksRes, testDrivesRes, reviewsRes] = await Promise.all([
           salesApi.sellerLeads(currentUser, { limit: 10 }),
@@ -526,6 +372,9 @@ function App() {
         const rep = await salesApi.reports(currentUser);
         setReports(rep);
       }
+      })();
+
+      await Promise.all([headTask, pageTask]);
       if (unavailable.length) {
         setError(`${unavailable.join(', ')} could not be loaded. Your saved work is intact; check sales permissions and refresh.`);
       }
@@ -549,10 +398,7 @@ function App() {
     setError('');
   }, [page]);
 
-  const selectPage = (nextPage: PageKey) => {
-    setPage(nextPage);
-    setSidebarOpen(false);
-  };
+  const selectPage = (nextPage: PageKey) => setPage(nextPage);
 
   useEffect(() => {
     if (user) void loadData(user);
@@ -564,231 +410,118 @@ function App() {
   useChangeWatcher(['sales'], (domains, fresh) => salesApi.pulse(user as User, domains, fresh), { enabled: Boolean(user) });
 
   if (!user) return <SignIn />;
-  if (loading) return <div className="auth-screen"><p className="eyebrow">INITIALIZING WORKSPACE…</p></div>;
+  if (loading) return <PageLoader label="Loading your sales workspace" />;
 
   if (denied) {
     return (
-      <main className="center-state">
-        <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" style={{ margin: '0 auto 1.5rem' }} />
-        <p className="eyebrow">ACCESS NOT GRANTED</p>
-        <h1>Sales Access Required</h1>
+      <CenterState
+        eyebrow="Access not granted"
+        title="Sales access required"
+        actions={<Button onClick={() => auth && signOut(auth)}>Use another account</Button>}
+      >
         <p>Your signed-in Google account ({user.email}) does not have an active Sales Executive role and branch assignment. Please contact an administrator to activate your employee account.</p>
-        <button className="button btn-primary" onClick={() => auth && signOut(auth)}>
-          Use another account
-        </button>
-      </main>
+      </CenterState>
     );
   }
 
   if (!actor && error) {
     return (
-      <main className="center-state">
-        <img className="auth-logo" src="/brand/vmotiv-logo.svg" alt="V MOTIV" style={{ margin: '0 auto 1.5rem' }} />
-        <p className="eyebrow">SERVICE CONNECTION ISSUE</p>
-        <h1>Unable to Connect</h1>
-        <p style={{ maxWidth: '480px', margin: '0 auto 1.5rem' }}>{error}</p>
-        <div style={{ display: 'flex', gap: '12px', justifyContent: 'center' }}>
-          <button className="button btn-primary" onClick={() => void loadData(user)}>
-            Retry Connection
-          </button>
-          <button className="button btn-secondary" onClick={() => auth && signOut(auth)}>
-            Sign Out
-          </button>
-        </div>
-      </main>
+      <CenterState
+        eyebrow="Service connection issue"
+        title="Unable to connect"
+        actions={
+          <>
+            <Button onClick={() => void loadData(user)}>Retry connection</Button>
+            <Button variant="secondary" onClick={() => auth && signOut(auth)}>Sign out</Button>
+          </>
+        }
+      >
+        <p>{error}</p>
+      </CenterState>
     );
   }
 
+  const navSections: NavSection<PageKey>[] = [
+    {
+      title: 'Core operations',
+      items: [
+        { key: 'overview', label: 'Overview', icon: <Icons.Overview size={17} /> },
+        { key: 'seller', label: 'Seller leads', icon: <Icons.SellerLeads size={17} />, badge: dashboard?.unassignedCount },
+        { key: 'buyer', label: 'Buyer leads', icon: <Icons.BuyerLeads size={17} />, badge: dashboard?.buyerPipeline?.received },
+      ],
+    },
+    {
+      title: 'Acquisition (buy car)',
+      items: [
+        { key: 'inspections', label: 'Inspection requests', icon: <Icons.Inspections size={17} /> },
+        { key: 'offers', label: 'Acquisition offers', icon: <Icons.Offers size={17} />, badge: dashboard?.pendingReviewCount },
+      ],
+    },
+    {
+      title: 'Deal execution (sell car)',
+      items: [
+        { key: 'inventory', label: 'Inventory stock', icon: <Icons.Inventory size={17} /> },
+        { key: 'testdrives', label: 'Test drives', icon: <Icons.TestDrives size={17} />, badge: dashboard?.upcomingTestDrives },
+        { key: 'pipeline', label: 'Pipeline and quotes', icon: <Icons.Pipeline size={17} /> },
+      ],
+    },
+    {
+      title: 'Service and rentals',
+      items: [
+        { key: 'service-leads', label: 'Service bookings', icon: <Icons.TestDrives size={17} /> },
+        { key: 'rental-leads', label: 'Rental enquiries', icon: <Icons.Inventory size={17} /> },
+      ],
+    },
+    {
+      title: 'Clients and follow-ups',
+      items: [
+        { key: 'tasks', label: 'Tasks and follow-ups', icon: <Icons.Tasks size={17} />, badge: dashboard?.tasksOverdue },
+        { key: 'customers', label: 'Customers CRM', icon: <Icons.Customers size={17} /> },
+        { key: 'communications', label: 'Communications', icon: <Icons.Communications size={17} /> },
+        { key: 'reports', label: 'Funnel and reports', icon: <Icons.Reports size={17} /> },
+      ],
+    },
+  ];
+
+  // Action items shown in the bell, each with what happens when it is opened.
+  const alertActions = new Map<string, () => void>();
+  const alertItems: NotificationItem[] = [];
+  const addAlert = (id: string, title: string, body: string, action?: () => void) => {
+    alertItems.push({ id, title, body, read: false });
+    if (action) alertActions.set(id, action);
+  };
+  notifications?.pendingOfferReviews?.forEach(o => addAlert(`offer-${o.id}`, `Offer review pending: ${formatCurrency(o.recommendedPurchasePaise)}`, `${o.vehicleTitle} · ${o.sellerName} (${o.referenceCode})`, async () => {
+    if (!user) return;
+    try { setSelectedSellerLead(await salesApi.sellerLead(user, o.leadId)); } catch (e) { toast.error('Could not open the lead', { description: describeApiError(e) }); }
+  }));
+  notifications?.pendingDiscounts?.forEach(d => addAlert(`discount-${d.id}`, `Discount pending: ${formatCurrency(d.requestedDiscountPaise)}`, `${d.vehicleTitle} · ${d.customerName}`, () => setPage('pipeline')));
+  notifications?.sentQuotations?.forEach(q => addAlert(`quote-${q.id}`, `Quote sent: ${q.quotationNumber}`, `${q.vehicleTitle} · ${q.customerName} · ${formatCurrency(q.finalPricePaise)}`));
+  notifications?.pendingTestDrives?.forEach(td => addAlert(`drive-${td.id}`, `Test drive: ${td.listing.title}`, `${td.user?.displayName || 'Customer'} · ${td.requestedDate} (${td.timeSlot})`, () => setPage('testdrives')));
+  notifications?.unassignedLeads?.forEach(l => addAlert(`lead-${l.id}`, `Unassigned: ${l.make} ${l.model}`, `${l.city} · Ref: ${l.referenceCode}`, () => setPage('seller')));
+  notifications?.overdueTasks?.forEach(t => addAlert(`task-${t.id}`, `Overdue: ${t.type}`, t.details, () => setPage('tasks')));
+
   return (
-    <>
-    <a className="skip-link" href="#main">Skip to main content</a>
-    <div className="app-shell">
-      {/* SIDEBAR NAVIGATION */}
-      <aside className={`sidebar ${sidebarOpen ? 'open' : ''}`} aria-label="Sales navigation">
-        <div className="brand">
-          <img src="/brand/vmotiv-logo.svg" alt="V MOTIV" />
-          <span>Sales</span>
-        </div>
-
-        <nav className="sidebar-nav">
-          <div className="nav-section-title">Core Operations</div>
-          <button className={`nav-item ${page === 'overview' ? 'active' : ''}`} onClick={() => selectPage('overview')}>
-            <Icons.Overview size={17} /> Overview
-          </button>
-          <button className={`nav-item ${page === 'seller' ? 'active' : ''}`} onClick={() => selectPage('seller')}>
-            <Icons.SellerLeads size={17} /> Seller Leads
-          </button>
-          <button className={`nav-item ${page === 'buyer' ? 'active' : ''}`} onClick={() => selectPage('buyer')}>
-            <Icons.BuyerLeads size={17} /> Buyer Leads
-          </button>
-
-          <div className="nav-section-title">Acquisition (Buy Car)</div>
-          <button className={`nav-item ${page === 'inspections' ? 'active' : ''}`} onClick={() => selectPage('inspections')}>
-            <Icons.Inspections size={17} /> Inspection Requests
-          </button>
-          <button className={`nav-item ${page === 'offers' ? 'active' : ''}`} onClick={() => selectPage('offers')}>
-            <Icons.Offers size={17} /> Acquisition Offers
-          </button>
-
-          <div className="nav-section-title">Deal Execution (Sell Car)</div>
-          <button className={`nav-item ${page === 'inventory' ? 'active' : ''}`} onClick={() => selectPage('inventory')}>
-            <Icons.Inventory size={17} /> Inventory Stock
-          </button>
-          <button className={`nav-item ${page === 'testdrives' ? 'active' : ''}`} onClick={() => selectPage('testdrives')}>
-            <Icons.TestDrives size={17} /> Test Drives
-          </button>
-          <button className={`nav-item ${page === 'pipeline' ? 'active' : ''}`} onClick={() => selectPage('pipeline')}>
-            <Icons.Pipeline size={17} /> Pipeline & Quotes
-          </button>
-
-          <div className="nav-section-title">Automotive Service & Rentals</div>
-          <button className={`nav-item ${page === 'service-leads' ? 'active' : ''}`} onClick={() => selectPage('service-leads')}>
-            <Icons.TestDrives size={17} /> Service Bookings
-          </button>
-          <button className={`nav-item ${page === 'rental-leads' ? 'active' : ''}`} onClick={() => selectPage('rental-leads')}>
-            <Icons.Inventory size={17} /> Rental Enquiries
-          </button>
-
-          <div className="nav-section-title">Client & Follow-ups</div>
-          <button className={`nav-item ${page === 'tasks' ? 'active' : ''}`} onClick={() => selectPage('tasks')}>
-            <Icons.Tasks size={17} /> Tasks & Follow-ups
-          </button>
-          <button className={`nav-item ${page === 'customers' ? 'active' : ''}`} onClick={() => selectPage('customers')}>
-            <Icons.Customers size={17} /> Customers CRM
-          </button>
-          <button className={`nav-item ${page === 'communications' ? 'active' : ''}`} onClick={() => selectPage('communications')}>
-            <Icons.Communications size={17} /> Communications
-          </button>
-          <button className={`nav-item ${page === 'reports' ? 'active' : ''}`} onClick={() => selectPage('reports')}>
-            <Icons.Reports size={17} /> Funnel & Reports
-          </button>
-        </nav>
-
-        <div className="sidebar-account">
-          <span>{actor?.displayName || actor?.email}</span>
-          <small>{actor?.roles[0]?.replace('_', ' ') || 'SALES EXECUTIVE'}</small>
-          <button className="btn-signout" onClick={() => auth && signOut(auth)}>
-            <Icons.Logout size={15} /> Sign Out
-          </button>
-        </div>
-      </aside>
-
-      {sidebarOpen && <button type="button" className="scrim" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
-
-      {/* MAIN CONTAINER */}
-      <div className="main-wrapper">
-        {/* TOPBAR */}
-        <header className="topbar">
-          <div className="topbar-left">
-            <button
-              type="button"
-              className="mobile-menu"
-              aria-label="Open navigation"
-              aria-expanded={sidebarOpen}
-              onClick={() => setSidebarOpen(true)}
-            >
-              <Icons.Menu size={20} />
-            </button>
-            <div className="branch-badge">
-              <Icons.MapPin size={13} />
-              <span>{actor?.globalScope ? 'All Branches (HQ)' : actor?.branches.map(b => b.city).join(', ') || 'Branch'}</span>
-            </div>
-          </div>
-
-          <div className="topbar-right">
-            {/* Notification Pill */}
-            <div className="notif-wrapper">
-              <button className="notif-button" onClick={() => setShowNotifs(!showNotifs)} aria-label="Notifications">
-                <Icons.Bell size={18} />
-                {(notifications?.totalUnread ?? 0) > 0 && (
-                  <span className="notif-badge">{notifications?.totalUnread}</span>
-                )}
-              </button>
-
-              {showNotifs && notifications && (
-                <div className="notif-dropdown">
-                  <div className="notif-dropdown-head">
-                    <h4>Action Items</h4>
-                    <span className="font-mono text-xs">{notifications.totalUnread} pending</span>
-                  </div>
-                  <div className="notif-list">
-                    {notifications.pendingOfferReviews?.map(o => (
-                      <div
-                        key={o.id}
-                        className="notif-item"
-                        style={{ cursor: 'pointer' }}
-                        onClick={async () => {
-                          if (!user) return;
-                          setShowNotifs(false);
-                          const leadDetails = await salesApi.sellerLead(user, o.leadId);
-                          setSelectedSellerLead(leadDetails);
-                        }}
-                      >
-                        <div className="notif-item-title" style={{ color: 'var(--warning)' }}>
-                          Offer Review Pending: {formatCurrency(o.recommendedPurchasePaise)}
-                        </div>
-                        <div className="notif-item-sub">{o.vehicleTitle} · {o.sellerName} ({o.referenceCode})</div>
-                      </div>
-                    ))}
-                    {notifications.pendingDiscounts?.map(d => (
-                      <div
-                        key={d.id}
-                        className="notif-item"
-                        style={{ cursor: 'pointer' }}
-                        onClick={() => {
-                          setShowNotifs(false);
-                          setPage('pipeline');
-                        }}
-                      >
-                        <div className="notif-item-title" style={{ color: 'var(--color-primary)' }}>
-                          Discount Pending: {formatCurrency(d.requestedDiscountPaise)}
-                        </div>
-                        <div className="notif-item-sub">{d.vehicleTitle} · {d.customerName}</div>
-                      </div>
-                    ))}
-                    {notifications.sentQuotations?.map(s => (
-                      <div key={s.id} className="notif-item">
-                        <div className="notif-item-title">
-                          Quote Sent: {s.quotationNumber}
-                        </div>
-                        <div className="notif-item-sub">{s.vehicleTitle} · {s.customerName} · {formatCurrency(s.finalPricePaise)}</div>
-                      </div>
-                    ))}
-                    {notifications.pendingTestDrives?.map(td => (
-                      <div key={td.id} className="notif-item">
-                        <div className="notif-item-title">Test Drive: {td.listing.title}</div>
-                        <div className="notif-item-sub">{td.user?.displayName || 'Customer'} · {td.requestedDate} ({td.timeSlot})</div>
-                      </div>
-                    ))}
-                    {notifications.unassignedLeads.map(l => (
-                      <div key={l.id} className="notif-item">
-                        <div className="notif-item-title">Unassigned: {l.make} {l.model}</div>
-                        <div className="notif-item-sub">{l.city} · Ref: {l.referenceCode}</div>
-                      </div>
-                    ))}
-                    {notifications.overdueTasks.map(t => (
-                      <div key={t.id} className="notif-item">
-                        <div className="notif-item-title" style={{ color: 'var(--color-destructive)' }}>Overdue: {t.type}</div>
-                        <div className="notif-item-sub">{t.details}</div>
-                      </div>
-                    ))}
-                    {notifications.totalUnread === 0 && (
-                      <p className="empty-state" style={{ padding: '12px' }}>All caught up!</p>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <button className="btn-secondary btn-sm" onClick={() => void loadData()}>
-              <Icons.Refresh size={14} /> Refresh
-            </button>
-          </div>
-        </header>
-
-        {/* CONTENT AREA */}
-        <main id="main" className="content-area">
-          {error && <div className="error-banner">{error}</div>}
+    <AppShell
+      portalName="Sales"
+      sections={navSections}
+      active={page}
+      onSelect={selectPage}
+      account={{ name: actor?.displayName || actor?.email || 'Sales executive', role: actor?.roles[0] || 'SALES_EXECUTIVE' }}
+      onSignOut={() => auth && signOut(auth)}
+      context={actor?.globalScope ? 'All branches (HQ)' : actor?.branches.map(b => b.city).join(', ') || 'Branch'}
+      toolbar={
+        <>
+          <NotificationBell
+            title="Action items"
+            items={alertItems}
+            unread={notifications?.totalUnread ?? alertItems.length}
+            onOpenItem={item => alertActions.get(item.id)?.()}
+          />
+          <Button variant="secondary" size="sm" loading={refreshing} icon={<Icons.Refresh size={14} />} onClick={async () => { setRefreshing(true); try { await loadData(); } finally { setRefreshing(false); } }}>Refresh</Button>
+        </>
+      }
+    >
+          {error && <Alert tone="warning" className="mb-4" onDismiss={() => setError('')}>{error}</Alert>}
 
           {/* ==================================================== */}
           {/* VIEW: OVERVIEW */}
@@ -1039,9 +772,9 @@ function App() {
                                     borderRadius: '6px',
                                     fontSize: '0.8rem',
                                     lineHeight: 1.4,
-                                    background: isApproved ? 'rgba(97, 217, 154, 0.1)' : 'rgba(255, 124, 134, 0.1)',
+                                    background: isApproved ? 'color-mix(in oklab, var(--color-success) 10%, transparent)' : 'color-mix(in oklab, var(--color-error) 10%, transparent)',
                                     color: isApproved ? 'var(--success)' : 'var(--danger)',
-                                    border: `1px solid ${isApproved ? 'rgba(97, 217, 154, 0.3)' : 'rgba(255, 124, 134, 0.3)'}`
+                                    border: `1px solid ${isApproved ? 'color-mix(in oklab, var(--color-success) 30%, transparent)' : 'color-mix(in oklab, var(--color-error) 30%, transparent)'}`
                                   }}>
                                     {rd.decisionNotes}
                                   </div>
@@ -1501,7 +1234,7 @@ function App() {
                                   borderRadius: '4px',
                                   fontSize: '0.78rem',
                                   lineHeight: 1.3,
-                                  background: val.status === 'REJECTED' ? 'rgba(255, 124, 134, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                                  background: val.status === 'REJECTED' ? 'color-mix(in oklab, var(--color-error) 12%, transparent)' : 'color-mix(in oklab, var(--color-base-content) 4%, transparent)',
                                   color: val.status === 'REJECTED' ? 'var(--danger)' : 'var(--text)',
                                 }}>
                                   {val.notes}
@@ -1549,7 +1282,7 @@ function App() {
                                   padding: '4px 8px',
                                   borderRadius: '4px',
                                   fontSize: '0.78rem',
-                                  background: 'rgba(255, 124, 134, 0.12)',
+                                  background: 'color-mix(in oklab, var(--color-error) 12%, transparent)',
                                   color: 'var(--danger)',
                                 }}>
                                   Declined: {off.declineReason}
@@ -2389,8 +2122,6 @@ function App() {
               </div>
             </div>
           )}
-        </main>
-      </div>
 
       {/* ========================================== */}
       {/* MODAL: MANUAL SELLER LEAD ENTRY */}
@@ -2609,8 +2340,7 @@ function App() {
           }}
         />
       )}
-    </div>
-    </>
+    </AppShell>
   );
 }
 
@@ -3219,11 +2949,11 @@ function SellerLeadDrawer({
             <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
               <h3 style={{ margin: 0 }}>{lead.manufacturingYear} {lead.make} {lead.model}{lead.variant ? ` ${lead.variant}` : ''}</h3>
               {lead.registrationNumber ? (
-                <span style={{ padding: '2px 8px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 700, letterSpacing: '0.5px' }}>
+                <span style={{ padding: '2px 8px', background: 'color-mix(in oklab, var(--color-base-content) 8%, transparent)', border: '1px solid var(--border)', borderRadius: '4px', fontSize: '0.85rem', fontWeight: 700, letterSpacing: '0.5px' }}>
                   {lead.registrationNumber}
                 </span>
               ) : (
-                <span style={{ fontSize: '0.75rem', color: 'var(--muted)', background: 'rgba(255, 255, 255, 0.04)', padding: '2px 6px', borderRadius: '4px' }}>Plate Pending</span>
+                <span style={{ fontSize: '0.75rem', color: 'var(--muted)', background: 'color-mix(in oklab, var(--color-base-content) 4%, transparent)', padding: '2px 6px', borderRadius: '4px' }}>Plate Pending</span>
               )}
             </div>
           </div>
@@ -3312,7 +3042,7 @@ function SellerLeadDrawer({
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                   <div style={{ fontWeight: 700, fontSize: '15px' }}>{lead.manufacturingYear} {lead.make} {lead.model}</div>
                   {lead.registrationNumber ? (
-                    <span style={{ padding: '1px 6px', background: 'rgba(255, 255, 255, 0.08)', border: '1px solid var(--border)', borderRadius: '3px', fontSize: '11px', fontWeight: 700 }}>
+                    <span style={{ padding: '1px 6px', background: 'color-mix(in oklab, var(--color-base-content) 8%, transparent)', border: '1px solid var(--border)', borderRadius: '3px', fontSize: '11px', fontWeight: 700 }}>
                       {lead.registrationNumber}
                     </span>
                   ) : null}
@@ -3326,7 +3056,7 @@ function SellerLeadDrawer({
               </div>
               <div className="metric-card">
                 <div className="metric-label">Customer Available Inspection Time</div>
-                <div style={{ fontWeight: 600, color: (lead.inspectionDate || lead.inspectionTimeSlot) ? '#38bdf8' : 'var(--text)' }}>
+                <div style={{ fontWeight: 600, color: (lead.inspectionDate || lead.inspectionTimeSlot) ? 'var(--color-info)' : 'var(--text)' }}>
                   {lead.inspectionDate ? new Date(lead.inspectionDate).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' }) : 'Date not set'}
                 </div>
                 <div className="metric-sub">
@@ -3430,7 +3160,7 @@ function SellerLeadDrawer({
               </form>
 
               {showScheduleTaskForm && (
-                <form onSubmit={handleCreateTask} style={{ marginBottom: '16px', padding: '14px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--color-border)', borderRadius: '8px' }}>
+                <form onSubmit={handleCreateTask} style={{ marginBottom: '16px', padding: '14px', background: 'color-mix(in oklab, var(--color-base-content) 3%, transparent)', border: '1px solid var(--color-border)', borderRadius: '8px' }}>
                   <div style={{ fontWeight: 600, fontSize: '0.875rem', marginBottom: '8px', color: 'var(--color-primary)' }}>
                     Schedule Next CRM Follow-up for this Opportunity
                   </div>
@@ -3518,8 +3248,8 @@ function SellerLeadDrawer({
 
                   return (
                     <div className="form-group full" style={{
-                      background: hasInspector ? 'rgba(16, 185, 129, 0.08)' : 'rgba(217, 119, 6, 0.08)',
-                      border: `1px solid ${hasInspector ? 'rgba(16, 185, 129, 0.3)' : 'rgba(217, 119, 6, 0.3)'}`,
+                      background: hasInspector ? 'color-mix(in oklab, var(--color-success) 8%, transparent)' : 'rgba(217, 119, 6, 0.08)',
+                      border: `1px solid ${hasInspector ? 'color-mix(in oklab, var(--color-success) 30%, transparent)' : 'rgba(217, 119, 6, 0.3)'}`,
                       borderRadius: '8px',
                       padding: '16px',
                       gap: '8px',
@@ -3527,7 +3257,7 @@ function SellerLeadDrawer({
                       flexDirection: 'column',
                     }}>
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: hasInspector ? '#10b981' : '#d97706', fontWeight: 600 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: hasInspector ? 'var(--color-success)' : 'var(--color-warning)', fontWeight: 600 }}>
                           <Icons.Inspections size={18} />
                           <span>
                             {hasInspector ? `Inspector Assigned · ${activeReq.assignment?.status}` : 'Inspection Requested · Awaiting Inspector Assignment'}
@@ -3538,14 +3268,14 @@ function SellerLeadDrawer({
                         </span>
                       </div>
 
-                      <p style={{ margin: 0, fontSize: '0.875rem', color: '#94a3b8', lineHeight: 1.5 }}>
+                      <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--muted)', lineHeight: 1.5 }}>
                         {hasInspector
                           ? `An inspector has been assigned for ${activeReq.assignment?.locationType || activeReq.locationType} inspection at ${activeReq.assignment?.address || activeReq.address}. Appointment: ${activeReq.assignment?.scheduledAt ? new Date(activeReq.assignment.scheduledAt).toLocaleString() : 'Scheduled'}.`
                           : `Inspection requested for ${activeReq.requestedDate ? new Date(activeReq.requestedDate).toLocaleDateString() : 'Immediate'} (${activeReq.timeSlot || 'Anytime'}) at ${activeReq.address || activeReq.locationType}. Hub Operations will assign a certified field inspector shortly.`}
                       </p>
 
                       {/* Reschedule / Update Available Inspection Time */}
-                      <div style={{ marginTop: '12px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px' }}>
+                      <div style={{ marginTop: '12px', borderTop: '1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent)', paddingTop: '10px' }}>
                         <button
                           type="button"
                           className="btn-outline btn-sm"
@@ -3556,7 +3286,7 @@ function SellerLeadDrawer({
                         </button>
 
                         {showRescheduleForm && (
-                          <div style={{ marginTop: '12px', padding: '14px', background: 'rgba(255, 255, 255, 0.03)', border: '1px solid var(--border)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
+                          <div style={{ marginTop: '12px', padding: '14px', background: 'color-mix(in oklab, var(--color-base-content) 3%, transparent)', border: '1px solid var(--border)', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '10px' }}>
                             <div style={{ fontSize: '0.85rem', fontWeight: 600, color: 'var(--text)' }}>
                               Mention Customer Confirmed Available Slot (Syncs directly to Operations Portal):
                             </div>
@@ -3624,11 +3354,11 @@ function SellerLeadDrawer({
                       </div>
 
                       {inspectionSummary.approvedReport ? (
-                        <div style={{ marginTop: '8px', padding: '10px', background: 'rgba(16, 185, 129, 0.12)', borderRadius: '6px' }}>
-                          <div style={{ color: '#10b981', fontWeight: 600, fontSize: '0.85rem' }}>
+                        <div style={{ marginTop: '8px', padding: '10px', background: 'color-mix(in oklab, var(--color-success) 12%, transparent)', borderRadius: '6px' }}>
+                          <div style={{ color: 'var(--color-success)', fontWeight: 600, fontSize: '0.85rem' }}>
                             ✓ Inspection Report Approved (Rev #{inspectionSummary.approvedReport.revision})
                           </div>
-                          <div style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '2px' }}>
+                          <div style={{ fontSize: '0.8rem', color: 'var(--muted)', marginTop: '2px' }}>
                             {inspectionSummary.approvedReport.defectsCount} defects recorded · {inspectionSummary.approvedReport.mediaCount} evidence photos attached
                           </div>
                         </div>
@@ -3638,18 +3368,18 @@ function SellerLeadDrawer({
                 })()
               ) : !['SUBMITTED', 'QUALIFYING', 'INSPECTION_SCHEDULED'].includes(lead.status) ? (
                 <div className="form-group full" style={{ background: 'rgba(100, 116, 139, 0.1)', border: '1px solid rgba(100, 116, 139, 0.2)', borderRadius: '8px', padding: '16px' }}>
-                  <p style={{ margin: 0, fontSize: '0.875rem', color: '#94a3b8' }}>
+                  <p style={{ margin: 0, fontSize: '0.875rem', color: 'var(--muted)' }}>
                     This lead status ({lead.status}) is not eligible for new inspection requests.
                   </p>
                 </div>
               ) : (
                 <>
                   {(lead.inspectionDate || lead.inspectionTimeSlot) && (
-                    <div className="form-group full" style={{ background: 'rgba(56, 189, 248, 0.08)', border: '1px solid rgba(56, 189, 248, 0.25)', borderRadius: '8px', padding: '12px' }}>
-                      <div style={{ color: '#38bdf8', fontWeight: 600, fontSize: '0.85rem' }}>
+                    <div className="form-group full" style={{ background: 'color-mix(in oklab, var(--color-info) 8%, transparent)', border: '1px solid color-mix(in oklab, var(--color-info) 25%, transparent)', borderRadius: '8px', padding: '12px' }}>
+                      <div style={{ color: 'var(--color-info)', fontWeight: 600, fontSize: '0.85rem' }}>
                         Customer Stated Preferred Appointment:
                       </div>
-                      <div style={{ color: '#cbd5e1', fontSize: '0.85rem', marginTop: '2px' }}>
+                      <div style={{ color: 'var(--muted)', fontSize: '0.85rem', marginTop: '2px' }}>
                         {lead.inspectionDate ? new Date(lead.inspectionDate).toLocaleDateString() : 'Date pending'} · {lead.inspectionTimeSlot || 'Anytime'}
                       </div>
                     </div>
@@ -3701,24 +3431,24 @@ function SellerLeadDrawer({
               {/* Inspection Prerequisite Banner */}
               {!inspectionSummary?.approvedReport ? (
                 <div style={{
-                  background: 'rgba(239, 68, 68, 0.08)',
-                  border: '1px solid rgba(239, 68, 68, 0.3)',
+                  background: 'color-mix(in oklab, var(--color-error) 8%, transparent)',
+                  border: '1px solid color-mix(in oklab, var(--color-error) 30%, transparent)',
                   borderRadius: '8px',
                   padding: '14px',
                   marginBottom: '16px',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f87171', fontWeight: 600 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-error)', fontWeight: 600 }}>
                     <Icons.Inspections size={18} />
                     <span>Inspection Report Required Before Valuation</span>
                   </div>
-                  <div style={{ marginTop: '6px', fontSize: '0.85rem', color: '#cbd5e1', lineHeight: 1.5 }}>
+                  <div style={{ marginTop: '6px', fontSize: '0.85rem', color: 'var(--muted)', lineHeight: 1.5 }}>
                     Under V MOTIV policy, an independent vehicle inspection must be conducted and approved by the review team before commercial valuation and acquisition offers can be authorized.
                   </div>
                 </div>
               ) : (
                 <div style={{
-                  background: 'rgba(16, 185, 129, 0.08)',
-                  border: '1px solid rgba(16, 185, 129, 0.3)',
+                  background: 'color-mix(in oklab, var(--color-success) 8%, transparent)',
+                  border: '1px solid color-mix(in oklab, var(--color-success) 30%, transparent)',
                   borderRadius: '8px',
                   padding: '12px 14px',
                   marginBottom: '16px',
@@ -3728,7 +3458,7 @@ function SellerLeadDrawer({
                   flexWrap: 'wrap',
                   gap: '8px',
                 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#10b981', fontWeight: 600, fontSize: '0.9rem' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-success)', fontWeight: 600, fontSize: '0.9rem' }}>
                     <Icons.Inspections size={17} />
                     <span>✓ Verified Inspection Report (Rev #{inspectionSummary.approvedReport.revision})</span>
                   </div>
@@ -3759,7 +3489,7 @@ function SellerLeadDrawer({
                         </div>
                         <span className="badge badge-amber">Awaiting Approval</span>
                       </div>
-                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: '#cbd5e1' }}>
+                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: 'var(--muted)' }}>
                         Recommended Purchase Price: <strong className="font-mono">{formatCurrency(latestVal.recommendedPurchasePaise)}</strong>
                         {latestVal.expectedResalePaise && ` · Expected Resale: ${formatCurrency(latestVal.expectedResalePaise)}`}
                       </div>
@@ -3768,11 +3498,11 @@ function SellerLeadDrawer({
                       </div>
 
                       {canAuthorizeValuation && (
-                        <div style={{ marginTop: '12px', display: 'flex', gap: '8px', borderTop: '1px solid rgba(255,255,255,0.08)', paddingTop: '10px' }}>
+                        <div style={{ marginTop: '12px', display: 'flex', gap: '8px', borderTop: '1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent)', paddingTop: '10px' }}>
                           <button
                             type="button"
                             className="btn-primary btn-sm"
-                            style={{ background: '#10b981', color: '#000', fontWeight: 600, border: 'none' }}
+                            style={{ background: 'var(--color-success)', color: 'var(--color-success-content)', fontWeight: 600, border: 'none' }}
                             onClick={() => handleDecideValuation(latestVal.id, latestVal.version, 'APPROVE')}
                             disabled={busy}
                           >
@@ -3781,7 +3511,7 @@ function SellerLeadDrawer({
                           <button
                             type="button"
                             className="btn-secondary btn-sm"
-                            style={{ color: '#f87171' }}
+                            style={{ color: 'var(--color-error)' }}
                             onClick={() => handleDecideValuation(latestVal.id, latestVal.version, 'REJECT')}
                             disabled={busy}
                           >
@@ -3796,8 +3526,8 @@ function SellerLeadDrawer({
                 if (latestVal.status === 'APPROVED') {
                   return (
                     <div style={{
-                      background: 'rgba(97, 217, 154, 0.08)',
-                      border: '1px solid rgba(97, 217, 154, 0.4)',
+                      background: 'color-mix(in oklab, var(--color-success) 8%, transparent)',
+                      border: '1px solid color-mix(in oklab, var(--color-success) 40%, transparent)',
                       borderRadius: '8px',
                       padding: '14px',
                       marginBottom: '16px',
@@ -3809,7 +3539,7 @@ function SellerLeadDrawer({
                         </div>
                         <span className="badge badge-green">Authorized Price</span>
                       </div>
-                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: '#cbd5e1' }}>
+                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: 'var(--muted)' }}>
                         Maximum Authorized Purchase Offer: <strong className="font-mono">{formatCurrency(latestVal.recommendedPurchasePaise)}</strong>
                         {latestVal.expectedResalePaise && ` · Target Resale: ${formatCurrency(latestVal.expectedResalePaise)}`}
                       </div>
@@ -3823,8 +3553,8 @@ function SellerLeadDrawer({
                 if (latestVal.status === 'REJECTED') {
                   return (
                     <div style={{
-                      background: 'rgba(255, 124, 134, 0.08)',
-                      border: '1px solid rgba(255, 124, 134, 0.4)',
+                      background: 'color-mix(in oklab, var(--color-error) 8%, transparent)',
+                      border: '1px solid color-mix(in oklab, var(--color-error) 40%, transparent)',
                       borderRadius: '8px',
                       padding: '14px',
                       marginBottom: '16px',
@@ -3836,16 +3566,16 @@ function SellerLeadDrawer({
                         </div>
                         <span className="badge badge-red">Proposal Rejected</span>
                       </div>
-                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: '#cbd5e1' }}>
+                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: 'var(--muted)' }}>
                         Proposed Amount: <strong className="font-mono">{formatCurrency(latestVal.recommendedPurchasePaise)}</strong>
                       </div>
                       <div style={{
                         marginTop: '8px',
                         padding: '8px 12px',
-                        background: 'rgba(255, 124, 134, 0.15)',
+                        background: 'color-mix(in oklab, var(--color-error) 15%, transparent)',
                         borderRadius: '6px',
                         fontSize: '0.85rem',
-                        color: '#fecdd3',
+                        color: 'var(--color-error)',
                       }}>
                         <strong>Admin Feedback / Reason:</strong> {latestVal.notes || 'Price exceeds commercial bounds. Please submit a revised proposal.'}
                       </div>
@@ -3935,7 +3665,7 @@ function SellerLeadDrawer({
                       <button
                         type="button"
                         className="btn-primary"
-                        style={{ background: '#10b981', color: '#000', fontWeight: 600, border: 'none' }}
+                        style={{ background: 'var(--color-success)', color: 'var(--color-success-content)', fontWeight: 600, border: 'none' }}
                         onClick={() => handleCreateValuation(true)}
                         disabled={busy}
                       >
@@ -3957,7 +3687,7 @@ function SellerLeadDrawer({
               {/* Offer Proposal Section */}
               {inspectionSummary?.approvedReport && (
                 <div style={{
-                  background: 'rgba(255, 255, 255, 0.03)',
+                  background: 'color-mix(in oklab, var(--color-base-content) 3%, transparent)',
                   border: '1px solid var(--border)',
                   borderRadius: '8px',
                   padding: '16px',
@@ -3971,20 +3701,20 @@ function SellerLeadDrawer({
                       <>
                         {isDeclined && (
                           <div style={{
-                            background: 'rgba(239, 68, 68, 0.08)',
-                            border: '1px solid rgba(239, 68, 68, 0.35)',
+                            background: 'color-mix(in oklab, var(--color-error) 8%, transparent)',
+                            border: '1px solid color-mix(in oklab, var(--color-error) 35%, transparent)',
                             borderRadius: '8px',
                             padding: '14px',
                             marginBottom: '16px',
                           }}>
                             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px' }}>
-                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: '#f87171', fontWeight: 600, fontSize: '0.92rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--color-error)', fontWeight: 600, fontSize: '0.92rem' }}>
                                 <Icons.Offers size={18} />
                                 <span>Previous Purchase Offer (v{latestOffer.version || 1} · {formatCurrency(latestOffer.offerAmountPaise)}) was Declined</span>
                               </div>
                               <span className="badge badge-red">Declined by Seller</span>
                             </div>
-                            <div style={{ marginTop: '8px', fontSize: '0.85rem', color: '#cbd5e1' }}>
+                            <div style={{ marginTop: '8px', fontSize: '0.85rem', color: 'var(--muted)' }}>
                               <strong>Decline Reason / Feedback:</strong> {latestOffer.declineReason || 'Price not acceptable to seller'}
                               {lead.expectedPricePaise && (
                                 <span> · Seller Expectation: <strong className="font-mono">{formatCurrency(lead.expectedPricePaise)}</strong></span>
@@ -4086,7 +3816,7 @@ function SellerLeadDrawer({
                               borderRadius: '4px',
                               fontSize: '0.78rem',
                               lineHeight: 1.3,
-                              background: val.status === 'REJECTED' ? 'rgba(255, 124, 134, 0.12)' : 'rgba(255, 255, 255, 0.04)',
+                              background: val.status === 'REJECTED' ? 'color-mix(in oklab, var(--color-error) 12%, transparent)' : 'color-mix(in oklab, var(--color-base-content) 4%, transparent)',
                               color: val.status === 'REJECTED' ? 'var(--danger)' : 'var(--text)',
                             }}>
                               {val.notes}
@@ -4123,8 +3853,8 @@ function SellerLeadDrawer({
                               borderRadius: '4px',
                               fontSize: '0.78rem',
                               lineHeight: 1.3,
-                              background: 'rgba(239, 68, 68, 0.12)',
-                              color: '#f87171',
+                              background: 'color-mix(in oklab, var(--color-error) 12%, transparent)',
+                              color: 'var(--color-error)',
                             }}>
                               Declined: {o.declineReason}
                             </div>
@@ -4264,7 +3994,7 @@ function BuyerLeadDrawer({
         </div>
         <div className="modal-body">
           {/* Synchronized 4-Stage Lead Pipeline */}
-          <div style={{ marginBottom: '14px', padding: '10px 12px', background: 'rgba(255,255,255,0.03)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+          <div style={{ marginBottom: '14px', padding: '10px 12px', background: 'color-mix(in oklab, var(--color-base-content) 3%, transparent)', borderRadius: '8px', border: '1px solid var(--border)' }}>
             <div style={{ fontSize: '11px', textTransform: 'uppercase', letterSpacing: '0.08em', color: 'var(--muted)', marginBottom: '8px', fontWeight: 600 }}>
               Lead Workflow Progress (Synced with Customer Mobile)
             </div>
@@ -4282,8 +4012,8 @@ function BuyerLeadDrawer({
                     padding: '6px 4px',
                     borderRadius: '6px',
                     fontWeight: isActive ? 700 : 500,
-                    background: isActive ? 'var(--yellow)' : isPast ? 'rgba(97, 217, 154, 0.15)' : 'rgba(255,255,255,0.02)',
-                    color: isActive ? '#061A38' : isPast ? 'var(--success)' : 'var(--muted)',
+                    background: isActive ? 'var(--yellow)' : isPast ? 'color-mix(in oklab, var(--color-success) 15%, transparent)' : 'color-mix(in oklab, var(--color-base-content) 2%, transparent)',
+                    color: isActive ? 'var(--color-base-100)' : isPast ? 'var(--success)' : 'var(--muted)',
                     border: isActive ? '1px solid var(--yellow)' : '1px solid transparent',
                   }}>
                     {st.label}
@@ -4683,8 +4413,8 @@ function SearchableCustomerInput({
       {selectedCustomer ? (
         <div style={{
           padding: '10px 12px',
-          background: 'rgba(97, 217, 154, 0.08)',
-          border: '1px solid rgba(97, 217, 154, 0.3)',
+          background: 'color-mix(in oklab, var(--color-success) 8%, transparent)',
+          border: '1px solid color-mix(in oklab, var(--color-success) 30%, transparent)',
           borderRadius: 'var(--radius-sm)',
           display: 'flex',
           justifyContent: 'space-between',
@@ -4721,7 +4451,7 @@ function SearchableCustomerInput({
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          background: '#06172f',
+          background: 'var(--color-base-200)',
           border: '1px solid var(--border)',
           borderRadius: 'var(--radius-sm)',
           padding: '0 8px',
@@ -4760,13 +4490,13 @@ function SearchableCustomerInput({
             right: 0,
             maxHeight: '220px',
             overflowY: 'auto',
-            background: '#06172f',
+            background: 'var(--color-base-200)',
             border: '1px solid var(--border)',
             borderRadius: 'var(--radius-sm)',
-            boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+            boxShadow: '0 10px 25px var(--scrim)',
             zIndex: 100,
           }}>
-            <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--muted)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between' }}>
+            <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--muted)', borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 6%, transparent)', display: 'flex', justifyContent: 'space-between' }}>
               <span>{loading ? 'Loading registered customers...' : `Registered Customers (${filtered.length})`}</span>
               <button
                 type="button"
@@ -4781,13 +4511,13 @@ function SearchableCustomerInput({
                 key={c.id}
                 style={{
                   padding: '8px 10px',
-                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 4%, transparent)',
                   cursor: 'pointer',
                   transition: 'background 0.15s',
-                  background: c.id === value ? 'rgba(247, 181, 3, 0.12)' : 'transparent',
+                  background: c.id === value ? 'color-mix(in oklab, var(--color-primary) 12%, transparent)' : 'transparent',
                 }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
-                onMouseLeave={e => (e.currentTarget.style.background = c.id === value ? 'rgba(247, 181, 3, 0.12)' : 'transparent')}
+                onMouseEnter={e => (e.currentTarget.style.background = 'color-mix(in oklab, var(--color-base-content) 6%, transparent)')}
+                onMouseLeave={e => (e.currentTarget.style.background = c.id === value ? 'color-mix(in oklab, var(--color-primary) 12%, transparent)' : 'transparent')}
                 onClick={() => {
                   onChange(c.id);
                   setIsOpen(false);
@@ -4949,8 +4679,8 @@ function SearchableVehicleInput({
       {selectedVehicle ? (
         <div style={{
           padding: '10px 12px',
-          background: 'rgba(147, 197, 253, 0.08)',
-          border: '1px solid rgba(147, 197, 253, 0.3)',
+          background: 'color-mix(in oklab, var(--color-info) 8%, transparent)',
+          border: '1px solid color-mix(in oklab, var(--color-info) 30%, transparent)',
           borderRadius: 'var(--radius-sm)',
           display: 'flex',
           justifyContent: 'space-between',
@@ -4987,7 +4717,7 @@ function SearchableVehicleInput({
         <div style={{
           display: 'flex',
           alignItems: 'center',
-          background: '#06172f',
+          background: 'var(--color-base-200)',
           border: '1px solid var(--border)',
           borderRadius: 'var(--radius-sm)',
           padding: '0 8px',
@@ -5026,13 +4756,13 @@ function SearchableVehicleInput({
             right: 0,
             maxHeight: '220px',
             overflowY: 'auto',
-            background: '#06172f',
+            background: 'var(--color-base-200)',
             border: '1px solid var(--border)',
             borderRadius: 'var(--radius-sm)',
-            boxShadow: '0 10px 25px rgba(0,0,0,0.5)',
+            boxShadow: '0 10px 25px var(--scrim)',
             zIndex: 100,
           }}>
-            <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--muted)', borderBottom: '1px solid rgba(255,255,255,0.06)', display: 'flex', justifyContent: 'space-between' }}>
+            <div style={{ padding: '6px 10px', fontSize: '11px', color: 'var(--muted)', borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 6%, transparent)', display: 'flex', justifyContent: 'space-between' }}>
               <span>{loading ? 'Loading inventory...' : `Available Vehicles (${filtered.length})`}</span>
               <button
                 type="button"
@@ -5047,13 +4777,13 @@ function SearchableVehicleInput({
                 key={i.id}
                 style={{
                   padding: '8px 10px',
-                  borderBottom: '1px solid rgba(255,255,255,0.04)',
+                  borderBottom: '1px solid color-mix(in oklab, var(--color-base-content) 4%, transparent)',
                   cursor: 'pointer',
                   transition: 'background 0.15s',
-                  background: i.id === value ? 'rgba(247, 181, 3, 0.12)' : 'transparent',
+                  background: i.id === value ? 'color-mix(in oklab, var(--color-primary) 12%, transparent)' : 'transparent',
                 }}
-                onMouseEnter={e => (e.currentTarget.style.background = 'rgba(255,255,255,0.06)')}
-                onMouseLeave={e => (e.currentTarget.style.background = i.id === value ? 'rgba(247, 181, 3, 0.12)' : 'transparent')}
+                onMouseEnter={e => (e.currentTarget.style.background = 'color-mix(in oklab, var(--color-base-content) 6%, transparent)')}
+                onMouseLeave={e => (e.currentTarget.style.background = i.id === value ? 'color-mix(in oklab, var(--color-primary) 12%, transparent)' : 'transparent')}
                 onClick={() => {
                   onChange(i.id);
                   setIsOpen(false);
@@ -5717,7 +5447,7 @@ function ReleaseReservationModal({
       <div className="modal-dialog">
         <div className="modal-header">
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-            <span style={{ color: 'var(--color-danger, #ef4444)' }}>
+            <span style={{ color: 'var(--color-danger, var(--color-error))' }}>
               <Icons.Tag size={20} />
             </span>
             <h3>Release Vehicle Reservation</h3>
@@ -5729,13 +5459,13 @@ function ReleaseReservationModal({
             {error && <div className="error-banner">{error}</div>}
 
             <div style={{
-              background: 'rgba(239, 68, 68, 0.12)',
-              border: '1px solid rgba(239, 68, 68, 0.35)',
+              background: 'color-mix(in oklab, var(--color-error) 12%, transparent)',
+              border: '1px solid color-mix(in oklab, var(--color-error) 35%, transparent)',
               borderRadius: '8px',
               padding: '14px',
               marginBottom: '16px'
             }}>
-              <div style={{ fontWeight: 600, fontSize: '0.95rem', color: '#f87171', marginBottom: '4px' }}>
+              <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--color-error)', marginBottom: '4px' }}>
                 Unreserve & Return to Available Stock
               </div>
               <p style={{ margin: 0, fontSize: '0.85rem', color: 'rgba(234, 240, 248, 0.85)' }}>
@@ -5752,8 +5482,8 @@ function ReleaseReservationModal({
                   value={vehicleTitle}
                   disabled
                   style={{
-                    background: 'rgba(255, 255, 255, 0.05)',
-                    color: 'var(--text, #eaf0f8)',
+                    background: 'color-mix(in oklab, var(--color-base-content) 5%, transparent)',
+                    color: 'var(--text, var(--color-base-content))',
                     border: '1px solid var(--border)',
                     fontWeight: 600,
                   }}
@@ -5769,8 +5499,8 @@ function ReleaseReservationModal({
                     value={customerName}
                     disabled
                     style={{
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      color: 'var(--text, #eaf0f8)',
+                      background: 'color-mix(in oklab, var(--color-base-content) 5%, transparent)',
+                      color: 'var(--text, var(--color-base-content))',
                       border: '1px solid var(--border)',
                     }}
                   />
@@ -5786,8 +5516,8 @@ function ReleaseReservationModal({
                     value={formatDate(expiresAt)}
                     disabled
                     style={{
-                      background: 'rgba(255, 255, 255, 0.05)',
-                      color: 'var(--text, #eaf0f8)',
+                      background: 'color-mix(in oklab, var(--color-base-content) 5%, transparent)',
+                      color: 'var(--text, var(--color-base-content))',
                       border: '1px solid var(--border)',
                     }}
                   />

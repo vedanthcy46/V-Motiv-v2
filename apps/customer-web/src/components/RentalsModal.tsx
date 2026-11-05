@@ -140,7 +140,7 @@ export const RentalsModal: React.FC<RentalsModalProps> = ({
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose} role="presentation">
+    <div className="modal-overlay" onClick={onClose} role="presentation">
       <div
         className="modal-content modal-rentals"
         onClick={(e) => e.stopPropagation()}

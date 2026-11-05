@@ -1,0 +1,96 @@
+@layer base {
+  :root {
+    font-family: var(--font-sans);
+    font-feature-settings: 'cv11', 'ss01';
+    font-synthesis: none;
+    -webkit-text-size-adjust: 100%;
+    text-rendering: optimizeLegibility;
+  }
+  html {
+    min-width: 320px;
+    background: var(--color-base-200);
+    scroll-behavior: smooth;
+  }
+  body {
+    margin: 0;
+    min-width: 320px;
+    min-height: 100dvh;
+    background: var(--color-base-200);
+    color: var(--color-base-content);
+    font-family: var(--font-sans);
+    font-size: 0.9375rem;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  /* Theme changes crossfade instead of flashing. Disabled while the page first loads and for reduced motion. */
+  body.vm-ready {
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+
+  h1, h2, h3, h4 {
+    font-weight: 600;
+    letter-spacing: -0.015em;
+    line-height: 1.25;
+    color: var(--color-base-content);
+  }
+  h1 { font-size: clamp(1.4rem, 1.1rem + 1vw, 1.75rem); letter-spacing: -0.02em; }
+  h2 { font-size: 1.125rem; }
+  h3 { font-size: 1rem; }
+  h4 { font-size: 0.9375rem; }
+  p { line-height: 1.6; }
+  small { font-size: 0.8125rem; }
+  strong { font-weight: 600; }
+  code, kbd, samp, pre, .font-mono {
+    font-family: var(--font-mono);
+    font-size: 0.875em;
+  }
+  code {
+    overflow-wrap: anywhere;
+    padding: 0.1em 0.35em;
+    border-radius: 0.3rem;
+    background: color-mix(in oklab, var(--color-base-content) 7%, transparent);
+    color: inherit;
+  }
+  a { color: var(--color-secondary); text-underline-offset: 0.18em; }
+  a:hover { text-decoration: underline; }
+  .tabular, td, th, .metric-value, .stat-value { font-variant-numeric: tabular-nums; }
+
+  ::selection { background: color-mix(in oklab, var(--color-primary) 40%, transparent); }
+
+  button, input, select, textarea { font: inherit; color: inherit; }
+  button { touch-action: manipulation; }
+  :focus-visible {
+    outline: 2px solid var(--color-secondary);
+    outline-offset: 2px;
+    border-radius: 0.25rem;
+  }
+  [data-theme='vmotiv-dark'] :focus-visible { outline-color: var(--color-primary); }
+
+  #root svg:not([width]):not([class*='size-']):not([class*='w-']) { width: 1.1rem; height: 1.1rem; }
+  svg { flex: 0 0 auto; }
+
+  * { scrollbar-width: thin; scrollbar-color: color-mix(in oklab, var(--color-base-content) 28%, transparent) transparent; }
+
+  .sr-only {
+    position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+    overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      scroll-behavior: auto !important;
+      animation-duration: 0.01ms !important;
+      animation-iteration-count: 1 !important;
+      transition-duration: 0.01ms !important;
+    }
+  }
+}
+
+@keyframes vm-fade-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes vm-rise-in { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@keyframes vm-pop-in { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: none; } }
+@keyframes vm-slide-in-right { from { transform: translateX(100%); } to { transform: none; } }
+@keyframes vm-toast-in { from { opacity: 0; transform: translateX(16px); } to { opacity: 1; transform: none; } }
+@keyframes vm-progress { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }
+@keyframes vm-shimmer { 100% { transform: translateX(100%); } }

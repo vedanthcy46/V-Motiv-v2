@@ -1,3 +1,4 @@
+import { bodyTypeFilterValues, inferBodyType } from './body-types.js';
 import { computeInventoryFacets, makeSpellings, type FacetFilters, type FacetRow } from './inventory-facets.js';
 import { canonicalMakeModel, loadMakeAliasGroups } from './vehicle-names.js';
 import { dropOrphanedChildren, normalizeMasterDataCategory } from './master-data-rules.js';
@@ -256,7 +257,7 @@ function buildCustomerProfile(listing: any) {
     },
     specifications: existing?.specifications || {
       color: vehicle?.color || stock?.acquisitionCase?.lead?.color || null,
-      bodyType: vehicle?.bodyType || null,
+      bodyType: vehicle?.bodyType || inferBodyType(vehicle?.make, vehicle?.model),
       engineCapacityCc: vehicle?.engineCapacityCc || null,
     },
     topFeatures,
@@ -328,6 +329,7 @@ function listingJson(listing: any, wished: boolean) {
     ...listing.vehicle,
     variant: variant || listing.vehicle.variant,
     registrationNumber: regNumber,
+    bodyType: listing.vehicle.bodyType || inferBodyType(listing.vehicle.make, listing.vehicle.model),
     color: color || listing.vehicle.color,
     registrationYear: registrationYear || listing.vehicle.registrationYear,
     city: city || listing.vehicle.city,
@@ -529,7 +531,7 @@ export class PrismaCustomerStore implements CustomerStore {
       // 'Maruti Suzuki' also matches stock entered as 'Maruti' or 'Suzuki' (and similar aliases).
       ...(makes.length ? { make: { in: makeSpellings(makes, aliasGroups), mode: 'insensitive' } } : {}),
       ...(models.length === 1 ? { model: { equals: models[0], mode: 'insensitive' } } : models.length > 1 ? { model: { in: models, mode: 'insensitive' } } : {}),
-      ...(bodyType ? { bodyType: { equals: bodyType, mode: 'insensitive' } } : {}),
+      ...(bodyType ? { bodyType: { in: bodyTypeFilterValues(bodyType), mode: 'insensitive' } } : {}),
       ...(featureList.length ? { features: { hasEvery: featureList } } : {}),
       ...(color ? { color: { equals: color, mode: 'insensitive' } } : {}),
       ...(minYear || maxYear ? { manufacturingYear: { ...(minYear ? { gte: minYear } : {}), ...(maxYear ? { lte: maxYear } : {}) } } : {}),
@@ -539,6 +541,7 @@ export class PrismaCustomerStore implements CustomerStore {
       { title: { contains: search, mode: 'insensitive' } },
       { vehicle: { is: { make: { contains: search, mode: 'insensitive' } } } },
       { vehicle: { is: { model: { contains: search, mode: 'insensitive' } } } },
+      { vehicle: { is: { bodyType: { contains: search, mode: 'insensitive' } } } },
     ] } : {}) };
     const query = { where, orderBy: sort === 'price_asc' ? { pricePaise: 'asc' as const } : sort === 'price_desc' ? { pricePaise: 'desc' as const } : sort === 'year_desc' ? { vehicle: { manufacturingYear: 'desc' as const } } : { publishedAt: 'desc' as const }, skip: (page - 1) * limit, take: limit };
     let items: any[];
@@ -572,7 +575,7 @@ export class PrismaCustomerStore implements CustomerStore {
       model: row.vehicle?.model ?? '',
       fuelType: row.vehicle?.fuelType ?? null,
       transmission: row.vehicle?.transmission ?? null,
-      bodyType: row.vehicle?.bodyType ?? null,
+      bodyType: row.vehicle?.bodyType ?? inferBodyType(row.vehicle?.make, row.vehicle?.model),
       color: row.vehicle?.color ?? null,
       city: row.vehicle?.city ?? null,
       year: row.vehicle?.manufacturingYear ?? null,
