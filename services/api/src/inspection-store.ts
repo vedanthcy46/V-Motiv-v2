@@ -891,7 +891,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
       stkSold,
       pendingCostApprovals,
       recentEvents,
-    ] = await this.db.$transaction([
+    ] = await Promise.all([
       this.db.inspectionRequest.count({ where: { ...requestScope, assignment: null, status: 'REQUESTED' } }),
       this.db.inspectionRequest.count({ where: { ...requestScope, status: 'SCHEDULED' } }),
       this.db.inspectionRequest.count({ where: { ...requestScope, status: 'IN_PROGRESS' } }),

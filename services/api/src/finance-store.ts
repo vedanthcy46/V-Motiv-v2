@@ -242,7 +242,7 @@ export class PrismaFinanceStore {
       bankAccounts,
       receiptTotals,
       expenseTotals,
-    ] = await this.db.$transaction([
+    ] = await Promise.all([
       this.db.acquisitionCase.count({ where: { ...scope, status: 'SETTLEMENT_READY' } }),
       this.db.financePayoutInstruction.count({
         where: { status: 'APPROVAL_PENDING', settlement: { acquisitionCase: scope } },

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type FC, type FormEvent } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState, type FC, type FormEvent } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   GoogleAuthProvider,
@@ -51,10 +51,11 @@ import {
   IconService,
   IconStudio,
 } from './icons';
-import { ServiceOperationsPanel } from './components/ServiceOperationsPanel';
-import { RentalOperationsPanel } from './components/RentalOperationsPanel';
+// The two big workshop and rental screens are only downloaded when their tab is opened.
+const ServiceOperationsPanel = lazy(() => import('./components/ServiceOperationsPanel').then(m => ({ default: m.ServiceOperationsPanel })));
+const RentalOperationsPanel = lazy(() => import('./components/RentalOperationsPanel').then(m => ({ default: m.RentalOperationsPanel })));
 import {
-  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader, toast,
+  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader, SkeletonRows, toast,
   initTheme, modalIsOpen, mountLiveChangeBar, registerViewHandler, useAutoRefresh, useChangeWatcher, type NavSection,
 } from '@vmotiv/ui';
 import './styles.css';
@@ -2726,24 +2727,28 @@ export const App: FC = () => {
         {/* VIEW 12: CAR SERVICE OPERATIONS                           */}
         {/* ======================================================== */}
         {activeTab === 'service' ? (
-          <ServiceOperationsPanel
-            user={user}
-            branches={branches}
-            onError={err => reportError(err)}
-            onSuccess={msg => setSuccessMsg(msg)}
-          />
+          <Suspense fallback={<SkeletonRows rows={6} />}>
+            <ServiceOperationsPanel
+              user={user}
+              branches={branches}
+              onError={err => reportError(err)}
+              onSuccess={msg => setSuccessMsg(msg)}
+            />
+          </Suspense>
         ) : null}
 
         {/* ======================================================== */}
         {/* VIEW 13: RENTAL FLEET & OPERATIONS                        */}
         {/* ======================================================== */}
         {activeTab === 'rentals' ? (
-          <RentalOperationsPanel
-            user={user}
-            branches={branches}
-            onError={err => reportError(err)}
-            onSuccess={msg => setSuccessMsg(msg)}
-          />
+          <Suspense fallback={<SkeletonRows rows={6} />}>
+            <RentalOperationsPanel
+              user={user}
+              branches={branches}
+              onError={err => reportError(err)}
+              onSuccess={msg => setSuccessMsg(msg)}
+            />
+          </Suspense>
         ) : null}
 
         {/* ======================================================== */}

@@ -10,6 +10,10 @@ Implemented: central API, verified Google identity boundary, customer registrati
 
 The Admin foundation includes MFA-gated access, one-time Super Admin bootstrap, normalized roles/permissions/branches, employee invitation and activation, suspension/session revocation, real dashboard counts and scoped audit views. The Sales Workspace offers Firebase Google sign-in, server-resolved employee roles, city/branch-scoped seller leads, pipeline counts, and audited initial qualification/inspection transitions. Inspector, Operations and remaining Sales transaction workflows are future milestones. See `docs/ADMIN_ARCHITECTURE.md` and `docs/ADMIN_TEST_RESULTS.md` for exact status.
 
+## Shared design system
+
+All web portals share `packages/ui` (`@vmotiv/ui`: Tailwind CSS 4 + daisyUI, light/dark). See docs/DESIGN_SYSTEM.md.
+
 ## Run locally
 
 Node 22.12+ LTS or Node 24 LTS is recommended.
