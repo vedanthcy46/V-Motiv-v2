@@ -182,6 +182,7 @@ td > span, td > small, .table-sub { color: color-mix(in oklab, var(--color-base-
 .empty-state { display: grid; justify-items: center; gap: 0.35rem; padding: 2.25rem 1rem; text-align: center; border: 1px dashed var(--color-base-300); border-radius: var(--radius-box); color: color-mix(in oklab, var(--color-base-content) 62%, transparent); }
 .empty-state p { max-width: 36rem; }
 .page-empty { margin-top: 3rem; }
+td.empty-state, th.empty-state { display: table-cell; padding: 2.25rem 1rem; border: 0; border-radius: 0; text-align: center; }
 .skeleton { position: relative; overflow: hidden; border-radius: var(--radius-field); background: color-mix(in oklab, var(--color-base-content) 9%, transparent); }
 .skeleton::after { content: ''; position: absolute; inset: 0; transform: translateX(-100%); background: linear-gradient(90deg, transparent, color-mix(in oklab, var(--color-base-content) 9%, transparent), transparent); animation: vm-shimmer 1.4s infinite; }
 .skeleton.card { height: 8rem; }
