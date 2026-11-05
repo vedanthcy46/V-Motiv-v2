@@ -6,15 +6,16 @@
  */
 
 /* daisyUI's own field classes get the same border, radius and focus ring as plain controls */
-.input, .select, .textarea {
+.input, .select, .textarea, .form-input, .form-select, .form-textarea {
   width: 100%; min-height: 2.5rem; border: 1px solid var(--color-base-300); border-radius: var(--radius-field); background: var(--color-base-100);
   color: var(--color-base-content); box-shadow: none; outline: none; transition: border-color 0.15s, box-shadow 0.15s;
 }
-.input:hover:not(:disabled), .select:hover:not(:disabled), .textarea:hover:not(:disabled) { border-color: color-mix(in oklab, var(--color-base-content) 30%, var(--color-base-300)); }
-.input:focus, .input:focus-within, .select:focus, .textarea:focus { outline: none; border-color: var(--color-secondary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-secondary) 22%, transparent); }
-[data-theme='vmotiv-dark'] :is(.input, .select, .textarea):focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent); }
+.input:hover:not(:disabled), .select:hover:not(:disabled), .textarea:hover:not(:disabled), .form-input:hover:not(:disabled), .form-select:hover:not(:disabled), .form-textarea:hover:not(:disabled) { border-color: color-mix(in oklab, var(--color-base-content) 30%, var(--color-base-300)); }
+.input:focus, .input:focus-within, .select:focus, .textarea:focus, .form-input:focus, .form-select:focus, .form-textarea:focus { outline: none; border-color: var(--color-secondary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-secondary) 22%, transparent); }
+[data-theme='vmotiv-dark'] :is(.input, .select, .textarea, .form-input, .form-select, .form-textarea):focus { border-color: var(--color-primary); box-shadow: 0 0 0 3px color-mix(in oklab, var(--color-primary) 25%, transparent); }
 .input-error, .select-error, .textarea-error { border-color: var(--color-error) !important; }
 .input.input-lg { min-height: 3.25rem; }
+.textarea, .form-textarea { min-height: 6rem; resize: vertical; }
 
 /* ---------- Form controls (zero specificity: any class still wins) ---------- */
 :where(input:not([type='checkbox'], [type='radio'], [type='range'], [type='file'], [type='hidden'], [type='color']), select, textarea) {
@@ -55,30 +56,33 @@ fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
 .search-input-box input, .search-input-wrap input { width: 100%; }
 
 /* ---------- Buttons ---------- */
-.button, .btn-gold {
+/* The portals use both `.button.primary` and `.btn-primary` (with or without `.btn`): all of them render the same. */
+.button, .btn-gold, .btn-primary, .btn-secondary, .btn-outline, .btn-danger, .btn-success, .btn-approve {
   display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; min-height: 2.5rem; padding: 0.5rem 1rem;
-  border: 1px solid transparent; border-radius: var(--radius-field); font-size: 0.875rem; font-weight: 600; line-height: 1.2; cursor: pointer;
+  border: 1px solid transparent; border-radius: var(--radius-field); font-size: 0.875rem; font-weight: 600; line-height: 1.2; cursor: pointer; text-transform: none;
   transition: background-color 0.15s, border-color 0.15s, color 0.15s, box-shadow 0.15s;
 }
-.button:disabled, .btn:disabled, .btn-gold:disabled, .button[aria-busy='true'] { opacity: 0.55; cursor: not-allowed; }
-.button.primary, .btn.btn-primary, .btn-gold {
+.button:disabled, .btn:disabled, .btn-gold:disabled, .btn-primary:disabled, .btn-secondary:disabled, .btn-outline:disabled, .btn-danger:disabled, .btn-success:disabled, .button[aria-busy='true'] { opacity: 0.55; cursor: not-allowed; }
+.button.primary, .btn-primary, .btn-gold {
   background: var(--color-primary); border-color: var(--color-primary); color: var(--color-primary-content);
   box-shadow: 0 1px 0 rgb(0 0 0 / 0.06);
 }
-.button.primary:hover:not(:disabled), .btn.btn-primary:hover:not(:disabled), .btn-gold:hover:not(:disabled) { background: var(--yellow-hover); border-color: var(--yellow-hover); }
-.button.secondary, .btn.btn-secondary, .btn.btn-outline {
+.button.primary:hover:not(:disabled), .btn-primary:hover:not(:disabled), .btn-gold:hover:not(:disabled) { background: var(--yellow-hover); border-color: var(--yellow-hover); }
+.button.secondary, .btn-secondary, .btn-outline {
   background: var(--color-base-100); border-color: var(--color-base-300); color: var(--color-base-content); box-shadow: var(--shadow-sm);
 }
-.button.secondary:hover:not(:disabled), .btn.btn-secondary:hover:not(:disabled), .btn.btn-outline:hover:not(:disabled) {
+.button.secondary:hover:not(:disabled), .btn-secondary:hover:not(:disabled), .btn-outline:hover:not(:disabled) {
   background: var(--color-base-200); border-color: color-mix(in oklab, var(--color-base-content) 28%, var(--color-base-300)); color: var(--color-base-content);
 }
-.button.danger, .btn.btn-danger, .btn.btn-error {
+.btn-outline.active { background: color-mix(in oklab, var(--color-primary) 14%, transparent); border-color: var(--color-primary); }
+.button.danger, .btn-danger, .btn-error {
   background: color-mix(in oklab, var(--color-error) 10%, var(--color-base-100)); border-color: color-mix(in oklab, var(--color-error) 45%, transparent); color: var(--color-error);
 }
-.button.danger:hover:not(:disabled), .btn.btn-danger:hover:not(:disabled), .btn.btn-error:hover:not(:disabled) { background: var(--color-error); border-color: var(--color-error); color: var(--color-error-content); }
-.btn.btn-success { background: color-mix(in oklab, var(--color-success) 12%, var(--color-base-100)); border-color: color-mix(in oklab, var(--color-success) 45%, transparent); color: var(--color-success); }
-.btn.btn-success:hover:not(:disabled) { background: var(--color-success); color: var(--color-success-content); border-color: var(--color-success); }
-.button.small, .btn.btn-sm, .button.btn-sm { min-height: 2rem; padding: 0.25rem 0.7rem; font-size: 0.8125rem; }
+.button.danger:hover:not(:disabled), .btn-danger:hover:not(:disabled), .btn-error:hover:not(:disabled) { background: var(--color-error); border-color: var(--color-error); color: var(--color-error-content); }
+.btn-success, .btn-approve { background: color-mix(in oklab, var(--color-success) 12%, var(--color-base-100)); border-color: color-mix(in oklab, var(--color-success) 45%, transparent); color: var(--color-success); }
+.btn-success:hover:not(:disabled), .btn-approve:hover:not(:disabled) { background: var(--color-success); color: var(--color-success-content); border-color: var(--color-success); }
+.button.small, .btn-sm, .button.btn-sm { min-height: 2rem; padding: 0.25rem 0.7rem; font-size: 0.8125rem; }
+.btn-xs { min-height: 1.5rem; padding: 0.1rem 0.5rem; font-size: 0.75rem; }
 .button.pill { border-radius: 9999px; }
 .btn { font-weight: 600; text-transform: none; }
 .icon-button, .btn-close, .modal-header > button, .dialog header > .icon-button {

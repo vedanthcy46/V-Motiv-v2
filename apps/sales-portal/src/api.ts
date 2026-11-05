@@ -1,18 +1,21 @@
 import type { User } from 'firebase/auth';
 import type { MasterItem } from './vehicleCatalog';
 
-function resolveApiBase(): string {
-  const env = (import.meta.env.VITE_API_BASE || '').trim();
-  const raw = (env || 'http://localhost:4100/api/v2')
-    .replace('https://vmotiv.in', 'https://api.vmotiv.in')
-    .replace('https://www.vmotiv.in', 'https://api.vmotiv.in')
-    .replace(/\/$/, '');
-  if (raw.endsWith('/api/v2') || raw.endsWith('/api/v1')) {
-    return raw;
-  }
-  return `${raw}/api/v2`;
+import { ApiError, createApiClient, resolveApiBase, type ApiClient } from '@vmotiv/ui';
+
+export { ApiError };
+
+const base = resolveApiBase(import.meta.env.VITE_API_BASE);
+const clients = new WeakMap<User, Map<string, ApiClient>>();
+
+/** One shared client per signed-in user and API prefix: request de-duplication, token refresh, retry and the global progress bar. */
+function clientFor(user: User, prefix: string): ApiClient {
+  let perUser = clients.get(user);
+  if (!perUser) { perUser = new Map(); clients.set(user, perUser); }
+  let client = perUser.get(prefix);
+  if (!client) { client = createApiClient({ base, prefix, getToken: force => user.getIdToken(force) }); perUser.set(prefix, client); }
+  return client;
 }
-const base = resolveApiBase();
 
 function query(params: Record<string, string | number | boolean | undefined | null>): string {
   const q = new URLSearchParams();
@@ -24,56 +27,12 @@ function query(params: Record<string, string | number | boolean | undefined | nu
   return q.toString();
 }
 
-export class ApiError extends Error {
-  constructor(public status: number, public code: string) {
-    super(code);
-    this.name = 'ApiError';
-  }
+function callDirect<T>(user: User, path: string, init: RequestInit = {}): Promise<T> {
+  return clientFor(user, '').request<T>(path, init as never);
 }
 
-async function callDirect<T>(user: User, path: string, init: RequestInit = {}, retry = true): Promise<T> {
-  const token = await user.getIdToken(!retry);
-  const response = await fetch(`${base}${path}`, {
-    ...init,
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, ...init.headers },
-    signal: init.signal ?? AbortSignal.timeout(15_000),
-  });
-  if (response.status === 401 && retry) { await user.getIdToken(true); return callDirect<T>(user, path, init, false); }
-  if (!response.ok) { const body = (await response.json().catch(() => ({ code: 'REQUEST_FAILED' }))) as { code?: string }; throw new ApiError(response.status, body.code || 'REQUEST_FAILED'); }
-  if (response.status === 204) return undefined as T;
-  return response.json() as Promise<T>;
-}
-
-async function call<T>(user: User, path: string, init: RequestInit = {}, retry = true): Promise<T> {
-  const token = await user.getIdToken(!retry);
-  const response = await fetch(`${base}/sales${path}`, {
-    ...init,
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      ...init.headers,
-    },
-    signal: init.signal ?? AbortSignal.timeout(15_000),
-  });
-
-  if (response.status === 401 && retry) {
-    await user.getIdToken(true);
-    return call<T>(user, path, init, false);
-  }
-
-  if (!response.ok) {
-    const body = (await response.json().catch(() => ({ code: 'REQUEST_FAILED' }))) as { code?: string };
-    throw new ApiError(response.status, body.code || 'REQUEST_FAILED');
-  }
-
-  if (response.status === 204) return undefined as T;
-
-  const contentType = response.headers.get('content-type');
-  if (contentType && !contentType.includes('application/json')) {
-    throw new ApiError(response.status, 'INVALID_SERVER_RESPONSE');
-  }
-
-  return response.json() as Promise<T>;
+function call<T>(user: User, path: string, init: RequestInit = {}): Promise<T> {
+  return clientFor(user, '/sales').request<T>(path, init as never);
 }
 
 export type Actor = {

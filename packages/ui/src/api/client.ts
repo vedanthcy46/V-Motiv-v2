@@ -32,6 +32,8 @@ export interface RequestOptions extends Omit<RequestInit, 'body'> {
 }
 
 const RETRYABLE = new Set([502, 503, 504]);
+/** Background polling endpoints never drive the progress bar. */
+const BACKGROUND_PATH = /^\/(pulse|notifications\/unread)/;
 const wait = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
 
 /**
@@ -84,7 +86,7 @@ export function createApiClient(options: ApiClientOptions) {
     const method = (init.method ?? 'GET').toUpperCase();
     const run = () => {
       const promise = send<T>(path, init, false, 0);
-      return init.quiet ? promise : trackRequest(promise);
+      return init.quiet || BACKGROUND_PATH.test(path) ? promise : trackRequest(promise);
     };
     if (method !== 'GET' || init.signal) return run();
     const key = path;

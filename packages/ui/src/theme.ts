@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { enhanceLegacyOverlays } from './hooks/legacyOverlays';
 
 export type ThemeMode = 'system' | 'light' | 'dark';
 export type ResolvedTheme = 'light' | 'dark';
@@ -35,6 +36,7 @@ export function initTheme(): void {
   if (typeof window === 'undefined') return;
   mode = read();
   apply();
+  enhanceLegacyOverlays();
   window.matchMedia?.('(prefers-color-scheme: dark)').addEventListener?.('change', () => {
     if (mode === 'system') { apply(); listeners.forEach(l => l()); }
   });

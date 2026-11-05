@@ -24,3 +24,4 @@ export { LiveChangeBar, mountLiveChangeBar, registerViewHandler, type LiveChange
 
 export { createApiClient, resolveApiBase, ApiError, describeApiError, type ApiClient, type ApiClientOptions, type RequestOptions } from './api/client';
 export { MfaChallengeModal } from './auth/MfaChallengeModal';
+export { enhanceLegacyOverlays } from './hooks/legacyOverlays';
