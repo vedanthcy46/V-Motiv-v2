@@ -206,12 +206,15 @@ td.empty-state, th.empty-state { display: table-cell; padding: 2.25rem 1rem; bor
 
 /* ---------- Dialogs: legacy overlay markup and native <dialog>, same look as the shared <Modal> ---------- */
 .modal-overlay, .dialog-scrim, .scrim { position: fixed; inset: 0; z-index: 1000; display: flex; align-items: center; justify-content: center; padding: 1rem; background: var(--scrim); backdrop-filter: blur(3px); animation: vm-fade-in 0.15s ease both; }
-.modal-dialog, .dialog { position: relative; display: flex; flex-direction: column; width: min(40rem, 100%); max-height: min(92dvh, 52rem); margin: auto; padding: 0; overflow: hidden; border: 1px solid var(--color-base-300); border-radius: var(--radius-box); background: var(--color-base-100); color: var(--color-base-content); box-shadow: var(--shadow-lg); animation: vm-pop-in 0.18s ease both; }
+.modal-dialog, .dialog { position: relative; display: flex; flex-direction: column; width: min(40rem, 100%); max-height: min(92dvh, 52rem); margin: auto; padding: 0; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; border: 1px solid var(--color-base-300); border-radius: var(--radius-box); background: var(--color-base-100); color: var(--color-base-content); box-shadow: var(--shadow-lg); animation: vm-pop-in 0.18s ease both; }
 dialog.dialog { width: min(44rem, calc(100vw - 2rem)); }
 .dialog::backdrop { background: var(--scrim); backdrop-filter: blur(3px); }
 .modal-dialog.modal-dialog-md, .dialog.compact { width: min(34rem, 100%); }
 .modal-dialog.lg, .modal-dialog.modal-dialog-lg { width: min(56rem, 100%); }
-.modal-dialog > form, .dialog > form { display: flex; flex-direction: column; min-height: 0; flex: 1; }
+.modal-dialog > form, .dialog > form { display: flex; flex-direction: column; min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; }
+/* Dialogs whose form has no separate scrolling body: the form scrolls, header and action buttons stay in view. */
+.dialog > form > header, .modal-dialog > form > .modal-header { position: sticky; top: 0; z-index: 2; background: var(--color-base-100); }
+.dialog > form > footer, .modal-dialog > form > .modal-footer { position: sticky; bottom: 0; z-index: 2; }
 .modal-header, .dialog header, .dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; padding: 1rem 1.25rem; border-bottom: 1px solid var(--color-base-300); }
 .modal-title { font-size: 1.125rem; font-weight: 600; margin: 0; }
 .modal-subtitle { color: color-mix(in oklab, var(--color-base-content) 62%, transparent); font-size: 0.875rem; margin-top: 0.2rem; }
