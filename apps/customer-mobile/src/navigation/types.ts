@@ -28,6 +28,7 @@ export type RootStack = {
   SellingRequestDetails: { leadId: string };
   PurchaseEnquiry: { listingId: string; title: string };
   PurchaseEnquiryDetails: { enquiryId: string };
+  Quotation: { quotationId: string };
   Support: undefined;
   ProfileEditor: undefined;
   MarketingPreferences: undefined;

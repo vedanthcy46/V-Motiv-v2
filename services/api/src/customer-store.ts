@@ -88,6 +88,9 @@ export interface CustomerStore {
   purchaseEnquiries(uid: string): Promise<unknown>;
   purchaseEnquiry(uid: string, id: string): Promise<unknown>;
   cancelPurchaseEnquiry(uid: string, id: string, reason?: string): Promise<unknown>;
+  quotations(uid: string): Promise<unknown>;
+  quotation(uid: string, id: string): Promise<unknown>;
+  respondToQuotation(uid: string, quotationId: string, input: { decision: 'ACCEPT' | 'DECLINE'; notes?: string }): Promise<unknown>;
   createPurchaseEnquiry(uid: string, input: { listingId: string; message: string; idempotencyKey: string }): Promise<unknown>;
   supportCases(uid: string): Promise<unknown>;
   createSupportCase(uid: string, input: { subject: string; category: string; description: string }): Promise<unknown>;
@@ -360,13 +363,34 @@ function listingJson(listing: any, wished: boolean) {
     inspectionDetails: getInspectionDetailsForVehicle(listing, listing.id, customerProfile),
   };
 }
-function driveJson<T extends { listing: { pricePaise: bigint } }>(drive: T) {
-  return { ...drive, listing: { ...drive.listing, pricePaise: drive.listing.pricePaise.toString() } };
+function driveJson<T extends { listing: { pricePaise: bigint }; status?: string; assignedAt?: Date | null; assignedEmployee?: { user: { displayName: string | null; phone: string | null } } | null }>(drive: T) {
+  const { assignedEmployee, ...rest } = drive as any;
+  // Only a confirmed (or finished) drive shows who is taking the customer, and only what is real.
+  const visible = ['CONFIRMED', 'COMPLETED'].includes(String(drive.status)) && assignedEmployee;
+  return {
+    ...rest,
+    listing: { ...drive.listing, pricePaise: drive.listing.pricePaise.toString() },
+    executive: visible ? { name: assignedEmployee.user.displayName || 'V MOTIV specialist', phone: assignedEmployee.user.phone || null } : null,
+  };
 }
 function offerJson(offer: Prisma.AcquisitionOfferGetPayload<{}>) {
   return {
     ...offer,
     offerAmountPaise: offer.offerAmountPaise.toString(),
+  };
+}
+const quotationInclude = {
+  listing: { select: { id: true, title: true, pricePaise: true, status: true, media: { where: { mediaType: 'IMAGE' }, orderBy: { displayOrder: 'asc' as const }, take: 1, select: { url: true } }, vehicle: { select: { make: true, model: true, variant: true, manufacturingYear: true, fuelType: true, transmission: true, odometerKm: true } } } },
+  author: { include: { user: { select: { displayName: true, email: true, phone: true } } } },
+} as const;
+function quotationForCustomer(q: any) {
+  const open = q.status === 'SENT' && new Date(q.validUntil).getTime() >= Date.now();
+  return {
+    ...quoteJson(q),
+    // A sent quotation past its date reads as expired even before anyone has touched it.
+    status: q.status === 'SENT' && !open ? 'EXPIRED' : q.status,
+    canRespond: open,
+    listing: q.listing ? { id: q.listing.id, title: q.listing.title, pricePaise: q.listing.pricePaise.toString(), thumbnail: q.listing.media?.[0]?.url ?? null, vehicle: q.listing.vehicle } : null,
   };
 }
 function quoteJson(q: any) {
@@ -654,6 +678,7 @@ export class PrismaCustomerStore implements CustomerStore {
     const rows = await this.db.testDriveRequest.findMany({
       where: { userId: user.id },
       include: {
+        assignedEmployee: { select: { user: { select: { displayName: true, phone: true } } } },
         listing: {
           select: {
             id: true,
@@ -692,6 +717,7 @@ export class PrismaCustomerStore implements CustomerStore {
     const row = await this.db.testDriveRequest.findFirst({
       where: { id, userId: user.id },
       include: {
+        assignedEmployee: { select: { user: { select: { displayName: true, phone: true } } } },
         listing: {
           select: {
             id: true,
@@ -1098,6 +1124,94 @@ export class PrismaCustomerStore implements CustomerStore {
     });
     if (!enquiry) throw new HttpError(404, 'PURCHASE_ENQUIRY_NOT_FOUND');
     return purchaseEnquiryFormat(enquiry);
+  }
+
+  /** Quotations Sales has sent this customer (answered ones too), newest first. */
+  async quotations(uid: string) {
+    const user = await this.user(uid);
+    const rows = await this.db.buyerQuotation.findMany({
+      where: { customerId: user.id, status: { in: ['SENT', 'ACCEPTED', 'DECLINED', 'EXPIRED'] } },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+      include: quotationInclude,
+    });
+    return rows.map(quotationForCustomer);
+  }
+
+  async quotation(uid: string, id: string) {
+    const user = await this.user(uid);
+    const row = await this.db.buyerQuotation.findFirst({ where: { id, customerId: user.id, status: { in: ['SENT', 'ACCEPTED', 'DECLINED', 'EXPIRED'] } }, include: quotationInclude });
+    if (!row) throw new HttpError(404, 'QUOTATION_NOT_FOUND');
+    return quotationForCustomer(row);
+  }
+
+  /**
+   * The customer's answer to a quotation Sales sent them. Accepting holds the car for them (so nobody else can buy it)
+   * and tells Sales; declining tells Sales and frees nothing because nothing was held.
+   */
+  async respondToQuotation(uid: string, quotationId: string, input: { decision: 'ACCEPT' | 'DECLINE'; notes?: string }) {
+    const user = await this.user(uid);
+    const quote = await this.db.buyerQuotation.findFirst({
+      where: { id: quotationId, customerId: user.id },
+      include: { listing: { select: { id: true, title: true, status: true } } },
+    });
+    if (!quote) throw new HttpError(404, 'QUOTATION_NOT_FOUND');
+    if (quote.status === 'ACCEPTED' && input.decision === 'ACCEPT') return { id: quote.id, status: 'ACCEPTED' as const, alreadyResponded: true };
+    if (quote.status === 'DECLINED' && input.decision === 'DECLINE') return { id: quote.id, status: 'DECLINED' as const, alreadyResponded: true };
+    if (quote.status !== 'SENT') throw new HttpError(409, 'QUOTATION_NOT_OPEN_FOR_RESPONSE', 'This quotation is no longer open for a response.');
+    if (quote.validUntil.getTime() < Date.now()) {
+      await this.db.buyerQuotation.update({ where: { id: quote.id }, data: { status: 'EXPIRED' } });
+      throw new HttpError(409, 'QUOTATION_EXPIRED', 'This quotation has expired. Please ask your advisor for a new one.');
+    }
+    const notes = input.notes?.trim() || null;
+    const now = new Date();
+    const accepted = input.decision === 'ACCEPT';
+
+    const result = await this.db.$transaction(async tx => {
+      if (accepted) {
+        const claimed = await tx.vehicleListing.updateMany({ where: { id: quote.listingId, status: 'PUBLISHED' }, data: { status: 'RESERVED' } });
+        if (claimed.count === 0) throw new HttpError(409, 'VEHICLE_NO_LONGER_AVAILABLE', 'Sorry, this car has just been reserved by someone else.');
+        await tx.vehicleReservation.create({
+          data: {
+            listingId: quote.listingId,
+            customerId: user.id,
+            quotationId: quote.id,
+            enquiryId: quote.enquiryId,
+            reservedById: quote.employeeId,
+            expiresAt: new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000),
+            notes: 'Reserved when the customer accepted the quotation in the app.',
+            status: 'CONFIRMED',
+          },
+        });
+      }
+      const updated = await tx.buyerQuotation.updateMany({
+        where: { id: quote.id, status: 'SENT' },
+        data: { status: accepted ? 'ACCEPTED' : 'DECLINED', customerResponseNotes: notes, ...(accepted ? { acceptedAt: now } : { declinedAt: now }), version: { increment: 1 } },
+      });
+      if (updated.count === 0) throw new HttpError(409, 'QUOTATION_NOT_OPEN_FOR_RESPONSE', 'This quotation is no longer open for a response.');
+      await tx.auditEvent.create({
+        data: { actorId: user.id, action: accepted ? 'RETAIL_QUOTATION_ACCEPTED' : 'RETAIL_QUOTATION_DECLINED', entityType: 'BuyerQuotation', entityId: quote.id, details: { listingId: quote.listingId, title: quote.listing.title, notes } },
+      });
+      return { id: quote.id, status: accepted ? ('ACCEPTED' as const) : ('DECLINED' as const) };
+    });
+
+    // After the commit, so a rolled-back answer never notifies anyone.
+    await this.notificationService?.dispatchDomainEvent({
+      type: accepted ? 'RETAIL_QUOTATION_ACCEPTED' : 'RETAIL_QUOTATION_DECLINED',
+      category: 'BUYING',
+      priority: accepted ? 'HIGH' : 'NORMAL',
+      recipientUserIds: [quote.employeeId],
+      recipientRoles: ['SALES_MANAGER'],
+      title: accepted ? `Quotation accepted: ${quote.listing.title}` : `Quotation declined: ${quote.listing.title}`,
+      body: accepted
+        ? `The customer accepted the quotation. The car is now reserved for them for 3 days. Arrange the booking payment.`
+        : `The customer declined the quotation${notes ? `: ${notes}` : '.'}`,
+      actionUrl: '/sales?page=pipeline',
+      referenceId: quote.id,
+      entityType: 'BuyerQuotation',
+      metadata: { targetApp: 'SALES', listingId: quote.listingId },
+    } as any).catch(() => undefined);
+    return result;
   }
 
   async cancelPurchaseEnquiry(uid: string, id: string, reason?: string) {

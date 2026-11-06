@@ -18,6 +18,7 @@ import { CitySelectionScreen } from '../screens/CitySelectionScreen';
 import { SellingRequestDetailsScreen } from '../screens/SellingRequestDetailsScreen';
 import { PurchaseEnquiryScreen } from '../screens/PurchaseEnquiryScreen';
 import { PurchaseEnquiryDetailsScreen } from '../screens/PurchaseEnquiryDetailsScreen';
+import { QuotationScreen } from '../screens/QuotationScreen';
 import { ProfileEditorScreen } from '../screens/ProfileEditorScreen';
 import { MarketingPreferencesScreen } from '../screens/MarketingPreferencesScreen';
 import { PrivacySettingsScreen } from '../screens/PrivacySettingsScreen';
@@ -137,6 +138,7 @@ export function CustomerNavigator() {
       />
       <Stack.Screen name="SellingRequestDetails" component={SellingRequestDetailsScreen} />
       <Stack.Screen name="PurchaseEnquiryDetails" component={PurchaseEnquiryDetailsScreen} />
+      <Stack.Screen name="Quotation" component={QuotationScreen} />
       <Stack.Screen
         name="PurchaseEnquiry"
         component={PurchaseEnquiryScreen}

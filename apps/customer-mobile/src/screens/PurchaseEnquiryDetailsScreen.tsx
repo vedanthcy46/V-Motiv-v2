@@ -292,8 +292,8 @@ export function PurchaseEnquiryDetailsScreen({ route, navigation }: Props) {
                 <FileText size={18} color={colors.brandAccent} />
                 <Text style={styles.quoteTitle}>Retail On-Road Quotation</Text>
               </View>
-              <View style={[styles.quoteBadge, { backgroundColor: latestQuote.status === 'SHARED' ? 'rgba(97, 217, 154, 0.15)' : 'rgba(247, 181, 3, 0.15)' }]}>
-                <Text style={[styles.quoteBadgeText, { color: latestQuote.status === 'SHARED' ? '#61D99A' : colors.brandAccent }]}>
+              <View style={[styles.quoteBadge, { backgroundColor: ['SENT', 'ACCEPTED'].includes(latestQuote.status) ? 'rgba(97, 217, 154, 0.15)' : 'rgba(247, 181, 3, 0.15)' }]}>
+                <Text style={[styles.quoteBadgeText, { color: ['SENT', 'ACCEPTED'].includes(latestQuote.status) ? '#61D99A' : colors.brandAccent }]}>
                   {latestQuote.status}
                 </Text>
               </View>
@@ -326,6 +326,11 @@ export function PurchaseEnquiryDetailsScreen({ route, navigation }: Props) {
               <Text style={styles.validityText}>
                 Quote valid until {new Date(latestQuote.validUntil).toLocaleDateString('en-IN')}
               </Text>
+            ) : null}
+            {latestQuote.status === 'SENT' && (!latestQuote.validUntil || new Date(latestQuote.validUntil).getTime() >= Date.now()) ? (
+              <TouchableOpacity style={styles.primaryActionButton} onPress={() => navigation.navigate('Quotation', { quotationId: latestQuote.id })}>
+                <Text style={styles.primaryActionText}>Review & respond</Text>
+              </TouchableOpacity>
             ) : null}
           </View>
         ) : null}

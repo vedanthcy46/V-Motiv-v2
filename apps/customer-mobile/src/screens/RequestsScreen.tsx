@@ -39,7 +39,7 @@ import { useAppTheme, radius, space } from '../theme';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
 import { useTabScreenBottomPadding } from '../layout/safe-layout';
 import { formatPaise, friendlyError } from '../format';
-import type { ActivityItem, PurchaseEnquiry, SellingRequest, SupportCase, TestDrive } from '../types';
+import type { ActivityItem, CustomerQuotation, PurchaseEnquiry, SellingRequest, SupportCase, TestDrive } from '../types';
 
 type FeedEntry =
   | { type: 'activity'; key: string; ts: number; item: ActivityItem }
@@ -66,6 +66,7 @@ export function RequestsScreen() {
   const [drives, setDrives] = useState<TestDrive[]>([]);
   const [selling, setSelling] = useState<SellingRequest[]>([]);
   const [purchases, setPurchases] = useState<PurchaseEnquiry[]>([]);
+  const [quotes, setQuotes] = useState<CustomerQuotation[]>([]);
   const [cases, setCases] = useState<SupportCase[]>([]);
   const [serviceRequests, setServiceRequests] = useState<ServiceRequestSummary[]>([]);
   const [rentals, setRentals] = useState<RentalBookingDetails[]>([]);
@@ -96,7 +97,7 @@ export function RequestsScreen() {
     if (state !== 'signed-in') return;
     try {
       if (!silent) setError('');
-      const [d, s, p, cs, activity, sr, ca, rnt] = await Promise.all([
+      const [d, s, p, cs, activity, sr, ca, rnt, qt] = await Promise.all([
         customer.testDrives(),
         customer.sellingRequests(),
         customer.purchaseEnquiries(),
@@ -105,10 +106,12 @@ export function RequestsScreen() {
         fetchCustomerServiceRequests().catch(() => []),
         fetchConnectAlerts().catch(() => ({ items: [], total: 0, page: 1, limit: 20, totalPages: 1 })),
         fetchCustomerRentals().catch(() => []),
+        customer.quotations().catch(() => [] as CustomerQuotation[]),
       ]);
       setDrives(d);
       setSelling(s);
       setPurchases(p);
+      setQuotes(qt);
       setCases(cs);
       setServiceRequests(sr);
       setConnectAlerts(ca.items || []);
@@ -536,6 +539,23 @@ export function RequestsScreen() {
           Real-time status of your buying, selling, and service requests
         </Text>
       </View>
+
+      {/* Quotations waiting for the customer's answer */}
+      {quotes.filter(q => q.canRespond).map(q => (
+        <TouchableOpacity
+          key={q.id}
+          accessibilityRole="button"
+          accessibilityLabel={`Review quotation for ${q.listing?.title ?? 'a car'}`}
+          onPress={() => navigation.navigate('Quotation', { quotationId: q.id })}
+          style={{ marginHorizontal: 16, marginBottom: 8, padding: 14, borderRadius: 14, borderWidth: 1, borderColor: c.brandAccent, backgroundColor: isDark ? 'rgba(247,181,3,0.08)' : 'rgba(247,181,3,0.12)' }}
+        >
+          <Text style={{ color: c.textPrimary, fontWeight: '800', fontSize: 14 }}>Quotation waiting for your answer</Text>
+          <Text style={{ color: c.textSecondary, fontSize: 13, marginTop: 2 }} numberOfLines={1}>
+            {q.listing?.title ?? 'Vehicle'} · {formatPaise(q.finalAmountPaise)} · valid until {new Date(q.validUntil).toLocaleDateString('en-IN')}
+          </Text>
+          <Text style={{ color: c.brandAccent, fontWeight: '800', fontSize: 13, marginTop: 6 }}>Review & respond →</Text>
+        </TouchableOpacity>
+      ))}
 
       {/* Filter Tabs */}
       <View style={{ height: 48 }}>

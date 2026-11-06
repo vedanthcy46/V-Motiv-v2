@@ -168,6 +168,7 @@ const createTestDriveInput = z.object({
 const updateTestDriveInput = z.object({
   status: z.enum(['REQUESTED', 'CONFIRMED', 'COMPLETED', 'CANCELLED', 'NO_SHOW']),
   customerNotes: z.string().trim().max(500).optional(),
+  assignedEmployeeId: uuid.optional(),
 }).strict();
 
 const quotationQuery = pagination.extend({

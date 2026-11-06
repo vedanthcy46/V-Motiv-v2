@@ -164,6 +164,8 @@ export type InventoryPage = { items: VehicleSummary[]; total: number; page: numb
 export type RequestStatus = 'REQUESTED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 export type TestDrive = {
   id: string;
+  /** Who will take the customer on the drive. Set only once the drive is confirmed. */
+  executive?: { name: string; phone: string | null } | null;
   requestedDate: string;
   timeSlot: string;
   status: RequestStatus;
@@ -256,7 +258,7 @@ export type SellingRequest = {
 };
 export type BuyerQuotationSummary = {
   id: string;
-  status: 'DRAFT' | 'SHARED' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | string;
+  status: 'SENT' | 'ACCEPTED' | 'DECLINED' | 'EXPIRED' | string;
   basePricePaise: string;
   chargesPaise: string;
   discountPaise: string;
@@ -267,6 +269,20 @@ export type BuyerQuotationSummary = {
   authorName?: string;
   authorEmail?: string | null;
   authorPhone?: string | null;
+};
+/** A quotation Sales sent the customer, with what the app needs to show it and let them answer. */
+export type CustomerQuotation = BuyerQuotationSummary & {
+  canRespond: boolean;
+  acceptedAt?: string | null;
+  declinedAt?: string | null;
+  customerResponseNotes?: string | null;
+  listing: {
+    id: string;
+    title: string;
+    pricePaise: string;
+    thumbnail: string | null;
+    vehicle?: { make: string; model: string; variant?: string | null; manufacturingYear: number; fuelType: string; transmission: string; odometerKm: number } | null;
+  } | null;
 };
 export type PurchaseEnquiry = {
   id: string;
