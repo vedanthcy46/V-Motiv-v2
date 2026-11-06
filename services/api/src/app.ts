@@ -585,6 +585,12 @@ export function createApp(deps: {
       const reason = typeof req.body?.reason === 'string' ? req.body.reason : undefined;
       res.json(await deps.customer!.cancelPurchaseEnquiry((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), reason));
     });
+    unifiedApiRouter.get('/me/quotations', auth, async (_req, res) => res.json(await deps.customer!.quotations((res.locals.identity as Identity).uid)));
+    unifiedApiRouter.get('/me/quotations/:id', auth, async (req, res) => res.json(await deps.customer!.quotation((res.locals.identity as Identity).uid, parsed(uuid, req.params.id))));
+    unifiedApiRouter.post('/me/quotations/:id/respond', auth, async (req, res) => {
+      const body = z.object({ decision: z.enum(['ACCEPT', 'DECLINE']), notes: z.string().trim().max(500).optional() }).strict().parse(req.body);
+      res.json(await deps.customer!.respondToQuotation((res.locals.identity as Identity).uid, parsed(uuid, req.params.id), body));
+    });
     unifiedApiRouter.post(['/purchase-enquiries', '/me/enquiries'], auth, async (req, res) => {
       const result = await deps.customer!.createPurchaseEnquiry((res.locals.identity as Identity).uid, parsed(purchaseInput, req.body));
       await triggerEmailDrain();

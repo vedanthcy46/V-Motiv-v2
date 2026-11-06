@@ -2286,6 +2286,21 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
         },
       });
       return updated;
+    }).then(async updated => {
+      // After the commit: the customer is told in the app, not only by email.
+      await this.notificationService?.dispatchDomainEvent({
+        type: 'RETAIL_QUOTATION_ISSUED',
+        category: 'BUYING',
+        priority: 'HIGH',
+        recipientUserIds: [q.customerId],
+        title: `Your quotation for ${q.listing.title}`,
+        body: `Final price ₹${(Number(q.finalAmountPaise) / 100).toLocaleString('en-IN')}. Review it and accept or decline in the app.`,
+        deepLink: `vmotiv://quotations/${id}`,
+        referenceId: id,
+        entityType: 'BuyerQuotation',
+        metadata: { listingId: q.listingId },
+      } as any).catch(() => undefined);
+      return updated;
     });
   }
 

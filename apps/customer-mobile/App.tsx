@@ -27,6 +27,7 @@ const linking: LinkingOptions<RootStack> = {
         parse: { token: (token: string) => token },
       },
       Vehicle: 'vehicles/:listingId',
+      Quotation: 'quotations/:quotationId',
       Support: 'support',
       PrivacySettings: 'privacy',
     },

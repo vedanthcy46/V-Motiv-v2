@@ -1,6 +1,6 @@
 import { api, jsonBody } from '../api';
 import type { InventoryFacets } from './inventory-facets';
-import type { ActivityPage, CustomerAddress, InventoryPage, Profile, PurchaseEnquiry, SavedSearch, SellingRequest, SupportedCity, SupportCase, SupportCaseDetail, SupportReply, TestDrive, VehicleSummary } from '../types';
+import type { ActivityPage, CustomerQuotation, CustomerAddress, InventoryPage, Profile, PurchaseEnquiry, SavedSearch, SellingRequest, SupportedCity, SupportCase, SupportCaseDetail, SupportReply, TestDrive, VehicleSummary } from '../types';
 
 export type InstantValuationSummary = {
   id: string;
@@ -73,6 +73,11 @@ export const customer = {
   purchaseEnquiries() { return api<PurchaseEnquiry[]>('/me/purchase-enquiries'); },
   purchaseEnquiry(id: string) { return api<PurchaseEnquiry>(`/me/purchase-enquiries/${id}`); },
   cancelPurchaseEnquiry(id: string, reason?: string) { return api<PurchaseEnquiry>(`/me/purchase-enquiries/${id}/cancel`, { method: 'POST', body: jsonBody({ reason: reason || 'Cancelled by buyer' }) }); },
+  quotations() { return api<CustomerQuotation[]>('/me/quotations'); },
+  quotation(id: string) { return api<CustomerQuotation>(`/me/quotations/${id}`); },
+  respondToQuotation(id: string, decision: 'ACCEPT' | 'DECLINE', notes?: string) {
+    return api<{ id: string; status: 'ACCEPTED' | 'DECLINED' }>(`/me/quotations/${id}/respond`, { method: 'POST', body: jsonBody({ decision, ...(notes ? { notes } : {}) }) });
+  },
   supportCases() { return api<SupportCase[]>('/me/support-cases'); },
   supportCase(id: string) { return api<SupportCaseDetail>(`/support-cases/${id}`); },
   replySupportCase(id: string, body: string) { return api<SupportReply>(`/support-cases/${id}/replies`, { method: 'POST', body: jsonBody({ body }) }); },
