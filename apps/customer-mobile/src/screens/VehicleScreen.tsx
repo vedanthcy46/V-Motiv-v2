@@ -37,7 +37,7 @@ import {
 import { customer } from '../services/customer';
 import { useAuth } from '../auth/AuthProvider';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
-import { formatPaise } from '../format';
+import { PriceBlock } from '../components/PriceBlock';
 import type { RootStack } from '../navigation/types';
 import type { VehicleSummary } from '../types';
 import { safeBottom } from '../layout/safe-layout';
@@ -211,7 +211,7 @@ export function VehicleScreen({ route, navigation }: Props) {
               {v.manufacturingYear} · {v.variant || item.customerProfile?.basicInformation?.variant || 'Standard'}
             </Text>
           </View>
-          <Text style={styles.vehiclePrice}>{formatPaise(item.pricePaise)}</Text>
+          <PriceBlock size="detail" pricePaise={item.pricePaise} originalPricePaise={item.originalPricePaise} discountPercent={item.discountPercent} />
         </View>
 
         {/* Verified Tags */}

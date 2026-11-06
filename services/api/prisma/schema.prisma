@@ -586,6 +586,8 @@ model VehicleListing {
   vehicle Vehicle @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
   title String
   pricePaise BigInt
+  /// The price customers first saw (reset whenever the price goes up). When pricePaise is lower, the app shows the drop.
+  originalPricePaise BigInt?
   currency String @default("INR")
   status VehicleListingStatus @default(DRAFT)
   publishedAt DateTime?
