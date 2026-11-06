@@ -160,7 +160,13 @@ export type VehicleSummary = {
   media: Array<{ id: string; url: string; mediaType: 'IMAGE'; displayOrder: number }>;
 };
 
-export type InventoryPage = { items: VehicleSummary[]; total: number; page: number; limit: number; totalPages: number };
+export type InventoryPage = {
+  items: VehicleSummary[]; total: number; page: number; limit: number; totalPages: number;
+  /** True when the server could not be reached and these cars come from the copy saved on the device. */
+  fromCache?: boolean;
+  /** When the saved copy was last updated from the server (epoch ms); set with fromCache. */
+  syncedAt?: number;
+};
 export type RequestStatus = 'REQUESTED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 export type TestDrive = {
   id: string;

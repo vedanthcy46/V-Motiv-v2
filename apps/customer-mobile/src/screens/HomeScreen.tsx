@@ -34,6 +34,7 @@ import { PriceBlock } from '../components/PriceBlock';
 import { NotificationsModal } from '../components/NotificationsModal';
 import { CustomerButton } from '../components/customer-ui';
 import { customer } from '../services/customer';
+import { describeAge } from '../services/inventory-offline';
 import { readSellDraft, sellDraftKey } from '../services/sell-draft';
 import {
   fetchUserNotifications,
@@ -64,6 +65,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
   const [cars, setCars] = useState<VehicleSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [offlineSince, setOfflineSince] = useState<number | null>(null);
   const [draft, setDraft] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
@@ -82,7 +84,9 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
       customer
         .inventory({ limit: 4, sort: 'newest' })
         .then((result) => {
-          if (active) setCars(result.items);
+          if (!active) return;
+          setCars(result.items);
+          setOfflineSince(result.fromCache ? result.syncedAt ?? 0 : null);
         })
         .catch(() => {
           if (active) setError('Could not load cars. Pull down to refresh.');
@@ -116,7 +120,9 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
     setLoading(true);
     setError('');
     try {
-      setCars((await customer.inventory({ limit: 4, sort: 'newest' })).items);
+      const result = await customer.inventory({ limit: 4, sort: 'newest' });
+      setCars(result.items);
+      setOfflineSince(result.fromCache ? result.syncedAt ?? 0 : null);
     } catch {
       setError('Could not load cars. Please try again.');
     } finally {
@@ -475,6 +481,12 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
         </View>
 
         {loading && <ActivityIndicator accessibilityLabel="Loading cars" color={c.brandAccent} style={{ marginVertical: 12 }} />}
+
+        {offlineSince !== null ? (
+          <Text accessibilityRole="alert" style={[styles.emptyText, { color: c.textMuted }]}>
+            You're offline - showing saved cars (updated {describeAge(offlineSince)}).
+          </Text>
+        ) : null}
 
         {error ? (
           <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>

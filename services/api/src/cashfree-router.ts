@@ -101,6 +101,19 @@ export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClie
   });
 
   // Hosted page: loads Cashfree's checkout script and starts payment. The session id is single-purpose and unguessable.
+  // Whether THIS server can see the Cashfree credentials (never the credentials themselves) - for diagnosing "not configured".
+  router.get('/payments/cashfree/status', (_req, res) => {
+    const config = cashfreeConfig();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      configured: Boolean(config),
+      mode: config?.mode ?? null,
+      appIdPresent: Boolean(process.env.CASHFREE_APP_ID?.trim()),
+      secretPresent: Boolean(process.env.CASHFREE_SECRET_KEY?.trim()),
+      nodeEnv: process.env.NODE_ENV ?? null,
+    });
+  });
+
   router.get('/payments/cashfree/checkout', (req, res) => {
     const session = typeof req.query.session === 'string' ? req.query.session : '';
     const config = cashfreeConfig();

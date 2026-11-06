@@ -1,4 +1,5 @@
 import { api, jsonBody } from '../api';
+import { isUnreachable, rememberCars, savedInventory, savedVehicle, syncInventory, type InventoryQuery } from './inventory-offline';
 import type { InventoryFacets } from './inventory-facets';
 import type { ActivityPage, CustomerQuotation, CustomerAddress, InventoryPage, Profile, PurchaseEnquiry, SavedSearch, SellingRequest, SupportedCity, SupportCase, SupportCaseDetail, SupportReply, TestDrive, VehicleSummary } from '../types';
 
@@ -17,8 +18,18 @@ export type InstantValuationSummary = {
   disclaimer: string;
 };
 
+/** One page straight from the server, with no offline handling (used by the background sync too). */
+function inventoryFromServer(values: InventoryQuery): Promise<InventoryPage> {
+  const query = Object.entries(values).filter(([, value]) => value !== undefined && value !== '').map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join('&');
+  return api<InventoryPage>(`/inventory${query ? `?${query}` : ''}`);
+}
+
 export const customer = {
-  inventory(filters: {
+  /**
+   * Cars for sale. Every answer from the server is also saved on the device; when the server cannot be reached the same
+   * question is answered from that saved copy (flagged fromCache), so browsing and filtering keep working offline.
+   */
+  async inventory(filters: {
     search?: string;
     city?: string;
     fuelType?: string;
@@ -38,9 +49,20 @@ export const customer = {
     page?: number;
     limit?: number;
   } | string = '') {
-    const values = typeof filters === 'string' ? { search: filters } : filters;
-    const query = Object.entries(values).filter(([, value]) => value !== undefined && value !== '').map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(String(value))}`).join('&');
-    return api<InventoryPage>(`/inventory${query ? `?${query}` : ''}`);
+    const values: InventoryQuery = typeof filters === 'string' ? { search: filters } : filters;
+    try {
+      const result = await inventoryFromServer(values);
+      void rememberCars(result.items);
+      // Keeps the whole showroom saved (and sold cars removed); does nothing if it was done recently.
+      void syncInventory(inventoryFromServer);
+      return result;
+    } catch (error) {
+      if (isUnreachable(error)) {
+        const saved = await savedInventory(values);
+        if (saved) return { ...saved, fromCache: true };
+      }
+      throw error;
+    }
   },
   /** Real option lists, counts and ranges for the filters, computed over the whole inventory with the given filters applied. */
   inventoryFacets(filters: Record<string, string | number | undefined> = {}) {
@@ -54,7 +76,20 @@ export const customer = {
   masterData(category?: string) {
     return api<Array<{ id: string; category: string; code: string; name: string; parentCode: string | null }>>(`/master-data${category ? `?category=${encodeURIComponent(category)}` : ''}`);
   },
-  vehicle(id: string) { return api<VehicleSummary>(`/inventory/${id}`); },
+  /** One car; saved when it loads, and answered from the saved copy when the server cannot be reached. */
+  async vehicle(id: string) {
+    try {
+      const car = await api<VehicleSummary>(`/inventory/${id}`);
+      void rememberCars([car]);
+      return car;
+    } catch (error) {
+      if (isUnreachable(error)) {
+        const saved = await savedVehicle(id);
+        if (saved) return saved;
+      }
+      throw error;
+    }
+  },
   cities() { return api<SupportedCity[]>('/cities'); },
   addresses() { return api<CustomerAddress[]>('/me/addresses'); },
   createAddress(input: { label: string; addressLine: string; city: string; pincode: string }) { return api<CustomerAddress>('/me/addresses', { method: 'POST', body: jsonBody(input) }); },
