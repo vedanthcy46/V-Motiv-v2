@@ -2969,3 +2969,24 @@ model RentalPaymentPolicy {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
+
+/// A payment order created at a gateway (Cashfree) for something a customer owes: a rental booking or a service request.
+/// Binds the gateway order to its owner and amount, and lets the webhook settle a payment even if the app was closed.
+model GatewayOrder {
+  id String @id @default(uuid()) @db.Uuid
+  provider String
+  orderId String @unique
+  kind String
+  referenceId String @db.Uuid
+  customerId String @db.Uuid
+  amountPaise BigInt
+  currency String @default("INR")
+  status String @default("CREATED")
+  gatewayPaymentId String?
+  settledAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([kind, referenceId])
+  @@index([customerId, createdAt])
+}

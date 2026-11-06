@@ -52,6 +52,7 @@ import { AuthScreen } from './AuthScreen';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
 import { KeyboardScrollView } from '../components/KeyboardScrollView';
+import { payWithCashfree } from '../services/cashfree';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalCheckout'>;
 
@@ -386,14 +387,26 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
         console.warn('KYC submission note:', kycErr);
       }
 
-      // Step 3: Verify Payment & Confirm Booking
-      const gatewayPaymentId = `pay_demo_${Date.now()}`;
-      await verifyRentalPayment(bookingId, {
-        paymentGateway: paymentMethod === 'DEMO' ? 'DEMO' : paymentMethod,
-        gatewayOrderId: gatewayOrderId || `order_${bookingNumber}`,
-        gatewayPaymentId,
-        gatewaySignature: 'demo_sig_verified_vmotiv',
-      });
+      // Step 3: Pay (Cashfree), or the demo payment when Cashfree is not set up on this server.
+      const paid = await payWithCashfree('RENTAL', bookingId);
+      if (paid.outcome === 'UNAVAILABLE') {
+        const gatewayPaymentId = `pay_demo_${Date.now()}`;
+        await verifyRentalPayment(bookingId, {
+          paymentGateway: 'DEMO',
+          gatewayOrderId: gatewayOrderId || `order_${bookingNumber}`,
+          gatewayPaymentId,
+          gatewaySignature: 'demo_sig_verified_vmotiv',
+        });
+      } else if (paid.outcome !== 'PAID') {
+        Alert.alert(
+          paid.outcome === 'PENDING' ? 'Payment is being confirmed' : 'Payment did not go through',
+          paid.outcome === 'PENDING'
+            ? 'We have not received confirmation yet. If money was deducted, your booking will be confirmed automatically within a few minutes.'
+            : 'No money was taken. Your reservation is held for a short time, so you can try again.',
+          [{ text: 'View Booking', onPress: () => navigation.replace('RentalBookingDetails', { bookingId }) }],
+        );
+        return;
+      }
 
       // Step 4: Success confirmation & Navigate to live booking details
       const isPartial = selectedPlan?.type === 'PARTIAL';

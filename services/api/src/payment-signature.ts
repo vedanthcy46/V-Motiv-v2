@@ -51,6 +51,8 @@ export function assertGatewayPaymentSignature(
   proof: GatewayPaymentProof,
   env: NodeJS.ProcessEnv = process.env,
 ): void {
+  // Cashfree has no client-side signature: the payment is confirmed with Cashfree server-to-server (see assertCapturedAmount).
+  if ((proof.paymentGateway ?? '').toUpperCase() === 'CASHFREE') return;
   if (env.NODE_ENV !== 'production') return;
   // Sandbox deployment: demo-shaped proofs are accepted; real-shaped proofs are still verified below.
   if (isSandboxPaymentsEnabled(env) && isDemoProof(proof)) return;

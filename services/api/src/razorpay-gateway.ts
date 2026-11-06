@@ -1,5 +1,6 @@
 import { HttpError } from './errors.js';
 import { isDemoProof, isSandboxPaymentsEnabled } from './payment-signature.js';
+import { assertCashfreePaid, isCashfreeProof } from './cashfree-gateway.js';
 
 export interface CapturedGatewayPayment {
   paymentId: string;
@@ -70,6 +71,8 @@ export async function assertCapturedAmount(
   opts: GatewayAmountOptions & { exact?: boolean } = {},
 ): Promise<bigint | null> {
   const env = opts.env ?? process.env;
+  // Cashfree is always confirmed with Cashfree (its sandbox is a real test environment), whatever NODE_ENV is.
+  if (isCashfreeProof(proof)) return assertCashfreePaid(proof, expectedPaise, opts);
   if (env.NODE_ENV !== 'production') return null;
   // Sandbox deployment: demo payments have no real gateway record to look up.
   if (isSandboxPaymentsEnabled(env) && isDemoProof(proof)) return null;
