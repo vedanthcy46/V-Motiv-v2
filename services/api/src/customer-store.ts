@@ -363,8 +363,15 @@ function listingJson(listing: any, wished: boolean) {
     inspectionDetails: getInspectionDetailsForVehicle(listing, listing.id, customerProfile),
   };
 }
-function driveJson<T extends { listing: { pricePaise: bigint } }>(drive: T) {
-  return { ...drive, listing: { ...drive.listing, pricePaise: drive.listing.pricePaise.toString() } };
+function driveJson<T extends { listing: { pricePaise: bigint }; status?: string; assignedAt?: Date | null; assignedEmployee?: { user: { displayName: string | null; phone: string | null } } | null }>(drive: T) {
+  const { assignedEmployee, ...rest } = drive as any;
+  // Only a confirmed (or finished) drive shows who is taking the customer, and only what is real.
+  const visible = ['CONFIRMED', 'COMPLETED'].includes(String(drive.status)) && assignedEmployee;
+  return {
+    ...rest,
+    listing: { ...drive.listing, pricePaise: drive.listing.pricePaise.toString() },
+    executive: visible ? { name: assignedEmployee.user.displayName || 'V MOTIV specialist', phone: assignedEmployee.user.phone || null } : null,
+  };
 }
 function offerJson(offer: Prisma.AcquisitionOfferGetPayload<{}>) {
   return {
@@ -671,6 +678,7 @@ export class PrismaCustomerStore implements CustomerStore {
     const rows = await this.db.testDriveRequest.findMany({
       where: { userId: user.id },
       include: {
+        assignedEmployee: { select: { user: { select: { displayName: true, phone: true } } } },
         listing: {
           select: {
             id: true,
@@ -709,6 +717,7 @@ export class PrismaCustomerStore implements CustomerStore {
     const row = await this.db.testDriveRequest.findFirst({
       where: { id, userId: user.id },
       include: {
+        assignedEmployee: { select: { user: { select: { displayName: true, phone: true } } } },
         listing: {
           select: {
             id: true,

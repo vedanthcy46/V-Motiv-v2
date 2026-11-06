@@ -164,7 +164,7 @@ export interface SalesStore {
     serviceCity?: string;
     customerNotes?: string;
   }): Promise<unknown>;
-  updateTestDriveStatus(actor: SalesActor, id: string, input: { status: TestDriveStatus; customerNotes?: string }): Promise<unknown>;
+  updateTestDriveStatus(actor: SalesActor, id: string, input: { status: TestDriveStatus; customerNotes?: string; assignedEmployeeId?: string }): Promise<unknown>;
 
   // Retail Quotations
   quotations(actor: SalesActor, query: { page: number; limit: number; listingId?: string; customerId?: string; status?: QuotationStatus }): Promise<unknown>;
@@ -2013,42 +2013,84 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
     });
   }
 
-  async updateTestDriveStatus(actor: SalesActor, id: string, input: { status: TestDriveStatus; customerNotes?: string }) {
+  async updateTestDriveStatus(actor: SalesActor, id: string, input: { status: TestDriveStatus; customerNotes?: string; assignedEmployeeId?: string }) {
     const td = await this.db.testDriveRequest.findFirst({
       where: {
         id,
         ...(actor.globalScope ? {} : { serviceCity: { in: actor.branches.map(branch => branch.city), mode: 'insensitive' } }),
       },
+      include: { listing: { select: { title: true } } },
     });
     if (!td) throw new HttpError(404, 'TEST_DRIVE_NOT_FOUND');
     const allowedTransitions: Partial<Record<TestDriveStatus, TestDriveStatus[]>> = {
       REQUESTED: ['CONFIRMED', 'CANCELLED'],
       CONFIRMED: ['COMPLETED', 'CANCELLED', 'NO_SHOW'],
     };
-    if (td.status === input.status) return td;
-    if (!allowedTransitions[td.status]?.includes(input.status)) {
+    const sameStatus = td.status === input.status;
+    // Changing who takes a drive that is already confirmed is allowed; nothing else may repeat a status.
+    const reassign = sameStatus && input.status === 'CONFIRMED' && input.assignedEmployeeId && input.assignedEmployeeId !== td.assignedEmployeeId;
+    if (sameStatus && !reassign) return td;
+    if (!sameStatus && !allowedTransitions[td.status]?.includes(input.status)) {
       throw new HttpError(409, 'TEST_DRIVE_STATUS_TRANSITION_NOT_ALLOWED');
     }
 
-    return this.db.$transaction(async tx => {
-      const updated = await tx.testDriveRequest.update({
+    // Confirming a drive puts a named person on it (the person confirming, unless Sales picks someone else).
+    let executiveId: string | undefined;
+    if (input.status === 'CONFIRMED') {
+      executiveId = input.assignedEmployeeId ?? td.assignedEmployeeId ?? actor.userId;
+      const executive = await this.db.employee.findFirst({ where: { userId: executiveId, active: true }, select: { userId: true } });
+      if (!executive) throw new HttpError(400, 'TEST_DRIVE_EXECUTIVE_NOT_AVAILABLE', 'That employee cannot be assigned to a test drive.');
+    }
+
+    const updated = await this.db.$transaction(async tx => {
+      const saved = await tx.testDriveRequest.update({
         where: { id },
         data: {
           status: input.status,
           ...(input.customerNotes ? { customerNotes: input.customerNotes } : {}),
+          ...(executiveId && executiveId !== td.assignedEmployeeId ? { assignedEmployeeId: executiveId, assignedAt: new Date() } : {}),
         },
       });
       await tx.auditEvent.create({
         data: {
           actorId: actor.userId,
-          action: 'TEST_DRIVE_STATUS_UPDATED',
+          action: reassign ? 'TEST_DRIVE_EXECUTIVE_REASSIGNED' : 'TEST_DRIVE_STATUS_UPDATED',
           entityType: 'TestDriveRequest',
           entityId: id,
-          details: { from: td.status, to: input.status, notes: input.customerNotes },
+          details: { from: td.status, to: input.status, notes: input.customerNotes, assignedEmployeeId: executiveId },
         },
       });
-      return updated;
+      return saved;
     });
+
+    // After the commit: the customer hears who will take them, and the assigned colleague is told.
+    if (input.status === 'CONFIRMED') {
+      const executive = await this.db.user.findUnique({ where: { id: executiveId! }, select: { displayName: true } }).catch(() => null);
+      await this.notificationService?.dispatchDomainEvent({
+        type: 'TEST_DRIVE_CONFIRMED',
+        category: 'BUYING',
+        priority: 'HIGH',
+        recipientUserIds: [td.userId],
+        title: 'Test drive confirmed',
+        body: `${td.listing.title}: ${executive?.displayName || 'A V MOTIV specialist'} will take you on the drive.`,
+        deepLink: `vmotiv://test-drives/${id}`,
+        referenceId: id,
+        entityType: 'TestDriveRequest',
+      } as any).catch(() => undefined);
+      if (executiveId && executiveId !== actor.userId) {
+        await this.notificationService?.dispatchDomainEvent({
+          type: 'TEST_DRIVE_CONFIRMED',
+          category: 'BUYING',
+          recipientUserIds: [executiveId],
+          title: 'You have a test drive',
+          body: `${td.listing.title} on ${td.requestedDate.toISOString().slice(0, 10)}, ${td.timeSlot}.`,
+          actionUrl: '/sales?page=testdrives',
+          referenceId: id,
+          entityType: 'TestDriveRequest',
+        } as any).catch(() => undefined);
+      }
+    }
+    return updated;
   }
 
   async quotations(actor: SalesActor, query: { page: number; limit: number; listingId?: string; customerId?: string; status?: QuotationStatus }) {

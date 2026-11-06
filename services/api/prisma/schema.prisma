@@ -634,11 +634,16 @@ model TestDriveRequest {
   locationPreference String @default("HUB")
   address String?
   status TestDriveStatus @default(REQUESTED)
+  /// The employee who will take the customer on the drive; set when the drive is confirmed.
+  assignedEmployeeId String? @db.Uuid
+  assignedEmployee Employee? @relation("TestDriveExecutive", fields: [assignedEmployeeId], references: [userId], onDelete: SetNull)
+  assignedAt DateTime?
   cancelledAt DateTime?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   @@unique([userId, listingId, requestedDate, timeSlot])
   @@index([userId, createdAt])
+  @@index([assignedEmployeeId, status])
 }
 model AcquisitionLead {
   id String @id @default(uuid()) @db.Uuid
@@ -1298,6 +1303,7 @@ model Employee {
   requestedDiscounts DiscountRequest[] @relation("DiscountRequester")
   decidedDiscounts DiscountRequest[] @relation("DiscountDecider")
   vehicleReservations VehicleReservation[] @relation("ReservationCreator")
+  assignedTestDrives TestDriveRequest[] @relation("TestDriveExecutive")
   financePayoutsPrepared FinancePayoutInstruction[] @relation("FinancePayoutPreparer")
   financePayoutsApproved FinancePayoutInstruction[] @relation("FinancePayoutApprover")
   financePayoutsExecuted FinancePayoutInstruction[] @relation("FinancePayoutExecutor")

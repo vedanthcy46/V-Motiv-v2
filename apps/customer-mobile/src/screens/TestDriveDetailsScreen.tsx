@@ -209,7 +209,7 @@ export function TestDriveDetailsScreen({ route, navigation }: Props) {
               </Text>
               <Text style={styles.confirmedSub}>
                 {drive.status === 'CONFIRMED'
-                  ? 'Your test drive slot is locked. An executive is assigned with the prepped car.'
+                  ? 'Your test drive slot is locked. Your specialist is assigned with the prepped car.'
                   : 'We are verifying car availability and scheduling an executive for your selected slot.'}
               </Text>
             </View>
@@ -381,34 +381,35 @@ export function TestDriveDetailsScreen({ route, navigation }: Props) {
           ) : null}
         </View>
 
-        {/* Assigned Pilot / Executive Card */}
+        {/* Who will take the customer on the drive: real data only, nothing invented. */}
         {!isCancelled && (
           <View style={styles.card}>
-            <Text style={styles.sectionTitle}>Assigned Test Drive Pilot</Text>
-            <View style={styles.pilotRow}>
-              <View style={styles.pilotAvatar}>
-                <User size={24} color={colors.brandNavy} />
+            <Text style={styles.sectionTitle}>Your test drive specialist</Text>
+            {drive.executive ? (
+              <View style={styles.pilotRow}>
+                <View style={styles.pilotAvatar}>
+                  <User size={24} color={colors.brandNavy} />
+                </View>
+                <View style={{ flex: 1, marginLeft: space.sm }}>
+                  <Text style={styles.pilotName}>{drive.executive.name}</Text>
+                  <Text style={styles.pilotRole}>V MOTIV test drive specialist</Text>
+                </View>
+                {drive.executive.phone ? (
+                  <TouchableOpacity
+                    style={styles.callPilotBtn}
+                    accessibilityLabel={`Call ${drive.executive.name}`}
+                    onPress={() => handleCallExecutive(drive.executive!.phone)}
+                  >
+                    <Phone size={16} color={colors.brandNavy} />
+                    <Text style={styles.callPilotBtnText}>Call</Text>
+                  </TouchableOpacity>
+                ) : null}
               </View>
-              <View style={{ flex: 1, marginLeft: space.sm }}>
-                <Text style={styles.pilotName}>
-                  {drive.status === 'CONFIRMED' || drive.status === 'COMPLETED'
-                    ? 'Rajesh Sharma'
-                    : 'Designated Hub Pilot'}
-                </Text>
-                <Text style={styles.pilotRole}>
-                  {drive.status === 'CONFIRMED'
-                    ? 'Certified Test Drive Specialist'
-                    : 'Will be assigned 2 hours prior'}
-                </Text>
-              </View>
-              <TouchableOpacity
-                style={styles.callPilotBtn}
-                onPress={() => handleCallExecutive('+919876543210')}
-              >
-                <Phone size={16} color={colors.brandNavy} />
-                <Text style={styles.callPilotBtnText}>Call</Text>
-              </TouchableOpacity>
-            </View>
+            ) : (
+              <Text style={styles.pilotRole}>
+                A specialist is assigned when our team confirms your slot. You will get a notification with their name.
+              </Text>
+            )}
           </View>
         )}
 

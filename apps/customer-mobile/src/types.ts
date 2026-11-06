@@ -164,6 +164,8 @@ export type InventoryPage = { items: VehicleSummary[]; total: number; page: numb
 export type RequestStatus = 'REQUESTED' | 'CONFIRMED' | 'COMPLETED' | 'CANCELLED' | 'NO_SHOW';
 export type TestDrive = {
   id: string;
+  /** Who will take the customer on the drive. Set only once the drive is confirmed. */
+  executive?: { name: string; phone: string | null } | null;
   requestedDate: string;
   timeSlot: string;
   status: RequestStatus;
