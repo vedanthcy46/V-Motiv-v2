@@ -74,6 +74,8 @@ describe.skipIf(!url)('Listing readiness and live editing with real PostgreSQL',
     const edited = await db.vehicleListing.findFirstOrThrow({ where: { vehicleId: live.vehicleId! }, include: { media: { orderBy: { displayOrder: 'asc' } }, vehicle: true } });
     expect(edited.status).toBe('PUBLISHED');
     expect(edited.pricePaise).toBe(118_500_000n);
+    // Published at ₹12.00 L, cut to ₹11.85 L: the original is kept so customers can see the drop.
+    expect(edited.originalPricePaise).toBe(120_000_000n);
     expect(edited.media.map(m => m.url)).toEqual([added, photos[1], photos[2]]);
     expect(edited.vehicle.features).toEqual(['Sunroof', 'Rear camera']);
     const profile = edited.customerProfile as { specifications: { color: string }; topFeatures: string[]; customerConditionSummary: string };

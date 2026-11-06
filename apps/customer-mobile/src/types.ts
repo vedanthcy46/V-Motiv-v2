@@ -117,6 +117,10 @@ export type VehicleSummary = {
   id: string;
   title: string;
   pricePaise: string;
+  /** What the price was when first listed; set only when the price has since dropped. */
+  originalPricePaise?: string | null;
+  discountPercent?: number | null;
+  savingsPaise?: string | null;
   currency: 'INR';
   publishedAt: string;
   isWishlisted: boolean;

@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { payWithCashfree } from '../services/cashfree';
 import {
   ActivityIndicator,
   Alert,
@@ -190,22 +191,36 @@ export function ServiceRequestDetailsScreen() {
 
     setPayingBalance(true);
     try {
-      const gatewayPaymentId = `pay_demo_srv_${Date.now()}`;
-      const gatewayOrderId = `order_demo_srv_${Date.now()}`;
-      const gatewaySignature = 'demo_sig_verified_vmotiv';
-
-      await verifyServicePayment(request.id, {
-        gatewayOrderId,
-        gatewayPaymentId,
-        gatewaySignature,
-        amountPaise: (BigInt(amountToPay) * 100n).toString(),
-        paymentGateway: 'DEMO',
-        installmentType: amountToPay >= outstandingRupees ? 'FINAL_BALANCE' : 'INTERMEDIATE_ADVANCE',
-      });
+      let gatewayPaymentId = '';
+      const paid = await payWithCashfree('SERVICE', request.id, (BigInt(amountToPay) * 100n).toString());
+      if (paid.outcome === 'UNAVAILABLE') {
+        // Cashfree is not set up on this server (local development): use the demo payment.
+        gatewayPaymentId = `pay_demo_srv_${Date.now()}`;
+        await verifyServicePayment(request.id, {
+          gatewayOrderId: `order_demo_srv_${Date.now()}`,
+          gatewayPaymentId,
+          gatewaySignature: 'demo_sig_verified_vmotiv',
+          amountPaise: (BigInt(amountToPay) * 100n).toString(),
+          paymentGateway: 'DEMO',
+          installmentType: amountToPay >= outstandingRupees ? 'FINAL_BALANCE' : 'INTERMEDIATE_ADVANCE',
+        });
+      } else if (paid.outcome !== 'PAID') {
+        Alert.alert(
+          paid.outcome === 'PENDING' ? 'Payment is being confirmed' : 'Payment did not go through',
+          paid.outcome === 'PENDING'
+            ? 'We have not received confirmation yet. If money was deducted, it will show here automatically within a few minutes.'
+            : 'No money was taken. You can try again.',
+        );
+        setPayBalanceModalVisible(false);
+        void loadDetails();
+        return;
+      } else {
+        gatewayPaymentId = paid.orderId;
+      }
 
       Alert.alert(
         'Payment Successful! 🎉',
-        `Payment of ₹${amountToPay.toLocaleString('en-IN')} has been verified. Transaction ID: ${gatewayPaymentId}.`,
+        `Payment of ₹${amountToPay.toLocaleString('en-IN')} has been verified. Reference: ${gatewayPaymentId}.`,
         [
           {
             text: 'OK',

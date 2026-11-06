@@ -8,6 +8,7 @@ import { Prisma, PrismaClient } from '@prisma/client';
 import { HttpError } from './errors.js';
 import { profileSelect } from './identity-store.js';
 import { isInvalidRegNumberOrUuid } from './inspection-store.js';
+import { priceDrop } from './price-drop.js';
 
 type ProfileInput = { displayName?: string; phone?: string; marketingConsent?: boolean; preferredCity?: string; termsVersion?: string };
 type SellInput = {
@@ -129,7 +130,7 @@ const listingInclude = {
   },
 };
 const listingScalarSelect = {
-  id: true, vehicleId: true, title: true, pricePaise: true, currency: true, status: true,
+  id: true, vehicleId: true, title: true, pricePaise: true, originalPricePaise: true, currency: true, status: true,
   publishedAt: true, createdAt: true, updatedAt: true, customerProfile: true,
   ...listingInclude,
 } as const;
@@ -338,11 +339,15 @@ function listingJson(listing: any, wished: boolean) {
     ownershipCount: ownershipCount || listing.vehicle.ownershipCount,
   } : listing.vehicle;
 
+  const drop = priceDrop(listing.pricePaise, listing.originalPricePaise);
   return {
     ...listing,
     vehicle,
     customerProfile,
     pricePaise: listing.pricePaise.toString(),
+    originalPricePaise: drop ? drop.originalPricePaise : null,
+    discountPercent: drop ? drop.discountPercent : null,
+    savingsPaise: drop ? drop.savingsPaise : null,
     isWishlisted: wished,
     isHeld,
     branch,

@@ -2,6 +2,7 @@ import { type InspectionAnswerStatus, type InspectionDefectSeverity, Prisma, Pri
 import { HttpError } from './errors.js';
 import { notifyReadyForPayment } from './acquisition-events.js';
 import { listingGaps, listingGapMessage } from './listing-readiness.js';
+import { nextOriginalPrice } from './price-drop.js';
 import { inferBodyType, refreshMasterBodyTypes, resolveBodyType } from './body-types.js';
 import { INSPECTOR_INELIGIBILITY_MESSAGES, inspectorIneligibility } from './inspector-eligibility.js';
 import { knownTemplateItem, templateFor, currentTemplate, isItemApplicable, type InspectionTemplateItem } from './inspection-template.js';
@@ -2075,13 +2076,14 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
           vehicleId: vehicle.id,
           title: next.title || `${stock.manufacturingYear} ${stock.make} ${stock.model}`,
           pricePaise: input.retailPricePaise ?? 0n,
+          originalPricePaise: input.retailPricePaise ?? null,
           status: 'DRAFT',
           customerProfile: patchedProfile as Prisma.InputJsonValue,
           media: urls?.length ? { create: urls.map((url, idx) => ({ url, mediaType: 'IMAGE', displayOrder: idx })) } : undefined,
         },
         update: {
           ...(input.title !== undefined ? { title: next.title } : {}),
-          ...(input.retailPricePaise !== undefined ? { pricePaise: input.retailPricePaise } : {}),
+          ...(input.retailPricePaise !== undefined ? { pricePaise: input.retailPricePaise, originalPricePaise: nextOriginalPrice(listing, input.retailPricePaise) } : {}),
           customerProfile: patchedProfile as Prisma.InputJsonValue,
           ...(urls ? { media: { deleteMany: {}, create: urls.map((url, idx) => ({ url, mediaType: 'IMAGE', displayOrder: idx })) } } : {}),
         },
@@ -2168,12 +2170,15 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
           vehicleId: stock.vehicleId!,
           title: listingTitle,
           pricePaise: input.retailPricePaise,
+          originalPricePaise: input.retailPricePaise,
           status: 'PUBLISHED',
           publishedAt: new Date(),
         },
         update: {
           title: listingTitle,
           pricePaise: input.retailPricePaise,
+          // A fresh publish starts a fresh "was" price.
+          originalPricePaise: input.retailPricePaise,
           status: 'PUBLISHED',
           publishedAt: new Date(),
         },

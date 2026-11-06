@@ -43,6 +43,7 @@ import type { NotificationService } from './notification/index.js';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaServiceStore } from './service-store.js';
 import { createServiceCustomerRouter, createServiceOperationsRouter } from './service-router.js';
+import { createCashfreeRouter } from './cashfree-router.js';
 import type { PrismaRentalStore } from './rental-store.js';
 import { createRentalCustomerRouter, createRentalOperationsRouter, createRentalWebhookRouter } from './rental-router.js';
 import type { PrismaConnectStore } from './connect-store.js';
@@ -448,6 +449,20 @@ export function createApp(deps: {
     app.use('/api/v1/webhooks/rentals', rentalLimiter, rentalWebhookRouter);
     app.use('/api/webhooks/rentals', rentalLimiter, rentalWebhookRouter);
     app.use('/webhooks/rentals', rentalLimiter, rentalWebhookRouter);
+  }
+
+  // Cashfree checkout for rental and service payments (see cashfree-router.ts).
+  if (deps.db && (deps.rental || deps.service)) {
+    const rental = deps.rental;
+    const service = deps.service;
+    unifiedApiRouter.use(createCashfreeRouter({
+      verify: deps.verify,
+      db: deps.db,
+      settle: {
+        rental: rental ? (customerId, bookingId, proof) => rental.verifyPayment(customerId, bookingId, proof) : undefined,
+        service: service ? (customerId, requestId, proof) => service.verifyCustomerGatewayPayment(customerId, requestId, proof) : undefined,
+      },
+    }));
   }
 
   if (deps.connect) {

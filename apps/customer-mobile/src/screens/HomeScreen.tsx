@@ -30,6 +30,7 @@ import {
 } from 'lucide-react-native';
 import { useSidebar } from '../components/AppSidebar';
 import { BrandLogo } from '../components/BrandLogo';
+import { PriceBlock } from '../components/PriceBlock';
 import { NotificationsModal } from '../components/NotificationsModal';
 import { CustomerButton } from '../components/customer-ui';
 import { customer } from '../services/customer';
@@ -524,7 +525,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
                 {car.vehicle.odometerKm.toLocaleString('en-IN')} km · {car.vehicle.fuelType} ·{' '}
                 {car.vehicle.transmission}
               </Text>
-              <Text style={[styles.vehiclePrice, { color: c.textPrimary }]}>{formatPrice(car.pricePaise)}</Text>
+              <PriceBlock align="left" pricePaise={car.pricePaise} originalPricePaise={car.originalPricePaise} discountPercent={car.discountPercent} />
             </View>
           </Pressable>
         ))}

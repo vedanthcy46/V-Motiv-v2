@@ -1,7 +1,7 @@
 import React from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Bookmark, Calendar, CheckCircle2, Fuel, Gauge, MapPin } from 'lucide-react-native';
-import { formatPrice } from '../format';
+import { PriceBlock } from './PriceBlock';
 import { useAppTheme, radius, space } from '../theme';
 import type { VehicleSummary } from '../types';
 
@@ -96,7 +96,7 @@ export function VehicleCard({
               {vehicle.manufacturingYear} · {vehicle.variant || 'Standard'}
             </Text>
           </View>
-          <Text style={[styles.price, { color: isDark ? c.brandAccent : c.brandNavy }]}>{formatPrice(listing.pricePaise)}</Text>
+          <PriceBlock pricePaise={listing.pricePaise} originalPricePaise={listing.originalPricePaise} discountPercent={listing.discountPercent} />
         </View>
 
         {/* Key Specs Chips with Icons */}
