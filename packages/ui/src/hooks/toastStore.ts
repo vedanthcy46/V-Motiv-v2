@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react';
 
 export type ToastTone = 'success' | 'error' | 'info' | 'warning';
-export interface ToastItem { id: number; tone: ToastTone; title: string; description?: string; duration: number }
+export interface ToastAction { label: string; onClick: () => void }
+export interface ToastItem { id: number; tone: ToastTone; title: string; description?: string; duration: number; action?: ToastAction }
 
 let items: ToastItem[] = [];
 let nextId = 1;
@@ -17,19 +18,19 @@ export function dismissToast(id: number): void {
   emit();
 }
 
-function push(tone: ToastTone, title: string, options: { description?: string; duration?: number } = {}): number {
+function push(tone: ToastTone, title: string, options: { description?: string; duration?: number; action?: ToastAction } = {}): number {
   // Identical message already visible: keep one toast instead of stacking duplicates.
   const duplicate = items.find(item => item.tone === tone && item.title === title && item.description === options.description);
   if (duplicate) { dismissToast(duplicate.id); }
   const id = nextId++;
   const duration = options.duration ?? (tone === 'error' ? 7000 : 4000);
-  items = [...items.slice(-3), { id, tone, title, description: options.description, duration }];
+  items = [...items.slice(-3), { id, tone, title, description: options.description, duration, action: options.action }];
   if (duration > 0) timers.set(id, setTimeout(() => dismissToast(id), duration));
   emit();
   return id;
 }
 
-type Options = { description?: string; duration?: number };
+type Options = { description?: string; duration?: number; action?: ToastAction };
 /** Fire-and-forget notifications, callable from anywhere (components, API helpers, event handlers). */
 export const toast = {
   success: (title: string, options?: Options) => push('success', title, options),
