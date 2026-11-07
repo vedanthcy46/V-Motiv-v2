@@ -105,6 +105,15 @@ export interface QuoteBreakdown {
   quoteVersion: number;
 }
 
+/** Whether a booking still owes its refundable security deposit (collected at the counter, never in the app). */
+export function depositStillDue(booking: { securityDepositPaise?: bigint | number | string | null; depositStatus?: string | null }): boolean {
+  if (booking.securityDepositPaise === undefined || booking.securityDepositPaise === null) return false;
+  let required = 0n;
+  try { required = BigInt(booking.securityDepositPaise); } catch { return false; }
+  if (required <= 0n) return false;
+  return !['HELD_ESCROW', 'COLLECTED'].includes(String(booking.depositStatus ?? ''));
+}
+
 export class PrismaRentalStore {
   constructor(
     private readonly db: PrismaClient,
@@ -1289,13 +1298,20 @@ export class PrismaRentalStore {
       }
 
       // CRITICAL PRODUCTION GATE: RENTAL BALANCE MUST BE FULLY PAID
+      // Only rental charges count here: a refundable deposit is held for damages and must never pay off a rental balance.
       const payments = await tx.rentalPaymentRecord.findMany({
-        where: { bookingId, status: RentalPaymentStatus.VERIFIED },
+        where: { bookingId, status: RentalPaymentStatus.VERIFIED, type: { not: RentalPaymentType.REFUNDABLE_DEPOSIT } },
       });
       const totalPaid = payments.reduce((acc, p) => acc + p.amountPaise, 0n);
       const totalRental = booking.baseFarePaise + booking.taxPaise;
       if (totalPaid < totalRental || booking.outstandingBalancePaise > 0n || booking.rentalPaymentStatus !== 'PAID_IN_FULL') {
         throw new HttpError(403, 'RENTAL_BALANCE_PENDING_CANNOT_HANDOVER_VEHICLE');
+      }
+
+      // CRITICAL PRODUCTION GATE: the refundable security deposit is collected at the counter and must be on record first
+      if (depositStillDue(booking)) {
+        throw new HttpError(403, 'SECURITY_DEPOSIT_NOT_COLLECTED_CANNOT_HANDOVER_VEHICLE',
+          `Collect the security deposit of ₹${(Number(booking.securityDepositPaise) / 100).toLocaleString('en-IN')} at the counter and record it (Record Payment → Deposit) before handing over the keys.`);
       }
 
       // CRITICAL PRODUCTION GATE: KYC MUST BE VERIFIED
@@ -2151,6 +2167,7 @@ export class PrismaRentalStore {
     const booking = await this.db.rentalBooking.findUnique({
       where: { id: bookingId },
       include: {
+        customer: { select: { id: true, displayName: true, email: true, phone: true } },
         vehicle: { include: { hub: true } },
         pickupHub: true,
         returnHub: true,
@@ -3012,18 +3029,33 @@ export class PrismaRentalStore {
         },
       });
 
-      // Counter Payment Record
+      // Counter payment records: the rental charges, and the refundable deposit separately (it is held, not earned).
+      const counterReference = input.transactionReference || `OFFLINE-COUNTER-${Date.now()}`;
       await tx.rentalPaymentRecord.create({
         data: {
           bookingId: booking.id,
           type: RentalPaymentType.RENTAL_PREPAYMENT,
-          amountPaise: totalPayablePaise,
+          amountPaise: baseFarePaise + taxPaise,
           status: RentalPaymentStatus.VERIFIED,
           paymentGateway: input.paymentMethod || 'OFFLINE_COUNTER',
-          gatewayPaymentId: input.transactionReference || `OFFLINE-COUNTER-${Date.now()}`,
+          gatewayPaymentId: counterReference,
           verifiedAt: new Date(),
         },
       });
+      if (securityDepositPaise > 0n) {
+        await tx.rentalPaymentRecord.create({
+          data: {
+            bookingId: booking.id,
+            type: RentalPaymentType.REFUNDABLE_DEPOSIT,
+            amountPaise: securityDepositPaise,
+            status: RentalPaymentStatus.VERIFIED,
+            paymentGateway: input.paymentMethod || 'OFFLINE_COUNTER',
+            gatewayPaymentId: `${counterReference}-DEPOSIT`,
+            verifiedAt: new Date(),
+          },
+        });
+        await tx.rentalBooking.update({ where: { id: booking.id }, data: { depositStatus: 'HELD_ESCROW' } });
+      }
 
       // If immediate handover, release keys and set trip active!
       if (input.immediateHandover) {
@@ -3170,6 +3202,12 @@ export class PrismaRentalStore {
       blockers.push('RENTAL_BALANCE_PENDING');
     }
 
+    // The refundable security deposit is collected at the counter (it is not charged in the app) and must be recorded before the keys go out.
+    if (depositStillDue(booking)) {
+      checklist.depositSatisfied = false;
+      blockers.push('DEPOSIT_NOT_COLLECTED');
+    }
+
     if (booking.kycStatus === RentalDriverKycStatus.VERIFIED) {
       checklist.driverEligible = true;
     } else {
@@ -3199,6 +3237,8 @@ export class PrismaRentalStore {
           return 'Primary driver KYC identity is not verified.';
         case 'VEHICLE_NOT_READY':
           return 'Vehicle is not in available or assigned state.';
+        case 'DEPOSIT_NOT_COLLECTED':
+          return `Security deposit of ₹${(Number(booking.securityDepositPaise) / 100).toLocaleString('en-IN')} has not been collected. Collect it at the counter and record it (Record Payment → Deposit) before handing over the keys.`;
         default:
           return b;
       }

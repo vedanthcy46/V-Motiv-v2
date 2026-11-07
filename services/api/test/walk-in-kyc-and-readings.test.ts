@@ -214,3 +214,38 @@ describe('correcting a rental car\'s recorded readings', () => {
     await expect(store.correctVehicleReadings('emp-1', 'nope', { odometerKm: 5, reason: 'Because' })).rejects.toMatchObject({ status: 404, code: 'RENTAL_VEHICLE_NOT_FOUND' });
   });
 });
+
+import { depositStillDue } from '../src/rental-store.js';
+describe('security deposit is collected at the counter before the keys go out', () => {
+  const store = new PrismaRentalStore({} as PrismaClient) as Any;
+  const base = { status: 'CONFIRMED', kycStatus: 'VERIFIED', rentalPaymentStatus: 'PAID_IN_FULL', vehicle: { status: 'AVAILABLE' } };
+
+  it('knows when a deposit is still owed', () => {
+    expect(depositStillDue({ securityDepositPaise: 500000n, depositStatus: 'NOT_COLLECTED' })).toBe(true);
+    expect(depositStillDue({ securityDepositPaise: 500000n, depositStatus: null })).toBe(true);
+    expect(depositStillDue({ securityDepositPaise: 500000n, depositStatus: 'HELD_ESCROW' })).toBe(false);
+    expect(depositStillDue({ securityDepositPaise: 0n, depositStatus: 'NOT_COLLECTED' })).toBe(false); // no deposit required
+    expect(depositStillDue({})).toBe(false);
+  });
+
+  it('blocks pickup readiness until the deposit is recorded, with a clear reason', () => {
+    const blocked = store.computePickupReadiness({ ...base, securityDepositPaise: 500000n, depositStatus: 'NOT_COLLECTED' }, 0n, 'PAID_IN_FULL');
+    expect(blocked.eligible).toBe(false);
+    expect(blocked.blockers).toContain('DEPOSIT_NOT_COLLECTED');
+    expect(blocked.checklist.depositSatisfied).toBe(false);
+    expect(blocked.reasons.join(' ')).toContain('₹5,000');
+    const ready = store.computePickupReadiness({ ...base, securityDepositPaise: 500000n, depositStatus: 'HELD_ESCROW' }, 0n, 'PAID_IN_FULL');
+    expect(ready.eligible).toBe(true);
+  });
+
+  it('refuses the hand-over itself while the deposit is not collected', async () => {
+    const booking = { id: 'b-1', status: 'CONFIRMED', securityDepositPaise: 500000n, depositStatus: 'NOT_COLLECTED', baseFarePaise: 100000n, taxPaise: 18000n, outstandingBalancePaise: 0n, rentalPaymentStatus: 'PAID_IN_FULL', kycStatus: 'VERIFIED', vehicle: {}, driverVerification: {} };
+    const db: Any = {
+      rentalBooking: { findUnique: async () => booking },
+      rentalPaymentRecord: { findMany: async (args: Any) => { expect(args.where.type).toEqual({ not: 'REFUNDABLE_DEPOSIT' }); return [{ amountPaise: 118000n }]; } },
+      $transaction: async (fn: (tx: Any) => Promise<unknown>) => fn(db),
+    };
+    await expect((new PrismaRentalStore(db as PrismaClient) as Any).recordPickupHandover('emp-1', 'b-1', { odometerKm: 1, fuelPercent: 50, photos: [], customerSigned: true }))
+      .rejects.toMatchObject({ status: 403, code: 'SECURITY_DEPOSIT_NOT_COLLECTED_CANNOT_HANDOVER_VEHICLE' });
+  });
+});

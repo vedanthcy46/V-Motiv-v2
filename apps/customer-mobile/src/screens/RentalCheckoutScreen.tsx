@@ -385,13 +385,9 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
           gatewaySignature: 'demo_sig_verified_vmotiv',
         });
       } else if (paid.outcome !== 'PAID') {
-        Alert.alert(
-          paid.outcome === 'PENDING' ? 'Payment is being confirmed' : 'Payment did not go through',
-          paid.outcome === 'PENDING'
-            ? 'We have not received confirmation yet. If money was deducted, your booking will be confirmed automatically within a few minutes.'
-            : 'No money was taken. Your reservation is held for a short time, so you can try again.',
-          [{ text: 'View Booking', onPress: () => navigation.replace('RentalBookingDetails', { bookingId }) }],
-        );
+        // The payment card has already shown the result (failed / still confirming). The reservation is held for a short
+        // time, so the booking page is where the customer can pay again or see it confirm.
+        navigation.replace('RentalBookingDetails', { bookingId });
         return;
       }
 
@@ -637,13 +633,13 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={{ fontSize: 13, color: colors.textSecondary }}>Refundable Security Deposit</Text>
+                <Text style={{ fontSize: 13, color: colors.textSecondary }}>Refundable Security Deposit (pay at pickup)</Text>
                 <ShieldCheck size={14} color={colors.success} />
               </View>
               <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>₹{depositRupees.toLocaleString('en-IN')}</Text>
             </View>
             <Text style={{ fontSize: 11, color: colors.textMuted, fontStyle: 'italic' }}>
-              Deposit is held separately & refunded post-trip inspection. Not rental revenue.
+              The deposit is not charged in the app. You pay it at the hub when you collect the car (cash or UPI), and it is refunded after the return inspection, minus any extra charges.
             </Text>
 
             <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 4 }} />

@@ -48,3 +48,19 @@ describe('trip kilometre preview', () => {
     expect(tripKmPreview({ pickupKm: 0, returnKm: 700, includedKm: 500, extraKmRatePaise: undefined })?.excessChargePaise).toBeNull();
   });
 });
+
+import { includedKmBreakdown } from './readings';
+describe('km allowance breakdown', () => {
+  it('splits a booking allowance into per-day km times billed days', () => {
+    // The booking in question: 2 days at the hub's 350 km/day = 700 km.
+    expect(includedKmBreakdown({ includedKm: 700, startTime: '2026-11-08T04:30:00Z', endTime: '2026-11-10T04:30:00Z' })).toEqual({ days: 2, perDay: 350 });
+    // A part day counts as a whole extra day, like the quote does.
+    expect(includedKmBreakdown({ includedKm: 750, startTime: '2026-11-08T04:30:00Z', endTime: '2026-11-10T10:30:00Z' })).toEqual({ days: 3, perDay: 250 });
+    // Under a day is still one day.
+    expect(includedKmBreakdown({ includedKm: 300, startTime: '2026-11-08T04:30:00Z', endTime: '2026-11-08T14:30:00Z' })).toEqual({ days: 1, perDay: 300 });
+  });
+  it('says nothing when the numbers do not divide evenly or are missing', () => {
+    expect(includedKmBreakdown({ includedKm: 701, startTime: '2026-11-08T04:30:00Z', endTime: '2026-11-10T04:30:00Z' })).toBeNull();
+    expect(includedKmBreakdown({ includedKm: undefined, startTime: '2026-11-08T04:30:00Z', endTime: '2026-11-10T04:30:00Z' })).toBeNull();
+  });
+});

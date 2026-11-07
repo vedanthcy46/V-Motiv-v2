@@ -136,21 +136,13 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
           gatewaySignature: 'demo_sig_verified_vmotiv',
         });
       } else if (paid.outcome !== 'PAID') {
+        // The payment card has already shown the result (failed / still confirming).
         setPayBalanceModalVisible(false);
-        Alert.alert(
-          paid.outcome === 'PENDING' ? 'Payment is being confirmed' : 'Payment did not go through',
-          paid.outcome === 'PENDING'
-            ? 'We have not received confirmation yet. If money was deducted, your booking will update automatically within a few minutes.'
-            : 'No money was taken. You can try again.',
-        );
         await loadDetails();
         return;
       }
+      // The payment card has already shown "Payment confirmed".
       setPayBalanceModalVisible(false);
-      Alert.alert(
-        'Balance Paid Successfully! 🎉',
-        `Your remaining rental balance has been verified. Your booking is now PAID IN FULL.`
-      );
       await loadDetails();
     } catch (err: any) {
       Alert.alert('Payment Error', err?.message || 'Could not process balance payment.');
@@ -587,14 +579,16 @@ export function RentalBookingDetailsScreen({ route, navigation }: Props) {
               <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                   <ShieldCheck size={14} color={colors.success} />
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>Refundable Security Deposit</Text>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: colors.textPrimary }}>Refundable Security Deposit - pay at pickup</Text>
                 </View>
                 <Text style={{ fontSize: 13, fontWeight: '800', color: colors.success }}>
                   ₹{Math.round(Number(booking.securityDepositPaise) / 100).toLocaleString('en-IN')}
                 </Text>
               </View>
               <Text style={{ fontSize: 10, color: colors.textMuted, marginTop: 3 }}>
-                Security deposit is tracked separately as a refundable obligation. It is not counted towards rental charges.
+                {booking.depositStatus === 'HELD_ESCROW'
+                  ? 'Deposit received at the hub. It is refunded after the return inspection, minus any extra charges.'
+                  : 'Bring this amount when you collect the car: the hub collects the deposit (cash or UPI) before handing over the keys. It is not part of the rental charges and is refunded after the return inspection.'}
               </Text>
             </View>
 

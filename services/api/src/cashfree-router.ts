@@ -166,7 +166,7 @@ export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClie
     try {
       const order = await fetchCashfreeOrder(orderId, deps.gateway);
       paymentId = order.paymentId ?? '';
-      status = order.status === 'PAID' ? 'SUCCESS' : order.status === 'EXPIRED' ? 'FAILED' : 'PENDING';
+      status = order.state === 'PAID' ? 'SUCCESS' : order.state === 'FAILED' ? 'FAILED' : 'PENDING';
       if (status === 'SUCCESS') await settleOrder(orderId).catch(() => undefined);
     } catch { /* the app re-checks; show a neutral result */ }
     const link = `${scheme}://payment-result?status=${status}&orderId=${encodeURIComponent(orderId)}&paymentId=${encodeURIComponent(paymentId)}`;
@@ -197,7 +197,11 @@ export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClie
       const record = await deps.db.gatewayOrder.findUnique({ where: { orderId: String(req.params.orderId) } });
       if (!record || record.customerId !== user.id) throw new HttpError(404, 'ORDER_NOT_FOUND');
       const settled = record.status === 'SETTLED' ? record : await settleOrder(record.orderId);
-      res.json({ orderId: record.orderId, kind: record.kind, referenceId: record.referenceId, status: settled?.status ?? record.status, gatewayPaymentId: settled?.gatewayPaymentId ?? null });
+      const status = settled?.status ?? record.status;
+      // `state` is what the app shows: PAID (recorded), FAILED (declined / expired) or PENDING (still being confirmed).
+      let state: 'PAID' | 'FAILED' | 'PENDING' = status === 'SETTLED' ? 'PAID' : 'PENDING';
+      if (state !== 'PAID') state = await fetchCashfreeOrder(record.orderId, deps.gateway).then(order => (order.state === 'PAID' ? 'PENDING' : order.state)).catch(() => 'PENDING' as const);
+      res.json({ orderId: record.orderId, kind: record.kind, referenceId: record.referenceId, amountPaise: record.amountPaise.toString(), status, state, gatewayPaymentId: settled?.gatewayPaymentId ?? null });
     } catch (error) { next(error); }
   });
 

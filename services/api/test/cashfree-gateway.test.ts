@@ -88,3 +88,22 @@ describe('describeCashfreeKeys (explains a 401 without revealing keys)', () => {
     expect(describeCashfreeKeys({ CASHFREE_APP_ID: 'TEST1', CASHFREE_SECRET_KEY: 'someothertoken', CASHFREE_ENV: 'sandbox' } as any).problems.join(' ')).toContain('does not look like');
   });
 });
+
+import { classifyPaymentState } from '../src/cashfree-gateway.js';
+describe('classifyPaymentState (what the customer is told)', () => {
+  it('is PAID when money was received', () => {
+    expect(classifyPaymentState('PAID', [])).toBe('PAID');
+    expect(classifyPaymentState('ACTIVE', [{ payment_status: 'FAILED' }, { payment_status: 'SUCCESS' }])).toBe('PAID');
+  });
+  it('is FAILED when the order expired or every attempt was declined or abandoned', () => {
+    expect(classifyPaymentState('EXPIRED', [])).toBe('FAILED');
+    expect(classifyPaymentState('ACTIVE', [{ payment_status: 'FAILED' }])).toBe('FAILED'); // Cashfree keeps a declined order ACTIVE
+    expect(classifyPaymentState('ACTIVE', [{ payment_status: 'USER_DROPPED' }, { payment_status: 'FAILED' }])).toBe('FAILED');
+  });
+  it('is PENDING while a bank confirms, or when nothing was attempted yet', () => {
+    expect(classifyPaymentState('ACTIVE', [{ payment_status: 'PENDING' }])).toBe('PENDING');
+    expect(classifyPaymentState('ACTIVE', [{ payment_status: 'FAILED' }, { payment_status: 'PENDING' }])).toBe('PENDING');
+    expect(classifyPaymentState('ACTIVE', [])).toBe('PENDING');
+    expect(classifyPaymentState('ACTIVE', null)).toBe('PENDING');
+  });
+});

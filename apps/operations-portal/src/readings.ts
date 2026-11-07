@@ -22,6 +22,16 @@ export function isBelowRecorded(entered: string, recorded: number | null | undef
   return value !== null && typeof recorded === 'number' && recorded > 0 && value < recorded;
 }
 
+/** "350 km/day x 2 days" for a booking's allowance: the whole-trip figure is the per-day allowance times the billed days (min. one). */
+export function includedKmBreakdown(args: { includedKm: number | null | undefined; startTime: string | Date; endTime: string | Date }): { days: number; perDay: number } | null {
+  if (typeof args.includedKm !== 'number' || args.includedKm <= 0) return null;
+  const hours = Math.ceil((new Date(args.endTime).getTime() - new Date(args.startTime).getTime()) / 3_600_000);
+  if (!Number.isFinite(hours) || hours <= 0) return null;
+  const whole = Math.floor(hours / 24);
+  const days = whole > 0 ? (hours % 24 > 0 ? whole + 1 : whole) : 1;
+  return args.includedKm % days === 0 ? { days, perDay: args.includedKm / days } : null;
+}
+
 export interface TripKmPreview {
   drivenKm: number;
   includedKm: number | null;

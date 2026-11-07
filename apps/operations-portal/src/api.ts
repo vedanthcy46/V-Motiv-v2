@@ -352,7 +352,7 @@ export const api = {
     (await call<{ tokens: Record<string, string> }>(u, `/pulse?domains=${domains.join(',')}${fresh ? '&fresh=1' : ''}`)).tokens,
   // --- Car Rental Operations ---
   rentalHubs: (u: User) =>
-    call<Array<{ id: string; name: string; city: string; address: string; code: string; isActive: boolean }>>(u, '/rentals/hubs'),
+    call<Array<{ id: string; name: string; city: string; address: string; code: string; isActive: boolean; /** The administrator's km policy for this hub; null when none is set. */ kmPolicy?: { includedKmPerDay: number | null; extraKmRatePaise: string | null } | null }>>(u, '/rentals/hubs'),
   rentalSummary: (u: User) =>
     call<RentalOperationsSummary>(u, '/operations/rentals/summary'),
   rentalFleet: (u: User, query?: { hubId?: string; status?: string; startTime?: string; endTime?: string }) => {

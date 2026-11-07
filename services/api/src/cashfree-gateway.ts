@@ -87,7 +87,24 @@ export async function createCashfreeOrder(
   return { orderId: String(body.order_id), paymentSessionId: String(body.payment_session_id), status: String(body.order_status ?? 'ACTIVE') };
 }
 
-export interface CashfreePaidOrder { orderId: string; status: string; orderAmountPaise: bigint; currency: string; paymentId: string | null; paidAmountPaise: bigint | null }
+export type CashfreePaymentState = 'PAID' | 'FAILED' | 'PENDING';
+
+export interface CashfreePaidOrder { orderId: string; status: string; orderAmountPaise: bigint; currency: string; paymentId: string | null; paidAmountPaise: bigint | null; state: CashfreePaymentState }
+
+/**
+ * The customer-facing result of an order. Cashfree keeps an order ACTIVE after a declined attempt (the customer may retry),
+ * so a failure shows up in the payment attempts, not in the order status.
+ * PAID: money received. FAILED: the order expired, or every attempt was declined / abandoned. PENDING: anything else
+ * (bank still confirming, or the customer has not paid yet).
+ */
+export function classifyPaymentState(orderStatus: string, payments: unknown): CashfreePaymentState {
+  const attempts = Array.isArray(payments) ? payments.map((p: any) => String(p?.payment_status ?? '').toUpperCase()) : [];
+  if (orderStatus === 'PAID' || attempts.includes('SUCCESS')) return 'PAID';
+  if (attempts.includes('PENDING') || attempts.includes('INITIATED')) return 'PENDING';
+  if (['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(orderStatus)) return 'FAILED';
+  if (attempts.length > 0 && attempts.every(status => ['FAILED', 'USER_DROPPED', 'CANCELLED', 'VOID', 'NOT_ATTEMPTED'].includes(status))) return 'FAILED';
+  return 'PENDING';
+}
 
 /** What Cashfree says about an order and its successful payment (if any). Never trusts what the app claims. */
 export async function fetchCashfreeOrder(orderId: string, opts: CashfreeOptions = {}): Promise<CashfreePaidOrder> {
@@ -102,6 +119,7 @@ export async function fetchCashfreeOrder(orderId: string, opts: CashfreeOptions 
     currency: String(order?.order_currency ?? 'INR'),
     paymentId: success?.cf_payment_id !== undefined ? String(success.cf_payment_id) : null,
     paidAmountPaise: success ? toPaise(success.payment_amount) : null,
+    state: classifyPaymentState(String(order?.order_status ?? ''), payments),
   };
 }
 
