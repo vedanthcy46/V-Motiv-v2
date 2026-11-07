@@ -24,6 +24,7 @@ import {
 import { auth, firebaseConfigured } from './firebase.js';
 import type {
   RentalKmPolicy,
+  AppConfigEntry,
   AdminActor,
   Approval,
   ApprovalPage,
@@ -781,7 +782,7 @@ function Shell({ actor, user, route, onLogout }: { actor: AdminActor; user: User
       {route === '/master-data' && <MasterDataPage user={user} actor={actor}/>}
       {route === '/communications' && <CommunicationsPage user={user} actor={actor}/>}
       {route === '/reports' && <ReportsPage user={user} actor={actor}/>}
-      {route === '/branches' && <><BranchesPage user={user} actor={actor}/>{actor.permissions.includes('branch.manage') && <RentalKmPolicyPanel user={user} actor={actor}/>}<PoliciesPanel user={user} actor={actor}/></>}
+      {route === '/branches' && <><BranchesPage user={user} actor={actor}/>{actor.permissions.includes('branch.manage') && <RentalKmPolicyPanel user={user} actor={actor}/>}{actor.permissions.includes('branch.manage') && <AppVersionPanel user={user} actor={actor}/>}<PoliciesPanel user={user} actor={actor}/></>}
       {route === '/audit' && <AuditPageView user={user}/>}
       {route === '/not-found' && <NotFound/>}
     </AppShell>
@@ -3276,6 +3277,81 @@ function ApprovalDialog({ user, actor, approval, onClose, onDone }: { user: User
 
 function AuditPageView({ user }: { user: User }) { const [data, setData] = useState<AuditPage | null>(null); const [error, setError] = useState(''); const [page, setPage] = useState(1); useEffect(() => { adminApi.audit(user, page).then(setData).catch(error => setError(errorMessage(error))); }, [user, page]); return <><PageHeader eyebrow="Append-only history" title="Audit" description="Authorization-filtered security and governance events. Audit records cannot be edited from this portal."/>{error ? <ErrorState message={error}/> : !data ? <TableSkeleton/> : <section className="panel table-panel">{data.items.length ? <div className="table-scroll"><table><thead><tr><th>Time</th><th>Action</th><th>Target</th><th>Outcome</th></tr></thead><tbody>{data.items.map(event => <tr key={event.id}><td><time>{new Date(event.createdAt).toLocaleString()}</time></td><td><strong>{humanize(event.action)}</strong></td><td><span>{event.entityType}</span><small>{event.entityId}</small></td><td><StatusBadge value={event.outcome}/></td></tr>)}</tbody></table></div> : <EmptyState title="No audit events" text="No events are visible within your authorized scope."/>}<Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/></section>}</>; }
 function SystemHealthPanel({ user }: { user: User }) { const [data, setData] = useState<SystemHealth | null>(null); const [error, setError] = useState(''); useEffect(() => { adminApi.systemHealth(user).then(setData).catch(error => setError(errorMessage(error))); }, [user]); return <section className="panel"><div className="panel-heading"><div><h2>System health</h2><p>Safe operational diagnostics; no credentials or recipient data.</p></div></div>{error ? <ErrorState message={error}/> : !data ? <TableSkeleton/> : <><ul className="event-list">{data.services.map(service => <li key={service.key}><div><strong>{humanize(service.key)}</strong><span>{service.detail}</span></div><StatusBadge value={service.status}/></li>)}</ul><p className="helper">Outbox: {Object.entries(data.emailOutbox).map(([state, count]) => `${humanize(state)} ${count}`).join(' · ') || 'No queued messages'}</p></>}</section>; }
+/** Mobile app versions: type the newest version (and build number) here and every older app shows an "update available" card. */
+function AppVersionPanel({ user, actor }: { user: User; actor: AdminActor }) {
+  type Draft = { latestVersion: string; latestVersionCode: string; minSupportedVersion: string; updateUrl: string; releaseNotes: string };
+  const [entries, setEntries] = useState<AppConfigEntry[] | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, Draft>>({});
+  const [error, setError] = useState('');
+  const [message, setMessage] = useState('');
+  const [saving, setSaving] = useState<string | null>(null);
+  const [reload, setReload] = useState(0);
+  const canManage = actor.permissions.includes('branch.manage');
+  const labels = { ANDROID: 'Android (Play Store)', IOS: 'iPhone (App Store)' } as const;
+
+  useEffect(() => {
+    adminApi.appConfigs(user)
+      .then(items => {
+        setEntries(items);
+        setDrafts(Object.fromEntries(items.map(item => [item.platform, {
+          latestVersion: item.latestVersion ?? '',
+          latestVersionCode: item.latestVersionCode === null ? '' : String(item.latestVersionCode),
+          minSupportedVersion: item.minSupportedVersion ?? '',
+          updateUrl: item.updateUrl ?? '',
+          releaseNotes: item.releaseNotes ?? '',
+        }])));
+      })
+      .catch(err => setError(errorMessage(err)));
+  }, [user, reload]);
+
+  async function save(platform: 'ANDROID' | 'IOS') {
+    const draft = drafts[platform];
+    if (!draft) return;
+    if (!/^\d{1,4}(\.\d{1,4}){0,3}$/.test(draft.latestVersion.trim())) { setError('Enter the version like 1.0.1.'); return; }
+    if (draft.minSupportedVersion.trim() && !/^\d{1,4}(\.\d{1,4}){0,3}$/.test(draft.minSupportedVersion.trim())) { setError('The minimum version must look like 1.0.0.'); return; }
+    if (draft.latestVersionCode.trim() && !/^\d+$/.test(draft.latestVersionCode.trim())) { setError('The version code must be a whole number.'); return; }
+    setSaving(platform); setError(''); setMessage('');
+    try {
+      await adminApi.saveAppConfig(user, {
+        platform,
+        latestVersion: draft.latestVersion.trim(),
+        latestVersionCode: draft.latestVersionCode.trim() ? Number(draft.latestVersionCode) : null,
+        minSupportedVersion: draft.minSupportedVersion.trim() || null,
+        updateUrl: draft.updateUrl.trim() || null,
+        releaseNotes: draft.releaseNotes.trim() || null,
+      });
+      setMessage(`${labels[platform]}: published. Apps older than ${draft.latestVersion.trim()} will show the update card the next time they open.`);
+      setReload(value => value + 1);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setSaving(null);
+    }
+  }
+
+  const set = (platform: string, patch: Partial<Draft>) => setDrafts(current => ({ ...current, [platform]: { ...(current[platform] as Draft), ...patch } }));
+
+  return <section className="panel" aria-label="Mobile app versions">
+    <div className="panel-heading"><div><h2>Mobile app versions</h2><p>Type the newest published version and build (version code) for each store. Any app running an older version shows an "Update available" card with these notes and link. Set a minimum version to make the update compulsory.</p></div></div>
+    {error && <div className="alert error" role="alert">{error}</div>}
+    {message && <div className="alert success" role="status">{message}</div>}
+    {!entries ? <TableSkeleton/> : <div className="form-grid">
+      {entries.map(entry => {
+        const draft = drafts[entry.platform] ?? { latestVersion: '', latestVersionCode: '', minSupportedVersion: '', updateUrl: '', releaseNotes: '' };
+        return <fieldset key={entry.platform} style={{ border: '1px solid var(--color-base-300)', borderRadius: 'var(--radius-box)', padding: '1rem', display: 'grid', gap: '0.75rem' }}>
+          <legend><strong>{labels[entry.platform]}</strong>{entry.latestVersion ? <span> · published {entry.latestVersion}{entry.latestVersionCode ? ` (build ${entry.latestVersionCode})` : ''}</span> : <span> · nothing published yet</span>}</legend>
+          <label>Latest version<input value={draft.latestVersion} placeholder="e.g. 1.0.1" disabled={!canManage} onChange={event => set(entry.platform, { latestVersion: event.target.value })}/></label>
+          <label>Version code / build number<input inputMode="numeric" value={draft.latestVersionCode} placeholder="e.g. 12 (optional)" disabled={!canManage} onChange={event => set(entry.platform, { latestVersionCode: event.target.value })}/></label>
+          <label>Minimum supported version (older apps must update)<input value={draft.minSupportedVersion} placeholder="e.g. 1.0.0 (optional)" disabled={!canManage} onChange={event => set(entry.platform, { minSupportedVersion: event.target.value })}/></label>
+          <label>Store link<input type="url" value={draft.updateUrl} placeholder={entry.platform === 'IOS' ? 'https://apps.apple.com/app/id…' : 'https://play.google.com/store/apps/details?id=in.vmotiv.customer'} disabled={!canManage} onChange={event => set(entry.platform, { updateUrl: event.target.value })}/></label>
+          <label>What's new (shown on the card)<textarea rows={2} maxLength={500} value={draft.releaseNotes} disabled={!canManage} onChange={event => set(entry.platform, { releaseNotes: event.target.value })}/></label>
+          {canManage && <div><button className="button primary" disabled={saving === entry.platform} onClick={() => save(entry.platform)}>{saving === entry.platform ? 'Publishing…' : 'Publish'}</button></div>}
+        </fieldset>;
+      })}
+    </div>}
+  </section>;
+}
+
 function RentalKmPolicyPanel({ user, actor }: { user: User; actor: AdminActor }) {
   const [hubs, setHubs] = useState<RentalKmPolicy[] | null>(null);
   const [error, setError] = useState('');

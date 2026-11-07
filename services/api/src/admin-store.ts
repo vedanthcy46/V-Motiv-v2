@@ -67,6 +67,14 @@ export type CreateExportJobInput = { resourceType: string; scope?: string; filte
 
 /** null clears the hub value so vehicles fall back to their own km settings. */
 export type RentalKmPolicyInput = { includedKmPerDay?: number | null; extraKmRatePaise?: number | null };
+export type AppConfigInput = {
+  platform: 'ANDROID' | 'IOS';
+  latestVersion: string;
+  latestVersionCode?: number | null;
+  minSupportedVersion?: string | null;
+  updateUrl?: string | null;
+  releaseNotes?: string | null;
+};
 
 export type EmployeeAccessInput = { roleIds?: string[]; branchIds?: string[]; designation?: string | null; reason: string };
 
@@ -79,6 +87,8 @@ export interface AdminStore {
   manageBranches(actor: AdminActor): Promise<unknown[]>;
   createBranch(actor: AdminActor, input: { code: string; name: string; city: string; address?: string; supportsService?: boolean; supportsRentals?: boolean }): Promise<unknown>;
   updateBranch(actor: AdminActor, id: string, input: { name?: string; city?: string; address?: string | null; active?: boolean; supportsService?: boolean; supportsRentals?: boolean }): Promise<unknown>;
+  appConfigs(actor: AdminActor): Promise<unknown[]>;
+  saveAppConfig(actor: AdminActor, input: AppConfigInput): Promise<unknown>;
   rentalKmPolicies(actor: AdminActor): Promise<unknown[]>;
   updateRentalKmPolicy(actor: AdminActor, hubId: string, input: RentalKmPolicyInput): Promise<unknown>;
   serviceAreas(actor: AdminActor): Promise<unknown[]>;
@@ -280,6 +290,38 @@ export class PrismaAdminStore implements AdminStore {
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'BRANCH_CREATED', entityType: 'Branch', entityId: branch.id, details: { code: branch.code, city: branch.city, supportsService, supportsRentals } } });
       return branch;
     });
+  }
+
+  /** The version information the mobile apps check, one entry per platform (empty values until something is published). */
+  async appConfigs(actor: AdminActor) {
+    requirePermission(actor, 'branch.manage');
+    const config = await import('./app-config.js');
+    return Promise.all((['ANDROID', 'IOS'] as const).map(platform => config.readAppConfig(this.db, 'customer', platform)));
+  }
+
+  /** Publishes the newest app version for a platform. Apps older than it show an "update available" card. */
+  async saveAppConfig(actor: AdminActor, input: AppConfigInput) {
+    requirePermission(actor, 'branch.manage');
+    const where = { app_platform: { app: 'customer', platform: input.platform } };
+    const before = await this.db.appConfig.findUnique({ where });
+    const data = {
+      latestVersion: input.latestVersion,
+      latestVersionCode: input.latestVersionCode ?? null,
+      minSupportedVersion: input.minSupportedVersion ?? null,
+      updateUrl: input.updateUrl ?? null,
+      releaseNotes: input.releaseNotes ?? null,
+    };
+    const saved = await this.db.appConfig.upsert({ where, update: data, create: { app: 'customer', platform: input.platform, ...data } });
+    await this.db.auditEvent.create({
+      data: {
+        actorId: actor.userId,
+        action: 'APP_CONFIG_UPDATED',
+        entityType: 'AppConfig',
+        entityId: saved.id,
+        details: { platform: input.platform, before: before ? { latestVersion: before.latestVersion, latestVersionCode: before.latestVersionCode, minSupportedVersion: before.minSupportedVersion } : null, after: { latestVersion: saved.latestVersion, latestVersionCode: saved.latestVersionCode, minSupportedVersion: saved.minSupportedVersion } },
+      },
+    });
+    return (await import('./app-config.js')).readAppConfig(this.db, 'customer', input.platform);
   }
 
   /** Rental hubs with their administrator-set free km per day and excess km charge. */

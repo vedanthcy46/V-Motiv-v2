@@ -397,6 +397,9 @@ export const api = {
     extraKmRatePaise?: string | number;
     features?: string[];
   }) => call<RentalFleetItem>(u, '/operations/rentals/fleet', { method: 'POST', body: JSON.stringify(body) }),
+  /** Edit a delisted car's details. Money is in paise; blank / missing fields stay unchanged. The API refuses a car that is still listed. */
+  updateRentalFleetDetails: (u: User, id: string, body: Record<string, string | number | string[] | undefined>) =>
+    call<RentalFleetItem>(u, `/operations/rentals/fleet/${id}/details`, { method: 'PATCH', body: JSON.stringify(body) }),
   /** Correct the odometer / fuel level recorded for a car. A reason is required; the change is audited and refused while the car is on a trip. */
   correctRentalReadings: (u: User, id: string, body: { odometerKm?: number; fuelLevelPercent?: number; reason: string }) =>
     call<RentalFleetItem>(u, `/operations/rentals/fleet/${id}/readings`, { method: 'POST', body: JSON.stringify(body) }),

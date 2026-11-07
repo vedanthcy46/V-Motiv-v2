@@ -249,3 +249,51 @@ describe('security deposit is collected at the counter before the keys go out', 
       .rejects.toMatchObject({ status: 403, code: 'SECURITY_DEPOSIT_NOT_COLLECTED_CANNOT_HANDOVER_VEHICLE' });
   });
 });
+
+describe('editing a rental car\'s details', () => {
+  function makeStore(vehicle: Any | null) {
+    const updates: Any[] = [];
+    const audits: Any[] = [];
+    const db: Any = {
+      rentalFleetVehicle: {
+        findUnique: async () => vehicle,
+        update: async (args: Any) => { updates.push(args); return { ...vehicle, ...args.data }; },
+      },
+      rentalAuditEvent: { create: async (args: Any) => { audits.push(args.data); return args.data; } },
+      $transaction: async (fn: (tx: Any) => Promise<unknown>) => fn(db),
+    };
+    return { store: new PrismaRentalStore(db as PrismaClient) as Any, updates, audits };
+  }
+  const delisted = { id: 'veh-1', isEligibleForRental: false, baseDailyRatePaise: 280000n, baseHourlyRatePaise: 28000n, securityDepositPaise: 500000n, includedKmPerDay: 250, extraKmRatePaise: 1200n, color: 'White', seats: 5, variant: null, commercialPermitNumber: null };
+
+  it('only works on a delisted car', async () => {
+    const { store, updates } = makeStore({ ...delisted, isEligibleForRental: true });
+    await expect(store.updateFleetDetails('emp-1', 'veh-1', { baseDailyRatePaise: 300000 })).rejects.toMatchObject({ status: 409, code: 'DELIST_BEFORE_EDITING' });
+    expect(updates).toHaveLength(0);
+  });
+
+  it('changes only what differs and audits the previous and new values', async () => {
+    const { store, updates, audits } = makeStore(delisted);
+    await store.updateFleetDetails('emp-1', 'veh-1', { baseDailyRatePaise: 300000, securityDepositPaise: 500000, includedKmPerDay: 300, vin: ' mal123456 ', commercialPermitNumber: '' });
+    expect(updates[0].data).toEqual({ baseDailyRatePaise: 300000n, includedKmPerDay: 300, vin: 'MAL123456' }); // the unchanged deposit is not rewritten, the blank permit leaves it alone
+    expect(audits[0]).toMatchObject({ vehicleId: 'veh-1', eventType: 'RENTAL_VEHICLE_DETAILS_UPDATED', actorId: 'emp-1' });
+    expect(audits[0].metadata.before).toMatchObject({ baseDailyRatePaise: '280000', includedKmPerDay: '250' });
+    expect(audits[0].metadata.after).toMatchObject({ baseDailyRatePaise: '300000', includedKmPerDay: '300' });
+  });
+
+  it('allows a zero deposit but not a zero rate, and rejects nonsense', async () => {
+    const { store, updates } = makeStore(delisted);
+    await store.updateFleetDetails('emp-1', 'veh-1', { securityDepositPaise: 0 });
+    expect(updates[0].data).toEqual({ securityDepositPaise: 0n });
+    for (const [change, code] of [[{ baseDailyRatePaise: 0 }, 'INVALID_DAILY_RATE'], [{ extraKmRatePaise: -5 }, 'INVALID_EXTRA_KM_RATE'], [{ includedKmPerDay: 10 }, 'INVALID_INCLUDED_KM'], [{ seats: 1 }, 'INVALID_SEATS'], [{ insuranceExpiry: 'nope' }, 'INVALID_COMPLIANCE_DATE']] as const) {
+      await expect(store.updateFleetDetails('emp-1', 'veh-1', change as Any)).rejects.toMatchObject({ status: 400, code });
+    }
+  });
+
+  it('writes nothing when nothing changed', async () => {
+    const { store, updates, audits } = makeStore(delisted);
+    await store.updateFleetDetails('emp-1', 'veh-1', { baseDailyRatePaise: 280000 });
+    expect(updates).toHaveLength(0);
+    expect(audits).toHaveLength(0);
+  });
+});

@@ -2590,6 +2590,102 @@ export class PrismaRentalStore {
   }
 
   /**
+   * Operations: edit a rental car's details - rates, deposit, km allowance, look and compliance documents.
+   * Only a delisted car can be edited (customers cannot be looking at it or booking it while its price changes); bookings
+   * already made keep the rates they were quoted. Every change is audited with the previous and new values.
+   */
+  async updateFleetDetails(
+    employeeId: string,
+    vehicleId: string,
+    input: {
+      baseDailyRatePaise?: number | bigint | string;
+      baseHourlyRatePaise?: number | bigint | string;
+      securityDepositPaise?: number | bigint | string;
+      includedKmPerDay?: number;
+      extraKmRatePaise?: number | bigint | string;
+      variant?: string;
+      color?: string;
+      seats?: number;
+      features?: string[];
+      vin?: string;
+      commercialPermitNumber?: string;
+      commercialPermitExpiry?: string | Date;
+      insurancePolicyNumber?: string;
+      insuranceExpiry?: string | Date;
+      fitnessCertExpiry?: string | Date;
+    }
+  ) {
+    const vehicle = await this.db.rentalFleetVehicle.findUnique({ where: { id: vehicleId } });
+    if (!vehicle) throw new HttpError(404, 'RENTAL_VEHICLE_NOT_FOUND');
+    if (vehicle.isEligibleForRental !== false) {
+      throw new HttpError(409, 'DELIST_BEFORE_EDITING', 'Delist this car first. Its details can only be edited while customers cannot see or book it.');
+    }
+
+    const positive = (value: number | bigint | string | undefined, code: string, label: string, allowZero = false): bigint | undefined => {
+      if (value === undefined) return undefined;
+      let amount: bigint;
+      try { amount = BigInt(value); } catch { throw new HttpError(400, code, `${label} must be a whole number of paise.`); }
+      if (amount < 0n || (!allowZero && amount === 0n)) throw new HttpError(400, code, `${label} must be ${allowZero ? 'zero or more' : 'more than zero'}.`);
+      return amount;
+    };
+    const optionalDate = (value: string | Date | undefined, label: string): Date | undefined => {
+      if (value === undefined || value === '') return undefined;
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) throw new HttpError(400, 'INVALID_COMPLIANCE_DATE', `${label} is not a valid date.`);
+      return date;
+    };
+    if (input.includedKmPerDay !== undefined && (!Number.isInteger(input.includedKmPerDay) || input.includedKmPerDay < 50)) {
+      throw new HttpError(400, 'INVALID_INCLUDED_KM', 'Included km per day must be a whole number, at least 50.');
+    }
+    if (input.seats !== undefined && (!Number.isInteger(input.seats) || input.seats < 2 || input.seats > 10)) {
+      throw new HttpError(400, 'INVALID_SEATS', 'Seats must be between 2 and 10.');
+    }
+
+    const data: Record<string, unknown> = {};
+    const daily = positive(input.baseDailyRatePaise, 'INVALID_DAILY_RATE', 'The daily rate');
+    const hourly = positive(input.baseHourlyRatePaise, 'INVALID_HOURLY_RATE', 'The hourly rate');
+    const deposit = positive(input.securityDepositPaise, 'INVALID_DEPOSIT', 'The security deposit', true);
+    const extra = positive(input.extraKmRatePaise, 'INVALID_EXTRA_KM_RATE', 'The extra-km charge');
+    if (daily !== undefined) data.baseDailyRatePaise = daily;
+    if (hourly !== undefined) data.baseHourlyRatePaise = hourly;
+    if (deposit !== undefined) data.securityDepositPaise = deposit;
+    if (extra !== undefined) data.extraKmRatePaise = extra;
+    if (input.includedKmPerDay !== undefined) data.includedKmPerDay = input.includedKmPerDay;
+    if (input.variant !== undefined) data.variant = input.variant.trim() || null;
+    if (input.color !== undefined && input.color.trim()) data.color = input.color.trim();
+    if (input.seats !== undefined) data.seats = input.seats;
+    if (input.features !== undefined) data.features = input.features.map(f => f.trim()).filter(Boolean);
+    // Compliance details stay optional: a blank value leaves what is on file unchanged.
+    if (input.vin !== undefined && input.vin.trim()) data.vin = input.vin.trim().toUpperCase();
+    if (input.commercialPermitNumber !== undefined && input.commercialPermitNumber.trim()) data.commercialPermitNumber = input.commercialPermitNumber.trim();
+    if (input.insurancePolicyNumber !== undefined && input.insurancePolicyNumber.trim()) data.insurancePolicyNumber = input.insurancePolicyNumber.trim();
+    const permitExpiry = optionalDate(input.commercialPermitExpiry, 'Commercial permit expiry');
+    const insuranceExpiry = optionalDate(input.insuranceExpiry, 'Insurance expiry');
+    const fitnessExpiry = optionalDate(input.fitnessCertExpiry, 'Fitness certificate expiry');
+    if (permitExpiry) data.commercialPermitExpiry = permitExpiry;
+    if (insuranceExpiry) data.insuranceExpiry = insuranceExpiry;
+    if (fitnessExpiry) data.fitnessCertExpiry = fitnessExpiry;
+
+    // Only what really changes is written and audited.
+    const plain = (value: unknown) => (typeof value === 'bigint' || typeof value === 'number' || typeof value === 'string' ? String(value) : value instanceof Date ? value.toISOString() : JSON.stringify(value));
+    const before: Record<string, unknown> = {};
+    const after: Record<string, unknown> = {};
+    for (const key of Object.keys(data)) {
+      const previous = (vehicle as Record<string, unknown>)[key];
+      if (plain(previous ?? null) !== plain(data[key])) { before[key] = plain(previous ?? null); after[key] = plain(data[key]); } else delete data[key];
+    }
+    if (Object.keys(data).length === 0) return await this.db.rentalFleetVehicle.findUnique({ where: { id: vehicleId }, include: { hub: true } });
+
+    return await this.db.$transaction(async tx => {
+      const updated = await tx.rentalFleetVehicle.update({ where: { id: vehicleId }, data: data as any, include: { hub: true } });
+      await tx.rentalAuditEvent.create({
+        data: { vehicleId, eventType: 'RENTAL_VEHICLE_DETAILS_UPDATED', actorId: employeeId, metadata: { before, after } as any },
+      });
+      return updated;
+    });
+  }
+
+  /**
    * Operations: correct the odometer and / or fuel level recorded for a car (a mistyped reading, a refuel at the hub).
    * A hand-over or return records readings as part of the trip; this is the only other way to change them, so it needs a
    * reason, is refused while the car is on a trip (the return records its readings then) and is audited with the previous

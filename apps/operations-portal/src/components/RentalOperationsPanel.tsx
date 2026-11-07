@@ -98,6 +98,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [onboardModalOpen, setOnboardModalOpen] = useState(false);
   const [walkInModalOpen, setWalkInModalOpen] = useState(false);
   const [blockModalVehicle, setBlockModalVehicle] = useState<RentalFleetItem | null>(null);
+  // Editing a delisted car's details (rates, deposit, km allowance, documents)
+  const [editVehicle, setEditVehicle] = useState<RentalFleetItem | null>(null);
+  const [editForm, setEditForm] = useState<Record<string, string>>({});
+  const setEditField = (key: string, value: string) => setEditForm(prev => ({ ...prev, [key]: value }));
   // Correcting the odometer / fuel level recorded for a car
   const [readingsVehicle, setReadingsVehicle] = useState<RentalFleetItem | null>(null);
   const [readingOdometer, setReadingOdometer] = useState('');
@@ -822,6 +826,78 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       void loadData();
     } catch (err: any) {
       onError(err?.message || 'Failed to create availability block');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const rupeesText = (paise: string | number | null | undefined) => (paise === null || paise === undefined || paise === '' ? '' : String(Number(paise) / 100));
+  const openEditModal = (veh: RentalFleetItem) => {
+    setEditVehicle(veh);
+    setEditForm({
+      baseDailyRate: rupeesText(veh.baseDailyRatePaise),
+      baseHourlyRate: rupeesText((veh as any).baseHourlyRatePaise),
+      securityDeposit: rupeesText(veh.securityDepositPaise),
+      includedKmPerDay: String(veh.includedKmPerDay ?? veh.includedDailyKm ?? ''),
+      extraKmRate: rupeesText(veh.extraKmRatePaise),
+      variant: veh.variant ?? '',
+      color: veh.color ?? '',
+      seats: String(veh.seats ?? ''),
+      vin: veh.vin ?? '',
+      commercialPermitNumber: veh.commercialPermitNumber ?? '',
+      commercialPermitExpiry: (veh.commercialPermitExpiry ?? '').slice(0, 10),
+      insurancePolicyNumber: veh.insurancePolicyNumber ?? '',
+      insuranceExpiry: (veh.insuranceExpiry ?? '').slice(0, 10),
+      fitnessCertExpiry: (veh.fitnessCertExpiry ?? '').slice(0, 10),
+    });
+  };
+
+  // Sends only the fields that differ from what is on record; the API audits the change and refuses a car that is still listed.
+  const handleEditSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editVehicle) return;
+    const v = editVehicle;
+    const body: Record<string, string | number | undefined> = {};
+    const money = (key: string, current: string | number | null | undefined, field: string) => {
+      const entered = (editForm[key] ?? '').trim();
+      if (entered === '') return;
+      const paise = Math.round(Number(entered) * 100);
+      if (!Number.isFinite(paise) || paise < 0) { throw new Error(`Enter a valid amount for ${field}.`); }
+      if (String(paise) !== String(current ?? '')) body[key === 'baseDailyRate' ? 'baseDailyRatePaise' : key === 'baseHourlyRate' ? 'baseHourlyRatePaise' : key === 'securityDeposit' ? 'securityDepositPaise' : 'extraKmRatePaise'] = paise;
+    };
+    const text = (key: string, current: string | null | undefined) => {
+      const entered = (editForm[key] ?? '').trim();
+      if (entered !== '' && entered !== (current ?? '')) body[key] = entered;
+    };
+    try {
+      money('baseDailyRate', v.baseDailyRatePaise, 'the daily rate');
+      money('baseHourlyRate', (v as any).baseHourlyRatePaise, 'the hourly rate');
+      money('securityDeposit', v.securityDepositPaise, 'the security deposit');
+      money('extraKmRate', v.extraKmRatePaise, 'the extra-km charge');
+    } catch (err: any) {
+      onError(err.message);
+      return;
+    }
+    const km = parseReading(editForm.includedKmPerDay ?? '');
+    if (km !== null && km !== (v.includedKmPerDay ?? v.includedDailyKm)) body.includedKmPerDay = km;
+    const seats = parseReading(editForm.seats ?? '');
+    if (seats !== null && seats !== v.seats) body.seats = seats;
+    text('variant', v.variant); text('color', v.color); text('vin', v.vin);
+    text('commercialPermitNumber', v.commercialPermitNumber); text('insurancePolicyNumber', v.insurancePolicyNumber);
+    const date = (key: string, current: string | null | undefined) => {
+      const entered = (editForm[key] ?? '').trim();
+      if (entered !== '' && entered !== (current ?? '').slice(0, 10)) body[key] = new Date(`${entered}T00:00:00.000Z`).toISOString();
+    };
+    date('commercialPermitExpiry', v.commercialPermitExpiry); date('insuranceExpiry', v.insuranceExpiry); date('fitnessCertExpiry', v.fitnessCertExpiry);
+    if (Object.keys(body).length === 0) { onError('Nothing was changed.'); return; }
+    setActionBusy(true);
+    try {
+      await api.updateRentalFleetDetails(user, v.id, body);
+      onSuccess(`${v.make} ${v.model} (${v.registrationNumber}) updated. Bookings already made keep the rates they were quoted; publish the car again when you are ready.`);
+      setEditVehicle(null);
+      void loadData();
+    } catch (err: any) {
+      onError(err?.message || 'Failed to update the car');
     } finally {
       setActionBusy(false);
     }
@@ -1635,6 +1711,16 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             title={isPublished ? 'Delist from customer searches' : 'Publish to customer searches'}
                           >
                             {isPublished ? 'Delist' : 'Publish'}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="btn-secondary btn-sm button secondary small"
+                            disabled={veh.isEligibleForRental !== false}
+                            onClick={() => openEditModal(veh)}
+                            title={veh.isEligibleForRental !== false ? 'Delist this car first - details can only be edited while customers cannot book it' : 'Edit rates, deposit, km allowance and documents'}
+                          >
+                            ✏️ Edit
                           </button>
 
                           <button
@@ -3217,6 +3303,76 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL: EDIT A DELISTED CAR */}
+      {editVehicle && (() => {
+        const hubPolicy = hubs.find(h => h.id === editVehicle.hubId)?.kmPolicy;
+        const field = (key: string, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+          <div key={key}>
+            <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{label}</label>
+            <input className="input" value={editForm[key] ?? ''} onChange={e => setEditField(key, e.target.value)} style={{ width: '100%', marginTop: '4px' }} {...props} />
+          </div>
+        );
+        return (
+          <div className="modal-overlay" style={{ zIndex: 1000 }}>
+            <div className="modal-dialog" style={{ maxWidth: '720px', width: '95%' }}>
+              <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span className="eyebrow">EDIT CAR · DELISTED</span>
+                  <h3 style={{ margin: 0 }}>{editVehicle.make} {editVehicle.model} · {editVehicle.registrationNumber}</h3>
+                </div>
+                <button type="button" className="icon-button" onClick={() => setEditVehicle(null)}><IconCross /></button>
+              </div>
+              <form onSubmit={handleEditSubmit}>
+                <div className="modal-body" style={{ padding: '1.25rem', display: 'grid', gap: '1.1rem' }}>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--muted)', margin: 0 }}>
+                    Changes apply to new bookings only. Bookings already made keep the rates they were quoted. Every change is recorded with your name. Publish the car again afterwards.
+                  </p>
+                  <div>
+                    <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Rates & deposit (₹)</strong>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
+                      {field('baseDailyRate', 'Daily package rate', { type: 'number', min: 1 })}
+                      {field('baseHourlyRate', 'Hourly rate', { type: 'number', min: 1 })}
+                      {field('securityDeposit', 'Refundable security deposit', { type: 'number', min: 0 })}
+                    </div>
+                  </div>
+                  <div>
+                    <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Kilometre allowance</strong>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
+                      {field('includedKmPerDay', 'Included (free) km per day', { type: 'number', min: 50 })}
+                      {field('extraKmRate', 'Extra km charge (₹ per km)', { type: 'number', min: 1 })}
+                    </div>
+                    {hubPolicy ? <small style={{ color: 'var(--muted)' }}>This hub has its own policy ({hubPolicy.includedKmPerDay ?? '—'} km/day, ₹{hubPolicy.extraKmRatePaise ? Number(hubPolicy.extraKmRatePaise) / 100 : '—'}/km), which is applied instead; these values are the car's fallback.</small> : null}
+                  </div>
+                  <div>
+                    <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Car</strong>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
+                      {field('variant', 'Variant & trim')}
+                      {field('color', 'Colour')}
+                      {field('seats', 'Seats', { type: 'number', min: 2, max: 10 })}
+                    </div>
+                  </div>
+                  <div>
+                    <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Documents (optional - leave blank to keep what is on file)</strong>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
+                      {field('vin', 'VIN / chassis number')}
+                      {field('commercialPermitNumber', 'Commercial permit number')}
+                      {field('commercialPermitExpiry', 'Permit expiry', { type: 'date' })}
+                      {field('insurancePolicyNumber', 'Insurance policy number')}
+                      {field('insuranceExpiry', 'Insurance expiry', { type: 'date' })}
+                      {field('fitnessCertExpiry', 'Fitness certificate expiry', { type: 'date' })}
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer" style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <button type="button" className="btn-secondary button secondary" onClick={() => setEditVehicle(null)}>Cancel</button>
+                  <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>{actionBusy ? 'Saving…' : 'Save Changes'}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* MODAL: CORRECT RECORDED READINGS */}
       {readingsVehicle && (

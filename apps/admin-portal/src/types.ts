@@ -238,6 +238,18 @@ export type ExportJobPage = {
   items: ExportJob[];
 };
 
+/** The version information the mobile apps check (one per platform). Empty values until something is published. */
+export type AppConfigEntry = {
+  app: string;
+  platform: 'ANDROID' | 'IOS';
+  latestVersion: string | null;
+  latestVersionCode: number | null;
+  minSupportedVersion: string | null;
+  updateUrl: string | null;
+  releaseNotes: string | null;
+  updatedAt: string | null;
+};
+
 export type RentalKmPolicy = {
   id: string;
   code: string;

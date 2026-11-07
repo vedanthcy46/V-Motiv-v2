@@ -229,6 +229,25 @@ const readingsCorrectionSchema = z.object({
   reason: z.string().trim().min(3, 'Say why the reading is being changed.').max(300),
 });
 
+// Editing a delisted car's details. Blank fields mean "leave unchanged"; money is in paise.
+const fleetDetailsSchema = z.object({
+  baseDailyRatePaise: z.preprocess(blankToUndefined, z.coerce.number().int().positive().optional()),
+  baseHourlyRatePaise: z.preprocess(blankToUndefined, z.coerce.number().int().positive().optional()),
+  securityDepositPaise: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).optional()),
+  includedKmPerDay: z.preprocess(blankToUndefined, z.coerce.number().int().min(50).optional()),
+  extraKmRatePaise: z.preprocess(blankToUndefined, z.coerce.number().int().positive().optional()),
+  variant: z.string().trim().max(50).optional(),
+  color: z.string().trim().max(40).optional(),
+  seats: z.preprocess(blankToUndefined, z.coerce.number().int().min(2).max(10).optional()),
+  features: z.array(z.string().trim().max(80)).max(60).optional(),
+  vin: z.preprocess(blankToUndefined, z.string().trim().min(5).max(30).optional()),
+  commercialPermitNumber: z.preprocess(blankToUndefined, z.string().trim().min(3).max(60).optional()),
+  commercialPermitExpiry: z.preprocess(blankToUndefined, z.string().datetime().or(z.string().min(10)).optional()),
+  insurancePolicyNumber: z.preprocess(blankToUndefined, z.string().trim().min(3).max(60).optional()),
+  insuranceExpiry: z.preprocess(blankToUndefined, z.string().datetime().or(z.string().min(10)).optional()),
+  fitnessCertExpiry: z.preprocess(blankToUndefined, z.string().datetime().or(z.string().min(10)).optional()),
+}).strict();
+
 const blockCreateSchema = z.object({
   reason: z.enum(['MAINTENANCE', 'CLEANING', 'OPERATIONAL_RESTRICTION', 'ACCIDENT_REPAIR', 'BUFFER']),
   startTime: z.string().datetime().or(z.string().min(10)),
@@ -713,6 +732,18 @@ export function createRentalOperationsRouter(deps: {
       const input = parse(readingsCorrectionSchema, req.body);
       const employee = res.locals.employee;
       res.json(await deps.store.correctVehicleReadings(employee.userId, vehicleId, input));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Edit a delisted car's details (rates, deposit, km allowance, documents); audited
+  router.patch('/fleet/:id/details', requireRentalRole(['RENTAL_MANAGER', 'RENTAL_FLEET_OFFICER', 'HUB_MANAGER', 'OPERATIONS_MANAGER', 'ADMIN', 'SUPER_ADMIN']), async (req, res, next) => {
+    try {
+      const vehicleId = uuid.parse(req.params.id);
+      const input = parse(fleetDetailsSchema, req.body);
+      const employee = res.locals.employee;
+      res.json(await deps.store.updateFleetDetails(employee.userId, vehicleId, input as any));
     } catch (e) {
       next(e);
     }
