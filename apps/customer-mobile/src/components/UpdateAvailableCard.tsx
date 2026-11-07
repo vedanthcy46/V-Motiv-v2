@@ -25,7 +25,7 @@ export function UpdateAvailableCard() {
         <View style={{ flex: 1 }}>
           <Text style={[styles.title, { color: c.textPrimary }]}>{required ? 'Update required' : 'Update available'}</Text>
           <Text style={[styles.sub, { color: c.textSecondary }]}>
-            Version {update.latest} is available. You have {update.current}.
+            Version {update.latest}{update.latestCode ? ` (build ${update.latestCode})` : ''} is available. You have {update.current}{typeof update.currentCode === 'number' ? ` (build ${update.currentCode})` : ''}.
           </Text>
         </View>
       </View>

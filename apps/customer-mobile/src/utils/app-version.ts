@@ -26,6 +26,8 @@ export type UpdateKind = 'none' | 'optional' | 'required';
 export interface UpdateDecision {
   kind: UpdateKind;
   current: string;
+  /** The installed build number, when known. */
+  currentCode?: number | null;
   latestCode?: number | null;
   latest: string | null;
   notes: string | null;
@@ -38,7 +40,7 @@ export interface UpdateDecision {
  */
 export function decideUpdate(args: { current: string; currentCode?: number | null; config: AppUpdateConfig | null; dismissedVersion?: string | null }): UpdateDecision {
   const { current, currentCode, config, dismissedVersion } = args;
-  const none: UpdateDecision = { kind: 'none', current, latestCode: config?.latestVersionCode ?? null, latest: config?.latestVersion ?? null, notes: config?.releaseNotes ?? null, url: config?.updateUrl ?? null };
+  const none: UpdateDecision = { kind: 'none', current, currentCode: currentCode ?? null, latestCode: config?.latestVersionCode ?? null, latest: config?.latestVersion ?? null, notes: config?.releaseNotes ?? null, url: config?.updateUrl ?? null };
   if (!config?.latestVersion) return none;
   const mustUpdate = Boolean(config.minSupportedVersion) && compareVersions(current, config.minSupportedVersion!) < 0;
   if (mustUpdate) return { ...none, kind: 'required' };

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { AppState, Linking, Platform } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import * as Application from 'expo-application';
 import { api } from '../api';
 import { compareVersions, decideUpdate, dismissalKey, type AppUpdateConfig, type UpdateDecision } from '../utils/app-version';
 
@@ -11,13 +12,17 @@ const DISMISS_FOR_MS = 24 * 60 * 60 * 1000;
 /** How often the app asks the server again while it stays open / returns to the foreground. */
 const RECHECK_AFTER_MS = 10 * 60 * 1000;
 
-export const currentAppVersion = (): string => Constants.expoConfig?.version ?? '0.0.0';
+/**
+ * The version the installed app really is, read from the app itself (Android versionName / iOS CFBundleShortVersionString).
+ * Nothing has to be written in app.json or package.json, and it stays right when EAS numbers the builds (remote versioning).
+ * Expo Go has no such value; there the configured version is used.
+ */
+export const currentAppVersion = (): string => Application.nativeApplicationVersion ?? Constants.expoConfig?.version ?? '0.0.0';
 
-/** The installed build number: Android versionCode / iOS build number from the app's own configuration (null if unknown). */
+/** The installed build number (Android versionCode / iOS CFBundleVersion), read from the app itself; null when unknown. */
 export const currentBuildCode = (): number | null => {
-  const raw = Platform.OS === 'ios' ? Constants.expoConfig?.ios?.buildNumber : Constants.expoConfig?.android?.versionCode;
-  const code = typeof raw === 'string' ? Number.parseInt(raw, 10) : raw;
-  return typeof code === 'number' && Number.isFinite(code) ? code : null;
+  const code = Number.parseInt(String(Application.nativeBuildVersion ?? ''), 10);
+  return Number.isFinite(code) ? code : null;
 };
 
 async function readDismissed(): Promise<string | null> {
@@ -53,7 +58,7 @@ export function storeLink(config: { url: string | null }): string | null {
  */
 export function useAppUpdate(): { update: UpdateDecision; dismiss: () => void; openStore: () => void } {
   const current = currentAppVersion();
-  const [update, setUpdate] = useState<UpdateDecision>({ kind: 'none', current, latest: null, notes: null, url: null });
+  const [update, setUpdate] = useState<UpdateDecision>({ kind: 'none', current, currentCode: currentBuildCode(), latest: null, notes: null, url: null });
   const lastCheck = useRef(0);
 
   const check = useCallback(async () => {
