@@ -30,19 +30,26 @@ import { attachConnectRealtime } from './connect-realtime.js';
 import { processEmail, resendSender } from './email.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
 import { keepAliveTarget, startKeepAlive } from './keep-alive.js';
+import { parseServiceAccount } from './firebase-credential.js';
 
 const config = readConfig(process.env);
 
 let firebaseCredential = undefined;
 // Hosted services (Render, etc.) have no secret files: the service-account JSON can be given as an environment variable
 // (plain JSON, or the same JSON base64-encoded).
-const inlineServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
-if (inlineServiceAccount) {
-  try {
-    const text = inlineServiceAccount.startsWith('{') ? inlineServiceAccount : Buffer.from(inlineServiceAccount, 'base64').toString('utf8');
-    firebaseCredential = cert(JSON.parse(text));
-  } catch (error: any) {
-    console.error('[FIREBASE] FIREBASE_SERVICE_ACCOUNT_JSON is set but could not be read:', error?.message || error);
+const inlineServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON;
+if (inlineServiceAccount?.trim()) {
+  const parsedKey = parseServiceAccount(inlineServiceAccount, config.FIREBASE_PROJECT_ID);
+  if (parsedKey.ok) {
+    try {
+      firebaseCredential = cert(parsedKey.key as any);
+      console.info(`[FIREBASE] Using the service-account key from FIREBASE_SERVICE_ACCOUNT_JSON (${parsedKey.format}) for ${parsedKey.key.client_email}`);
+    } catch (error: any) {
+      console.error('[FIREBASE] The service-account key was rejected:', error?.message || error);
+    }
+  } else {
+    // Without a usable key every login fails with "app/invalid-credential", so say exactly why at start-up.
+    console.error(`[FIREBASE] FIREBASE_SERVICE_ACCOUNT_JSON cannot be used: ${parsedKey.reason}`);
   }
 }
 const possibleSecrets = [
@@ -62,6 +69,9 @@ if (!firebaseCredential) {
   try {
     firebaseCredential = applicationDefault();
   } catch {}
+  if (config.NODE_ENV === 'production') {
+    console.error('[FIREBASE] No service-account key was found (FIREBASE_SERVICE_ACCOUNT_JSON missing or unusable). Logins will fail with "app/invalid-credential" until it is set.');
+  }
 }
 
 const firebase = initializeApp({
