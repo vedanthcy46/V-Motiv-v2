@@ -103,3 +103,26 @@ describe('Cashfree router', () => {
     expect(page.text).toContain('mode: "sandbox"');
   });
 });
+
+import { checkoutContentSecurityPolicy } from '../src/cashfree-router.js';
+describe('hosted checkout page', () => {
+  it('has its own security header that lets Cashfree load, so the page does not stay on "Opening secure payment"', async () => {
+    const policy = checkoutContentSecurityPolicy('abc123');
+    expect(policy).toContain("script-src 'self' 'nonce-abc123' https://sdk.cashfree.com");
+    expect(policy).toContain('frame-src https://*.cashfree.com');
+    expect(policy).toContain('connect-src');
+    expect(policy).not.toContain("'unsafe-eval'");
+    expect(policy).toContain("object-src 'none'");
+  });
+
+  it('sends that header with the page and puts the same nonce on the inline starter script', async () => {
+    process.env.CASHFREE_APP_ID = 'TEST_APP'; process.env.CASHFREE_SECRET_KEY = 'cfsk_ma_test_secret';
+    const app = express();
+    app.use('/api/v2', createCashfreeRouter({ verify: verify as any, db: makeDb() }));
+    const res = await request(app).get('/api/v2/payments/cashfree/checkout?session=session_test_123456');
+    expect(res.status).toBe(200);
+    const nonce = /'nonce-([^']+)'/.exec(res.headers['content-security-policy']!)![1]!;
+    expect(res.text).toContain(`<script nonce="${nonce}">`);
+    expect(res.text).toContain('https://sdk.cashfree.com/js/v3/cashfree.js');
+  });
+});

@@ -11,6 +11,7 @@ import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
 import { authentication, type Identity, type VerifyToken } from './auth.js';
 import { HttpError } from './errors.js';
+import { randomBytes } from 'node:crypto';
 import { assertCashfreeWebhookSignature, cashfreeConfig, createCashfreeOrder, describeCashfreeKeys, fetchCashfreeOrder, type CashfreeOptions } from './cashfree-gateway.js';
 
 const SETTLE_SIGNATURE = 'cashfree-server-verified';
@@ -30,6 +31,23 @@ const createOrderInput = z.object({
 }).strict();
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]!));
+
+/** Security header for the hosted checkout page: scripts, frames and calls only to Cashfree (plus our own nonce-marked starter script). */
+export function checkoutContentSecurityPolicy(nonce: string): string {
+  const cashfree = 'https://*.cashfree.com';
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' https://sdk.cashfree.com ${cashfree}`,
+    `connect-src 'self' ${cashfree}`,
+    `frame-src ${cashfree}`,
+    "img-src 'self' data: https:",
+    "style-src 'self' 'unsafe-inline' https:",
+    "font-src 'self' https: data:",
+    "form-action 'self' https:",
+    "base-uri 'none'",
+    "object-src 'none'",
+  ].join('; ');
+}
 
 export function publicBaseUrl(req: { protocol: string; get(name: string): string | undefined }, env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.API_PUBLIC_URL?.trim().replace(/\/+$/, '');
@@ -123,11 +141,16 @@ export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClie
     const config = cashfreeConfig();
     if (!config || !/^[A-Za-z0-9_=-]{10,600}$/.test(session)) { res.status(400).type('html').send('<p>This payment link is not valid.</p>'); return; }
     res.setHeader('Cache-Control', 'no-store');
+    // The API's default security header only lets pages run scripts from our own server, which would block Cashfree's checkout
+    // script and leave this page on "Opening secure payment..." forever. This one page gets its own header that allows Cashfree
+    // (and our single inline starter script, by nonce) and nothing else.
+    const nonce = randomBytes(16).toString('base64');
+    res.setHeader('Content-Security-Policy', checkoutContentSecurityPolicy(nonce));
     res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>V MOTIV payment</title>
 <style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#0b2545}</style></head>
 <body><p id="m">Opening secure payment…</p>
 <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
-<script>
+<script nonce="${nonce}">
   try {
     var cashfree = Cashfree({ mode: "${config.mode}" });
     cashfree.checkout({ paymentSessionId: ${JSON.stringify(session)}, redirectTarget: "_self" });
