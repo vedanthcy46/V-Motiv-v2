@@ -32,7 +32,15 @@ async function cashfreeRequest(path: string, init: { method?: string; body?: unk
       signal: controller.signal,
     });
     if (res.status === 404) throw new HttpError(402, 'PAYMENT_NOT_FOUND_AT_GATEWAY');
-    if (!res.ok) throw new HttpError(res.status === 400 || res.status === 422 ? 400 : 502, res.status === 400 || res.status === 422 ? 'PAYMENT_GATEWAY_REJECTED_ORDER' : 'PAYMENT_GATEWAY_UNAVAILABLE');
+    if (!res.ok) {
+      // Cashfree explains why it refused (wrong key for this mode, bad phone, return URL not https...). Keep that reason: it is
+      // written to the server log and sent back as the error message so a failure can be understood. It never contains our keys.
+      const detail = await res.json().catch(() => null) as { code?: string; type?: string; message?: string } | null;
+      const reason = [detail?.code, detail?.message].filter(Boolean).join(': ').slice(0, 300);
+      console.error(`[CASHFREE] ${init.method ?? 'GET'} ${path.replace(/\/orders\/[^/]+/, '/orders/:id')} -> ${res.status}${reason ? ` ${reason}` : ''} (mode ${config.mode})`);
+      const rejected = res.status === 400 || res.status === 422;
+      throw new HttpError(rejected ? 400 : 502, rejected ? 'PAYMENT_GATEWAY_REJECTED_ORDER' : 'PAYMENT_GATEWAY_UNAVAILABLE', reason || undefined);
+    }
     return await res.json();
   } catch (err) {
     if (err instanceof HttpError) throw err;
