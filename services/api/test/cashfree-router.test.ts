@@ -47,6 +47,14 @@ describe('Cashfree router', () => {
     return { app, settle, state };
   }
 
+  it('looks the customer up by Firebase uid without comparing it to the UUID id column (that made Postgres reject the query)', async () => {
+    const db = makeDb();
+    const { app } = build(db);
+    await request(app).post('/api/v2/payments/cashfree/orders').set('Authorization', 'Bearer t').send({ kind: 'RENTAL', referenceId: '22222222-2222-4222-8222-222222222222' });
+    const where = (db.user.findFirst as any).mock.calls[0][0].where;
+    expect(where.OR).toEqual([{ firebaseUid: 'firebase-1' }]); // 'firebase-1' is not a UUID, so no { id } clause
+  });
+
   it('creates an order for the amount in our own records and returns a checkout link', async () => {
     const db = makeDb();
     const { app } = build(db);

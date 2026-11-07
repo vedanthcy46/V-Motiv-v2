@@ -43,7 +43,10 @@ export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClie
   const scheme = deps.appScheme ?? 'vmotiv';
 
   async function customerFor(identity: Identity) {
-    const user = await deps.db.user.findFirst({ where: { OR: [{ firebaseUid: identity.uid }, { id: identity.uid }] }, select: { id: true, email: true, displayName: true, phone: true } });
+    // A Firebase uid is not a UUID: comparing it with the UUID `id` column makes Postgres reject the whole query (P2023),
+    // so the id match is only added when the value really is a UUID.
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identity.uid);
+    const user = await deps.db.user.findFirst({ where: { OR: [{ firebaseUid: identity.uid }, ...(isUuid ? [{ id: identity.uid }] : [])] }, select: { id: true, email: true, displayName: true, phone: true } });
     if (!user) throw new HttpError(404, 'USER_RECORD_NOT_FOUND');
     return user;
   }
