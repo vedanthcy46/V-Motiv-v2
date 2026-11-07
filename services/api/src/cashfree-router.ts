@@ -11,7 +11,7 @@ import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
 import { authentication, type Identity, type VerifyToken } from './auth.js';
 import { HttpError } from './errors.js';
-import { assertCashfreeWebhookSignature, cashfreeConfig, createCashfreeOrder, fetchCashfreeOrder, type CashfreeOptions } from './cashfree-gateway.js';
+import { assertCashfreeWebhookSignature, cashfreeConfig, createCashfreeOrder, describeCashfreeKeys, fetchCashfreeOrder, type CashfreeOptions } from './cashfree-gateway.js';
 
 const SETTLE_SIGNATURE = 'cashfree-server-verified';
 
@@ -114,6 +114,7 @@ export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClie
       appIdPresent: Boolean(process.env.CASHFREE_APP_ID?.trim()),
       secretPresent: Boolean(process.env.CASHFREE_SECRET_KEY?.trim()),
       nodeEnv: process.env.NODE_ENV ?? null,
+      keys: describeCashfreeKeys(),
     });
   });
 

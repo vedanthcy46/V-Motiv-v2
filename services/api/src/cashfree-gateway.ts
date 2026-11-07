@@ -144,3 +144,26 @@ export async function assertCashfreePaid(
   if (expectedPaise !== null && (opts.exact ? paid !== expectedPaise : paid < expectedPaise)) throw new HttpError(402, 'PAYMENT_AMOUNT_MISMATCH');
   return paid;
 }
+
+/**
+ * What kind of Cashfree keys the server holds, judged only from the public format markers (never the keys themselves):
+ * test app ids start with "TEST" and test secrets with "cfsk_ma_test_"; live secrets start with "cfsk_ma_prod_".
+ * Used to explain a 401 "authentication failed" - almost always keys that do not match the mode, or stray characters.
+ */
+export function describeCashfreeKeys(env: NodeJS.ProcessEnv = process.env) {
+  const rawId = env.CASHFREE_APP_ID ?? '';
+  const rawSecret = env.CASHFREE_SECRET_KEY ?? '';
+  const id = rawId.trim();
+  const secret = rawSecret.trim();
+  const kind = (value: string, test: RegExp, live: RegExp): 'test' | 'live' | 'unknown' => (test.test(value) ? 'test' : live.test(value) ? 'live' : 'unknown');
+  const appIdKind = kind(id, /^TEST/i, /^(?!TEST)[A-Za-z0-9]{8,}$/);
+  const secretKind = kind(secret, /^cfsk_ma_test_/i, /^cfsk_ma_prod_/i);
+  const mode = env.CASHFREE_ENV?.trim().toLowerCase() === 'production' ? 'production' : 'sandbox';
+  const problems: string[] = [];
+  if (/[\s"']/.test(id) || /[\s"']/.test(secret)) problems.push('A key contains a space, line break or quote character - paste the bare value only.');
+  if (secret.startsWith('cfsk_ma_') === false && secret) problems.push('The secret does not look like a Cashfree Payment Gateway secret (expected to start with cfsk_ma_test_ or cfsk_ma_prod_). Make sure the App ID and Secret are not swapped and are the Payment Gateway keys, not Payouts / Verification keys.');
+  if (mode === 'sandbox' && (secretKind === 'live' || appIdKind === 'live')) problems.push('CASHFREE_ENV is sandbox but the keys are LIVE keys. Use the test keys, or set CASHFREE_ENV=production.');
+  if (mode === 'production' && (secretKind === 'test' || appIdKind === 'test')) problems.push('CASHFREE_ENV is production but the keys are TEST keys. Use the live keys, or set CASHFREE_ENV=sandbox.');
+  if (appIdKind !== 'unknown' && secretKind !== 'unknown' && appIdKind !== secretKind) problems.push('The App ID and the Secret are from different environments (one test, one live).');
+  return { mode, appIdKind, secretKind, problems };
+}
