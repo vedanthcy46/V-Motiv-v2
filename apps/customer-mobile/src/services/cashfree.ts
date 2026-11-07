@@ -37,7 +37,9 @@ export async function payWithCashfree(kind: 'RENTAL' | 'SERVICE', referenceId: s
       body: JSON.stringify({ kind, referenceId, ...(amountPaise ? { amountPaise } : {}) }),
     });
   } catch (error) {
-    if (error instanceof ApiError && (error.code === 'PAYMENT_GATEWAY_NOT_CONFIGURED' || error.status === 503)) return { outcome: 'UNAVAILABLE' };
+    // Only the server's explicit "not configured" answer means Cashfree is not set up. Any other 503 (overload, outage) is a
+    // temporary failure and must not be mistaken for a configuration problem or trigger the demo payment.
+    if (error instanceof ApiError && error.code === 'PAYMENT_GATEWAY_NOT_CONFIGURED') return { outcome: 'UNAVAILABLE' };
     throw error;
   }
 

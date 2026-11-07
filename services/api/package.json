@@ -9,6 +9,7 @@
     "cf:deploy": "wrangler deploy",
     "postinstall": "prisma generate",
     "build": "prisma generate && tsc",
+    "start": "node dist/server.js",
     "typecheck": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json",
     "test": "vitest run",
     "worker": "tsx --env-file-if-exists=.env src/worker.ts",

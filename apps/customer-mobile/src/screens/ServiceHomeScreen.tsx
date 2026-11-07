@@ -64,6 +64,7 @@ import {
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
 import { KeyboardScrollView } from '../components/KeyboardScrollView';
+import { payWithCashfree } from '../services/cashfree';
 
 const CATEGORY_ICON_MAP: Record<string, React.ComponentType<{ size: number; color: string }>> = {
   REGULAR_SERVICE: Wrench,
@@ -335,22 +336,17 @@ export function ServiceHomeScreen() {
       return;
     }
 
+    const selectedPlan = paymentOptionsResponse?.options?.find(o => (o.planId || (o as any).id) === selectedPlanId);
+    // A plan that asks for money can only be charged when the server's own plan list is loaded. Without it the screen would
+    // show "Pay ₹X" but the booking would go through with nothing due, skipping the payment page.
+    if (!selectedPlan && selectedPlanId !== 'ZERO_UPFRONT') {
+      Alert.alert('Payment options not loaded', 'We could not load the payment options. Check your connection and go back one step, then try again.');
+      return;
+    }
+
     setSubmitting(true);
     try {
-      const selectedPlan = paymentOptionsResponse?.options?.find(o => (o.planId || (o as any).id) === selectedPlanId);
       const payNowPaise = selectedPlan?.payNowPaise ? BigInt(selectedPlan.payNowPaise) : 0n;
-
-      let gatewayOrderId: string | undefined;
-      let gatewayPaymentId: string | undefined;
-      let gatewaySignature: string | undefined;
-      let paymentGateway: string | undefined;
-
-      if (payNowPaise > 0n) {
-        paymentGateway = 'DEMO';
-        gatewayOrderId = `order_demo_srv_${Date.now()}`;
-        gatewayPaymentId = `pay_demo_srv_${Date.now()}`;
-        gatewaySignature = 'demo_sig_verified_vmotiv';
-      }
 
       const cleanPickupAddress = fulfillmentType === 'PICKUP_AND_RETURN' && pickupAddress?.line1?.trim()
         ? {
@@ -373,17 +369,24 @@ export function ServiceHomeScreen() {
         scheduledTimeSlot: selectedSlotTime,
         pickupAddress: cleanPickupAddress,
         paymentPlanId: selectedPlanId,
-        paymentGateway,
-        gatewayOrderId,
-        gatewayPaymentId,
-        gatewaySignature,
       });
+
+      // The request is saved first; any amount due now is then paid through Cashfree (no payment proof is made up here).
+      let payOutcome: 'NONE' | 'PAID' | 'PENDING' | 'FAILED' | 'UNAVAILABLE' = 'NONE';
+      if (payNowPaise > 0n) {
+        const paid = await payWithCashfree('SERVICE', result.id, payNowPaise.toString()).catch(() => ({ outcome: 'FAILED' as const }));
+        payOutcome = paid.outcome;
+      }
 
       const payNowRupees = Math.round(Number(payNowPaise) / 100);
       const balanceRupees = selectedPlan ? Math.round(Number(selectedPlan.balancePaise) / 100) : 0;
-      const successMsg = payNowRupees > 0
+      const successMsg = payOutcome === 'PAID'
         ? `Your request #${result.requestNumber} has been confirmed with initial payment of ₹${payNowRupees.toLocaleString('en-IN')}.\n\nRemaining balance: ₹${balanceRupees.toLocaleString('en-IN')}.\nOur service advisor will coordinate vehicle arrival.`
-        : `Your request #${result.requestNumber} has been received. Our service advisor will coordinate shortly.`;
+        : payOutcome === 'PENDING'
+          ? `Your request #${result.requestNumber} is saved. We have not received confirmation of your ₹${payNowRupees.toLocaleString('en-IN')} payment yet - if money was deducted it will show on the request within a few minutes.`
+          : payOutcome === 'FAILED' || payOutcome === 'UNAVAILABLE'
+            ? `Your request #${result.requestNumber} is saved, but the ₹${payNowRupees.toLocaleString('en-IN')} payment did not go through (no money was taken). Open the request to pay again.`
+            : `Your request #${result.requestNumber} has been received. Our service advisor will coordinate shortly.`;
 
       Alert.alert(
         'Service Booked!',

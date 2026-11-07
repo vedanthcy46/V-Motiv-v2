@@ -1,0 +1,76 @@
+# Render Blueprint for the V MOTIV API (Express + Prisma, always-on Node service).
+# Deploy: Render dashboard -> New -> Blueprint -> pick this repository. Then fill in the values marked "sync: false".
+# Free plan note: Render sleeps a free service after ~15 min without traffic. The API pings its own /health/live every
+# 5 minutes (src/keep-alive.ts, enabled automatically from RENDER_EXTERNAL_URL). For extra safety add an external monitor
+# (UptimeRobot, 5-minute interval) on https://<your-service>.onrender.com/health/live.
+services:
+  - type: web
+    name: vmotiv-api
+    runtime: node
+    plan: free            # change to "starter" for an always-on service with no sleeping and no cold starts
+    region: singapore     # closest to the Neon (database) region; change if your database is elsewhere
+    rootDir: .
+    # Only this service's workspace is installed (not every app in the monorepo).
+    buildCommand: npm ci --include-workspace-root -w @vmotiv/api && npm run build -w @vmotiv/api
+    startCommand: npm run start -w @vmotiv/api
+    healthCheckPath: /health/live
+    autoDeploy: true
+    envVars:
+      - key: NODE_VERSION
+        value: 22
+      - key: NODE_ENV
+        value: production
+      # --- required ---
+      - key: DATABASE_URL            # Neon pooled connection string
+        sync: false
+      - key: FIREBASE_PROJECT_ID
+        value: v-motiv
+      - key: FIREBASE_SERVICE_ACCOUNT_JSON   # contents of the Firebase service-account JSON (plain or base64)
+        sync: false
+      - key: WEB_ORIGIN
+        value: https://vmotiv.in
+      - key: ADMIN_WEB_ORIGIN
+        value: https://admin.vmotiv.in
+      - key: SALES_WEB_ORIGIN
+        value: https://sales.vmotiv.in
+      - key: INSPECTION_REVIEW_WEB_ORIGIN
+        value: https://review.vmotiv.in
+      - key: OPERATIONS_WEB_ORIGIN
+        value: https://ops.vmotiv.in
+      - key: FINANCE_WEB_ORIGIN
+        value: https://finance.vmotiv.in
+      # --- photos ---
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      # --- payments (Cashfree) ---
+      - key: CASHFREE_APP_ID
+        sync: false
+      - key: CASHFREE_SECRET_KEY
+        sync: false
+      - key: CASHFREE_ENV              # sandbox for test keys, production for live keys
+        value: sandbox
+      - key: API_PUBLIC_URL            # this service's public address, e.g. https://vmotiv-api.onrender.com
+        sync: false
+      # --- email ---
+      - key: EMAIL_DELIVERY_ENABLED
+        value: "true"
+      - key: EMAIL_FROM
+        value: noreply@vmotiv.in
+      - key: RESEND_API_KEY
+        sync: false
+      # --- in-person seller acceptance (SMS) ---
+      - key: ACCEPTANCE_OTP_SECRET
+        generateValue: true
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM
+        sync: false
+      # --- keep the free service awake ---
+      - key: KEEP_ALIVE                # set to "false" to turn the 5-minute self-ping off (e.g. on a paid plan)
+        value: "true"

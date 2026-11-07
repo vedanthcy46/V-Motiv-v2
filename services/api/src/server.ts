@@ -29,16 +29,28 @@ import { PrismaValuationStore } from './valuation-store.js';
 import { attachConnectRealtime } from './connect-realtime.js';
 import { processEmail, resendSender } from './email.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
+import { keepAliveTarget, startKeepAlive } from './keep-alive.js';
 
 const config = readConfig(process.env);
 
 let firebaseCredential = undefined;
+// Hosted services (Render, etc.) have no secret files: the service-account JSON can be given as an environment variable
+// (plain JSON, or the same JSON base64-encoded).
+const inlineServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT_JSON?.trim();
+if (inlineServiceAccount) {
+  try {
+    const text = inlineServiceAccount.startsWith('{') ? inlineServiceAccount : Buffer.from(inlineServiceAccount, 'base64').toString('utf8');
+    firebaseCredential = cert(JSON.parse(text));
+  } catch (error: any) {
+    console.error('[FIREBASE] FIREBASE_SERVICE_ACCOUNT_JSON is set but could not be read:', error?.message || error);
+  }
+}
 const possibleSecrets = [
   path.resolve(process.cwd(), 'secrets/firebase-admin.json'),
   path.resolve(process.cwd(), '../secrets/firebase-admin.json'),
   path.resolve(process.cwd(), '../../secrets/firebase-admin.json'),
 ];
-for (const p of possibleSecrets) {
+for (const p of firebaseCredential ? [] : possibleSecrets) {
   if (fs.existsSync(p)) {
     try {
       firebaseCredential = cert(JSON.parse(fs.readFileSync(p, 'utf8')));
@@ -135,8 +147,13 @@ const app = createApp({
 const server = app.listen(config.PORT, '0.0.0.0', () => console.info(`V MOTIV V2 API listening on 0.0.0.0:${config.PORT}`));
 attachConnectRealtime(server);
 
+// On Render's free plan the service sleeps after ~15 min without traffic: call our own health route every 5 minutes.
+const keepAliveUrl = keepAliveTarget(process.env);
+const stopKeepAlive = keepAliveUrl ? startKeepAlive({ baseUrl: keepAliveUrl }) : null;
+
 async function shutdown() {
   if (emailInterval) clearInterval(emailInterval);
+  stopKeepAlive?.();
   server.close(async () => { await db.$disconnect(); process.exit(0); });
 }
 process.on('SIGINT', shutdown);

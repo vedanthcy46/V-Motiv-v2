@@ -53,6 +53,11 @@ import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
 import { KeyboardScrollView } from '../components/KeyboardScrollView';
 import { payWithCashfree } from '../services/cashfree';
+import { DateField } from '../components/DateField';
+import { addYears, todayIso } from '../utils/date-field';
+
+/** The latest date of birth that is still an adult (18 years ago today). */
+const dobLatest = () => addYears(todayIso(), -18);
 
 type Props = NativeStackScreenProps<RootStack, 'RentalCheckout'>;
 
@@ -256,24 +261,6 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             }
           },
         },
-        // A stock photo is not a driving licence: the sample option exists in development builds only.
-        ...(__DEV__ ? [
-        {
-          text: 'Use Sample Document (Preview)',
-          onPress: () => {
-            const sampleUrl = type === 'front'
-              ? 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'
-              : 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=1200&q=80';
-            if (type === 'front') {
-              setDriverLicenseFront(sampleUrl);
-              setLocalFrontAsset(null);
-            } else {
-              setDriverLicenseBack(sampleUrl);
-              setLocalBackAsset(null);
-            }
-          },
-        },
-        ] : []),
         { text: 'Cancel', style: 'cancel' },
       ]
     );
@@ -718,19 +705,14 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
           <View style={styles.formRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>DATE OF BIRTH</Text>
-              <TextInput
-                style={[
-                  styles.textInput,
-                  {
-                    backgroundColor: colors.surfaceSecondary,
-                    borderColor: colors.border,
-                    color: colors.textPrimary,
-                  },
-                ]}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={colors.textMuted}
+              <DateField
+                title="Date of birth"
+                placeholder="Select date"
                 value={dob}
-                onChangeText={setDob}
+                onChange={setDob}
+                maxDate={dobLatest()}
+                minDate="1920-01-01"
+                initialYear={new Date().getFullYear() - 30}
               />
             </View>
 
@@ -756,19 +738,13 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
 
           <View style={styles.formGroup}>
             <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>LICENSE EXPIRY DATE</Text>
-            <TextInput
-              style={[
-                styles.textInput,
-                {
-                  backgroundColor: colors.surfaceSecondary,
-                  borderColor: colors.border,
-                  color: colors.textPrimary,
-                },
-              ]}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={colors.textMuted}
+            <DateField
+              title="Licence expiry date"
+              placeholder="Select date"
               value={licenseExpiry}
-              onChangeText={setLicenseExpiry}
+              onChange={setLicenseExpiry}
+              minDate={todayIso()}
+              maxDate={addYears(todayIso(), 40)}
             />
           </View>
 
