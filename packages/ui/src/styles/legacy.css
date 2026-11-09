@@ -141,7 +141,17 @@ th, td { text-align: left; padding: 0.7rem 1rem; border-top: 1px solid var(--col
 thead th { border-top: 0; background: var(--color-base-200); color: color-mix(in oklab, var(--color-base-content) 62%, transparent); font-size: 0.75rem; font-weight: 600; letter-spacing: 0.04em; text-transform: uppercase; white-space: nowrap; }
 td { font-size: 0.875rem; }
 tbody tr { transition: background-color 0.12s; }
-tbody tr:hover { background: color-mix(in oklab, var(--color-base-content) 3.5%, transparent); }
+tbody tr:hover, tbody tr:focus-within { background: color-mix(in oklab, var(--color-primary) 7%, var(--color-base-100)); }
+/* Row actions: the last cell's buttons appear when the row is hovered or focused, so a long table reads as data first.
+   Touch screens (no hover) and keyboard users always get them. Opacity, not display, so rows never change height. */
+@media (hover: hover) and (pointer: fine) {
+  :where(tbody tr > td:last-child:not(.empty-state):has(:is(button, a.button, a.btn, .button, .btn))) > :where(button, a, .button, .btn, div, span) {
+    opacity: 0; transition: opacity 0.12s ease;
+  }
+  tbody tr:hover > td:last-child > *,
+  tbody tr:focus-within > td:last-child > *,
+  tbody tr > td:last-child:has([aria-expanded="true"]) > * { opacity: 1; }
+}
 tr[role='button'], tr.clickable, tr[onclick] { cursor: pointer; }
 td > strong, td > span, td > small, .table-title, .table-sub { display: block; }
 td > span, td > small, .table-sub { color: color-mix(in oklab, var(--color-base-content) 58%, transparent); font-size: 0.8125rem; margin-top: 0.1rem; overflow-wrap: anywhere; }
