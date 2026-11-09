@@ -6,7 +6,6 @@ import {
   Keyboard,
   Linking,
   Modal,
-  PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
@@ -45,6 +44,7 @@ import {
   startConnectCallAudio,
   stopConnectCallAudio,
 } from '../services/call-audio';
+import { checkMicrophone, ensureMicrophone, ensureMicrophoneGranted } from '../services/mic-permission';
 import { KeyboardAvoider } from './KeyboardAvoider';
 import { KeyboardScrollView } from './KeyboardScrollView';
 
@@ -57,20 +57,7 @@ interface ChatItem {
   sentAt: string;
 }
 
-async function ensureMicrophonePermission(): Promise<boolean> {
-  if (Platform.OS === 'android') {
-    try {
-      const check = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
-      if (check) return true;
-      const granted = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
-      return granted === PermissionsAndroid.RESULTS.GRANTED;
-    } catch (e) {
-      console.warn('[ConnectVoiceCall] Permission check error:', e);
-      return false;
-    }
-  }
-  return true;
-}
+const ensureMicrophonePermission = ensureMicrophoneGranted;
 
 export function ConnectVoiceCall({
   callSessionId,
@@ -92,7 +79,7 @@ export function ConnectVoiceCall({
   const [state, setState] = useState('Connecting securely…');
   const [micPermissionDenied, setMicPermissionDenied] = useState(false);
   const [isMuted, setIsMuted] = useState(false);
-  const [speakerphoneOn, setSpeakerphoneOn] = useState(true);
+  const [speakerphoneOn, setSpeakerphoneOn] = useState(false);
   const [chatOpen, setChatOpen] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatItem[]>([]);
   const [chatInput, setChatInput] = useState('');
@@ -122,22 +109,35 @@ export function ConnectVoiceCall({
     requestAnimationFrame(() => scrollRef.current?.scrollToEnd({ animated: true }));
   }, [chatMessages.length, chatOpen]);
 
-  // Listen for AppState changes (e.g. user toggles microphone permission in Settings and returns)
+  /**
+   * Open the microphone and start sending it on the call that is already running. The answer was sent with a send-and-receive
+   * audio line (see the OFFER handling below), so swapping the track in needs no new negotiation.
+   */
+  const attachMicrophone = async (): Promise<boolean> => {
+    const pc = peer.current;
+    if (!pc || localStream.current) return Boolean(localStream.current);
+    try {
+      const stream = await mediaDevices.getUserMedia({ audio: true, video: false });
+      const track = stream.getAudioTracks()[0];
+      if (!track) return false;
+      const audioTransceiver = pc.getTransceivers?.().find((item: any) => item.receiver?.track?.kind === 'audio');
+      if (audioTransceiver?.sender) await audioTransceiver.sender.replaceTrack(track);
+      else pc.addTrack(track, stream);
+      localStream.current = stream;
+      setMicPermissionDenied(false);
+      setState(pc.connectionState === 'connected' ? 'Connected · private audio' : 'Waiting for the caller…');
+      return true;
+    } catch (e) {
+      console.warn('[ConnectVoiceCall] Could not open the microphone:', e);
+      return false;
+    }
+  };
+
+  // The person may allow the microphone in Settings and come back: pick it up without asking again.
   useEffect(() => {
     const subscription = AppState.addEventListener('change', async nextState => {
-      if (nextState === 'active' && !localStream.current && peer.current) {
-        const hasMic = await ensureMicrophonePermission();
-        if (hasMic) {
-          try {
-            const stream = await mediaDevices.getUserMedia({ audio: true, video: false });
-            localStream.current = stream;
-            stream.getTracks().forEach(track => peer.current?.addTrack(track, stream));
-            setMicPermissionDenied(false);
-            setState(peer.current.connectionState === 'connected' ? 'Connected · private audio' : 'Waiting for the caller…');
-          } catch (e) {
-            console.warn('[ConnectVoiceCall] Re-acquiring mic error:', e);
-          }
-        }
+      if (nextState === 'active' && !localStream.current && peer.current && (await checkMicrophone())) {
+        await attachMicrophone();
       }
     });
     return () => subscription.remove();
@@ -168,8 +168,9 @@ export function ConnectVoiceCall({
 
     const start = async () => {
       try {
-        startConnectCallAudio(true);
-        setSpeakerphoneOn(true);
+        // Earpiece first; the speaker button switches to the loudspeaker.
+        startConnectCallAudio(false);
+        setSpeakerphoneOn(false);
         // 1. Initialize WebRTC peer connection
         const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
         peer.current = pc;
@@ -236,6 +237,13 @@ export function ConnectVoiceCall({
               setState('Answering caller…');
               await pc.setRemoteDescription(new RTCSessionDescription(payload));
               await flushPendingIce();
+              // Without a microphone yet, still answer as send-and-receive so it can be switched on mid-call, without renegotiating.
+              if (!localStream.current) {
+                try {
+                  const audioTransceiver = pc.getTransceivers?.().find((item: any) => item.receiver?.track?.kind === 'audio');
+                  if (audioTransceiver) (audioTransceiver as any).direction = 'sendrecv';
+                } catch { /* older engines: the answer stays receive-only until the next call */ }
+              }
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
               const answerPayload = (pc.localDescription as any)?.toJSON?.()
@@ -438,8 +446,11 @@ export function ConnectVoiceCall({
                   </Text>
                   <Pressable
                     onPress={async () => {
-                      const granted = await ensureMicrophonePermission();
-                      if (!granted) {
+                      const access = await ensureMicrophone();
+                      if (access === 'granted') {
+                        // Allowed: open it now and clear the notice. (It used to stay on screen after the person tapped Allow.)
+                        if (!(await attachMicrophone())) { setMicPermissionDenied(false); setState('Microphone could not be started. Use Chat to reply.'); }
+                      } else if (access === 'blocked') {
                         void Linking.openSettings();
                       }
                     }}

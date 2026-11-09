@@ -31,7 +31,7 @@ site shows "Android: coming soon" / "iOS: coming soon" instead of a dead button.
 
 ## Kept on purpose
 
-`/connect/<token>` is the public page opened by the V MOTIV Connect QR sticker on a car (chat or call the owner without an app).
+`/connect/<token>` is the page a V MOTIV Connect QR sticker opens when scanned with any camera. It does not call or chat: it opens the app (Android intent with a Play Store fallback; custom link on iOS) or offers to install it. Private calls and messages happen only in the app, where "Scan a V MOTIV Connect QR without signing in" on the login screen scans a sticker and opens that car's private call and message options. Set `VITE_ANDROID_APP_URL` / `VITE_IOS_APP_URL` for the store links (Android defaults to the in.vmotiv.customer Play Store page).
 It is not a booking and is unchanged.
 
 ## Styling

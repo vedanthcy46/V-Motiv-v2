@@ -5,7 +5,6 @@ import {
   AppState,
   Linking,
   Modal,
-  PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
@@ -26,6 +25,7 @@ import {
   startConnectIncomingRingtone,
   stopConnectIncomingRingtone,
 } from '../services/call-audio';
+import { ensureMicrophoneGranted } from '../services/mic-permission';
 import { radius, space, useAppTheme } from '../theme';
 import { ConnectVoiceCall } from './ConnectVoiceCall';
 import { ConnectChatModal } from './ConnectChatModal';
@@ -35,20 +35,7 @@ import { ConnectChatModal } from './ConnectChatModal';
  * call state is server-owned and every decision is persisted; vibration stops
  * deterministically when the request is handled or disappears.
  */
-async function checkAndRequestMicPermission(): Promise<boolean> {
-  if (Platform.OS === 'android') {
-    try {
-      const isGranted = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
-      if (isGranted) return true;
-      const status = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
-      return status === PermissionsAndroid.RESULTS.GRANTED;
-    } catch (e) {
-      console.warn('[ConnectOverlay] Mic permission error:', e);
-      return false;
-    }
-  }
-  return true;
-}
+const checkAndRequestMicPermission = ensureMicrophoneGranted;
 
 export function ConnectIncomingCallOverlay() {
   const { state } = useAuth();

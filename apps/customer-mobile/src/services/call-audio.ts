@@ -16,10 +16,11 @@ function isNativeInCallManagerAvailable(): boolean {
  * media; this service acquires phone-call audio focus and routes it to the
  * requested output.
  */
-export function startConnectCallAudio(speakerphone = true) {
+export function startConnectCallAudio(speakerphone = false) {
   if (!isNativeInCallManagerAvailable()) return;
   try {
-    InCallManager?.start?.({ media: 'audio', auto: true });
+    // `auto: false`: the route is only ever what we set (earpiece by default), never switched to the loudspeaker on its own.
+    InCallManager?.start?.({ media: 'audio', auto: false });
     InCallManager?.setForceSpeakerphoneOn?.(speakerphone);
     InCallManager?.setSpeakerphoneOn?.(speakerphone);
   } catch (error) {
