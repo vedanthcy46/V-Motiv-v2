@@ -62,6 +62,7 @@ import {
   stopConnectCallAudio,
 } from '../services/call-audio';
 import { ensureMicrophone } from '../services/mic-permission';
+import { candidatePayload, descriptionPayload } from '../services/webrtc-payload';
 import { radius, space, useAppTheme } from '../theme';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
@@ -267,7 +268,7 @@ export function ConnectGuestScreen() {
       const resendGuestOffer = () => {
         const pc = peerRef.current;
         if (pc?.localDescription && pc.connectionState !== 'connected') {
-          const payload = (pc.localDescription as any).toJSON?.() || { type: pc.localDescription.type, sdp: pc.localDescription.sdp };
+          const payload = descriptionPayload(pc.localDescription as any);
           socket.emit('webrtc:signal', { kind: 'OFFER', payload });
           void sendPublicCallSignal(token, sessionId, 'OFFER', payload);
         }
@@ -347,7 +348,7 @@ export function ConnectGuestScreen() {
           pc.onicecandidate = (event: any) => {
             const candidate = event.candidate;
             if (candidate) {
-              const payload = candidate.toJSON() as Record<string, unknown>;
+              const payload = candidatePayload(candidate);
               socket.emit('webrtc:signal', { kind: 'ICE', payload });
               void sendPublicCallSignal(token, sessionId, 'ICE', payload);
             }
@@ -362,7 +363,7 @@ export function ConnectGuestScreen() {
           callStep = 'call offer';
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
-          const payload = offer.toJSON() as Record<string, unknown>;
+          const payload = descriptionPayload(pc.localDescription ?? offer);
           socket.emit('webrtc:signal', { kind: 'OFFER', payload });
           // The owner must also be able to read a durable offer when the realtime socket is unavailable. This copy is a backup:
           // if the server refuses it the call is not abandoned, because the live socket already carried the offer and it is sent
