@@ -4,13 +4,14 @@ import { readFileSync } from 'node:fs';
 
 describe('startup repair of prematurely PAID service requests', () => {
   it('only matches PAID requests that have no invoice, and restores the status from the history log', () => {
-    expect(REPAIR_PREMATURELY_PAID_SQL).toContain(`sr.status = 'PAID'`);
+    expect(REPAIR_PREMATURELY_PAID_SQL).toContain(`sr.status IN ('PAID', 'PAYMENT_PENDING')`);
+    expect(REPAIR_PREMATURELY_PAID_SQL).toContain('Counter Payment Recorded & Verified');
     expect(REPAIR_PREMATURELY_PAID_SQL).toContain('NOT EXISTS (SELECT 1 FROM "ServiceInvoice"');
     expect(REPAIR_PREMATURELY_PAID_SQL).toContain('"ServiceHistoryEvent"');
   });
 
   it('runs the same SQL as the shipped migration', () => {
-    const migration = readFileSync(new URL('../prisma/migrations/20261109000000_repair_prematurely_paid_service_requests/migration.sql', import.meta.url), 'utf8');
+    const migration = readFileSync(new URL('../prisma/migrations/20261109010000_repair_prematurely_paid_service_requests_v2/migration.sql', import.meta.url), 'utf8');
     const normalise = (sql: string) => sql.split('\n').filter(line => !line.trim().startsWith('--')).join(' ').replace(/;\s*$/, '').replace(/\s+/g, ' ').trim();
     expect(normalise(REPAIR_PREMATURELY_PAID_SQL)).toBe(normalise(migration));
   });

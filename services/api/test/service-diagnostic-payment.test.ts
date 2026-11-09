@@ -108,3 +108,49 @@ describe('settling the diagnostic-fee payment', () => {
     expect(tx.serviceRequest.update.mock.calls[0][0].data.status).toBe('PAID');
   });
 });
+
+describe('counter and finance payments before there is a bill', () => {
+  const REQUEST_ID = '33333333-3333-4333-8333-333333333333';
+  function makeCounterStore(sr: Record<string, unknown>) {
+    const request = { id: REQUEST_ID, customerId: 'cust-1', status: 'APPOINTMENT_SCHEDULED', invoices: [], estimates: [], outstandingBalancePaise: 399900n, verifiedPaidPaise: 0n, ...sr };
+    const created: Any[] = [];
+    const tx: Any = {
+      servicePaymentRecord: {
+        create: vi.fn(async ({ data }: Any) => { const row = { id: 'pay-1', ...data }; created.push(row); return row; }),
+        findMany: vi.fn(async () => created.filter(p => p.status === 'PAID_VERIFIED')),
+      },
+      serviceCustodyRecord: { findFirst: vi.fn(async () => null) },
+      serviceRequest: { update: vi.fn() },
+      serviceInvoice: { update: vi.fn() },
+      serviceHistoryEvent: { create: vi.fn() },
+    };
+    const db: Any = { serviceRequest: { findUnique: vi.fn(async () => request) }, $transaction: vi.fn(async (fn: Any) => fn(tx)) };
+    return { store: new PrismaServiceStore(db), tx };
+  }
+
+  it('a counter payment for the whole package does not move the job to PAID, so extra labour can still be estimated', async () => {
+    const { store, tx } = makeCounterStore({});
+    await store.recordPayment('advisor-1', REQUEST_ID, { type: 'ADVANCE', amountPaise: 399900n });
+    const data = tx.serviceRequest.update.mock.calls[0][0].data;
+    expect(data.status).toBe('APPOINTMENT_SCHEDULED');
+    expect(data.outstandingBalancePaise).toBe(0n);
+    expect(data.servicePaymentStatus).toBe('PAID_IN_FULL');
+  });
+
+  it('a partial counter payment does not move the job to PAYMENT_PENDING either, and the balance reduces by what was paid', async () => {
+    const { store, tx } = makeCounterStore({});
+    await store.recordPayment('advisor-1', REQUEST_ID, { type: 'ADVANCE', amountPaise: 100000n });
+    const data = tx.serviceRequest.update.mock.calls[0][0].data;
+    expect(data.status).toBe('APPOINTMENT_SCHEDULED');
+    expect(data.outstandingBalancePaise).toBe(299900n);
+    expect(data.servicePaymentStatus).toBe('PARTIALLY_PAID');
+  });
+
+  it('once the job is invoiced, settling it still marks it PAID', async () => {
+    const { store, tx } = makeCounterStore({ status: 'PAYMENT_PENDING', outstandingBalancePaise: 50000n, invoices: [{ id: 'inv-1', totalAmountPaise: 450000n }], verifiedPaidPaise: 399900n });
+    // the earlier 399,900 is already a verified payment record
+    tx.servicePaymentRecord.findMany.mockResolvedValueOnce([{ amountPaise: 399900n }, { amountPaise: 50100n }]);
+    await store.recordPayment('advisor-1', REQUEST_ID, { type: 'FINAL_SETTLEMENT', amountPaise: 50100n });
+    expect(tx.serviceRequest.update.mock.calls[0][0].data.status).toBe('PAID');
+  });
+});
