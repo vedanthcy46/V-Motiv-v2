@@ -1,6 +1,6 @@
 import React from 'react';
 
-const ANDROID_URL = (import.meta.env.VITE_ANDROID_APP_URL as string | undefined)?.trim() || '';
+const ANDROID_URL = (import.meta.env.VITE_ANDROID_APP_URL as string | undefined)?.trim() || 'https://play.google.com/store/apps/details?id=in.vmotiv.customer';
 const IOS_URL = (import.meta.env.VITE_IOS_APP_URL as string | undefined)?.trim() || '';
 
 /** A real store link when the listing is configured; otherwise an honest "coming soon" label instead of a dead button. */

@@ -7,12 +7,6 @@ import { apiBaseUrl, resolveRequestUrl } from '../api';
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
-export function getConnectWebUrl(token: string): string | null {
-  if (!TOKEN_PATTERN.test(token)) return null;
-  const configured = (process.env.EXPO_PUBLIC_CONNECT_WEB_URL || 'https://www.vmotiv.in').trim().replace(/\/$/, '');
-  return `${configured}/connect/${encodeURIComponent(token)}`;
-}
-
 /** Accept the V2 printed URL, an unwrapped token, or the app deep link. */
 export function parseConnectQr(value: string): { token: string } | null {
   const candidate = value.trim();

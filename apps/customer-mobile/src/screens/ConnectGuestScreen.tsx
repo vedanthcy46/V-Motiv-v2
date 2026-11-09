@@ -4,7 +4,6 @@ import {
   Alert,
   Image,
   Linking,
-  PermissionsAndroid,
   Platform,
   Pressable,
   ScrollView,
@@ -49,7 +48,6 @@ import { ConnectQrScannerModal } from '../components/ConnectQrScannerModal';
 import {
   fetchPublicCallSignals,
   fetchPublicRealtimeTicket,
-  getConnectWebUrl,
   lookupPublicConnectVehicle,
   parseConnectQr,
   requestPublicConnectCall,
@@ -63,6 +61,7 @@ import {
   startConnectCallAudio,
   stopConnectCallAudio,
 } from '../services/call-audio';
+import { ensureMicrophone } from '../services/mic-permission';
 import { radius, space, useAppTheme } from '../theme';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
@@ -114,7 +113,7 @@ export function ConnectGuestScreen() {
   const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(null);
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
-  const [speakerphoneOn, setSpeakerphoneOn] = useState(true);
+  const [speakerphoneOn, setSpeakerphoneOn] = useState(false);
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [chatInput, setChatInput] = useState('');
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -174,17 +173,7 @@ export function ConnectGuestScreen() {
       })
       .catch((error: Error) => {
         if (!mounted) return;
-        const webUrl = getConnectWebUrl(token);
-        Alert.alert(
-          'Could not open Connect in this app',
-          error.message,
-          webUrl
-            ? [
-                { text: 'Open secure web page', onPress: () => void Linking.openURL(webUrl) },
-                { text: 'Close', style: 'cancel' },
-              ]
-            : [{ text: 'Close' }],
-        );
+        Alert.alert('Could not open this vehicle', error.message);
       })
       .finally(() => {
         if (mounted) setLoading(false);
@@ -224,7 +213,7 @@ export function ConnectGuestScreen() {
     setActiveCallSessionId(null);
     setCallDuration(0);
     setIsMuted(false);
-    setSpeakerphoneOn(true);
+    setSpeakerphoneOn(false);
     setSessionError(null);
     signalCursor.current = undefined;
     stopConnectCallAudio();
@@ -240,8 +229,9 @@ export function ConnectGuestScreen() {
 
     try {
       if (mode === 'VOICE') {
-        startConnectCallAudio(true);
-        setSpeakerphoneOn(true);
+        // Earpiece first; the speaker button switches to the loudspeaker.
+        startConnectCallAudio(false);
+        setSpeakerphoneOn(false);
       }
       // 1. Request/create call session
       const call = await requestPublicConnectCall(token, mode);
@@ -335,14 +325,12 @@ export function ConnectGuestScreen() {
       if (mode === 'VOICE') {
         setPhase('CALLING');
         try {
-          if (Platform.OS === 'android') {
-            const hasCheck = await PermissionsAndroid.check(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
-            if (!hasCheck) {
-              const res = await PermissionsAndroid.request(PermissionsAndroid.PERMISSIONS.RECORD_AUDIO);
-              if (res !== PermissionsAndroid.RESULTS.GRANTED) {
-                throw new Error('MICROPHONE_PERMISSION_DENIED');
-              }
-            }
+          // One shared prompt, re-read afterwards: an allowed microphone is never reported as not allowed.
+          const micAccess = await ensureMicrophone();
+          if (micAccess !== 'granted') {
+            const error: Error & { access?: string } = new Error('MICROPHONE_PERMISSION_DENIED');
+            error.access = micAccess;
+            throw error;
           }
 
           const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
@@ -379,10 +367,19 @@ export function ConnectGuestScreen() {
           // If microphone is unavailable, keep session in chat mode
           setPhase('CONNECTED');
           setSessionMode('CHAT');
-          Alert.alert(
-            'Microphone Notice',
-            'Could not access microphone. You can still message the owner directly in the private room.',
-          );
+          if (webrtcErr?.message === 'MICROPHONE_PERMISSION_DENIED') {
+            Alert.alert(
+              'Microphone is off',
+              webrtcErr.access === 'blocked'
+                ? 'Allow the microphone for V MOTIV in your phone settings to talk. Meanwhile you can message the owner here.'
+                : 'Allow the microphone to talk to the owner. Meanwhile you can message them here.',
+              webrtcErr.access === 'blocked'
+                ? [{ text: 'Not now', style: 'cancel' }, { text: 'Open settings', onPress: () => void Linking.openSettings() }]
+                : [{ text: 'OK' }],
+            );
+          } else {
+            Alert.alert('Call could not start', 'The voice call could not be set up. You can still message the owner directly in the private room.');
+          }
         }
       } else {
         // Direct private chat mode
