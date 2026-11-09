@@ -2,6 +2,7 @@ import React, { useState, useEffect, type FC, type FormEvent } from 'react';
 import { VehicleMakeModel } from './VehicleMakeModel';
 import { modalIsOpen, useAutoRefresh } from '@vmotiv/ui';
 import type { User } from 'firebase/auth';
+import { describeCustomerAccount } from './customerAccount';
 import { api } from '../api';
 import { CURRENT_YEAR } from '../calendar';
 import { includedKmBreakdown, isBelowRecorded, parseReading, readingText, tripKmPreview } from '../readings';
@@ -1160,7 +1161,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         immediateHandover: walkInImmediateHandover,
       });
 
-      onSuccess(`On-Road Rental Booking #${booking.bookingNumber} created successfully! ${walkInImmediateHandover ? 'Vehicle is now ON TRIP.' : 'Ready for pickup.'}`);
+      onSuccess(`On-Road Rental Booking #${booking.bookingNumber} created successfully! ${walkInImmediateHandover ? 'Vehicle is now ON TRIP.' : 'Ready for pickup.'}${describeCustomerAccount((booking as any).customerAccount)}`);
       setWalkInModalOpen(false);
       // Reset form
       setWalkInCustomerName('');
@@ -2112,7 +2113,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       <input type="tel" className="input" required value={walkInCustomerPhone} onChange={e => setWalkInCustomerPhone(e.target.value)} placeholder="+91 9876543210" style={{ width: '100%', marginTop: '3px' }} />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Email Address *</label>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Customer Gmail *</label>
                       <input type="email" className="input" required value={walkInCustomerEmail} onChange={e => setWalkInCustomerEmail(e.target.value)} placeholder="customer@example.com" style={{ width: '100%', marginTop: '3px' }} />
                     </div>
                   </div>

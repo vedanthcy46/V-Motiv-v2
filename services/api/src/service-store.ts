@@ -29,6 +29,8 @@ import { currentCalendarYear } from './calendar.js';
 import crypto from 'node:crypto';
 import { HttpError } from './errors.js';
 import { assertGatewayPaymentSignature } from './payment-signature.js';
+import { resolveWalkInCustomer } from './walk-in-customer.js';
+import { assertServiceStep, serviceSteps } from './service-steps.js';
 import { calculateEstimateTotals, formatApprovedScope } from './estimate-totals.js';
 import { assertCapturedAmount } from './razorpay-gateway.js';
 import type { Identity } from './auth.js';
@@ -2249,29 +2251,15 @@ export class PrismaServiceStore {
     if (!template) throw new HttpError(404, 'CATEGORY_NOT_FOUND');
 
     return this.db.$transaction(async tx => {
-      // 1. Find or create Customer User
-      let customer = await tx.user.findFirst({
-        where: {
-          OR: [
-            { phone: input.customerPhone.trim() },
-            ...(input.customerEmail ? [{ email: input.customerEmail.toLowerCase().trim() }] : []),
-          ],
-        },
+      // 1. One account per customer: use theirs, or create it (and invite them to the app when we have their Gmail)
+      const resolved = await resolveWalkInCustomer(tx, {
+        name: input.customerName,
+        phone: input.customerPhone,
+        email: input.customerEmail,
+        placeholderDomain: 'service.vmotiv.in',
+        context: 'your service booking',
       });
-
-      if (!customer) {
-        const email =
-          input.customerEmail?.toLowerCase().trim() ||
-          `walkin_${Date.now()}_${Math.random().toString(36).substring(2, 6)}@service.vmotiv.in`;
-        customer = await tx.user.create({
-          data: {
-            firebaseUid: `walkin_service_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-            email,
-            phone: input.customerPhone.trim(),
-            displayName: input.customerName.trim(),
-          },
-        });
-      }
+      const customer = resolved.user;
 
       // 2. Find or create Vehicle (names use the catalogue spelling when the car is in the master data)
       const names = await canonicalMakeModel(tx as any, input.vehicleMake, input.vehicleModel);
@@ -2412,7 +2400,14 @@ export class PrismaServiceStore {
         },
       });
 
-      return sr;
+      return Object.assign(sr, {
+        customerAccount: {
+          created: resolved.accountCreated,
+          existing: resolved.existingAccount,
+          appInviteEmailed: resolved.inviteEmailed,
+          email: resolved.inviteEmailed ? resolved.user.email : null,
+        },
+      });
     });
   }
 
@@ -2420,8 +2415,12 @@ export class PrismaServiceStore {
     actorId: string,
     requestId: string,
     estimateId: string,
-    input: { decision: 'APPROVE' | 'DECLINE'; notes?: string; channel?: string }
+    input: { decision: 'APPROVE' | 'DECLINE'; notes?: string; channel?: string; customerContacted?: boolean }
   ) {
+    // Staff may only accept on the customer's behalf after speaking to them: the estimate always waits for the customer.
+    if (input.decision === 'APPROVE' && input.customerContacted !== true) {
+      throw new HttpError(400, 'CUSTOMER_CONTACT_CONFIRMATION_REQUIRED', 'Confirm that you contacted the customer and they agreed to the price.');
+    }
     const estimate = await this.db.serviceEstimate.findUnique({
       where: { id: estimateId },
       include: { serviceRequest: true },
@@ -2446,7 +2445,7 @@ export class PrismaServiceStore {
         data: {
           status: nextEstimateStatus,
           respondedAt: new Date(),
-          responseNotes: input.notes?.trim() || `Approved in-person by customer via ${input.channel || 'workshop desk'}`,
+          responseNotes: input.notes?.trim() || `Approved by the customer via ${input.channel || 'workshop desk'}; the advisor confirmed contacting the customer.`,
         },
       });
 
@@ -2725,6 +2724,8 @@ export class PrismaServiceStore {
 
     return {
       ...r,
+      // Which steps are open now, and what to finish first for the ones that are not.
+      steps: serviceSteps(r),
       custodyRecord: checkIn,
       releaseRecord: checkOut,
       questionAnswers: safeParseJson(r.questionAnswers, {}),
@@ -2780,6 +2781,7 @@ export class PrismaServiceStore {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
     assertServiceJobOpen(sr);
+    assertServiceStep('SCHEDULE', sr);
 
     return this.db.$transaction(async tx => {
       const updated = await tx.serviceRequest.update({
@@ -2825,6 +2827,7 @@ export class PrismaServiceStore {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
     assertServiceJobOpen(sr);
+    assertServiceStep('DISPATCH_PICKUP', sr);
 
     return this.db.$transaction(async tx => {
       const updated = await tx.serviceRequest.update({
@@ -2868,6 +2871,7 @@ export class PrismaServiceStore {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
     assertServiceJobOpen(sr);
+    assertServiceStep('CHECK_IN', sr);
 
     return this.db.$transaction(async tx => {
       const record = await tx.serviceCustodyRecord.create({
@@ -2933,6 +2937,7 @@ export class PrismaServiceStore {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
     assertServiceJobOpen(sr);
+    assertServiceStep('DIAGNOSIS', sr);
 
     return this.db.$transaction(async tx => {
       const diag = await tx.serviceDiagnosis.create({
@@ -2975,6 +2980,7 @@ export class PrismaServiceStore {
     if (ESTIMATE_LOCKED_STATUSES.includes(sr.status)) {
       throw new HttpError(409, 'SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION');
     }
+    assertServiceStep('ESTIMATE', sr);
     if (!input.items || input.items.length === 0) {
       throw new HttpError(400, 'ESTIMATE_REQUIRES_AT_LEAST_ONE_LINE_ITEM');
     }
@@ -3076,6 +3082,7 @@ export class PrismaServiceStore {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
     assertServiceJobOpen(sr);
+    assertServiceStep('WORK_ORDER', sr);
 
     return this.db.$transaction(async tx => {
       // Technicians must only see work the customer approved; deferred lines are marked do-not-perform.
@@ -3184,6 +3191,7 @@ export class PrismaServiceStore {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
     assertServiceJobOpen(sr);
+    assertServiceStep('QC', sr);
 
     const isPass = input.result === ServiceQCResult.PASS;
     const nextStatus = isPass ? ServiceRequestStatus.QC_PASSED : ServiceRequestStatus.QC_REWORK_REQUIRED;
@@ -3245,6 +3253,7 @@ export class PrismaServiceStore {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
     assertServiceJobOpen(sr);
+    assertServiceStep('RELEASE', sr);
     const checkIn = await this.db.serviceCustodyRecord.findFirst({ where: { serviceRequestId: sr.id, type: 'CHECK_IN' }, orderBy: { recordedAt: 'desc' }, select: { odometerKm: true } });
     if (checkIn && input.odometerKm < checkIn.odometerKm) {
       throw new HttpError(400, 'ODOMETER_BELOW_CHECK_IN', `Release odometer cannot be lower than the ${checkIn.odometerKm.toLocaleString('en-IN')} km recorded at check-in.`);
@@ -3416,6 +3425,7 @@ export class PrismaServiceStore {
     });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
     assertServiceJobOpen(sr);
+    assertServiceStep('INVOICE', sr);
 
     const approvedEstimate = sr.estimates.find(e => e.status === ServiceEstimateStatus.APPROVED) || sr.estimates[0];
     let subtotalPaise = 0n;

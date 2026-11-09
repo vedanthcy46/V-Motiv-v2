@@ -314,7 +314,7 @@ export const api = {
     call<unknown>(u, `/operations/service/jobs/${id}/cancel`, { method: 'POST', body: JSON.stringify(body) }),
   createWalkInServiceJob: (u: User, body: Record<string, any>) =>
     call<ServiceJobItem>(u, '/operations/service/walk-in', { method: 'POST', body: JSON.stringify(body) }),
-  approveServiceEstimateByStaff: (u: User, id: string, estimateId: string, body?: { decision?: 'APPROVE' | 'DECLINE'; notes?: string; channel?: string }) =>
+  approveServiceEstimateByStaff: (u: User, id: string, estimateId: string, body?: { decision?: 'APPROVE' | 'DECLINE'; notes?: string; channel?: string; customerContacted?: boolean }) =>
     call<unknown>(u, `/operations/service/jobs/${id}/estimates/${estimateId}/approve`, { method: 'POST', body: JSON.stringify(body || {}) }),
   serviceCategories: (u: User, hubId?: string) =>
     call<Array<{ categoryKey: string; title: string; description: string; icon: string; fixedPackageAvailable?: boolean; packagePricePaise?: string | null; pricingType?: string; diagnosticFeePaise?: string; packageFeatures?: string[]; hubPricing?: Record<string, any> }>>(

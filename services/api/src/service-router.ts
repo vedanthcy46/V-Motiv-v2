@@ -683,6 +683,8 @@ export function createServiceOperationsRouter(deps: {
         decision: z.enum(['APPROVE', 'DECLINE']).default('APPROVE'),
         notes: z.string().trim().max(500).optional(),
         channel: z.string().trim().max(100).optional(),
+        /** The advisor confirms they contacted the customer and the customer agreed. Required to accept on their behalf. */
+        customerContacted: z.boolean().optional(),
       }).parse(req.body || {});
       res.json(await deps.store.approveServiceEstimateByStaff(employee.userId, uuid.parse(req.params.id), uuid.parse(req.params.estimateId), input));
     } catch (e) {

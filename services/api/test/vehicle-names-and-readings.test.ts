@@ -66,7 +66,7 @@ describe('rental walk-in hand-over readings', () => {
 });
 
 describe('service release readings', () => {
-  const sr = { id: 'sr-1', status: 'IN_SERVICE', vehicleId: 'v-1' };
+  const sr = { id: 'sr-1', status: 'PAID', fulfillmentType: 'SELF_DROP_AT_HUB', vehicleId: 'v-1' };
   const release = (odometerKm: number) => {
     const db: Any = {
       serviceRequest: { findUnique: async () => sr },

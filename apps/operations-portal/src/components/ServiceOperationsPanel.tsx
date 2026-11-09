@@ -1,12 +1,13 @@
 import React, { useState, useEffect, type FC, type FormEvent } from 'react';
 import { VehicleMakeModel } from './VehicleMakeModel';
-import { modalIsOpen, useAutoRefresh } from '@vmotiv/ui';
+import { Modal, modalIsOpen, useAutoRefresh } from '@vmotiv/ui';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
 import type { Branch, ServiceJobItem, ServiceJobStatus } from '../types';
 import { IconCross, IconRefresh, IconSearch, IconService } from '../icons';
 import { CURRENT_YEAR } from '../calendar';
 import { isBelowRecorded, parseReading, readingText } from '../readings';
+import { describeCustomerAccount } from './customerAccount';
 
 /** A custody record's fuel / charge as text: the percentage when it was recorded as one, otherwise the description as written. */
 function fuelText(record: { fuelPercent: number | null; fuelLabel?: string } | null | undefined): string {
@@ -112,6 +113,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
 
   // Walk-in modal state
   const [walkInModalOpen, setWalkInModalOpen] = useState(false);
+  // Accepting an estimate for the customer always waits behind a "did you contact them?" confirmation.
+  const [contactConfirm, setContactConfirm] = useState<{ estimateId: string; negotiated: boolean } | null>(null);
   const [walkInSubmitting, setWalkInSubmitting] = useState(false);
   const [walkInHubId, setWalkInHubId] = useState('');
   const [walkInCustomerName, setWalkInCustomerName] = useState('');
@@ -498,6 +501,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
           ? 'Customer agreed to the estimate after negotiation with the service advisor (phone / in person).'
           : 'Estimate approved in-person by customer at workshop service counter.',
         channel: negotiated ? 'NEGOTIATION' : 'WORKSHOP_COUNTER',
+        customerContacted: true,
       });
       onSuccess(`Estimate approved on behalf of customer. Work authorization granted for ${activeJob.requestNumber}.`);
       await refreshActiveJob(activeJob.id);
@@ -623,6 +627,10 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
       onError('Enter the fuel / charge level (0-100 %) the car arrived with, or untick Immediate Workshop Intake to record it later.');
       return;
     }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(walkInCustomerEmail.trim())) {
+      onError("Enter the customer's Gmail. Their app account is created with it, and they sign in with that address.");
+      return;
+    }
     setWalkInSubmitting(true);
     try {
       const job = await api.createWalkInServiceJob(user, {
@@ -652,7 +660,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
         transactionReference: walkInCollectPayment && walkInAdvancePayment > 0 ? (walkInTxRef.trim() || `COUNTER-${Date.now()}`) : undefined,
       });
 
-      onSuccess(`Walk-in service job ${job.requestNumber} created successfully.${walkInCollectPayment && walkInAdvancePayment > 0 ? ` Advance of ₹${walkInAdvancePayment.toLocaleString('en-IN')} recorded.` : ''}`);
+      onSuccess(`Walk-in service job ${job.requestNumber} created successfully.${describeCustomerAccount((job as any).customerAccount)}${walkInCollectPayment && walkInAdvancePayment > 0 ? ` Advance of ₹${walkInAdvancePayment.toLocaleString('en-IN')} recorded.` : ''}`);
       setWalkInModalOpen(false);
 
       // Reset
@@ -707,6 +715,11 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
     }
   }, [actionTab, activeBalanceDueRupees]);
 
+  // Steps open one after another; the server decides (see service-steps.ts) and the tabs follow it.
+  const TAB_STEP = { schedule: 'SCHEDULE', dispatch: 'DISPATCH_PICKUP', custody: 'CHECK_IN', estimate: 'ESTIMATE', qc: 'QC', return: 'RELEASE' } as const;
+  const tabStep = (tab: string) => (TAB_STEP as Record<string, keyof NonNullable<ServiceJobItem['steps']>>)[tab];
+  const tabState = (tab: string) => { const step = tabStep(tab); return step ? activeJob?.steps?.[step] : undefined; };
+  const tabLockedReason = (tab: string): string | null => { const st = tabState(tab); return st && (st.phase === 'locked' || st.phase === 'not_applicable') ? st.reason : null; };
   const isJobCancelled = activeJob?.status === 'CANCELLED';
   // Completed = delivered and closed. The API refuses every staff change from here on, so the whole
   // record is shown read-only, exactly like a settled rental booking.
@@ -1171,11 +1184,16 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 { id: 'qc', label: isJobCancelled ? '🔒 QC' : (isJobConcluded ? '✓ QC' : '5. Quality Control') },
                 { id: 'payment', label: '6. Billing & Ledger' },
                 { id: 'return', label: isJobCancelled ? '🔒 Handover' : (isJobConcluded ? '✓ Handover' : '7. Release & Handover') },
-              ].map(tab => (
+              ].map(tab => {
+                const lockedReason = tabLockedReason(tab.id);
+                return (
                 <button
                   key={tab.id}
                   type="button"
                   className={`stepper-tab ${actionTab === tab.id ? 'active' : ''}`}
+                  disabled={Boolean(lockedReason)}
+                  aria-disabled={Boolean(lockedReason)}
+                  title={lockedReason ?? undefined}
                   onClick={() => setActionTab(tab.id as any)}
                   style={{
                     padding: '0.6rem 0.9rem',
@@ -1185,13 +1203,15 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     color: actionTab === tab.id ? 'var(--accent)' : 'var(--muted)',
                     fontWeight: actionTab === tab.id ? 700 : 500,
                     fontSize: '0.8125rem',
-                    cursor: 'pointer',
+                    cursor: lockedReason ? 'not-allowed' : 'pointer',
+                    opacity: lockedReason ? 0.5 : 1,
                     whiteSpace: 'nowrap',
                   }}
                 >
-                  {tab.label}
+                  {lockedReason && !tab.label.startsWith('🔒') ? `🔒 ${tab.label}` : tab.label}
                 </button>
-              ))}
+                );
+              })}
             </div>
 
             {/* Modal Body */}
@@ -1199,6 +1219,14 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               {loadingDetails && (
                 <div style={{ padding: '0.5rem', textAlign: 'center', color: 'var(--muted)', fontSize: '0.8rem', background: 'var(--surface-secondary)', borderRadius: '4px', marginBottom: '0.75rem' }}>
                   Refreshing full job details…
+                </div>
+              )}
+
+              {actionTab !== 'details' && tabLockedReason(actionTab) && (
+                <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }} role="status">
+                  <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
+                  <h4 style={{ margin: 0 }}>This step is not open yet</h4>
+                  <p style={{ color: 'var(--muted)', marginTop: '0.4rem' }}>{tabLockedReason(actionTab)}</p>
                 </div>
               )}
 
@@ -1445,7 +1473,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               )}
 
               {/* TAB 1: SCHEDULE */}
-              {actionTab === 'schedule' && (
+              {actionTab === 'schedule' && !tabLockedReason('schedule') && (
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
@@ -1501,7 +1529,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               )}
 
               {/* TAB 2: DISPATCH */}
-              {actionTab === 'dispatch' && (
+              {actionTab === 'dispatch' && !tabLockedReason('dispatch') && (
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
@@ -1564,7 +1592,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               )}
 
               {/* TAB 3: INTAKE & CUSTODY */}
-              {actionTab === 'custody' && (
+              {actionTab === 'custody' && !tabLockedReason('custody') && (
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
@@ -1662,7 +1690,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               )}
 
               {/* TAB 4: ESTIMATE & APPROVAL */}
-              {actionTab === 'estimate' && (
+              {actionTab === 'estimate' && !tabLockedReason('estimate') && (
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
@@ -1730,7 +1758,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           <button type="button" className="btn-primary btn-gold button primary" disabled={actionBusy} onClick={startRevision}>
                             ✎ Revise & Resend Estimate
                           </button>
-                          <button type="button" className="btn-secondary button secondary" disabled={actionBusy} onClick={() => handleApproveEstimateInPerson(activeJob.estimates![0].id, true)}>
+                          <button type="button" className="btn-secondary button secondary" disabled={actionBusy} onClick={() => setContactConfirm({ estimateId: activeJob.estimates![0].id, negotiated: true })}>
                             ✓ Customer Agreed (Record Approval)
                           </button>
                           <button type="button" className="button secondary" style={{ color: 'var(--color-error)', borderColor: 'var(--color-error)' }} disabled={actionBusy} onClick={() => setCancelPromptOpen(true)}>
@@ -1777,7 +1805,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                             type="button"
                             className="btn-primary btn-gold button primary"
                             disabled={actionBusy}
-                            onClick={() => handleApproveEstimateInPerson(activeJob.estimates![0].id)}
+                            onClick={() => setContactConfirm({ estimateId: activeJob.estimates![0].id, negotiated: false })}
                             style={{ display: 'flex', alignItems: 'center', gap: '6px', fontWeight: 700 }}
                           >
                             <span>✓</span> Approve Estimate (In-Person / Phone)
@@ -1937,7 +1965,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                 )}
 
               {/* TAB 5: QUALITY CONTROL */}
-              {actionTab === 'qc' && (
+              {actionTab === 'qc' && !tabLockedReason('qc') && (
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
@@ -2051,7 +2079,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                             type="button"
                             className="btn-primary btn-gold button primary small"
                             onClick={handleGenerateInvoice}
-                            disabled={generatingInvoice || isJobCancelled || isJobConcluded}
+                            disabled={generatingInvoice || isJobCancelled || isJobConcluded || activeJob.steps?.INVOICE?.open === false}
+                            title={activeJob.steps?.INVOICE?.open === false ? activeJob.steps.INVOICE.reason ?? undefined : undefined}
                             style={{ fontWeight: 700 }}
                           >
                             {generatingInvoice ? 'Generating Invoice…' : '+ Generate Final Tax Invoice'}
@@ -2223,7 +2252,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               )}
 
               {/* TAB 7: RELEASE & HANDOVER */}
-              {actionTab === 'return' && (
+              {actionTab === 'return' && !tabLockedReason('return') && (
                 isJobCancelled ? (
                   <div style={{ padding: '2rem', textAlign: 'center', background: 'var(--surface-secondary)', borderRadius: '8px' }}>
                     <div style={{ fontSize: '2rem', marginBottom: '0.5rem' }}>🔒</div>
@@ -2400,6 +2429,38 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
       )}
 
       {/* WALK-IN SERVICE BOOKING MODAL */}
+      {contactConfirm && activeJob && (
+        <Modal
+          title="Confirm with the customer"
+          size="sm"
+          busy={actionBusy}
+          onClose={() => setContactConfirm(null)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost button secondary" disabled={actionBusy} onClick={() => setContactConfirm(null)}>No, go back</button>
+              <button
+                type="button"
+                className="btn btn-primary button primary"
+                disabled={actionBusy}
+                onClick={async () => {
+                  const { estimateId, negotiated } = contactConfirm;
+                  await handleApproveEstimateInPerson(estimateId, negotiated);
+                  setContactConfirm(null);
+                }}
+              >
+                {actionBusy ? 'Recording…' : 'Yes, continue'}
+              </button>
+            </>
+          }
+        >
+          <p style={{ fontWeight: 600, marginBottom: '0.5rem' }}>Have you contacted the customer about this price?</p>
+          <p style={{ color: 'var(--muted)', fontSize: '0.9rem' }}>
+            Continuing records that the customer agreed to the estimate{activeJob.estimates?.[0] ? <> of <strong>{formatRupees(activeJob.estimates[0].totalAmountPaise)}</strong></> : null} and
+            lets the work start. The job always waits for the customer to accept first.
+          </p>
+        </Modal>
+      )}
+
       {walkInModalOpen && (
         <div className="modal-overlay" style={{ zIndex: 1100 }}>
           <div className="modal-dialog" style={{ maxWidth: '780px', width: '95%', maxHeight: '92vh', display: 'flex', flexDirection: 'column' }}>
@@ -2506,11 +2567,12 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Email Address (Optional)</label>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Customer Gmail *</label>
                       <input
                         type="email"
                         className="input"
-                        placeholder="customer@example.com"
+                        required
+                        placeholder="customer@gmail.com"
                         value={walkInCustomerEmail}
                         onChange={e => setWalkInCustomerEmail(e.target.value)}
                         style={{ width: '100%', marginTop: '3px' }}

@@ -5,6 +5,7 @@ import { HttpError } from './errors.js';
 import { requireAdultDateOfBirth, requireDrivingExperience, requireLicenseNumber, requireLicensePhotos } from './rental-kyc.js';
 import { assertGatewayPaymentSignature } from './payment-signature.js';
 import { assertCapturedAmount } from './razorpay-gateway.js';
+import { resolveWalkInCustomer } from './walk-in-customer.js';
 import { computeAvailability, type RentalAvailability } from './rental-availability.js';
 import { resolveKmPolicy, type KmPolicyHub } from './rental-km-policy.js';
 import type { NotificationService } from './notification/notification-service.js';
@@ -3027,30 +3028,15 @@ export class PrismaRentalStore {
     const handoverOdometerKm = Math.max(input.startOdometerKm ?? recordedOdometer, recordedOdometer);
     const handoverFuelPercent = typeof input.fuelPercent === 'number' ? input.fuelPercent : vehicle.fuelLevelPercent ?? 100;
 
-    // Find or create customer
-    const emailToUse = input.customerEmail?.trim()
-      ? input.customerEmail.toLowerCase().trim()
-      : `walkin_rental_${Date.now()}_${Math.random().toString(36).substring(2, 6)}@rental.vmotiv.in`;
-
-    let customer = await this.db.user.findFirst({
-      where: {
-        OR: [
-          { email: emailToUse },
-          { phone: input.customerPhone.trim() },
-        ],
-      },
+    // One account per customer: use theirs, or create it (and invite them to the app when we have their Gmail)
+    const resolved = await resolveWalkInCustomer(this.db, {
+      name: input.customerName,
+      phone: input.customerPhone,
+      email: input.customerEmail,
+      placeholderDomain: 'rental.vmotiv.in',
+      context: 'your rental booking and trip',
     });
-
-    if (!customer) {
-      customer = await this.db.user.create({
-        data: {
-          firebaseUid: `walkin_${Date.now()}_${Math.random().toString(36).substring(2, 8)}`,
-          email: emailToUse,
-          phone: input.customerPhone.trim(),
-          displayName: input.customerName.trim(),
-        },
-      });
-    }
+    const customer = resolved.user;
 
     // Same pricing as the customer quote (hourly remainder, GST rate, hub km policy) so the counter and the app never disagree.
     const quote = this.calculateQuote({ ...vehicle, hub: vehicle.hub }, input.startTime, input.endTime);
@@ -3251,7 +3237,7 @@ export class PrismaRentalStore {
         });
       }
 
-      return await tx.rentalBooking.findUnique({
+      const created = await tx.rentalBooking.findUnique({
         where: { id: booking.id },
         include: {
           customer: { select: { id: true, displayName: true, email: true, phone: true } },
@@ -3259,6 +3245,14 @@ export class PrismaRentalStore {
           driverVerification: true,
           trip: true,
           payments: true,
+        },
+      });
+      return created && Object.assign(created, {
+        customerAccount: {
+          created: resolved.accountCreated,
+          existing: resolved.existingAccount,
+          appInviteEmailed: resolved.inviteEmailed,
+          email: resolved.inviteEmailed ? resolved.user.email : null,
         },
       });
     });

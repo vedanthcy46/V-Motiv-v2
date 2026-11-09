@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client';
 import type { Identity } from './auth.js';
 import { HttpError } from './errors.js';
+import { UNCLAIMED_UID_PREFIX } from './walk-in-customer.js';
 
 export const profileSelect = {
   id: true, email: true, displayName: true, phone: true, status: true,
@@ -25,6 +26,24 @@ export class PrismaIdentityStore implements IdentityStore {
       if (existing) {
         if (existing.status !== 'ACTIVE') throw new HttpError(403, 'ACCOUNT_INACTIVE');
         return existing;
+      }
+      // A customer first served at a service desk or rental hub already has an account waiting under their email. Because
+      // the identity is a Google-verified address, signing in with it claims that account, so their history is there.
+      // Nothing else is ever linked by email, and employee access is never granted this way.
+      const waiting = await tx.user.findFirst({
+        where: { firebaseUid: { startsWith: UNCLAIMED_UID_PREFIX }, email: { equals: identity.email, mode: 'insensitive' }, employee: null },
+        orderBy: { createdAt: 'asc' },
+        select: { id: true, status: true, displayName: true },
+      });
+      if (waiting) {
+        if (waiting.status !== 'ACTIVE') throw new HttpError(403, 'ACCOUNT_INACTIVE');
+        const claimed = await tx.user.update({
+          where: { id: waiting.id },
+          data: { firebaseUid: identity.uid, email: identity.email, ...(waiting.displayName ? {} : { displayName: identity.name }) },
+          select: profileSelect,
+        });
+        await tx.auditEvent.create({ data: { actorId: claimed.id, action: 'CUSTOMER_ACCOUNT_CLAIMED', entityId: claimed.id } });
+        return claimed;
       }
       // Matching email text never links identities or creates employee access.
       const user = await tx.user.create({

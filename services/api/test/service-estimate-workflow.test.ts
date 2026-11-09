@@ -43,9 +43,15 @@ describe('service estimate workflow guards', () => {
 
   it('staff cannot approve an estimate on a cancelled job or a superseded estimate', async () => {
     const cancelled = makeStore({ requestStatus: 'CANCELLED', estimateStatus: 'SENT_TO_CUSTOMER' });
-    await expect(cancelled.store.approveServiceEstimateByStaff('staff', 'req-1', 'est-1', { decision: 'APPROVE' })).rejects.toThrow(/SERVICE_REQUEST_CLOSED/);
+    await expect(cancelled.store.approveServiceEstimateByStaff('staff', 'req-1', 'est-1', { decision: 'APPROVE', customerContacted: true })).rejects.toThrow(/SERVICE_REQUEST_CLOSED/);
     const stale = makeStore({ requestStatus: 'ESTIMATE_PENDING_APPROVAL', estimateStatus: 'SUPERSEDED' });
-    await expect(stale.store.approveServiceEstimateByStaff('staff', 'req-1', 'est-1', { decision: 'APPROVE' })).rejects.toThrow(/ESTIMATE_NOT_ACTIVE/);
+    await expect(stale.store.approveServiceEstimateByStaff('staff', 'req-1', 'est-1', { decision: 'APPROVE', customerContacted: true })).rejects.toThrow(/ESTIMATE_NOT_ACTIVE/);
+  });
+
+  it('staff accept on the customer\'s behalf only after confirming they contacted the customer', async () => {
+    const live = makeStore({ requestStatus: 'ESTIMATE_PENDING_APPROVAL', estimateStatus: 'SENT_TO_CUSTOMER' });
+    await expect(live.store.approveServiceEstimateByStaff('staff', 'req-1', 'est-1', { decision: 'APPROVE' })).rejects.toMatchObject({ code: 'CUSTOMER_CONTACT_CONFIRMATION_REQUIRED' });
+    await expect(live.store.approveServiceEstimateByStaff('staff', 'req-1', 'est-1', { decision: 'APPROVE', customerContacted: false })).rejects.toMatchObject({ code: 'CUSTOMER_CONTACT_CONFIRMATION_REQUIRED' });
   });
 
   it('refuses to issue an estimate on a cancelled job or with no line items (no invented prices)', async () => {
