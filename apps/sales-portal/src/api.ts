@@ -173,6 +173,17 @@ export type LeadPage = {
   totalPages: number;
 };
 
+/** What happened to the customer's app account when a counter lead was recorded. */
+export type CustomerAccountResult = { created: boolean; existing: boolean; appInviteEmailed: boolean; email: string | null };
+
+export function describeCustomerAccount(account?: CustomerAccountResult | null): string {
+  if (!account) return '';
+  if (account.created && account.appInviteEmailed) return `An app account was created and the download link was emailed to ${account.email}.`;
+  if (account.appInviteEmailed) return `They already had an account; the download link was emailed to ${account.email}.`;
+  if (account.created) return 'An app account was created for them.';
+  return 'They already have an app account, so this was added to it.';
+}
+
 export type BuyerLead = {
   id: string;
   status: string;
@@ -564,6 +575,7 @@ export const salesApi = {
   createSellerLead: (user: User, input: {
     sellerName: string;
     sellerPhone: string;
+    sellerEmail: string;
     city: string;
     pincode: string;
     make: string;
@@ -575,7 +587,9 @@ export const salesApi = {
     odometerKm: number;
     expectedPricePaise?: string;
     sellerNotes?: string;
-  }) => call<SellerLead>(user, '/seller-leads', { method: 'POST', body: JSON.stringify(input) }),
+  }) => call<SellerLead & { customerAccount?: CustomerAccountResult }>(user, '/seller-leads', { method: 'POST', body: JSON.stringify(input) }),
+  createBuyerLead: (user: User, input: { buyerName: string; buyerPhone: string; buyerEmail: string; listingId: string; message?: string }) =>
+    call<BuyerLead & { alreadyExisted?: boolean; customerAccount?: CustomerAccountResult }>(user, '/buyer-leads', { method: 'POST', body: JSON.stringify(input) }),
   sellerLead: (user: User, id: string) => call<SellerLead>(user, `/seller-leads/${id}`),
   updateSellerLeadStatus: (user: User, id: string, status: string, note?: string) =>
     call<SellerLead>(user, `/seller-leads/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, note }) }),
@@ -643,19 +657,6 @@ export const salesApi = {
     call<{ id: string; status: string }>(user, `/seller-leads/${leadId}/offers/${offerId}/decision`, { method: 'POST', body: JSON.stringify(input) }),
   getValuations: (user: User, leadId: string) =>
     call<ValuationItem[]>(user, `/seller-leads/${leadId}/valuations`),
-  createValuation: (user: User, leadId: string, input: {
-    inspectionReportId: string;
-    expectedResalePaise: string;
-    refurbishmentPaise?: string;
-    otherCostsPaise?: string;
-    requiredMarginPaise?: string;
-    recommendedPurchasePaise: string;
-    notes?: string;
-    autoApprove?: boolean;
-  }) =>
-    call<ValuationItem>(user, `/seller-leads/${leadId}/valuations`, { method: 'POST', body: JSON.stringify(input) }),
-  decideValuation: (user: User, leadId: string, valuationId: string, input: { version: number; decision: 'APPROVE' | 'REJECT'; reason?: string }) =>
-    call<ValuationItem>(user, `/seller-leads/${leadId}/valuations/${valuationId}/decision`, { method: 'POST', body: JSON.stringify(input) }),
   allValuations: (user: User, params: { page?: number; limit?: number; status?: string } = {}) =>
     call<{ items: ValuationItem[]; total: number; page: number; totalPages: number }>(user, `/valuations?${query(params)}`),
   reviewRequests: (user: User) =>

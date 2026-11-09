@@ -426,8 +426,11 @@ export type ServiceCustodyReading = {
   recordedAt?: string;
 };
 
+export type ServiceStepState = { open: boolean; phase: 'open' | 'locked' | 'done' | 'not_applicable'; reason: string | null };
 export type ServiceJobItem = {
   id: string;
+  /** Which steps are open now (from the server). A step opens only when the one before it is done. */
+  steps?: Record<'SCHEDULE' | 'DISPATCH_PICKUP' | 'CHECK_IN' | 'DIAGNOSIS' | 'ESTIMATE' | 'WORK_ORDER' | 'QC' | 'INVOICE' | 'RELEASE', ServiceStepState>;
   requestNumber: string;
   categoryKey: string;
   status: ServiceJobStatus;

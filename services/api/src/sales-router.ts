@@ -21,6 +21,7 @@ const leadQuery = pagination.extend({
 const manualLeadInput = z.object({
   sellerName: z.string().trim().min(2).max(100),
   sellerPhone: z.string().regex(/^\+91[6-9]\d{9}$/, 'Must be an Indian mobile number starting with +91'),
+  sellerEmail: z.string().trim().email().max(254),
   city: z.string().trim().min(2).max(80),
   pincode: z.string().regex(/^\d{6}$/, 'Must be a 6-digit postal code'),
   make: z.string().trim().min(1).max(80),
@@ -127,6 +128,13 @@ const offerResponseInput = z.object({
   declineReason: z.string().trim().max(500).optional(),
 }).strict();
 
+const manualBuyerLeadInput = z.object({
+  buyerName: z.string().trim().min(2).max(100),
+  buyerPhone: z.string().regex(/^\+91[6-9]\d{9}$/, 'Must be an Indian mobile number starting with +91'),
+  buyerEmail: z.string().trim().email().max(254),
+  listingId: uuid,
+  message: z.string().trim().max(1000).optional(),
+}).strict();
 const buyerLeadQuery = pagination.extend({
   status: z.preprocess(v => {
     if (typeof v === 'string' && ['RECEIVED', 'IN_REVIEW', 'CONTACTED', 'CLOSED'].includes(v)) return v;
@@ -279,8 +287,6 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   router.get('/seller-leads/:id/inspection-summary', async (req, res) => res.json(await deps.store.inspectionSummary(res.locals.salesActor, uuid.parse(req.params.id))));
 
   router.get('/seller-leads/:id/valuations', async (req, res) => res.json(await deps.store.valuations(res.locals.salesActor, uuid.parse(req.params.id))));
-  router.post('/seller-leads/:id/valuations', async (req, res) => res.status(201).json(await deps.store.createValuation(res.locals.salesActor, uuid.parse(req.params.id), valuationInput.parse(req.body))));
-  router.post('/seller-leads/:id/valuations/:valuationId/decision', async (req, res) => res.json(await deps.store.decideValuation(res.locals.salesActor, uuid.parse(req.params.id), uuid.parse(req.params.valuationId), valuationDecisionInput.parse(req.body))));
   router.get('/valuations', async (req, res) => res.json(await deps.store.allValuations(res.locals.salesActor, valuationQuery.parse(req.query))));
   router.get('/review-requests', async (_req, res) => res.json(await deps.store.reviewRequests(res.locals.salesActor)));
 
@@ -293,6 +299,7 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   router.post('/seller-leads/:id/offers/:offerId/decision', async (req, res) => res.json(await deps.store.recordSellerOfferResponse(res.locals.salesActor, uuid.parse(req.params.id), uuid.parse(req.params.offerId), offerResponseInput.parse(req.body))));
 
   // Buyer leads (Purchase enquiries)
+  router.post('/buyer-leads', async (req, res) => res.status(201).json(await deps.store.createManualBuyerLead(res.locals.salesActor, manualBuyerLeadInput.parse(req.body))));
   router.get('/buyer-leads', async (req, res) => res.json(await deps.store.buyerLeads(res.locals.salesActor, buyerLeadQuery.parse(req.query))));
   router.get('/buyer-leads/:id', async (req, res) => res.json(await deps.store.buyerLead(res.locals.salesActor, uuid.parse(req.params.id))));
   router.patch('/buyer-leads/:id/status', async (req, res) => res.json(await deps.store.updateBuyerLeadStatus(res.locals.salesActor, uuid.parse(req.params.id), buyerLeadStatus.parse(req.body).status)));

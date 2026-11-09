@@ -2,6 +2,7 @@ import React, { useState, useEffect, type FC, type FormEvent } from 'react';
 import { VehicleMakeModel } from './VehicleMakeModel';
 import { modalIsOpen, useAutoRefresh } from '@vmotiv/ui';
 import type { User } from 'firebase/auth';
+import { describeCustomerAccount } from './customerAccount';
 import { api } from '../api';
 import { CURRENT_YEAR } from '../calendar';
 import { includedKmBreakdown, isBelowRecorded, parseReading, readingText, tripKmPreview } from '../readings';
@@ -102,6 +103,12 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [editVehicle, setEditVehicle] = useState<RentalFleetItem | null>(null);
   const [editForm, setEditForm] = useState<Record<string, string>>({});
   const setEditField = (key: string, value: string) => setEditForm(prev => ({ ...prev, [key]: value }));
+  // Photos and features of the car being edited: saved ones, plus photos chosen on this computer that upload when saved.
+  const [editImages, setEditImages] = useState<string[]>([]);
+  const [editStaged, setEditStaged] = useState<Array<{ id: string; file: File; previewUrl: string }>>([]);
+  const [editFeatures, setEditFeatures] = useState<string[]>([]);
+  const [editImageUrl, setEditImageUrl] = useState('');
+  const clearEditStaged = () => setEditStaged(current => { current.forEach(item => URL.revokeObjectURL(item.previewUrl)); return []; });
   // Correcting the odometer / fuel level recorded for a car
   const [readingsVehicle, setReadingsVehicle] = useState<RentalFleetItem | null>(null);
   const [readingOdometer, setReadingOdometer] = useState('');
@@ -834,7 +841,18 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const rupeesText = (paise: string | number | null | undefined) => (paise === null || paise === undefined || paise === '' ? '' : String(Number(paise) / 100));
   const openEditModal = (veh: RentalFleetItem) => {
     setEditVehicle(veh);
+    clearEditStaged();
+    setEditImages(Array.isArray(veh.images) ? veh.images : []);
+    setEditFeatures(Array.isArray(veh.features) ? veh.features : []);
+    setEditImageUrl('');
     setEditForm({
+      make: veh.make ?? '',
+      model: veh.model ?? '',
+      year: String(veh.year ?? ''),
+      transmission: veh.transmission ?? 'MANUAL',
+      fuelType: veh.fuelType ?? 'PETROL',
+      hubId: veh.hubId ?? '',
+      registrationNumber: veh.registrationNumber ?? '',
       baseDailyRate: rupeesText(veh.baseDailyRatePaise),
       baseHourlyRate: rupeesText((veh as any).baseHourlyRatePaise),
       securityDeposit: rupeesText(veh.securityDepositPaise),
@@ -857,7 +875,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     e.preventDefault();
     if (!editVehicle) return;
     const v = editVehicle;
-    const body: Record<string, string | number | undefined> = {};
+    const body: Record<string, string | number | string[] | undefined> = {};
     const money = (key: string, current: string | number | null | undefined, field: string) => {
       const entered = (editForm[key] ?? '').trim();
       if (entered === '') return;
@@ -883,17 +901,33 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
     const seats = parseReading(editForm.seats ?? '');
     if (seats !== null && seats !== v.seats) body.seats = seats;
     text('variant', v.variant); text('color', v.color); text('vin', v.vin);
+    text('make', v.make); text('model', v.model);
+    const year = parseReading(editForm.year ?? '');
+    if (year !== null && year !== v.year) body.year = year;
+    if ((editForm.transmission ?? '') !== v.transmission) body.transmission = editForm.transmission;
+    if ((editForm.fuelType ?? '') !== v.fuelType) body.fuelType = editForm.fuelType;
+    if ((editForm.hubId ?? '') && editForm.hubId !== v.hubId) body.hubId = editForm.hubId;
+    const registration = (editForm.registrationNumber ?? '').trim().toUpperCase().replace(/\s+/g, '');
+    if (registration && registration !== v.registrationNumber) body.registrationNumber = registration;
+    const sameList = (a: string[], b: string[]) => a.length === b.length && a.every((item, i) => item === b[i]);
+    if (!sameList(editFeatures, Array.isArray(v.features) ? v.features : [])) body.features = editFeatures;
     text('commercialPermitNumber', v.commercialPermitNumber); text('insurancePolicyNumber', v.insurancePolicyNumber);
     const date = (key: string, current: string | null | undefined) => {
       const entered = (editForm[key] ?? '').trim();
       if (entered !== '' && entered !== (current ?? '').slice(0, 10)) body[key] = new Date(`${entered}T00:00:00.000Z`).toISOString();
     };
     date('commercialPermitExpiry', v.commercialPermitExpiry); date('insuranceExpiry', v.insuranceExpiry); date('fitnessCertExpiry', v.fitnessCertExpiry);
-    if (Object.keys(body).length === 0) { onError('Nothing was changed.'); return; }
+    if (Object.keys(body).length === 0 && editStaged.length === 0 && sameList(editImages, Array.isArray(v.images) ? v.images : [])) { onError('Nothing was changed.'); return; }
     setActionBusy(true);
     try {
+      // Photos: upload the ones chosen on this computer, then save the whole ordered list (the first is the cover).
+      if (editStaged.length > 0 || !sameList(editImages, Array.isArray(v.images) ? v.images : [])) {
+        const uploaded = await uploadAll(editStaged.map(item => ({ file: item.file } as any)), `vmotiv/rental-fleet/${v.registrationNumber}`);
+        body.images = [...editImages, ...uploaded];
+      }
       await api.updateRentalFleetDetails(user, v.id, body);
       onSuccess(`${v.make} ${v.model} (${v.registrationNumber}) updated. Bookings already made keep the rates they were quoted; publish the car again when you are ready.`);
+      clearEditStaged();
       setEditVehicle(null);
       void loadData();
     } catch (err: any) {
@@ -1160,7 +1194,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         immediateHandover: walkInImmediateHandover,
       });
 
-      onSuccess(`On-Road Rental Booking #${booking.bookingNumber} created successfully! ${walkInImmediateHandover ? 'Vehicle is now ON TRIP.' : 'Ready for pickup.'}`);
+      onSuccess(`On-Road Rental Booking #${booking.bookingNumber} created successfully! ${walkInImmediateHandover ? 'Vehicle is now ON TRIP.' : 'Ready for pickup.'}${describeCustomerAccount((booking as any).customerAccount)}`);
       setWalkInModalOpen(false);
       // Reset form
       setWalkInCustomerName('');
@@ -1718,7 +1752,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             className="btn-secondary btn-sm button secondary small"
                             disabled={veh.isEligibleForRental !== false}
                             onClick={() => openEditModal(veh)}
-                            title={veh.isEligibleForRental !== false ? 'Delist this car first - details can only be edited while customers cannot book it' : 'Edit rates, deposit, km allowance and documents'}
+                            title={veh.isEligibleForRental !== false ? 'Delist this car first - details can only be edited while customers cannot book it' : 'Edit photos, details, rates, deposit, km allowance and documents'}
                           >
                             ✏️ Edit
                           </button>
@@ -2112,7 +2146,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       <input type="tel" className="input" required value={walkInCustomerPhone} onChange={e => setWalkInCustomerPhone(e.target.value)} placeholder="+91 9876543210" style={{ width: '100%', marginTop: '3px' }} />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Email Address *</label>
+                      <label style={{ fontSize: '0.75rem', fontWeight: 600 }}>Customer Gmail *</label>
                       <input type="email" className="input" required value={walkInCustomerEmail} onChange={e => setWalkInCustomerEmail(e.target.value)} placeholder="customer@example.com" style={{ width: '100%', marginTop: '3px' }} />
                     </div>
                   </div>
@@ -3318,16 +3352,66 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
             <div className="modal-dialog" style={{ maxWidth: '720px', width: '95%' }}>
               <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <span className="eyebrow">EDIT CAR · DELISTED</span>
+                  <span className="eyebrow">EDIT CAR · DELISTED · PHOTOS, DETAILS AND RATES</span>
                   <h3 style={{ margin: 0 }}>{editVehicle.make} {editVehicle.model} · {editVehicle.registrationNumber}</h3>
                 </div>
-                <button type="button" className="icon-button" onClick={() => setEditVehicle(null)}><IconCross /></button>
+                <button type="button" className="icon-button" onClick={() => { clearEditStaged(); setEditVehicle(null); }}><IconCross /></button>
               </div>
               <form onSubmit={handleEditSubmit}>
                 <div className="modal-body" style={{ padding: '1.25rem', display: 'grid', gap: '1.1rem' }}>
                   <p style={{ fontSize: '0.85rem', color: 'var(--muted)', margin: 0 }}>
                     Changes apply to new bookings only. Bookings already made keep the rates they were quoted. Every change is recorded with your name. Publish the car again afterwards.
                   </p>
+                  <div>
+                    <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Photos ({editImages.length + editStaged.length}) · the first one is the cover</strong>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.75rem', alignItems: 'center', margin: '0.5rem 0' }}>
+                      <input
+                        type="file"
+                        id="edit-photo-file-input"
+                        accept="image/*"
+                        multiple
+                        style={{ display: 'none' }}
+                        onChange={e => {
+                          const files = Array.from(e.target.files ?? []).filter(file => file.type.startsWith('image/'));
+                          if (files.length < (e.target.files?.length ?? 0)) onError('Only image files can be added as car photos.');
+                          setEditStaged(current => [...current, ...files.map(file => ({ id: `${file.name}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, file, previewUrl: URL.createObjectURL(file) }))]);
+                          e.target.value = '';
+                        }}
+                      />
+                      <label htmlFor="edit-photo-file-input" className="btn-secondary button secondary" style={{ cursor: 'pointer', fontSize: '0.8125rem', padding: '0.45rem 0.9rem' }}>📁 Add photos from computer</label>
+                      <div style={{ display: 'flex', gap: '0.5rem', flex: 1, minWidth: '240px' }}>
+                        <input type="url" className="input" placeholder="…or paste a photo link" value={editImageUrl} onChange={e => setEditImageUrl(e.target.value)} style={{ flex: 1 }} />
+                        <button
+                          type="button"
+                          className="btn-secondary button secondary"
+                          disabled={!/^https?:\/\//i.test(editImageUrl.trim()) || editImages.includes(editImageUrl.trim())}
+                          onClick={() => { setEditImages(current => [...current, editImageUrl.trim()]); setEditImageUrl(''); }}
+                        >Add</button>
+                      </div>
+                    </div>
+                    {editImages.length + editStaged.length === 0 ? (
+                      <div style={{ padding: '1rem', textAlign: 'center', border: '1px dashed var(--border)', borderRadius: '8px', color: 'var(--muted)', fontSize: '0.8125rem' }}>No photos yet. Customers see the first photo on the car's card.</div>
+                    ) : (
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(120px, 1fr))', gap: '0.6rem' }}>
+                        {editImages.map((url, index) => (
+                          <div key={url} style={{ position: 'relative', aspectRatio: '4/3', borderRadius: '6px', overflow: 'hidden', border: index === 0 ? '2px solid var(--color-primary)' : '1px solid var(--border)', background: '#000' }}>
+                            <img src={url} alt={`Car photo ${index + 1}`} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            {index === 0 ? <span className="badge badge-warning" style={{ position: 'absolute', bottom: 4, left: 4, fontSize: '0.65rem' }}>Cover</span> : (
+                              <button type="button" className="badge" style={{ position: 'absolute', bottom: 4, left: 4, fontSize: '0.65rem', cursor: 'pointer' }} onClick={() => setEditImages(current => [url, ...current.filter(item => item !== url)])}>★ Make cover</button>
+                            )}
+                            <button type="button" aria-label={`Remove photo ${index + 1}`} onClick={() => setEditImages(current => current.filter(item => item !== url))} style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 99, border: 0, cursor: 'pointer', background: 'var(--color-error)', color: '#fff' }}>×</button>
+                          </div>
+                        ))}
+                        {editStaged.map(item => (
+                          <div key={item.id} style={{ position: 'relative', aspectRatio: '4/3', borderRadius: '6px', overflow: 'hidden', border: '2px dashed var(--color-warning)', background: '#000' }}>
+                            <img src={item.previewUrl} alt="New photo" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                            <span className="badge badge-warning" style={{ position: 'absolute', bottom: 4, left: 4, fontSize: '0.65rem' }}>New · uploads on save</span>
+                            <button type="button" aria-label="Discard new photo" onClick={() => setEditStaged(current => { URL.revokeObjectURL(item.previewUrl); return current.filter(entry => entry.id !== item.id); })} style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 99, border: 0, cursor: 'pointer', background: 'var(--color-error)', color: '#fff' }}>×</button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
                   <div>
                     <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Rates & deposit (₹)</strong>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
@@ -3347,9 +3431,49 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   <div>
                     <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Car</strong>
                     <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
+                      {field('make', 'Make')}
+                      {field('model', 'Model')}
                       {field('variant', 'Variant & trim')}
+                      {field('year', 'Year', { type: 'number', min: 2010 })}
+                      {field('registrationNumber', 'Registration number')}
                       {field('color', 'Colour')}
                       {field('seats', 'Seats', { type: 'number', min: 2, max: 10 })}
+                      <div>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Transmission</label>
+                        <select className="input" value={editForm.transmission ?? ''} onChange={e => setEditField('transmission', e.target.value)} style={{ width: '100%', marginTop: '4px' }}>
+                          <option value="MANUAL">Manual</option>
+                          <option value="AUTOMATIC">Automatic</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Fuel</label>
+                        <select className="input" value={editForm.fuelType ?? ''} onChange={e => setEditField('fuelType', e.target.value)} style={{ width: '100%', marginTop: '4px' }}>
+                          {['PETROL', 'DIESEL', 'EV', 'HYBRID', 'CNG'].map(fuel => <option key={fuel} value={fuel}>{fuel}</option>)}
+                        </select>
+                      </div>
+                      <div>
+                        <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Hub</label>
+                        <select className="input" value={editForm.hubId ?? ''} onChange={e => setEditField('hubId', e.target.value)} style={{ width: '100%', marginTop: '4px' }}>
+                          {hubs.map(hub => <option key={hub.id} value={hub.id}>{hub.name} ({hub.city})</option>)}
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                  <div>
+                    <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Features shown to customers</strong>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.4rem', marginTop: '0.5rem' }}>
+                      {[...new Set([...POPULAR_FEATURES, ...editFeatures])].map(feature => {
+                        const on = editFeatures.includes(feature);
+                        return (
+                          <button
+                            key={feature}
+                            type="button"
+                            aria-pressed={on}
+                            onClick={() => setEditFeatures(current => (on ? current.filter(item => item !== feature) : [...current, feature]))}
+                            style={{ fontSize: '0.75rem', fontWeight: 600, padding: '0.3rem 0.7rem', borderRadius: '999px', cursor: 'pointer', border: on ? '1px solid var(--color-primary)' : '1px solid var(--border)', background: on ? 'color-mix(in oklab, var(--color-primary) 18%, transparent)' : 'transparent', color: on ? 'var(--color-primary)' : 'var(--muted)' }}
+                          >{on ? '✓ ' : ''}{feature}</button>
+                        );
+                      })}
                     </div>
                   </div>
                   <div>
@@ -3365,7 +3489,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                   </div>
                 </div>
                 <div className="modal-footer" style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                  <button type="button" className="btn-secondary button secondary" onClick={() => setEditVehicle(null)}>Cancel</button>
+                  <button type="button" className="btn-secondary button secondary" onClick={() => { clearEditStaged(); setEditVehicle(null); }}>Cancel</button>
                   <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>{actionBusy ? 'Saving…' : 'Save Changes'}</button>
                 </div>
               </form>

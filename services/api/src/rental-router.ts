@@ -231,6 +231,15 @@ const readingsCorrectionSchema = z.object({
 
 // Editing a delisted car's details. Blank fields mean "leave unchanged"; money is in paise.
 const fleetDetailsSchema = z.object({
+  /** The full, ordered photo list (the first is the cover). Photos left out are removed; new ones added. */
+  images: z.array(z.string().trim().min(5).max(2_000_000)).max(20).optional(),
+  make: z.string().trim().min(1).max(50).optional(),
+  model: z.string().trim().min(1).max(50).optional(),
+  year: z.preprocess(blankToUndefined, z.coerce.number().int().min(2010).max(currentCalendarYear() + 1).optional()),
+  transmission: z.enum(['MANUAL', 'AUTOMATIC']).optional(),
+  fuelType: z.enum(['PETROL', 'DIESEL', 'EV', 'HYBRID', 'CNG']).optional(),
+  hubId: uuid.optional(),
+  registrationNumber: z.string().trim().min(5).max(30).optional(),
   baseDailyRatePaise: z.preprocess(blankToUndefined, z.coerce.number().int().positive().optional()),
   baseHourlyRatePaise: z.preprocess(blankToUndefined, z.coerce.number().int().positive().optional()),
   securityDepositPaise: z.preprocess(blankToUndefined, z.coerce.number().int().min(0).optional()),

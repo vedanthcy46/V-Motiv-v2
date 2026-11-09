@@ -821,6 +821,16 @@ export class PrismaAdminStore implements AdminStore {
               data: { status: 'OFFER_PENDING' },
             });
           }
+          await tx.notification.create({
+            data: {
+              userId: request.requesterId,
+              eventType: 'ACQUISITION_OFFER_REJECTED',
+              title: 'Offer not approved',
+              body: `Administration did not approve the proposed offer${(request.payload as any)?.referenceCode ? ` for ${(request.payload as any).referenceCode}` : ''}${input.reason ? `: ${input.reason}` : '.'} Propose a revised amount.`,
+              entityType: 'ApprovalRequest',
+              entityId: id,
+            },
+          }).catch(() => undefined);
         }
         await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'APPROVAL_REJECTED', entityType: 'ApprovalRequest', entityId: id, details: { reason: input.reason } } });
         return { stale: false, value: { id, status: 'REJECTED' } } as const;
@@ -906,6 +916,31 @@ export class PrismaAdminStore implements AdminStore {
             where: { id: valuation.leadId },
             data: { status: 'OFFERED' },
           });
+          // Approval is the moment the seller is told, and Sales hears that it went out.
+          const lead = valuation.lead;
+          const rupees = (Number(valuation.recommendedPurchasePaise) / 100).toLocaleString('en-IN');
+          if (lead?.userId) {
+            await tx.notification.create({
+              data: {
+                userId: lead.userId,
+                eventType: nextVersion > 1 ? 'ACQUISITION_COUNTER_OFFER_RECEIVED' : 'ACQUISITION_OFFER_RECEIVED',
+                title: nextVersion > 1 ? `Revised Purchase Offer (v${nextVersion})` : 'Guaranteed Purchase Offer Received',
+                body: `V MOTIV has issued an official purchase offer of ₹${rupees} for your ${lead.make} ${lead.model}.`,
+                entityType: 'AcquisitionOffer',
+                entityId: offer.id,
+              },
+            }).catch(() => undefined);
+          }
+          await tx.notification.create({
+            data: {
+              userId: request.requesterId,
+              eventType: 'ACQUISITION_OFFER_APPROVED',
+              title: 'Offer approved and sent',
+              body: `Administration approved ₹${rupees} for ${lead?.make ?? ''} ${lead?.model ?? ''} (${lead?.referenceCode ?? ''}). The seller has been told.`,
+              entityType: 'AcquisitionOffer',
+              entityId: offer.id,
+            },
+          }).catch(() => undefined);
         }
 
         await tx.approvalDecision.create({ data: { requestId: id, actorId: actor.userId, decision: 'APPROVE', reason: input.reason, requestVersion: request.version } });
