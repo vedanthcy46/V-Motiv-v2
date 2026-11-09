@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import { Camera, ShieldCheck, X } from 'lucide-react-native';
+import { ActivityIndicator, Alert, Modal, Pressable, StyleSheet, Text, View } from 'react-native';
+import { CameraView, scanFromURLAsync, useCameraPermissions } from 'expo-camera';
+import * as ImagePicker from 'expo-image-picker';
+import { Camera, ImageUp, ShieldCheck, X } from 'lucide-react-native';
 import { useAppTheme, radius, space } from '../theme';
 
 type Props = {
@@ -22,6 +23,7 @@ export function ConnectQrScannerModal({
   const { theme, isDark } = useAppTheme();
   const [permission, requestPermission] = useCameraPermissions();
   const [locked, setLocked] = useState(false);
+  const [reading, setReading] = useState(false);
 
   useEffect(() => {
     if (visible) setLocked(false);
@@ -32,6 +34,29 @@ export function ConnectQrScannerModal({
     setLocked(true);
     onScanned(result.data);
   }, [locked, onScanned]);
+
+  // A sticker saved as a photo or screenshot: pick it from the phone and read the QR out of it. No camera needed.
+  const pickFromGallery = async () => {
+    if (reading) return;
+    setReading(true);
+    try {
+      const picked = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsMultipleSelection: false, quality: 1 });
+      const uri = picked.canceled ? null : picked.assets?.[0]?.uri;
+      if (!uri) return;
+      const found = await scanFromURLAsync(uri, ['qr']);
+      const value = found.find(item => item.data)?.data;
+      if (!value) {
+        Alert.alert('No QR code found', 'Choose a clear photo or screenshot that shows the whole V MOTIV Connect QR code, or scan it with the camera.');
+        return;
+      }
+      setLocked(true);
+      onScanned(value);
+    } catch {
+      Alert.alert('Could not read that picture', 'Try another photo, or scan the sticker with the camera.');
+    } finally {
+      setReading(false);
+    }
+  };
 
   const close = () => {
     setLocked(false);
@@ -80,6 +105,16 @@ export function ConnectQrScannerModal({
               </View>
             </View>
           )}
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Upload a picture of the QR code from your phone"
+            disabled={reading}
+            onPress={() => void pickFromGallery()}
+            style={({ pressed }) => [styles.uploadButton, { borderColor: theme.colors.border }, pressed && styles.pressed]}
+          >
+            {reading ? <ActivityIndicator color={theme.colors.brandAccent} /> : <ImageUp size={18} color={theme.colors.textPrimary} />}
+            <Text style={[styles.uploadText, { color: theme.colors.textPrimary }]}>{reading ? 'Reading the picture…' : 'Upload a picture of the QR'}</Text>
+          </Pressable>
           <Text style={[styles.privacy, { color: theme.colors.textSecondary }]}>The QR value is verified securely. It never reveals an owner’s number or address.</Text>
         </View>
       </View>
@@ -101,5 +136,7 @@ const styles = StyleSheet.create({
   permissionBox: { minHeight: 260, borderRadius: radius.lg, alignItems: 'center', justifyContent: 'center', padding: space.xl, gap: 12 },
   permissionTitle: { fontSize: 16, fontWeight: '800' }, permissionText: { fontSize: 13, lineHeight: 19, textAlign: 'center' },
   allowButton: { minHeight: 48, borderRadius: radius.pill, paddingHorizontal: 22, alignItems: 'center', justifyContent: 'center', marginTop: 4 },
+  uploadButton: { minHeight: 48, borderRadius: radius.pill, borderWidth: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingHorizontal: 18 },
+  uploadText: { fontSize: 14, fontWeight: '700' },
   allowText: { fontSize: 14, fontWeight: '800' }, privacy: { fontSize: 11.5, lineHeight: 17, textAlign: 'center' }, pressed: { opacity: 0.72 },
 });
