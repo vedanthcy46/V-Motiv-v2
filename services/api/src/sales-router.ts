@@ -279,8 +279,6 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   router.get('/seller-leads/:id/inspection-summary', async (req, res) => res.json(await deps.store.inspectionSummary(res.locals.salesActor, uuid.parse(req.params.id))));
 
   router.get('/seller-leads/:id/valuations', async (req, res) => res.json(await deps.store.valuations(res.locals.salesActor, uuid.parse(req.params.id))));
-  router.post('/seller-leads/:id/valuations', async (req, res) => res.status(201).json(await deps.store.createValuation(res.locals.salesActor, uuid.parse(req.params.id), valuationInput.parse(req.body))));
-  router.post('/seller-leads/:id/valuations/:valuationId/decision', async (req, res) => res.json(await deps.store.decideValuation(res.locals.salesActor, uuid.parse(req.params.id), uuid.parse(req.params.valuationId), valuationDecisionInput.parse(req.body))));
   router.get('/valuations', async (req, res) => res.json(await deps.store.allValuations(res.locals.salesActor, valuationQuery.parse(req.query))));
   router.get('/review-requests', async (_req, res) => res.json(await deps.store.reviewRequests(res.locals.salesActor)));
 

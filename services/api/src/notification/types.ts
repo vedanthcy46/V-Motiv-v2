@@ -31,6 +31,7 @@ export type DomainEventType =
   // Lead & Operations
   | 'LEAD_ASSIGNED'
   | 'DISCOUNT_APPROVAL_REQUESTED'
+  | 'ACQUISITION_OFFER_APPROVAL_REQUESTED'
   | 'DISCOUNT_APPROVAL_DECIDED'
   | 'EMPLOYEE_INVITED'
   // Finance Lifecycle

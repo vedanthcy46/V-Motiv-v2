@@ -643,19 +643,6 @@ export const salesApi = {
     call<{ id: string; status: string }>(user, `/seller-leads/${leadId}/offers/${offerId}/decision`, { method: 'POST', body: JSON.stringify(input) }),
   getValuations: (user: User, leadId: string) =>
     call<ValuationItem[]>(user, `/seller-leads/${leadId}/valuations`),
-  createValuation: (user: User, leadId: string, input: {
-    inspectionReportId: string;
-    expectedResalePaise: string;
-    refurbishmentPaise?: string;
-    otherCostsPaise?: string;
-    requiredMarginPaise?: string;
-    recommendedPurchasePaise: string;
-    notes?: string;
-    autoApprove?: boolean;
-  }) =>
-    call<ValuationItem>(user, `/seller-leads/${leadId}/valuations`, { method: 'POST', body: JSON.stringify(input) }),
-  decideValuation: (user: User, leadId: string, valuationId: string, input: { version: number; decision: 'APPROVE' | 'REJECT'; reason?: string }) =>
-    call<ValuationItem>(user, `/seller-leads/${leadId}/valuations/${valuationId}/decision`, { method: 'POST', body: JSON.stringify(input) }),
   allValuations: (user: User, params: { page?: number; limit?: number; status?: string } = {}) =>
     call<{ items: ValuationItem[]; total: number; page: number; totalPages: number }>(user, `/valuations?${query(params)}`),
   reviewRequests: (user: User) =>

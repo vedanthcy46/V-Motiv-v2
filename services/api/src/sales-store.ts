@@ -123,8 +123,6 @@ export interface SalesStore {
   valuations(actor: SalesActor, leadId: string): Promise<unknown>;
   allValuations(actor: SalesActor, query: { page: number; limit: number; status?: AcquisitionValuationStatus }): Promise<unknown>;
   reviewRequests(actor: SalesActor): Promise<unknown>;
-  createValuation(actor: SalesActor, leadId: string, input: { inspectionReportId: string; expectedResalePaise: bigint; refurbishmentPaise?: bigint; otherCostsPaise?: bigint; requiredMarginPaise?: bigint; recommendedPurchasePaise: bigint; notes?: string }): Promise<unknown>;
-  decideValuation(actor: SalesActor, leadId: string, valuationId: string, input: { version: number; decision: 'APPROVE' | 'REJECT'; reason?: string }): Promise<unknown>;
 
   // Acquisition Offers
   acquisitionOffers(actor: SalesActor, query: { page: number; limit: number; status?: AcquisitionOfferStatus }): Promise<unknown>;
@@ -1276,92 +1274,6 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
     };
   }
 
-  async createValuation(actor: SalesActor, leadId: string, input: {
-    inspectionReportId: string;
-    expectedResalePaise: bigint;
-    refurbishmentPaise?: bigint;
-    otherCostsPaise?: bigint;
-    requiredMarginPaise?: bigint;
-    recommendedPurchasePaise: bigint;
-    notes?: string;
-    autoApprove?: boolean;
-  }) {
-    const valuationSubmitRoles = ['SALES_EXECUTIVE', 'SALES_MANAGER', 'PRICING_APPROVER', 'ADMIN', 'SUPER_ADMIN'];
-    if (!actor.roles.some(role => valuationSubmitRoles.includes(role))) {
-      throw new HttpError(403, 'VALUATION_SUBMIT_DENIED');
-    }
-    const lead = await this.db.acquisitionLead.findFirst({ where: { id: leadId, ...scope(actor) }, select: { id: true, referenceCode: true } });
-    if (!lead) throw new HttpError(404, 'SELLER_LEAD_NOT_FOUND');
-    const report = await this.db.inspectionReport.findFirst({ where: { id: input.inspectionReportId, request: { leadId }, status: 'APPROVED' }, select: { id: true, revision: true } });
-    if (!report) throw new HttpError(409, 'VALUATION_REQUIRES_APPROVED_INSPECTION');
-    const calculated = input.expectedResalePaise - (input.refurbishmentPaise || 0n) - (input.otherCostsPaise || 0n) - (input.requiredMarginPaise || 0n);
-    if (input.recommendedPurchasePaise <= 0n || input.recommendedPurchasePaise > calculated) throw new HttpError(400, 'VALUATION_AMOUNT_INVALID');
-
-    const shouldAutoApprove = Boolean(input.autoApprove && actor.roles.some(r => ['ADMIN', 'SUPER_ADMIN', 'PRICING_APPROVER'].includes(r)));
-
-    return this.db.$transaction(async tx => {
-      const valuation = await tx.acquisitionValuation.create({
-        data: {
-          leadId,
-          inspectionReportId: report.id,
-          expectedResalePaise: input.expectedResalePaise,
-          refurbishmentPaise: input.refurbishmentPaise || 0n,
-          otherCostsPaise: input.otherCostsPaise || 0n,
-          requiredMarginPaise: input.requiredMarginPaise || 0n,
-          recommendedPurchasePaise: input.recommendedPurchasePaise,
-          notes: input.notes,
-          status: shouldAutoApprove ? 'APPROVED' : 'PENDING_APPROVAL',
-          createdById: actor.userId,
-          approvedById: shouldAutoApprove ? actor.userId : null,
-          approvedAt: shouldAutoApprove ? new Date() : null,
-        },
-      });
-      await tx.acquisitionLead.update({ where: { id: leadId }, data: { status: 'OFFER_PENDING' } });
-      await tx.auditEvent.create({
-        data: {
-          actorId: actor.userId,
-          action: shouldAutoApprove ? 'ACQUISITION_VALUATION_APPROVED' : 'ACQUISITION_VALUATION_SUBMITTED',
-          entityType: 'AcquisitionValuation',
-          entityId: valuation.id,
-          details: { leadId, reportId: report.id, reportRevision: report.revision, recommendedPurchasePaise: input.recommendedPurchasePaise.toString() },
-        },
-      });
-      return valuation;
-    });
-  }
-
-  async decideValuation(actor: SalesActor, leadId: string, valuationId: string, input: { version: number; decision: 'APPROVE' | 'REJECT'; reason?: string }) {
-    requirePricing(actor);
-    const valuation = await this.db.acquisitionValuation.findFirst({ where: { id: valuationId, leadId, status: 'PENDING_APPROVAL' } });
-    if (!valuation) throw new HttpError(409, 'VALUATION_NOT_PENDING');
-    if (valuation.version !== input.version) throw new HttpError(409, 'VALUATION_VERSION_CONFLICT');
-    if (valuation.createdById === actor.userId && !actor.roles.some(r => ['ADMIN', 'SUPER_ADMIN'].includes(r))) {
-      throw new HttpError(403, 'VALUATION_SELF_APPROVAL_DENIED');
-    }
-    if (input.decision === 'REJECT' && !input.reason) throw new HttpError(400, 'VALUATION_REJECTION_REASON_REQUIRED');
-    return this.db.$transaction(async tx => {
-      const updated = await tx.acquisitionValuation.update({
-        where: { id: valuationId },
-        data: {
-          status: input.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED',
-          approvedById: actor.userId,
-          approvedAt: new Date(),
-          version: { increment: 1 },
-        },
-      });
-      await tx.auditEvent.create({
-        data: {
-          actorId: actor.userId,
-          action: input.decision === 'APPROVE' ? 'ACQUISITION_VALUATION_APPROVED' : 'ACQUISITION_VALUATION_REJECTED',
-          entityType: 'AcquisitionValuation',
-          entityId: valuationId,
-          details: { leadId, reason: input.reason ?? null },
-        },
-      });
-      return updated;
-    });
-  }
-
   async acquisitionOffers(actor: SalesActor, query: { page: number; limit: number; status?: AcquisitionOfferStatus }) {
     const where: Prisma.AcquisitionOfferWhereInput = {
       lead: scope(actor),
@@ -1413,6 +1325,10 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
     });
   }
 
+  /**
+   * Sales asks for an offer to be sent to the seller. Nothing reaches the seller from here: this files a request that
+   * Administration approves in the admin portal, and approving it is what issues the offer (see admin-store decide).
+   */
   async proposeAcquisitionOffer(actor: SalesActor, leadId: string, input: {
     valuationId?: string;
     offerAmountPaise: bigint;
@@ -1425,117 +1341,88 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
       select: { id: true, referenceCode: true, make: true, model: true, manufacturingYear: true, sellerName: true, sellerPhone: true, expectedPricePaise: true, city: true, userId: true },
     });
     if (!lead) throw new HttpError(409, 'OFFER_PROPOSAL_NOT_ELIGIBLE');
+    if (input.offerAmountPaise <= 0n) throw new HttpError(400, 'INVALID_OFFER_AMOUNT');
 
-    const isPricingAuthorized = actor.roles.some(role => pricingRoles.includes(role));
+    // An offer is only ever priced from an inspection report that someone independent has approved.
+    const report = await this.db.inspectionReport.findFirst({ where: { request: { leadId }, status: 'APPROVED' }, orderBy: { revision: 'desc' }, select: { id: true, revision: true } });
+    if (!report) throw new HttpError(409, 'OFFER_REQUIRES_APPROVED_INSPECTION');
+    const pending = await this.db.approvalRequest.findFirst({ where: { requestType: 'OFFER_REQUEST', status: 'PENDING', payload: { path: ['leadId'], equals: leadId } }, select: { id: true } });
+    if (pending) throw new HttpError(409, 'OFFER_APPROVAL_ALREADY_PENDING', 'An offer for this seller is already waiting for administration approval.');
 
-    // If an approved valuation exists:
-    let valuation = input.valuationId
-      ? await this.db.acquisitionValuation.findFirst({ where: { id: input.valuationId, leadId } })
-      : await this.db.acquisitionValuation.findFirst({ where: { leadId, status: 'APPROVED' }, orderBy: { createdAt: 'desc' } });
-
-    // If caller has administrative pricing authority (ADMIN, SUPER_ADMIN, PRICING_APPROVER), and lead has an approved inspection report:
-    if (isPricingAuthorized && actor.roles.some(r => ['ADMIN', 'SUPER_ADMIN', 'PRICING_APPROVER'].includes(r))) {
-      // If a valuation is pending approval, auto-approve it
-      if (valuation && valuation.status === 'PENDING_APPROVAL') {
-        valuation = await this.db.acquisitionValuation.update({
-          where: { id: valuation.id },
-          data: {
-            status: 'APPROVED',
-            approvedById: actor.userId,
-            approvedAt: new Date(),
-            version: { increment: 1 },
-          },
-        });
-      } else if (!valuation || (valuation.status === 'APPROVED' && input.offerAmountPaise > valuation.recommendedPurchasePaise)) {
-        // If no valuation exists or higher counter-offer exceeds previous approved baseline, establish baseline valuation
-        const approvedReport = await this.db.inspectionReport.findFirst({
-          where: { request: { leadId }, status: 'APPROVED' },
-          orderBy: { revision: 'desc' },
-        });
-        if (approvedReport) {
-          const resalePaise = (input.offerAmountPaise * 115n) / 100n; // 15% margin baseline
-          valuation = await this.db.acquisitionValuation.create({
-            data: {
-              leadId,
-              inspectionReportId: approvedReport.id,
-              expectedResalePaise: resalePaise,
-              refurbishmentPaise: 0n,
-              otherCostsPaise: 0n,
-              requiredMarginPaise: resalePaise - input.offerAmountPaise,
-              recommendedPurchasePaise: input.offerAmountPaise,
-              notes: input.reason || (valuation ? 'Authorized acquisition valuation baseline revised for counter-offer by administration.' : 'Authorized acquisition valuation baseline established by administration.'),
-              status: 'APPROVED',
-              createdById: actor.userId,
-              approvedById: actor.userId,
-              approvedAt: new Date(),
-            },
-          });
-        }
-      }
-    }
-
-    // If user has pricing roles and has an approved valuation:
-    if (isPricingAuthorized && valuation && valuation.status === 'APPROVED') {
-      if (input.offerAmountPaise > valuation.recommendedPurchasePaise) throw new HttpError(400, 'OFFER_EXCEEDS_APPROVED_VALUATION');
-      const latestOffer = await this.db.acquisitionOffer.findFirst({
-        where: { leadId },
-        orderBy: { version: 'desc' },
-        select: { version: true },
+    const sellerAsk = lead.expectedPricePaise ?? input.offerAmountPaise;
+    const vehicleTitle = `${lead.manufacturingYear} ${lead.make} ${lead.model}`;
+    const result = await this.db.$transaction(async tx => {
+      const valuation = await tx.acquisitionValuation.create({
+        data: {
+          leadId,
+          inspectionReportId: report.id,
+          expectedResalePaise: sellerAsk > input.offerAmountPaise ? sellerAsk : input.offerAmountPaise,
+          refurbishmentPaise: 0n,
+          otherCostsPaise: 0n,
+          requiredMarginPaise: 0n,
+          recommendedPurchasePaise: input.offerAmountPaise,
+          notes: input.reason || 'Offer requested by Sales; awaiting administration approval.',
+          status: 'PENDING_APPROVAL',
+          createdById: actor.userId,
+        },
       });
-      const nextVersion = (latestOffer?.version || 0) + 1;
-      const validUntil = input.validUntil || new Date(Date.now() + 7 * 86400000);
-
-      return this.db.$transaction(async tx => {
-        const offer = await tx.acquisitionOffer.create({
-          data: {
-            leadId,
+      const request = await tx.approvalRequest.create({
+        data: {
+          requestType: 'OFFER_REQUEST',
+          requesterId: actor.userId,
+          requiredPermission: 'approval.decide',
+          scopeBranchIds: actor.branches.map(branch => branch.id),
+          payload: {
             valuationId: valuation.id,
-            offerAmountPaise: input.offerAmountPaise,
-            validUntil,
-            terms: input.terms || 'Authorized purchase valuation valid for 7 days.',
-            version: nextVersion,
-            status: 'OFFERED',
+            leadId,
+            referenceCode: lead.referenceCode,
+            vehicleTitle,
+            city: lead.city,
+            sellerName: lead.sellerName,
+            sellerPhone: lead.sellerPhone,
+            recommendedPurchasePaise: input.offerAmountPaise.toString(),
+            expectedResalePaise: sellerAsk.toString(),
+            terms: input.terms,
+            reason: input.reason,
           },
-        });
-        await tx.acquisitionLead.update({ where: { id: leadId }, data: { status: 'OFFERED' } });
-        await tx.auditEvent.create({
-          data: {
-            actorId: actor.userId,
-            action: nextVersion > 1 ? 'ACQUISITION_COUNTER_OFFER_PROPOSED' : 'ACQUISITION_OFFER_PROPOSED',
-            entityType: 'AcquisitionOffer',
-            entityId: offer.id,
-            details: { leadId, referenceCode: lead.referenceCode, amountPaise: input.offerAmountPaise.toString(), version: nextVersion, isCounterOffer: nextVersion > 1 },
-          },
-        });
-        if (lead.userId) {
-          await tx.notification.create({
-            data: {
-              userId: lead.userId,
-              eventType: nextVersion > 1 ? 'ACQUISITION_COUNTER_OFFER_RECEIVED' : 'ACQUISITION_OFFER_RECEIVED',
-              title: nextVersion > 1 ? `Revised Purchase Offer (v${nextVersion})` : 'Guaranteed Purchase Offer Received',
-              body: `V MOTIV has issued an official purchase offer of ₹${(Number(input.offerAmountPaise) / 100).toLocaleString('en-IN')} for your ${lead.make} ${lead.model}.`,
-              entityType: 'AcquisitionOffer',
-              entityId: offer.id,
-            },
-          }).catch(() => undefined);
-        }
-        return {
-          id: offer.id,
-          status: 'OFFERED',
-          valuationId: valuation.id,
-          offerAmountPaise: offer.offerAmountPaise.toString(),
-          message: nextVersion > 1 ? `Revised counter-offer (v${nextVersion}) issued to seller.` : 'Official purchase offer issued to seller.',
-        };
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+        select: { id: true },
       });
-    }
+      await tx.acquisitionLead.update({ where: { id: leadId }, data: { status: 'OFFER_PENDING' } });
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: 'ACQUISITION_OFFER_APPROVAL_REQUESTED',
+          entityType: 'ApprovalRequest',
+          entityId: request.id,
+          details: { leadId, referenceCode: lead.referenceCode, valuationId: valuation.id, amountPaise: input.offerAmountPaise.toString(), reportRevision: report.revision },
+        },
+      });
+      return { approvalRequestId: request.id, valuationId: valuation.id };
+    });
 
-    // A commercial offer can never manufacture its own inspection evidence or valuation.
-    // Pricing staff must first create a recommendation from an independently approved report,
-    // then a different authorized pricing employee approves that recommendation.
-    if (!valuation || valuation.status !== 'APPROVED') {
-      throw new HttpError(409, 'OFFER_PROPOSAL_REQUIRES_APPROVED_VALUATION');
-    }
-    throw new HttpError(403, 'OFFER_ISSUANCE_REQUIRES_PRICING_AUTHORITY');
+    // After the commit: tell the approvers there is something to decide.
+    await this.notificationService?.dispatchDomainEvent({
+      type: 'ACQUISITION_OFFER_APPROVAL_REQUESTED',
+      category: 'SELLING',
+      priority: 'HIGH',
+      recipientRoles: ['ADMIN', 'SUPER_ADMIN', 'PRICING_APPROVER'],
+      title: `Offer needs approval: ${vehicleTitle}`,
+      body: `${actor.displayName || 'Sales'} proposed ₹${(Number(input.offerAmountPaise) / 100).toLocaleString('en-IN')} for ${lead.sellerName} (${lead.referenceCode}).`,
+      actionUrl: '/admin?page=approvals',
+      referenceId: result.approvalRequestId,
+      entityType: 'ApprovalRequest',
+      metadata: { targetApp: 'ADMIN', leadId },
+    } as any).catch(() => undefined);
+
+    return {
+      id: result.approvalRequestId,
+      status: 'PENDING_ADMIN_APPROVAL' as const,
+      valuationId: result.valuationId,
+      offerAmountPaise: input.offerAmountPaise.toString(),
+      message: 'Sent to administration for approval. The seller is told only after it is approved.',
+    };
   }
 
   private async loadWalkInOffer(actor: SalesActor, leadId: string, offerId: string) {

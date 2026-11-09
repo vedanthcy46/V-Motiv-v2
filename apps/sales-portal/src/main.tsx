@@ -2627,17 +2627,9 @@ function SellerLeadDrawer({
   const [taskDetails, setTaskDetails] = useState('');
   const [taskExpectedOutcome, setTaskExpectedOutcome] = useState('');
 
-  const [offerRupees, setOfferRupees] = useState('550000');
+  const [offerRupees, setOfferRupees] = useState('');
   const [acceptingOffer, setAcceptingOffer] = useState<{ id: string; offerAmountPaise: string } | null>(null);
   const isWalkInLead = Boolean(lead.user?.email?.toLowerCase().endsWith('@vmotiv.internal'));
-  const [valExpectedResale, setValExpectedResale] = useState(() =>
-    lead.expectedPricePaise ? String(BigInt(lead.expectedPricePaise) / 100n) : '600000'
-  );
-  const [valRefurbishment, setValRefurbishment] = useState('15000');
-  const [valTargetMargin, setValTargetMargin] = useState('35000');
-  const [valPurchasePrice, setValPurchasePrice] = useState('550000');
-  const [valNotes, setValNotes] = useState('');
-  const [showValuationForm, setShowValuationForm] = useState(false);
   const [inspectionDate, setInspectionDate] = useState(
     lead.inspectionDate ? new Date(lead.inspectionDate).toISOString().slice(0, 10) : new Date().toISOString().slice(0, 10)
   );
@@ -2841,86 +2833,23 @@ function SellerLeadDrawer({
     }
   };
 
-  const canAuthorizeValuation = Boolean(actor?.roles.some(r => ['ADMIN', 'SUPER_ADMIN', 'PRICING_APPROVER'].includes(r)));
-
-  const handleCreateValuation = async (autoApprove: boolean) => {
-    if (!user) return;
-    const reportId = inspectionSummary?.approvedReport?.id;
-    if (!reportId) {
-      setError('An approved inspection report is required before establishing a valuation recommendation.');
-      return;
-    }
-    setBusy(true);
-    setError('');
-    try {
-      await salesApi.createValuation(user, lead.id, {
-        inspectionReportId: reportId,
-        expectedResalePaise: String(BigInt(valExpectedResale || '0') * 100n),
-        refurbishmentPaise: String(BigInt(valRefurbishment || '0') * 100n),
-        requiredMarginPaise: String(BigInt(valTargetMargin || '0') * 100n),
-        recommendedPurchasePaise: String(BigInt(valPurchasePrice || '0') * 100n),
-        notes: valNotes || (autoApprove ? 'Authorized commercial valuation baseline.' : 'Valuation proposal submitted for pricing review.'),
-        autoApprove: canAuthorizeValuation && autoApprove,
-      });
-      alert(autoApprove ? 'Valuation authorized and approved!' : 'Valuation submitted for pricing review.');
-      setShowValuationForm(false);
-      await loadInteractions();
-      onRefresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to submit valuation');
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  const handleDecideValuation = async (valId: string, version: number, decision: 'APPROVE' | 'REJECT') => {
-    if (!user) return;
-    const reason = decision === 'REJECT' ? (prompt('Reason for rejecting valuation recommendation:') || '') : undefined;
-    if (decision === 'REJECT' && !reason) return;
-    setBusy(true);
-    setError('');
-    try {
-      await salesApi.decideValuation(user, lead.id, valId, { version, decision, reason });
-      alert(`Valuation recommendation ${decision === 'APPROVE' ? 'approved' : 'rejected'}.`);
-      await loadInteractions();
-      onRefresh();
-    } catch (err) {
-      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to decide valuation');
-    } finally {
-      setBusy(false);
-    }
-  };
-
   const handleProposeOffer = async () => {
     if (!user || !offerRupees) return;
-    // If no approved valuation baseline exists and user is sales staff without direct pricing authority, submit valuation proposal
-    if ((!valuations[0] || valuations[0].status !== 'APPROVED') && !canAuthorizeValuation) {
-      await handleCreateValuation(false);
-      return;
-    }
     setBusy(true);
     setError('');
     try {
-      const validDate = new Date(Date.now() + 7 * 86400000).toISOString();
       const res = await salesApi.proposeAcquisitionOffer(user, lead.id, {
         offerAmountPaise: String(BigInt(offerRupees) * 100n),
-        validUntil: validDate,
         terms: 'Authorized purchase valuation valid for 7 days.',
       });
-      alert(res?.message || 'Official purchase offer issued to seller!');
+      alert(res?.message || 'Sent to administration for approval.');
       await loadInteractions();
       onRefresh();
     } catch (err: any) {
       const code = err?.code || (err instanceof ApiError ? err.code : '');
-      if (code === 'OFFER_PROPOSAL_REQUIRES_APPROVED_VALUATION') {
-        setError('Offer proposal requires an authorized valuation recommendation. Please establish or approve the valuation below.');
-        setShowValuationForm(true);
-      } else if (code === 'OFFER_EXCEEDS_APPROVED_VALUATION') {
-        setError('Proposed offer exceeds the current approved valuation baseline. Please submit or authorize an updated valuation baseline below.');
-        setShowValuationForm(true);
-      } else {
-        setError(code ? `Error: ${code}` : (err?.message || 'Offer proposal rejected'));
-      }
+      if (code === 'OFFER_REQUIRES_APPROVED_INSPECTION') setError('An approved inspection report is needed before an offer can be proposed.');
+      else if (code === 'OFFER_APPROVAL_ALREADY_PENDING') setError('An offer for this seller is already waiting for administration approval.');
+      else setError(code ? `Error: ${code}` : (err?.message || 'Could not send the offer for approval'));
     } finally {
       setBusy(false);
     }
@@ -3468,221 +3397,31 @@ function SellerLeadDrawer({
                 </div>
               )}
 
-              {/* Latest Valuation Review Status Banner */}
+              {/* Where the request stands. Pricing is decided in the admin portal; nothing here reaches the seller directly. */}
               {(() => {
-                const latestVal = valuations[0];
-                if (!latestVal) return null;
-
-                if (latestVal.status === 'PENDING_APPROVAL') {
-                  return (
-                    <div style={{
-                      background: 'rgba(255, 209, 102, 0.08)',
-                      border: '1px solid rgba(255, 209, 102, 0.4)',
-                      borderRadius: '8px',
-                      padding: '14px',
-                      marginBottom: '16px',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--warning)', fontWeight: 600 }}>
-                          <Icons.Offers size={18} />
-                          <span>🟡 Valuation Recommendation Under Review</span>
-                        </div>
-                        <span className="badge badge-amber">Awaiting Approval</span>
-                      </div>
-                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: 'var(--muted)' }}>
-                        Recommended Purchase Price: <strong className="font-mono">{formatCurrency(latestVal.recommendedPurchasePaise)}</strong>
-                        {latestVal.expectedResalePaise && ` · Expected Resale: ${formatCurrency(latestVal.expectedResalePaise)}`}
-                      </div>
-                      <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--muted)' }}>
-                        Submitted by {latestVal.createdBy?.user?.displayName || 'Sales / Pricing Staff'} on {formatDate(latestVal.createdAt)}.
-                      </div>
-
-                      {canAuthorizeValuation && (
-                        <div style={{ marginTop: '12px', display: 'flex', gap: '8px', borderTop: '1px solid color-mix(in oklab, var(--color-base-content) 8%, transparent)', paddingTop: '10px' }}>
-                          <button
-                            type="button"
-                            className="btn-primary btn-sm"
-                            style={{ background: 'var(--color-success)', color: 'var(--color-success-content)', fontWeight: 600, border: 'none' }}
-                            onClick={() => handleDecideValuation(latestVal.id, latestVal.version, 'APPROVE')}
-                            disabled={busy}
-                          >
-                            ✓ Authorize & Approve Valuation
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-secondary btn-sm"
-                            style={{ color: 'var(--color-error)' }}
-                            onClick={() => handleDecideValuation(latestVal.id, latestVal.version, 'REJECT')}
-                            disabled={busy}
-                          >
-                            ✕ Reject Valuation
-                          </button>
-                        </div>
-                      )}
+                const latest = valuations[0];
+                if (!latest || latest.status === 'APPROVED') return null;
+                const rejected = latest.status === 'REJECTED';
+                return (
+                  <div style={{
+                    background: rejected ? 'color-mix(in oklab, var(--color-error) 8%, transparent)' : 'color-mix(in oklab, var(--color-warning) 10%, transparent)',
+                    border: `1px solid ${rejected ? 'color-mix(in oklab, var(--color-error) 40%, transparent)' : 'color-mix(in oklab, var(--color-warning) 45%, transparent)'}`,
+                    borderRadius: '8px',
+                    padding: '14px',
+                    marginBottom: '16px',
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                      <strong>{rejected ? 'Administration did not approve the last proposal' : 'Waiting for administration approval'}</strong>
+                      <span className={`badge ${rejected ? 'badge-red' : 'badge-amber'}`}>{rejected ? 'Not approved' : 'Awaiting approval'}</span>
                     </div>
-                  );
-                }
-
-                if (latestVal.status === 'APPROVED') {
-                  return (
-                    <div style={{
-                      background: 'color-mix(in oklab, var(--color-success) 8%, transparent)',
-                      border: '1px solid color-mix(in oklab, var(--color-success) 40%, transparent)',
-                      borderRadius: '8px',
-                      padding: '14px',
-                      marginBottom: '16px',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--success)', fontWeight: 600 }}>
-                          <Icons.Offers size={18} />
-                          <span>🟢 Authorized Acquisition Valuation</span>
-                        </div>
-                        <span className="badge badge-green">Authorized Price</span>
-                      </div>
-                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: 'var(--muted)' }}>
-                        Maximum Authorized Purchase Offer: <strong className="font-mono">{formatCurrency(latestVal.recommendedPurchasePaise)}</strong>
-                        {latestVal.expectedResalePaise && ` · Target Resale: ${formatCurrency(latestVal.expectedResalePaise)}`}
-                      </div>
-                      <div style={{ marginTop: '4px', fontSize: '0.8rem', color: 'var(--muted)' }}>
-                        Authorized by {latestVal.approvedBy?.user?.displayName || 'Administration'} on {formatDate(latestVal.approvedAt || latestVal.updatedAt)}. The official purchase offer can now be communicated to the seller.
-                      </div>
+                    <div style={{ marginTop: '6px', fontSize: '0.875rem', color: 'var(--muted)' }}>
+                      Proposed: <strong className="font-mono">{formatCurrency(latest.recommendedPurchasePaise)}</strong> · sent {formatDate(latest.createdAt)}.
+                      {rejected ? ' Propose a revised amount below.' : ' The seller is told only after it is approved.'}
                     </div>
-                  );
-                }
-
-                if (latestVal.status === 'REJECTED') {
-                  return (
-                    <div style={{
-                      background: 'color-mix(in oklab, var(--color-error) 8%, transparent)',
-                      border: '1px solid color-mix(in oklab, var(--color-error) 40%, transparent)',
-                      borderRadius: '8px',
-                      padding: '14px',
-                      marginBottom: '16px',
-                    }}>
-                      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', color: 'var(--danger)', fontWeight: 600 }}>
-                          <Icons.Offers size={18} />
-                          <span>🔴 Valuation Proposal Rejected by Admin</span>
-                        </div>
-                        <span className="badge badge-red">Proposal Rejected</span>
-                      </div>
-                      <div style={{ marginTop: '8px', fontSize: '0.875rem', color: 'var(--muted)' }}>
-                        Proposed Amount: <strong className="font-mono">{formatCurrency(latestVal.recommendedPurchasePaise)}</strong>
-                      </div>
-                      <div style={{
-                        marginTop: '8px',
-                        padding: '8px 12px',
-                        background: 'color-mix(in oklab, var(--color-error) 15%, transparent)',
-                        borderRadius: '6px',
-                        fontSize: '0.85rem',
-                        color: 'var(--color-error)',
-                      }}>
-                        <strong>Admin Feedback / Reason:</strong> {latestVal.notes || 'Price exceeds commercial bounds. Please submit a revised proposal.'}
-                      </div>
-                      <div style={{ marginTop: '6px', fontSize: '0.8rem', color: 'var(--muted)' }}>
-                        Reviewed by {latestVal.approvedBy?.user?.displayName || 'Admin'} on {formatDate(latestVal.updatedAt)}. Adjust parameters below to submit a revision.
-                      </div>
-                    </div>
-                  );
-                }
-
-                return null;
+                    {rejected && latest.notes ? <div style={{ marginTop: '6px', fontSize: '0.85rem' }}><strong>Reason:</strong> {latest.notes}</div> : null}
+                  </div>
+                );
               })()}
-
-              {/* Valuation Recommendation Form: Visible if no approved valuation exists, or when toggled */}
-              {inspectionSummary?.approvedReport && (!valuations[0] || valuations[0].status !== 'APPROVED' || showValuationForm) && (
-                <div style={{
-                  background: 'rgba(30, 41, 59, 0.7)',
-                  border: '1px solid var(--border)',
-                  borderRadius: '8px',
-                  padding: '16px',
-                  marginBottom: '16px',
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '12px' }}>
-                    <div style={{ fontWeight: 600, fontSize: '0.95rem', color: 'var(--text)' }}>
-                      📊 Acquisition Valuation & Economics Recommendation
-                    </div>
-                    {valuations[0]?.status === 'APPROVED' && (
-                      <button type="button" className="text-button" onClick={() => setShowValuationForm(false)}>Hide</button>
-                    )}
-                  </div>
-                  <div className="form-grid">
-                    <div className="form-group">
-                      <label className="form-label">Expected Retail Resale Price (₹)</label>
-                      <input
-                        className="form-input font-mono"
-                        type="number"
-                        value={valExpectedResale}
-                        onChange={e => setValExpectedResale(e.target.value)}
-                        placeholder="e.g. 600000"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Estimated Refurbishment Cost (₹)</label>
-                      <input
-                        className="form-input font-mono"
-                        type="number"
-                        value={valRefurbishment}
-                        onChange={e => setValRefurbishment(e.target.value)}
-                        placeholder="e.g. 15000"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Target Margin / Operational Cost (₹)</label>
-                      <input
-                        className="form-input font-mono"
-                        type="number"
-                        value={valTargetMargin}
-                        onChange={e => setValTargetMargin(e.target.value)}
-                        placeholder="e.g. 35000"
-                      />
-                    </div>
-                    <div className="form-group">
-                      <label className="form-label">Recommended Purchase Price (₹)</label>
-                      <input
-                        className="form-input font-mono"
-                        type="number"
-                        value={valPurchasePrice}
-                        onChange={e => {
-                          setValPurchasePrice(e.target.value);
-                          setOfferRupees(e.target.value);
-                        }}
-                        placeholder="e.g. 550000"
-                      />
-                    </div>
-                    <div className="form-group full">
-                      <label className="form-label">Valuation Notes / Commercial Rationale</label>
-                      <input
-                        className="form-input"
-                        value={valNotes}
-                        onChange={e => setValNotes(e.target.value)}
-                        placeholder="e.g. Bodywork in good shape, tyres have 40% life remaining, margin aligned with market tier."
-                      />
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '12px', justifyContent: 'flex-end', flexWrap: 'wrap' }}>
-                    {canAuthorizeValuation && (
-                      <button
-                        type="button"
-                        className="btn-primary"
-                        style={{ background: 'var(--color-success)', color: 'var(--color-success-content)', fontWeight: 600, border: 'none' }}
-                        onClick={() => handleCreateValuation(true)}
-                        disabled={busy}
-                      >
-                        {busy ? 'Authorizing...' : '✓ Authorize & Establish Valuation'}
-                      </button>
-                    )}
-                    <button
-                      type="button"
-                      className="btn-secondary"
-                      onClick={() => handleCreateValuation(false)}
-                      disabled={busy}
-                    >
-                      {busy ? 'Submitting...' : 'Submit Valuation for Review'}
-                    </button>
-                  </div>
-                </div>
-              )}
 
               {/* Offer Proposal Section */}
               {inspectionSummary?.approvedReport && (
@@ -3726,13 +3465,11 @@ function SellerLeadDrawer({
                           </div>
                         )}
 
-                        <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '8px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                          <span>{isDeclined ? `🔄 Issue Revised Counter-Offer (v${nextVersion})` : '📢 Issue Official Purchase Offer to Seller'}</span>
-                          {valuations[0]?.status === 'APPROVED' && !showValuationForm && (
-                            <button type="button" className="text-button" style={{ fontSize: '0.8rem' }} onClick={() => setShowValuationForm(true)}>
-                              Revise Valuation Baseline
-                            </button>
-                          )}
+                        <div style={{ fontWeight: 600, fontSize: '0.95rem', marginBottom: '8px' }}>
+                          {isDeclined ? `🔄 Propose a Revised Counter-Offer (v${nextVersion})` : '📢 Propose a Purchase Offer'}
+                          <div style={{ fontWeight: 400, fontSize: '0.8rem', color: 'var(--muted)', marginTop: '2px' }}>
+                            Administration reviews every offer in the admin portal. The seller is told once it is approved.
+                          </div>
                         </div>
                         <div className="form-grid">
                           <div className="form-group">
@@ -3748,16 +3485,14 @@ function SellerLeadDrawer({
                             <button
                               className="btn-primary"
                               onClick={handleProposeOffer}
-                              disabled={busy || !offerRupees}
+                              disabled={busy || !offerRupees || valuations[0]?.status === 'PENDING_APPROVAL'}
                               style={{ width: '100%' }}
                             >
                               {busy
-                                ? 'Processing...'
-                                : (!valuations[0] || valuations[0].status !== 'APPROVED') && !canAuthorizeValuation
-                                ? 'Submit Valuation Proposal for Pricing Review'
-                                : isDeclined
-                                ? `Issue Revised Counter-Offer (v${nextVersion})`
-                                : 'Propose Purchase Offer'}
+                                ? 'Sending…'
+                                : valuations[0]?.status === 'PENDING_APPROVAL'
+                                ? 'Awaiting administration approval'
+                                : 'Send for admin approval'}
                             </button>
                           </div>
                         </div>

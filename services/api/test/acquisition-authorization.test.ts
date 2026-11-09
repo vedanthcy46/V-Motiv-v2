@@ -24,15 +24,19 @@ describe('seller acquisition acceptance boundary', () => {
     )).rejects.toEqual(new HttpError(403, 'SELLER_ACCEPTANCE_REQUIRES_CUSTOMER_AUTHENTICATION'));
   });
 
-  it('never creates an approved inspection or valuation when a Sales user tries to issue an offer', async () => {
+  it('never files an offer request, or reaches the seller, without an independently approved inspection', async () => {
+    const created: string[] = [];
     const db = {
       acquisitionLead: { findFirst: async () => ({ id: 'lead-1', referenceCode: 'VM-LEAD-1', make: 'Honda', model: 'City', manufacturingYear: 2020, sellerName: 'Seller', sellerPhone: '+919876543210', city: 'Bengaluru' }) },
-      acquisitionValuation: { findFirst: async () => null },
+      inspectionReport: { findFirst: async () => null },
+      acquisitionOffer: { create: async () => { created.push('offer'); } },
+      approvalRequest: { create: async () => { created.push('approval'); } },
     } as unknown as PrismaClient;
     const store = new PrismaSalesStore(db);
     await expect(store.proposeAcquisitionOffer({ ...salesActor, globalScope: true }, '11111111-1111-4111-8111-111111111112', {
       offerAmountPaise: 50000000n,
       reason: 'Customer requested an offer',
-    })).rejects.toEqual(new HttpError(409, 'OFFER_PROPOSAL_REQUIRES_APPROVED_VALUATION'));
+    })).rejects.toEqual(new HttpError(409, 'OFFER_REQUIRES_APPROVED_INSPECTION'));
+    expect(created).toEqual([]);
   });
 });
