@@ -44,6 +44,7 @@ import {
   startConnectCallAudio,
   stopConnectCallAudio,
 } from '../services/call-audio';
+import { candidatePayload, descriptionPayload } from '../services/webrtc-payload';
 import { checkMicrophone, ensureMicrophone, ensureMicrophoneGranted } from '../services/mic-permission';
 import { KeyboardAvoider } from './KeyboardAvoider';
 import { KeyboardScrollView } from './KeyboardScrollView';
@@ -190,7 +191,7 @@ export function ConnectVoiceCall({
         pc.onicecandidate = (event: any) => {
           const candidate = event.candidate;
           if (candidate) {
-            const payload = candidate.toJSON() as Record<string, unknown>;
+            const payload = candidatePayload(candidate);
             socketRef.current?.emit('webrtc:signal', { kind: 'ICE', payload });
             void sendOwnerCallSignal(callSessionId, 'ICE', payload).catch(() => undefined);
           }
@@ -246,8 +247,7 @@ export function ConnectVoiceCall({
               }
               const answer = await pc.createAnswer();
               await pc.setLocalDescription(answer);
-              const answerPayload = (pc.localDescription as any)?.toJSON?.()
-                || { type: pc.localDescription?.type, sdp: pc.localDescription?.sdp };
+              const answerPayload = descriptionPayload(pc.localDescription as any);
               socketRef.current?.emit('webrtc:signal', { kind: 'ANSWER', payload: answerPayload });
               // Await the durable write. If the realtime socket is unavailable
               // on serverless hosting, this is the caller's only answer path.
