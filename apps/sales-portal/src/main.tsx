@@ -25,6 +25,7 @@ import { auth, firebaseConfigured } from './firebase.js';
 import {
   ApiError,
   salesApi,
+  describeCustomerAccount,
   type AcquisitionOfferItem,
   type Actor,
   type BuyerLead,
@@ -240,6 +241,7 @@ function App() {
   const [targetListingId, setTargetListingId] = useState<string>('');
   const [targetEnquiryId, setTargetEnquiryId] = useState<string>('');
   const [showManualLeadModal, setShowManualLeadModal] = useState(false);
+  const [showBuyerLeadModal, setShowBuyerLeadModal] = useState(false);
   const [showQuotationModal, setShowQuotationModal] = useState(false);
   const [editingQuotation, setEditingQuotation] = useState<Quotation | null>(null);
   const [showReservationModal, setShowReservationModal] = useState(false);
@@ -995,6 +997,11 @@ function App() {
                 <div>
                   <p className="eyebrow">WORKFLOW B · RETAIL SALES</p>
                   <h1>Inbound Buyer Enquiries</h1>
+                </div>
+                <div className="page-header-actions">
+                  <button className="btn-primary" onClick={() => setShowBuyerLeadModal(true)}>
+                    <Icons.Plus size={15} /> New Walk-in / Phone Buyer
+                  </button>
                 </div>
               </div>
 
@@ -2124,6 +2131,20 @@ function App() {
           )}
 
       {/* ========================================== */}
+      {/* MODAL: MANUAL BUYER LEAD ENTRY */}
+      {/* ========================================== */}
+      {showBuyerLeadModal && (
+        <ManualBuyerLeadModal
+          user={user}
+          onClose={() => setShowBuyerLeadModal(false)}
+          onSuccess={() => {
+            setShowBuyerLeadModal(false);
+            void loadData();
+          }}
+        />
+      )}
+
+      {/* ========================================== */}
       {/* MODAL: MANUAL SELLER LEAD ENTRY */}
       {/* ========================================== */}
       {showManualLeadModal && (
@@ -2347,12 +2368,93 @@ function App() {
 // ==========================================
 // SUBCOMPONENT: MANUAL SELLER LEAD MODAL
 // ==========================================
+function ManualBuyerLeadModal({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const [cars, setCars] = useState<InventoryItem[]>([]);
+  const [form, setForm] = useState({ buyerName: '', buyerPhone: '+91', buyerEmail: '', listingId: '', message: '' });
+
+  useEffect(() => {
+    if (!user) return;
+    void salesApi.inventory(user, { limit: 100 }).then(page => setCars(page.items.filter(item => ['PUBLISHED', 'RESERVED'].includes(item.status)))).catch(() => undefined);
+  }, [user]);
+
+  const submit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+    setBusy(true);
+    setError('');
+    try {
+      const lead = await salesApi.createBuyerLead(user, {
+        buyerName: form.buyerName,
+        buyerPhone: form.buyerPhone,
+        buyerEmail: form.buyerEmail.trim(),
+        listingId: form.listingId,
+        message: form.message || undefined,
+      });
+      toast.success(lead.alreadyExisted ? 'This buyer already had an open enquiry on this car' : 'Buyer lead recorded', { description: describeCustomerAccount(lead.customerAccount) });
+      onSuccess();
+    } catch (err) {
+      setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to record the buyer lead.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="modal-overlay">
+      <div className="modal-dialog">
+        <div className="modal-header">
+          <h3>Record Walk-in / Phone Buyer</h3>
+          <button onClick={onClose}><Icons.Close size={18} /></button>
+        </div>
+        <form onSubmit={submit}>
+          <div className="modal-body">
+            {error && <div className="error-banner">{error}</div>}
+            <div className="form-grid">
+              <div className="form-group">
+                <label className="form-label">Buyer Full Name *</label>
+                <input required className="form-input" value={form.buyerName} onChange={e => setForm({ ...form, buyerName: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Buyer Phone (+91...) *</label>
+                <input required className="form-input" value={form.buyerPhone} onChange={e => setForm({ ...form, buyerPhone: e.target.value })} />
+              </div>
+              <div className="form-group full">
+                <label className="form-label">Buyer Gmail *</label>
+                <input required type="email" className="form-input" placeholder="buyer@gmail.com" value={form.buyerEmail} onChange={e => setForm({ ...form, buyerEmail: e.target.value })} />
+                <small style={{ color: 'var(--muted)' }}>Their app account is created with this address, so quotations and test drives appear in the app. The download link is emailed to it.</small>
+              </div>
+              <div className="form-group full">
+                <label className="form-label">Interested in *</label>
+                <select required className="form-select" value={form.listingId} onChange={e => setForm({ ...form, listingId: e.target.value })}>
+                  <option value="">Select a car on sale</option>
+                  {cars.map(car => <option key={car.id} value={car.id}>{car.title}</option>)}
+                </select>
+              </div>
+              <div className="form-group full">
+                <label className="form-label">Notes</label>
+                <input className="form-input" value={form.message} onChange={e => setForm({ ...form, message: e.target.value })} placeholder="Walk-in enquiry at the showroom." />
+              </div>
+            </div>
+          </div>
+          <div className="modal-footer">
+            <button type="button" className="btn-secondary" onClick={onClose}>Cancel</button>
+            <button type="submit" className="btn-primary" disabled={busy}>{busy ? 'Saving…' : 'Record buyer'}</button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
 function ManualLeadModal({ user, onClose, onSuccess }: { user: User | null; onClose: () => void; onSuccess: () => void }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [form, setForm] = useState({
     sellerName: '',
     sellerPhone: '+91',
+    sellerEmail: '',
     city: 'Bengaluru',
     pincode: '560001',
     make: 'Hyundai',
@@ -2372,9 +2474,10 @@ function ManualLeadModal({ user, onClose, onSuccess }: { user: User | null; onCl
     setBusy(true);
     setError('');
     try {
-      await salesApi.createSellerLead(user, {
+      const created = await salesApi.createSellerLead(user, {
         sellerName: form.sellerName,
         sellerPhone: form.sellerPhone,
+        sellerEmail: form.sellerEmail.trim(),
         city: form.city,
         pincode: form.pincode,
         make: form.make,
@@ -2387,6 +2490,7 @@ function ManualLeadModal({ user, onClose, onSuccess }: { user: User | null; onCl
         expectedPricePaise: form.expectedPriceRupees ? String(BigInt(form.expectedPriceRupees) * 100n) : undefined,
         sellerNotes: form.sellerNotes || undefined,
       });
+      toast.success('Seller lead recorded', { description: describeCustomerAccount(created.customerAccount) });
       onSuccess();
     } catch (err) {
       setError(err instanceof ApiError ? `Error: ${err.code}` : 'Failed to create manual lead.');
@@ -2413,6 +2517,11 @@ function ManualLeadModal({ user, onClose, onSuccess }: { user: User | null; onCl
               <div className="form-group">
                 <label className="form-label">Seller Phone (+91...) *</label>
                 <input required className="form-input" value={form.sellerPhone} onChange={e => setForm({ ...form, sellerPhone: e.target.value })} />
+              </div>
+              <div className="form-group">
+                <label className="form-label">Seller Gmail *</label>
+                <input required type="email" className="form-input" placeholder="seller@gmail.com" value={form.sellerEmail} onChange={e => setForm({ ...form, sellerEmail: e.target.value })} />
+                <small style={{ color: 'var(--muted)' }}>Their app account is created with this address and the download link is emailed to it.</small>
               </div>
               <div className="form-group">
                 <label className="form-label">City *</label>

@@ -14,7 +14,7 @@ type Db = Prisma.TransactionClient | PrismaClient;
 
 /** Accounts made for counter customers carry this prefix until the customer signs in and claims them. */
 export const UNCLAIMED_UID_PREFIX = 'walkin_';
-const PLACEHOLDER_DOMAINS = ['@service.vmotiv.in', '@rental.vmotiv.in', '@vmotiv.internal'];
+const PLACEHOLDER_DOMAINS = ['@service.vmotiv.in', '@rental.vmotiv.in', '@sales.vmotiv.in', '@vmotiv.internal'];
 
 export const isPlaceholderEmail = (email: string) => PLACEHOLDER_DOMAINS.some(domain => email.toLowerCase().endsWith(domain));
 export const isUnclaimedAccount = (user: { firebaseUid: string }) => user.firebaseUid.startsWith(UNCLAIMED_UID_PREFIX);
@@ -43,7 +43,7 @@ export function inviteEmail(input: { name: string | null; email: string; context
 
 export async function resolveWalkInCustomer(
   db: Db,
-  input: { name: string; phone: string; email?: string | null; placeholderDomain: 'service.vmotiv.in' | 'rental.vmotiv.in'; context: string },
+  input: { name: string; phone: string; email?: string | null; placeholderDomain: 'service.vmotiv.in' | 'rental.vmotiv.in' | 'sales.vmotiv.in'; context: string },
 ): Promise<WalkInCustomerResult> {
   const phone = input.phone.trim();
   const email = input.email?.trim().toLowerCase() || null;
@@ -88,4 +88,9 @@ export async function resolveWalkInCustomer(
     inviteEmailed = true;
   }
   return { user, accountCreated, existingAccount: !accountCreated, inviteEmailed };
+}
+
+/** What staff are told about the customer's account after a counter booking or lead. */
+export function accountSummary(result: WalkInCustomerResult) {
+  return { created: result.accountCreated, existing: result.existingAccount, appInviteEmailed: result.inviteEmailed, email: result.inviteEmailed ? result.user.email : null };
 }

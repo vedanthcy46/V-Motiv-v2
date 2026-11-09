@@ -13,10 +13,12 @@ export const MAX_SENDS_PER_HOUR = 3;
 
 const PLACEHOLDER_EMAIL_SUFFIX = '@vmotiv.internal';
 const PLACEHOLDER_UID_PREFIX = 'manual-';
+/** Accounts staff create at the counter (see walk-in-customer.ts) stay walk-in sellers until the seller signs in to the app. */
+const UNCLAIMED_UID_PREFIX = 'walkin_';
 
 /** Walk-in leads are created for a placeholder user (see createManualSellerLead). App sellers must accept in the app. */
 export function isWalkInSeller(user: { email?: string | null; firebaseUid?: string | null }): boolean {
-  return Boolean(user.email?.toLowerCase().endsWith(PLACEHOLDER_EMAIL_SUFFIX)) || Boolean(user.firebaseUid?.startsWith(PLACEHOLDER_UID_PREFIX));
+  return Boolean(user.email?.toLowerCase().endsWith(PLACEHOLDER_EMAIL_SUFFIX)) || Boolean(user.firebaseUid?.startsWith(PLACEHOLDER_UID_PREFIX)) || Boolean(user.firebaseUid?.startsWith(UNCLAIMED_UID_PREFIX));
 }
 
 export function generateCode(): string {

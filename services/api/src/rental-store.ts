@@ -2591,7 +2591,7 @@ export class PrismaRentalStore {
   }
 
   /**
-   * Operations: edit a rental car's details - rates, deposit, km allowance, look and compliance documents.
+   * Operations: edit a rental car's details - photos, features, identity, rates, deposit, km allowance and compliance documents.
    * Only a delisted car can be edited (customers cannot be looking at it or booking it while its price changes); bookings
    * already made keep the rates they were quoted. Every change is audited with the previous and new values.
    */
@@ -2599,6 +2599,14 @@ export class PrismaRentalStore {
     employeeId: string,
     vehicleId: string,
     input: {
+      images?: string[];
+      make?: string;
+      model?: string;
+      year?: number;
+      transmission?: string;
+      fuelType?: string;
+      hubId?: string;
+      registrationNumber?: string;
       baseDailyRatePaise?: number | bigint | string;
       baseHourlyRatePaise?: number | bigint | string;
       securityDepositPaise?: number | bigint | string;
@@ -2656,6 +2664,27 @@ export class PrismaRentalStore {
     if (input.color !== undefined && input.color.trim()) data.color = input.color.trim();
     if (input.seats !== undefined) data.seats = input.seats;
     if (input.features !== undefined) data.features = input.features.map(f => f.trim()).filter(Boolean);
+    if (input.images !== undefined) {
+      const images = input.images.map(url => url.trim()).filter(Boolean);
+      if (new Set(images).size !== images.length) throw new HttpError(400, 'DUPLICATE_PHOTOS', 'The same photo was added twice.');
+      data.images = images;
+    }
+    if (input.make !== undefined && input.make.trim()) data.make = input.make.trim();
+    if (input.model !== undefined && input.model.trim()) data.model = input.model.trim();
+    if (input.year !== undefined) data.year = input.year;
+    if (input.transmission !== undefined) data.transmission = input.transmission;
+    if (input.fuelType !== undefined) data.fuelType = input.fuelType;
+    if (input.hubId !== undefined && input.hubId !== vehicle.hubId) {
+      const hub = await this.db.serviceHub.findUnique({ where: { id: input.hubId }, select: { id: true, isActive: true } });
+      if (!hub || !hub.isActive) throw new HttpError(400, 'HUB_NOT_FOUND', 'Choose an active hub.');
+      data.hubId = hub.id;
+    }
+    if (input.registrationNumber !== undefined && input.registrationNumber.trim()) {
+      const registration = input.registrationNumber.trim().toUpperCase().replace(/\s+/g, '');
+      const clash = await this.db.rentalFleetVehicle.findFirst({ where: { registrationNumber: registration, id: { not: vehicleId } }, select: { id: true } });
+      if (clash) throw new HttpError(409, 'REGISTRATION_ALREADY_IN_FLEET', 'Another car in the fleet already has this registration number.');
+      data.registrationNumber = registration;
+    }
     // Compliance details stay optional: a blank value leaves what is on file unchanged.
     if (input.vin !== undefined && input.vin.trim()) data.vin = input.vin.trim().toUpperCase();
     if (input.commercialPermitNumber !== undefined && input.commercialPermitNumber.trim()) data.commercialPermitNumber = input.commercialPermitNumber.trim();
@@ -2676,6 +2705,14 @@ export class PrismaRentalStore {
       if (plain(previous ?? null) !== plain(data[key])) { before[key] = plain(previous ?? null); after[key] = plain(data[key]); } else delete data[key];
     }
     if (Object.keys(data).length === 0) return await this.db.rentalFleetVehicle.findUnique({ where: { id: vehicleId }, include: { hub: true } });
+    // A photo list can be long (or hold inline images): the audit keeps the counts and the links added or removed, shortened.
+    if ('images' in data) {
+      const was = (Array.isArray(vehicle.images) ? vehicle.images : []) as string[];
+      const now = data.images as string[];
+      const short = (url: string) => (url.length > 200 ? `${url.slice(0, 200)}…` : url);
+      before.images = { count: was.length };
+      after.images = { count: now.length, added: now.filter(url => !was.includes(url)).map(short), removed: was.filter(url => !now.includes(url)).map(short), coverChanged: was[0] !== now[0] };
+    }
 
     return await this.db.$transaction(async tx => {
       const updated = await tx.rentalFleetVehicle.update({ where: { id: vehicleId }, data: data as any, include: { hub: true } });

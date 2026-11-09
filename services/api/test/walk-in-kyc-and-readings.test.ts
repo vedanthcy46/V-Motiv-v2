@@ -290,6 +290,22 @@ describe('editing a rental car\'s details', () => {
     }
   });
 
+  it('adds, removes and reorders photos while delisted, and audits a short summary', async () => {
+    const { store, updates, audits } = makeStore({ ...delisted, images: ['https://img/a.jpg', 'https://img/b.jpg'] });
+    await store.updateFleetDetails('emp-1', 'veh-1', { images: ['https://img/b.jpg', 'https://img/a.jpg', 'https://img/c.jpg'], features: ['Sunroof', ' ', 'GPS'] });
+    expect(updates[0].data.images).toEqual(['https://img/b.jpg', 'https://img/a.jpg', 'https://img/c.jpg']);
+    expect(updates[0].data.features).toEqual(['Sunroof', 'GPS']);
+    expect(audits[0].metadata.after.images).toMatchObject({ count: 3, added: ['https://img/c.jpg'], removed: [], coverChanged: true });
+    await expect(store.updateFleetDetails('emp-1', 'veh-1', { images: ['https://img/x.jpg', 'https://img/x.jpg'] })).rejects.toMatchObject({ code: 'DUPLICATE_PHOTOS' });
+  });
+
+  it('refuses photo and identity changes while the car is still listed', async () => {
+    const { store, updates } = makeStore({ ...delisted, isEligibleForRental: true, images: [] });
+    await expect(store.updateFleetDetails('emp-1', 'veh-1', { images: ['https://img/a.jpg'] })).rejects.toMatchObject({ code: 'DELIST_BEFORE_EDITING' });
+    await expect(store.updateFleetDetails('emp-1', 'veh-1', { make: 'Kia' })).rejects.toMatchObject({ code: 'DELIST_BEFORE_EDITING' });
+    expect(updates).toHaveLength(0);
+  });
+
   it('writes nothing when nothing changed', async () => {
     const { store, updates, audits } = makeStore(delisted);
     await store.updateFleetDetails('emp-1', 'veh-1', { baseDailyRatePaise: 280000 });

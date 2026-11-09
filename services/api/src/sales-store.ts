@@ -18,6 +18,7 @@ import {
 } from '@prisma/client';
 import { canonicalMakeModel } from './vehicle-names.js';
 import crypto from 'node:crypto';
+import { accountSummary, resolveWalkInCustomer } from './walk-in-customer.js';
 import { HttpError } from './errors.js';
 import type { NotificationService } from './notification/index.js';
 import { notifyOfferAccepted } from './acquisition-events.js';
@@ -59,6 +60,7 @@ export interface SalesStore {
   createManualSellerLead(actor: SalesActor, input: {
     sellerName: string;
     sellerPhone: string;
+    sellerEmail: string;
     city: string;
     pincode: string;
     make: string;
@@ -142,6 +144,7 @@ export interface SalesStore {
   confirmInPersonAcceptance(actor: SalesActor, leadId: string, offerId: string, input: { challengeId: string; code: string }): Promise<unknown>;
 
   // Buyer Leads
+  createManualBuyerLead(actor: SalesActor, input: { buyerName: string; buyerPhone: string; buyerEmail: string; listingId: string; message?: string }): Promise<unknown>;
   buyerLeads(actor: SalesActor, query: { page: number; limit: number; search?: string; status?: PurchaseEnquiryStatus }): Promise<unknown>;
   buyerLead(actor: SalesActor, id: string): Promise<unknown>;
   updateBuyerLeadStatus(actor: SalesActor, id: string, status: PurchaseEnquiryStatus): Promise<unknown>;
@@ -234,6 +237,24 @@ function scope(actor: SalesActor): Prisma.AcquisitionLeadWhereInput {
   };
 }
 function requirePricing(actor: SalesActor) { if (!actor.roles.some(role => pricingRoles.includes(role))) throw new HttpError(403, 'PRICING_ACCESS_DENIED'); }
+
+const buyerLeadSelect = {
+  id: true,
+  status: true,
+  message: true,
+  createdAt: true,
+  updatedAt: true,
+  user: { select: { id: true, displayName: true, email: true, phone: true, preferredCity: true } },
+  listing: {
+    select: {
+      id: true,
+      title: true,
+      pricePaise: true,
+      status: true,
+      vehicle: { select: { make: true, model: true, manufacturingYear: true, city: true, odometerKm: true } },
+    },
+  },
+} as const;
 
 function buyerScope(actor: SalesActor): Prisma.PurchaseEnquiryWhereInput {
   if (actor.globalScope) return {};
@@ -452,6 +473,7 @@ export class PrismaSalesStore implements SalesStore {
   async createManualSellerLead(actor: SalesActor, input: {
     sellerName: string;
     sellerPhone: string;
+    sellerEmail: string;
     city: string;
     pincode: string;
     make: string;
@@ -467,17 +489,16 @@ export class PrismaSalesStore implements SalesStore {
     const branch = actor.branches.find(b => b.city.toLowerCase() === input.city.toLowerCase()) || actor.branches[0];
     const names = await canonicalMakeModel(this.db as any, input.make, input.model);
     return this.db.$transaction(async tx => {
-      // Find or create customer user
-      const placeholderEmail = `manual-${crypto.randomBytes(4).toString('hex')}@vmotiv.internal`;
-      const customer = await tx.user.create({
-        data: {
-          firebaseUid: `manual-${crypto.randomUUID()}`,
-          email: placeholderEmail,
-          displayName: input.sellerName,
-          phone: input.sellerPhone,
-          preferredCity: input.city,
-        },
+      // One account per seller: theirs if they have one, otherwise created now and the app link emailed to them.
+      const resolved = await resolveWalkInCustomer(tx, {
+        name: input.sellerName,
+        phone: input.sellerPhone,
+        email: input.sellerEmail,
+        placeholderDomain: 'sales.vmotiv.in',
+        context: 'your car sale and offer',
       });
+      const customer = resolved.user;
+      if (resolved.accountCreated) await tx.user.update({ where: { id: customer.id }, data: { preferredCity: input.city } });
 
       const lead = await tx.acquisitionLead.create({
         data: {
@@ -517,7 +538,7 @@ export class PrismaSalesStore implements SalesStore {
           details: { referenceCode: lead.referenceCode, make: input.make, model: input.model },
         },
       });
-      return lead;
+      return Object.assign(lead, { customerAccount: accountSummary(resolved) });
     });
   }
 
@@ -1614,6 +1635,42 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
     });
   }
 
+  /** A buyer who walks into the showroom. They get an app account (or their existing one is used) and an enquiry on the car. */
+  async createManualBuyerLead(actor: SalesActor, input: { buyerName: string; buyerPhone: string; buyerEmail: string; listingId: string; message?: string }) {
+    const listing = await this.db.vehicleListing.findFirst({
+      where: { id: input.listingId, status: { in: ['PUBLISHED', 'RESERVED'] }, ...listingScope(actor) },
+      select: { id: true, title: true },
+    });
+    if (!listing) throw new HttpError(404, 'LISTING_NOT_FOUND');
+    return this.db.$transaction(async tx => {
+      const resolved = await resolveWalkInCustomer(tx, {
+        name: input.buyerName,
+        phone: input.buyerPhone,
+        email: input.buyerEmail,
+        placeholderDomain: 'sales.vmotiv.in',
+        context: 'your car enquiry, quotations and test drives',
+      });
+      // The same person asking about the same car again is one lead, not two.
+      const open = await tx.purchaseEnquiry.findFirst({ where: { userId: resolved.user.id, listingId: listing.id, status: { not: 'CLOSED' } }, select: { id: true } });
+      const enquiry = open
+        ? await tx.purchaseEnquiry.findUniqueOrThrow({ where: { id: open.id }, select: buyerLeadSelect })
+        : await tx.purchaseEnquiry.create({
+            data: { userId: resolved.user.id, listingId: listing.id, message: input.message?.trim() || 'Walk-in enquiry at the showroom.' },
+            select: buyerLeadSelect,
+          });
+      await tx.auditEvent.create({
+        data: {
+          actorId: actor.userId,
+          action: open ? 'MANUAL_BUYER_LEAD_REUSED' : 'MANUAL_BUYER_LEAD_CREATED',
+          entityType: 'PurchaseEnquiry',
+          entityId: enquiry.id,
+          details: { listingId: listing.id, title: listing.title, customerId: resolved.user.id },
+        },
+      });
+      return Object.assign(enquiry, { alreadyExisted: Boolean(open), customerAccount: accountSummary(resolved) });
+    });
+  }
+
   async buyerLeads(actor: SalesActor, query: { page: number; limit: number; search?: string; status?: PurchaseEnquiryStatus }) {
     const where: Prisma.PurchaseEnquiryWhereInput = {
       ...buyerScope(actor),
@@ -1632,23 +1689,7 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
         orderBy: { createdAt: 'desc' },
         skip: (query.page - 1) * query.limit,
         take: query.limit,
-        select: {
-          id: true,
-          status: true,
-          message: true,
-          createdAt: true,
-          updatedAt: true,
-          user: { select: { id: true, displayName: true, email: true, phone: true, preferredCity: true } },
-          listing: {
-            select: {
-              id: true,
-              title: true,
-              pricePaise: true,
-              status: true,
-              vehicle: { select: { make: true, model: true, manufacturingYear: true, city: true, odometerKm: true } },
-            },
-          },
-        },
+        select: buyerLeadSelect,
       }),
       this.db.purchaseEnquiry.count({ where }),
     ]);

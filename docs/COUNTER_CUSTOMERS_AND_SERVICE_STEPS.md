@@ -29,3 +29,18 @@ A step that is not open yet is greyed out with a lock and says what to finish fi
 The job always waits for the customer. Staff can record the acceptance themselves only after the popup
 "Have you contacted the customer about this price?" is confirmed with **Yes, continue**. The API refuses it otherwise
 (`CUSTOMER_CONTACT_CONFIRMATION_REQUIRED`) and records the confirmation in the job history.
+
+## Buyer and seller leads recorded at the counter
+
+The Sales portal's **New Walk-in / Phone Lead** (seller) and **New Walk-in / Phone Buyer** (buyer, on a car that is for sale) forms
+ask for phone and **Gmail** and follow the same rules as service and rentals: one account per customer, a new one is created
+with an email link to the app, an existing one is reused, never duplicated. A seller account that has not signed in yet can
+still accept an offer in person with the one-time code; once the seller signs in to the app, acceptance happens in the app.
+The same person asking about the same car again is one buyer lead.
+
+## Rental cars: editing while delisted
+
+A delisted rental car can be edited in full: **photos** (add from the computer or by link, remove, choose the cover; new photos
+upload when saved), features, make, model, year, registration number, transmission, fuel, hub, rates, deposit, km allowance and
+documents. Every change is audited (photos as counts and the links added or removed). Delist first; a listed car is refused
+(`DELIST_BEFORE_EDITING`).
