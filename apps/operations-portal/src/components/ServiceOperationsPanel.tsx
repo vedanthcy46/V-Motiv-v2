@@ -890,7 +890,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
             <p>No service jobs found matching your filters.</p>
           </div>
         ) : (
-          <table className="table" style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
+          <div className="table-scroll">
+          <table className="table" style={{ width: '100%', minWidth: '66rem', borderCollapse: 'collapse', fontSize: '0.875rem' }}>
             <thead>
               <tr style={{ background: 'var(--surface-secondary)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
                 <th style={{ padding: '0.75rem 1rem' }}>JOB # & DATE</th>
@@ -1048,6 +1049,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
               ))}
             </tbody>
           </table>
+          </div>
         )}
       </div>
 
@@ -1387,8 +1389,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                         No payment transactions recorded for this service request yet.
                       </div>
                     ) : (
-                      <div style={{ background: 'var(--surface)', borderRadius: '6px', overflow: 'hidden' }}>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+                      <div style={{ background: 'var(--surface)', borderRadius: '6px', overflowX: 'auto' }}>
+                        <table style={{ width: '100%', minWidth: '34rem', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                           <thead>
                             <tr style={{ background: 'color-mix(in oklab, var(--color-base-content) 4%, transparent)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
                               <th style={{ padding: '0.5rem 0.75rem' }}>DATE</th>
@@ -1791,7 +1793,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                     {Array.isArray((activeJob.estimates[0] as any).items) && (activeJob.estimates[0] as any).items.length > 0 && (
                       <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border)', paddingTop: '0.75rem' }}>
                         <span style={{ fontSize: '0.75rem', fontWeight: 700, color: 'var(--muted)', textTransform: 'uppercase' }}>Itemized Breakdown:</span>
-                        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem', marginTop: '0.5rem' }}>
+                        <div style={{ overflowX: 'auto', marginTop: '0.5rem' }}>
+                        <table style={{ width: '100%', minWidth: '28rem', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                           <thead>
                             <tr style={{ textAlign: 'left', borderBottom: '1px solid var(--border)', color: 'var(--muted)' }}>
                               <th style={{ padding: '4px 8px' }}>TYPE</th>
@@ -1819,6 +1822,7 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                             ))}
                           </tbody>
                         </table>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -2105,8 +2109,8 @@ export const ServiceOperationsPanel: FC<ServiceOperationsPanelProps> = ({
                           No payment transactions recorded for this service request yet.
                         </div>
                       ) : (
-                        <div style={{ background: 'var(--surface-secondary)', borderRadius: '6px', overflow: 'hidden' }}>
-                          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
+                        <div style={{ background: 'var(--surface-secondary)', borderRadius: '6px', overflowX: 'auto' }}>
+                          <table style={{ width: '100%', minWidth: '34rem', borderCollapse: 'collapse', fontSize: '0.8125rem' }}>
                             <thead>
                               <tr style={{ background: 'color-mix(in oklab, var(--color-base-content) 4%, transparent)', borderBottom: '1px solid var(--border)', textAlign: 'left' }}>
                                 <th style={{ padding: '0.6rem 0.75rem' }}>DATE & TIME</th>

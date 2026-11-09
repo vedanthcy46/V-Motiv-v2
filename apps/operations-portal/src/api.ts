@@ -352,7 +352,7 @@ export const api = {
     (await call<{ tokens: Record<string, string> }>(u, `/pulse?domains=${domains.join(',')}${fresh ? '&fresh=1' : ''}`)).tokens,
   // --- Car Rental Operations ---
   rentalHubs: (u: User) =>
-    call<Array<{ id: string; name: string; city: string; address: string; code: string; isActive: boolean }>>(u, '/rentals/hubs'),
+    call<Array<{ id: string; name: string; city: string; address: string; code: string; isActive: boolean; /** The administrator's km policy for this hub; null when none is set. */ kmPolicy?: { includedKmPerDay: number | null; extraKmRatePaise: string | null } | null }>>(u, '/rentals/hubs'),
   rentalSummary: (u: User) =>
     call<RentalOperationsSummary>(u, '/operations/rentals/summary'),
   rentalFleet: (u: User, query?: { hubId?: string; status?: string; startTime?: string; endTime?: string }) => {
@@ -397,6 +397,9 @@ export const api = {
     extraKmRatePaise?: string | number;
     features?: string[];
   }) => call<RentalFleetItem>(u, '/operations/rentals/fleet', { method: 'POST', body: JSON.stringify(body) }),
+  /** Edit a delisted car's details. Money is in paise; blank / missing fields stay unchanged. The API refuses a car that is still listed. */
+  updateRentalFleetDetails: (u: User, id: string, body: Record<string, string | number | string[] | undefined>) =>
+    call<RentalFleetItem>(u, `/operations/rentals/fleet/${id}/details`, { method: 'PATCH', body: JSON.stringify(body) }),
   /** Correct the odometer / fuel level recorded for a car. A reason is required; the change is audited and refused while the car is on a trip. */
   correctRentalReadings: (u: User, id: string, body: { odometerKm?: number; fuelLevelPercent?: number; reason: string }) =>
     call<RentalFleetItem>(u, `/operations/rentals/fleet/${id}/readings`, { method: 'POST', body: JSON.stringify(body) }),

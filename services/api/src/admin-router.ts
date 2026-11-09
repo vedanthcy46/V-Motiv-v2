@@ -3,6 +3,7 @@ import { z, ZodError } from 'zod';
 import { authentication, type Identity, type VerifyToken } from './auth.js';
 import type { AdminActor, AdminStore } from './admin-store.js';
 import { HttpError } from './errors.js';
+import { isValidVersion } from './app-config.js';
 
 const uuid = z.string().uuid();
 const pagination = z.object({ page: z.coerce.number().int().min(1).default(1), limit: z.coerce.number().int().min(1).max(100).default(25) });
@@ -38,6 +39,18 @@ const branchUpdateInput = z.object({
   supportsService: z.boolean().optional(),
   supportsRentals: z.boolean().optional(),
 }).strict().refine(value => Object.keys(value).length > 0);
+// The version information the mobile apps check. A blank minimum / link / notes clears it.
+const version = z.string().trim().refine(isValidVersion, 'Use a version like 1.0.1');
+const blankToNull = (value: unknown) => (typeof value === 'string' && value.trim() === '' ? null : value);
+const appConfigInput = z.object({
+  platform: z.enum(['ANDROID', 'IOS']),
+  latestVersion: version,
+  latestVersionCode: z.preprocess(blankToNull, z.number().int().min(1).max(2_000_000_000).nullable().optional()),
+  minSupportedVersion: z.preprocess(blankToNull, version.nullable().optional()),
+  updateUrl: z.preprocess(blankToNull, z.string().trim().url().max(500).refine(url => url.startsWith('https://'), 'The update link must start with https://').nullable().optional()),
+  releaseNotes: z.preprocess(blankToNull, z.string().trim().max(500).nullable().optional()),
+}).strict();
+
 const rentalKmPolicyInput = z.object({
   // Free kilometres included per rental day, and the charge per extra km in paise. null clears the hub value.
   includedKmPerDay: z.number().int().min(1).max(1000).nullable().optional(),
@@ -179,6 +192,8 @@ export function createAdminRouter(deps: {
   router.get('/admin/branches/manage', async (_req, res) => res.json(await deps.store.manageBranches(res.locals.adminActor as AdminActor)));
   router.post('/admin/branches', async (req, res) => res.status(201).json(await deps.store.createBranch(res.locals.adminActor as AdminActor, parse(branchCreateInput, req.body))));
   router.patch('/admin/branches/:id', async (req, res) => res.json(await deps.store.updateBranch(res.locals.adminActor as AdminActor, parse(uuid, req.params.id), parse(branchUpdateInput, req.body))));
+  router.get('/admin/app-config', async (_req, res) => res.json(await deps.store.appConfigs(res.locals.adminActor as AdminActor)));
+  router.put('/admin/app-config', async (req, res) => res.json(await deps.store.saveAppConfig(res.locals.adminActor as AdminActor, parse(appConfigInput, req.body) as any)));
   router.get('/admin/rental-km-policies', async (_req, res) => res.json(await deps.store.rentalKmPolicies(res.locals.adminActor as AdminActor)));
   router.patch('/admin/rental-km-policies/:hubId', async (req, res) => res.json(await deps.store.updateRentalKmPolicy(res.locals.adminActor as AdminActor, parse(uuid, req.params.hubId), parse(rentalKmPolicyInput, req.body))));
   router.get('/admin/service-areas', async (_req, res) => res.json(await deps.store.serviceAreas(res.locals.adminActor as AdminActor)));

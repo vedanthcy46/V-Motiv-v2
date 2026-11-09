@@ -33,6 +33,7 @@ import { z, ZodError } from 'zod';
 import type { CustomerStore } from './customer-store.js';
 import type { AdminStore } from './admin-store.js';
 import { createAdminRouter } from './admin-router.js';
+import { parsePlatform, readAppConfig } from './app-config.js';
 import { createSalesRouter } from './sales-router.js';
 import type { SalesStore } from './sales-store.js';
 import { createFinanceAcquisitionRouter, createInspectorRouter, createInspectionReviewRouter, createOperationsInspectionRouter } from './inspection-router.js';
@@ -485,6 +486,15 @@ export function createApp(deps: {
     });
     unifiedApiRouter.get('/inventory/:id', optionalAuthentication(deps.verify), async (req, res) => res.json(await deps.customer!.vehicle((res.locals.identity as Identity | undefined)?.uid, parsed(uuid, req.params.id))));
     unifiedApiRouter.get('/cities', async (_req, res) => res.json(await deps.customer!.cities()));
+    // The newest published app version for a platform (public): the apps compare it with their own and show an update card.
+    unifiedApiRouter.get('/app-config', async (req, res) => {
+      const platform = parsePlatform(req.query.platform);
+      if (!platform) throw new HttpError(400, 'INVALID_PLATFORM', 'platform must be android or ios');
+      const app = String(req.query.app ?? 'customer').trim().toLowerCase().slice(0, 40) || 'customer';
+      const config = deps.db ? await readAppConfig(deps.db, app, platform) : { app, platform, latestVersion: null, latestVersionCode: null, minSupportedVersion: null, updateUrl: null, releaseNotes: null, updatedAt: null };
+      res.setHeader('Cache-Control', 'public, max-age=60');
+      res.json(config);
+    });
     unifiedApiRouter.get('/master-data', async (req, res) => {
       const category = req.query.category ? String(req.query.category).trim() : undefined;
       const items = (await deps.customer!.masterData(category)) as Array<{ updatedAt?: Date | string }>;

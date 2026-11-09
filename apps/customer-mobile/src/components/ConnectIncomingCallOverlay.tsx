@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  AppState,
   Linking,
   Modal,
   PermissionsAndroid,
@@ -118,8 +119,10 @@ export function ConnectIncomingCallOverlay() {
 
   useEffect(() => {
     void refresh();
-    // Fast polling ensures immediate pickup modal
-    const interval = setInterval(() => void refresh(), 2_500);
+    // A safety net only: push notifications (below) wake this up instantly when a call or chat arrives. Polling every
+    // 2.5 s from every signed-in phone, in the background too, overloaded the API; now it checks every 15 s while the app is open.
+    const interval = setInterval(() => { if (AppState.currentState === 'active') void refresh(); }, 15_000);
+    const appState = AppState.addEventListener('change', next => { if (next === 'active') void refresh(); });
 
     // Push notification events trigger instant wakeup
     const sub1 = Notifications.addNotificationReceivedListener(notification => {
@@ -138,6 +141,7 @@ export function ConnectIncomingCallOverlay() {
 
     return () => {
       clearInterval(interval);
+      appState.remove();
       sub1.remove();
       sub2.remove();
     };

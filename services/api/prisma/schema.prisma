@@ -2996,3 +2996,26 @@ model GatewayOrder {
   @@index([kind, referenceId])
   @@index([customerId, createdAt])
 }
+
+// Store-update information for the mobile apps. One row per app and platform; the apps read it and show an "update available" card.
+model AppConfig {
+  id String @id @default(uuid()) @db.Uuid
+  /// Which app: "customer".
+  app String
+  /// "ANDROID" or "IOS".
+  platform String
+  /// The newest published version, e.g. 1.0.1. Apps older than this show an update card.
+  latestVersion String
+  /// The newest build number (Android versionCode / iOS build number). When the version is the same, a higher build still counts as an update.
+  latestVersionCode Int?
+  /// Apps older than this must update (the card cannot be dismissed). Empty = no forced update.
+  minSupportedVersion String?
+  /// Where to get the update (Play Store / App Store link).
+  updateUrl String?
+  /// What is new, shown on the card.
+  releaseNotes String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([app, platform])
+}

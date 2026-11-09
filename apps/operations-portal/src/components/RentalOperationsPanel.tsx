@@ -4,7 +4,7 @@ import { modalIsOpen, useAutoRefresh } from '@vmotiv/ui';
 import type { User } from 'firebase/auth';
 import { api } from '../api';
 import { CURRENT_YEAR } from '../calendar';
-import { isBelowRecorded, parseReading, readingText, tripKmPreview } from '../readings';
+import { includedKmBreakdown, isBelowRecorded, parseReading, readingText, tripKmPreview } from '../readings';
 import type {
   Branch,
   RentalBookingItem,
@@ -84,7 +84,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [fleet, setFleet] = useState<RentalFleetItem[]>([]);
   const [bookings, setBookings] = useState<RentalBookingItem[]>([]);
   const [paymentDashboard, setPaymentDashboard] = useState<RentalPaymentDashboard | null>(null);
-  const [hubs, setHubs] = useState<Array<{ id: string; name: string; city: string }>>([]);
+  const [hubs, setHubs] = useState<Array<{ id: string; name: string; city: string; kmPolicy?: { includedKmPerDay: number | null; extraKmRatePaise: string | null } | null }>>([]);
   const [bookingStatusFilter, setBookingStatusFilter] = useState('ALL');
   const [selectedHubId, setSelectedHubId] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
@@ -98,6 +98,10 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [onboardModalOpen, setOnboardModalOpen] = useState(false);
   const [walkInModalOpen, setWalkInModalOpen] = useState(false);
   const [blockModalVehicle, setBlockModalVehicle] = useState<RentalFleetItem | null>(null);
+  // Editing a delisted car's details (rates, deposit, km allowance, documents)
+  const [editVehicle, setEditVehicle] = useState<RentalFleetItem | null>(null);
+  const [editForm, setEditForm] = useState<Record<string, string>>({});
+  const setEditField = (key: string, value: string) => setEditForm(prev => ({ ...prev, [key]: value }));
   // Correcting the odometer / fuel level recorded for a car
   const [readingsVehicle, setReadingsVehicle] = useState<RentalFleetItem | null>(null);
   const [readingOdometer, setReadingOdometer] = useState('');
@@ -203,6 +207,8 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [onboardVariant, setOnboardVariant] = useState('SX(O) AT');
   const [onboardYear, setOnboardYear] = useState<number>(2024);
   const [onboardHubId, setOnboardHubId] = useState('');
+  // The hub the new car will belong to: its administrator-set km policy (if any) applies to the car automatically.
+  const selectedOnboardHub = hubs.find(hub => hub.id === (onboardHubId || hubs[0]?.id));
   const [onboardTransmission, setOnboardTransmission] = useState('AUTOMATIC');
   const [onboardFuel, setOnboardFuel] = useState('PETROL');
   const [onboardSeats, setOnboardSeats] = useState<number>(5);
@@ -210,8 +216,9 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
   const [onboardDailyRateRupees, setOnboardDailyRateRupees] = useState<number>(2800);
   const [onboardHourlyRateRupees, setOnboardHourlyRateRupees] = useState<number>(280);
   const [onboardDepositRupees, setOnboardDepositRupees] = useState<number>(5000);
-  const [onboardIncludedKm, setOnboardIncludedKm] = useState<number>(250);
-  const [onboardExtraKmRateRupees, setOnboardExtraKmRateRupees] = useState<number>(12);
+  // Free km per day and the extra-km rate for THIS car. Blank = use the hub's policy (set by an administrator).
+  const [onboardIncludedKm, setOnboardIncludedKm] = useState<string>('');
+  const [onboardExtraKmRateRupees, setOnboardExtraKmRateRupees] = useState<string>('');
   // Readings of the car as it joins the fleet. Blank = not recorded yet (the first hand-over records real ones).
   const [onboardOdometerKm, setOnboardOdometerKm] = useState<string>('');
   const [onboardFuelLevel, setOnboardFuelLevel] = useState<string>('');
@@ -782,7 +789,7 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
         // Blank means "use the hub's policy"; the API refuses when neither exists (no hidden 250 km / ₹12).
         includedKmPerDay: Number(onboardIncludedKm) || undefined,
         includedDailyKm: Number(onboardIncludedKm) || undefined,
-        extraKmRatePaise: onboardExtraKmRateRupees ? onboardExtraKmRateRupees * 100 : undefined,
+        extraKmRatePaise: Number(onboardExtraKmRateRupees) > 0 ? Math.round(Number(onboardExtraKmRateRupees) * 100) : undefined,
         commercialPermitNumber: onboardPermitNumber.trim() || undefined,
         commercialPermitExpiry: permitExp,
         insurancePolicyNumber: onboardInsurancePolicy.trim() || undefined,
@@ -819,6 +826,78 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
       void loadData();
     } catch (err: any) {
       onError(err?.message || 'Failed to create availability block');
+    } finally {
+      setActionBusy(false);
+    }
+  };
+
+  const rupeesText = (paise: string | number | null | undefined) => (paise === null || paise === undefined || paise === '' ? '' : String(Number(paise) / 100));
+  const openEditModal = (veh: RentalFleetItem) => {
+    setEditVehicle(veh);
+    setEditForm({
+      baseDailyRate: rupeesText(veh.baseDailyRatePaise),
+      baseHourlyRate: rupeesText((veh as any).baseHourlyRatePaise),
+      securityDeposit: rupeesText(veh.securityDepositPaise),
+      includedKmPerDay: String(veh.includedKmPerDay ?? veh.includedDailyKm ?? ''),
+      extraKmRate: rupeesText(veh.extraKmRatePaise),
+      variant: veh.variant ?? '',
+      color: veh.color ?? '',
+      seats: String(veh.seats ?? ''),
+      vin: veh.vin ?? '',
+      commercialPermitNumber: veh.commercialPermitNumber ?? '',
+      commercialPermitExpiry: (veh.commercialPermitExpiry ?? '').slice(0, 10),
+      insurancePolicyNumber: veh.insurancePolicyNumber ?? '',
+      insuranceExpiry: (veh.insuranceExpiry ?? '').slice(0, 10),
+      fitnessCertExpiry: (veh.fitnessCertExpiry ?? '').slice(0, 10),
+    });
+  };
+
+  // Sends only the fields that differ from what is on record; the API audits the change and refuses a car that is still listed.
+  const handleEditSubmit = async (e: FormEvent) => {
+    e.preventDefault();
+    if (!editVehicle) return;
+    const v = editVehicle;
+    const body: Record<string, string | number | undefined> = {};
+    const money = (key: string, current: string | number | null | undefined, field: string) => {
+      const entered = (editForm[key] ?? '').trim();
+      if (entered === '') return;
+      const paise = Math.round(Number(entered) * 100);
+      if (!Number.isFinite(paise) || paise < 0) { throw new Error(`Enter a valid amount for ${field}.`); }
+      if (String(paise) !== String(current ?? '')) body[key === 'baseDailyRate' ? 'baseDailyRatePaise' : key === 'baseHourlyRate' ? 'baseHourlyRatePaise' : key === 'securityDeposit' ? 'securityDepositPaise' : 'extraKmRatePaise'] = paise;
+    };
+    const text = (key: string, current: string | null | undefined) => {
+      const entered = (editForm[key] ?? '').trim();
+      if (entered !== '' && entered !== (current ?? '')) body[key] = entered;
+    };
+    try {
+      money('baseDailyRate', v.baseDailyRatePaise, 'the daily rate');
+      money('baseHourlyRate', (v as any).baseHourlyRatePaise, 'the hourly rate');
+      money('securityDeposit', v.securityDepositPaise, 'the security deposit');
+      money('extraKmRate', v.extraKmRatePaise, 'the extra-km charge');
+    } catch (err: any) {
+      onError(err.message);
+      return;
+    }
+    const km = parseReading(editForm.includedKmPerDay ?? '');
+    if (km !== null && km !== (v.includedKmPerDay ?? v.includedDailyKm)) body.includedKmPerDay = km;
+    const seats = parseReading(editForm.seats ?? '');
+    if (seats !== null && seats !== v.seats) body.seats = seats;
+    text('variant', v.variant); text('color', v.color); text('vin', v.vin);
+    text('commercialPermitNumber', v.commercialPermitNumber); text('insurancePolicyNumber', v.insurancePolicyNumber);
+    const date = (key: string, current: string | null | undefined) => {
+      const entered = (editForm[key] ?? '').trim();
+      if (entered !== '' && entered !== (current ?? '').slice(0, 10)) body[key] = new Date(`${entered}T00:00:00.000Z`).toISOString();
+    };
+    date('commercialPermitExpiry', v.commercialPermitExpiry); date('insuranceExpiry', v.insuranceExpiry); date('fitnessCertExpiry', v.fitnessCertExpiry);
+    if (Object.keys(body).length === 0) { onError('Nothing was changed.'); return; }
+    setActionBusy(true);
+    try {
+      await api.updateRentalFleetDetails(user, v.id, body);
+      onSuccess(`${v.make} ${v.model} (${v.registrationNumber}) updated. Bookings already made keep the rates they were quoted; publish the car again when you are ready.`);
+      setEditVehicle(null);
+      void loadData();
+    } catch (err: any) {
+      onError(err?.message || 'Failed to update the car');
     } finally {
       setActionBusy(false);
     }
@@ -1632,6 +1711,16 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             title={isPublished ? 'Delist from customer searches' : 'Publish to customer searches'}
                           >
                             {isPublished ? 'Delist' : 'Publish'}
+                          </button>
+
+                          <button
+                            type="button"
+                            className="btn-secondary btn-sm button secondary small"
+                            disabled={veh.isEligibleForRental !== false}
+                            onClick={() => openEditModal(veh)}
+                            title={veh.isEligibleForRental !== false ? 'Delist this car first - details can only be edited while customers cannot book it' : 'Edit rates, deposit, km allowance and documents'}
+                          >
+                            ✏️ Edit
                           </button>
 
                           <button
@@ -2660,28 +2749,35 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Included Daily Km * <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(used only if the hub has no policy)</span></label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Included (free) Km per Day{!selectedOnboardHub?.kmPolicy?.includedKmPerDay && ' *'}</label>
                       <input
                         type="number"
                         className="input"
-                        required
+                        required={!selectedOnboardHub?.kmPolicy?.includedKmPerDay}
                         min={50}
+                        placeholder={selectedOnboardHub?.kmPolicy?.includedKmPerDay ? `Hub policy: ${selectedOnboardHub.kmPolicy.includedKmPerDay} km/day` : 'e.g. 300'}
                         value={onboardIncludedKm}
-                        onChange={e => setOnboardIncludedKm(Number(e.target.value))}
+                        onChange={e => setOnboardIncludedKm(e.target.value)}
                         style={{ width: '100%', marginTop: '4px' }}
                       />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Extra Km Rate (₹/km) * <span style={{ fontWeight: 400, color: 'var(--muted)' }}>(used only if the hub has no policy)</span></label>
+                      <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>Extra Km Charge (₹ per km){!selectedOnboardHub?.kmPolicy?.extraKmRatePaise && ' *'}</label>
                       <input
                         type="number"
                         className="input"
-                        required
+                        required={!selectedOnboardHub?.kmPolicy?.extraKmRatePaise}
                         min={1}
+                        placeholder={selectedOnboardHub?.kmPolicy?.extraKmRatePaise ? `Hub policy: ₹${Number(selectedOnboardHub.kmPolicy.extraKmRatePaise) / 100}/km` : 'e.g. 12'}
                         value={onboardExtraKmRateRupees}
-                        onChange={e => setOnboardExtraKmRateRupees(Number(e.target.value))}
+                        onChange={e => setOnboardExtraKmRateRupees(e.target.value)}
                         style={{ width: '100%', marginTop: '4px' }}
                       />
+                    </div>
+                    <div style={{ gridColumn: '1 / -1', fontSize: '0.8rem', color: 'var(--muted)' }}>
+                      {selectedOnboardHub?.kmPolicy
+                        ? <>This hub's policy applies to this car: <strong style={{ color: 'var(--text)' }}>{selectedOnboardHub.kmPolicy.includedKmPerDay ?? '—'} km free per day</strong>, extra km at <strong style={{ color: 'var(--text)' }}>{selectedOnboardHub.kmPolicy.extraKmRatePaise ? `₹${Number(selectedOnboardHub.kmPolicy.extraKmRatePaise) / 100}` : '—'} per km</strong>. Leave these blank to use it; anything entered here is kept on the car and used only if the hub policy is removed.</>
+                        : <>This hub has no km policy, so enter the free km per day and the extra-km charge for this car. Customers are charged the extra rate for every km beyond (free km per day × days).</>}
                     </div>
                   </div>
                 </div>
@@ -3207,6 +3303,76 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
           </div>
         </div>
       )}
+
+      {/* MODAL: EDIT A DELISTED CAR */}
+      {editVehicle && (() => {
+        const hubPolicy = hubs.find(h => h.id === editVehicle.hubId)?.kmPolicy;
+        const field = (key: string, label: string, props: React.InputHTMLAttributes<HTMLInputElement> = {}) => (
+          <div key={key}>
+            <label style={{ fontSize: '0.8125rem', fontWeight: 600 }}>{label}</label>
+            <input className="input" value={editForm[key] ?? ''} onChange={e => setEditField(key, e.target.value)} style={{ width: '100%', marginTop: '4px' }} {...props} />
+          </div>
+        );
+        return (
+          <div className="modal-overlay" style={{ zIndex: 1000 }}>
+            <div className="modal-dialog" style={{ maxWidth: '720px', width: '95%' }}>
+              <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <span className="eyebrow">EDIT CAR · DELISTED</span>
+                  <h3 style={{ margin: 0 }}>{editVehicle.make} {editVehicle.model} · {editVehicle.registrationNumber}</h3>
+                </div>
+                <button type="button" className="icon-button" onClick={() => setEditVehicle(null)}><IconCross /></button>
+              </div>
+              <form onSubmit={handleEditSubmit}>
+                <div className="modal-body" style={{ padding: '1.25rem', display: 'grid', gap: '1.1rem' }}>
+                  <p style={{ fontSize: '0.85rem', color: 'var(--muted)', margin: 0 }}>
+                    Changes apply to new bookings only. Bookings already made keep the rates they were quoted. Every change is recorded with your name. Publish the car again afterwards.
+                  </p>
+                  <div>
+                    <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Rates & deposit (₹)</strong>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
+                      {field('baseDailyRate', 'Daily package rate', { type: 'number', min: 1 })}
+                      {field('baseHourlyRate', 'Hourly rate', { type: 'number', min: 1 })}
+                      {field('securityDeposit', 'Refundable security deposit', { type: 'number', min: 0 })}
+                    </div>
+                  </div>
+                  <div>
+                    <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Kilometre allowance</strong>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
+                      {field('includedKmPerDay', 'Included (free) km per day', { type: 'number', min: 50 })}
+                      {field('extraKmRate', 'Extra km charge (₹ per km)', { type: 'number', min: 1 })}
+                    </div>
+                    {hubPolicy ? <small style={{ color: 'var(--muted)' }}>This hub has its own policy ({hubPolicy.includedKmPerDay ?? '—'} km/day, ₹{hubPolicy.extraKmRatePaise ? Number(hubPolicy.extraKmRatePaise) / 100 : '—'}/km), which is applied instead; these values are the car's fallback.</small> : null}
+                  </div>
+                  <div>
+                    <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Car</strong>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
+                      {field('variant', 'Variant & trim')}
+                      {field('color', 'Colour')}
+                      {field('seats', 'Seats', { type: 'number', min: 2, max: 10 })}
+                    </div>
+                  </div>
+                  <div>
+                    <strong style={{ fontSize: '0.8rem', textTransform: 'uppercase', color: 'var(--muted)' }}>Documents (optional - leave blank to keep what is on file)</strong>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '0.75rem', marginTop: '0.5rem' }}>
+                      {field('vin', 'VIN / chassis number')}
+                      {field('commercialPermitNumber', 'Commercial permit number')}
+                      {field('commercialPermitExpiry', 'Permit expiry', { type: 'date' })}
+                      {field('insurancePolicyNumber', 'Insurance policy number')}
+                      {field('insuranceExpiry', 'Insurance expiry', { type: 'date' })}
+                      {field('fitnessCertExpiry', 'Fitness certificate expiry', { type: 'date' })}
+                    </div>
+                  </div>
+                </div>
+                <div className="modal-footer" style={{ padding: '1rem 1.25rem', borderTop: '1px solid var(--border)', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                  <button type="button" className="btn-secondary button secondary" onClick={() => setEditVehicle(null)}>Cancel</button>
+                  <button type="submit" className="btn-primary btn-gold button primary" disabled={actionBusy}>{actionBusy ? 'Saving…' : 'Save Changes'}</button>
+                </div>
+              </form>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* MODAL: CORRECT RECORDED READINGS */}
       {readingsVehicle && (
@@ -4691,22 +4857,37 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
 
                       {(() => {
                         const outstanding = Number(activePaymentSummary?.outstandingPaise || activeBooking.outstandingBalancePaise || 0);
-                        const isHandoverBlocked = actionBusy || activeBooking.kycStatus !== 'VERIFIED' || outstanding > 0;
+                        const depositDue = Number(activeBooking.securityDepositPaise || 0) > 0 && !['HELD_ESCROW', 'COLLECTED'].includes(String(activeBooking.depositStatus ?? ''));
+                        const isHandoverBlocked = actionBusy || activeBooking.kycStatus !== 'VERIFIED' || outstanding > 0 || depositDue;
 
                         return (
-                          <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
-                            <button type="button" className="btn-secondary button secondary" onClick={() => setActiveBooking(null)}>Cancel</button>
-                            <button
-                              type="submit"
-                              className="btn-primary btn-gold button primary"
-                              disabled={isHandoverBlocked}
-                              title={outstanding > 0 ? 'Vehicle release blocked: outstanding rental balance must be settled.' : undefined}
-                            >
-                              {outstanding > 0
-                                ? 'Handover Blocked: Unpaid Balance'
-                                : (actionBusy ? 'Uploading Photos & Confirming…' : 'Confirm Handover & Start Trip')}
-                            </button>
-                          </div>
+                          <>
+                            {depositDue && outstanding <= 0 && (
+                              <div style={{ marginTop: '1rem', padding: '0.85rem 1rem', borderRadius: '8px', border: '1px solid #f59e0b', background: 'rgba(245, 158, 11, 0.1)', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                                <div style={{ fontSize: '0.85rem' }}>
+                                  <strong>Collect the security deposit first.</strong> The customer pays the refundable deposit of <strong>{formatRupees(activeBooking.securityDepositPaise)}</strong> at the counter (it is not charged in the app). Record it before handing over the keys.
+                                </div>
+                                <button type="button" className="btn-primary btn-gold button primary small" onClick={() => openRecordPaymentModal('DEPOSIT')}>
+                                  Record Deposit
+                                </button>
+                              </div>
+                            )}
+                            <div style={{ marginTop: '1.5rem', display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                              <button type="button" className="btn-secondary button secondary" onClick={() => setActiveBooking(null)}>Cancel</button>
+                              <button
+                                type="submit"
+                                className="btn-primary btn-gold button primary"
+                                disabled={isHandoverBlocked}
+                                title={outstanding > 0 ? 'Vehicle release blocked: outstanding rental balance must be settled.' : depositDue ? 'Vehicle release blocked: the security deposit has not been collected.' : undefined}
+                              >
+                                {outstanding > 0
+                                  ? 'Handover Blocked: Unpaid Balance'
+                                  : depositDue
+                                    ? 'Handover Blocked: Deposit Not Collected'
+                                    : (actionBusy ? 'Uploading Photos & Confirming…' : 'Confirm Handover & Start Trip')}
+                              </button>
+                            </div>
+                          </>
                         );
                       })()}
                     </form>
@@ -5005,6 +5186,15 @@ export const RentalOperationsPanel: FC<RentalOperationsPanelProps> = ({
                             ) : (
                               <div style={{ color: 'var(--muted)' }}>Enter the return odometer to see the distance driven.</div>
                             )}
+                            {(() => {
+                              const allowance = includedKmBreakdown({ includedKm: activeBooking.includedKm, startTime: activeBooking.startTime, endTime: activeBooking.endTime });
+                              if (typeof activeBooking.includedKm !== 'number') return null;
+                              return (
+                                <div style={{ color: 'var(--muted)' }}>
+                                  Allowance fixed when this booking was made: {allowance ? <>{allowance.perDay.toLocaleString('en-IN')} km/day × {allowance.days} day{allowance.days === 1 ? '' : 's'} = </> : null}{activeBooking.includedKm.toLocaleString('en-IN')} km{activeBooking.extraKmRatePaise !== undefined && activeBooking.extraKmRatePaise !== null ? <>; every extra km is charged at ₹{Number(activeBooking.extraKmRatePaise) / 100}</> : null}.
+                                </div>
+                              );
+                            })()}
                             {fuelShortfall > 0 && <div style={{ color: 'var(--color-warning)' }}>Returned {fuelShortfall}% below the start level - a fuel refill charge applies.</div>}
                             <div style={{ color: 'var(--muted)' }}>Extra kilometres, fuel refill and any late-return charge are calculated by the system when you save; the settlement then shows the final refund.</div>
                           </div>

@@ -11,7 +11,8 @@ import { z } from 'zod';
 import type { PrismaClient } from '@prisma/client';
 import { authentication, type Identity, type VerifyToken } from './auth.js';
 import { HttpError } from './errors.js';
-import { assertCashfreeWebhookSignature, cashfreeConfig, createCashfreeOrder, fetchCashfreeOrder, type CashfreeOptions } from './cashfree-gateway.js';
+import { randomBytes } from 'node:crypto';
+import { assertCashfreeWebhookSignature, cashfreeConfig, createCashfreeOrder, describeCashfreeKeys, fetchCashfreeOrder, type CashfreeOptions } from './cashfree-gateway.js';
 
 const SETTLE_SIGNATURE = 'cashfree-server-verified';
 
@@ -31,6 +32,23 @@ const createOrderInput = z.object({
 
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, ch => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[ch]!));
 
+/** Security header for the hosted checkout page: scripts, frames and calls only to Cashfree (plus our own nonce-marked starter script). */
+export function checkoutContentSecurityPolicy(nonce: string): string {
+  const cashfree = 'https://*.cashfree.com';
+  return [
+    "default-src 'self'",
+    `script-src 'self' 'nonce-${nonce}' https://sdk.cashfree.com ${cashfree}`,
+    `connect-src 'self' ${cashfree}`,
+    `frame-src ${cashfree}`,
+    "img-src 'self' data: https:",
+    "style-src 'self' 'unsafe-inline' https:",
+    "font-src 'self' https: data:",
+    "form-action 'self' https:",
+    "base-uri 'none'",
+    "object-src 'none'",
+  ].join('; ');
+}
+
 export function publicBaseUrl(req: { protocol: string; get(name: string): string | undefined }, env: NodeJS.ProcessEnv = process.env): string {
   const configured = env.API_PUBLIC_URL?.trim().replace(/\/+$/, '');
   if (configured) return configured;
@@ -43,7 +61,10 @@ export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClie
   const scheme = deps.appScheme ?? 'vmotiv';
 
   async function customerFor(identity: Identity) {
-    const user = await deps.db.user.findFirst({ where: { OR: [{ firebaseUid: identity.uid }, { id: identity.uid }] }, select: { id: true, email: true, displayName: true, phone: true } });
+    // A Firebase uid is not a UUID: comparing it with the UUID `id` column makes Postgres reject the whole query (P2023),
+    // so the id match is only added when the value really is a UUID.
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(identity.uid);
+    const user = await deps.db.user.findFirst({ where: { OR: [{ firebaseUid: identity.uid }, ...(isUuid ? [{ id: identity.uid }] : [])] }, select: { id: true, email: true, displayName: true, phone: true } });
     if (!user) throw new HttpError(404, 'USER_RECORD_NOT_FOUND');
     return user;
   }
@@ -101,16 +122,35 @@ export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClie
   });
 
   // Hosted page: loads Cashfree's checkout script and starts payment. The session id is single-purpose and unguessable.
+  // Whether THIS server can see the Cashfree credentials (never the credentials themselves) - for diagnosing "not configured".
+  router.get('/payments/cashfree/status', (_req, res) => {
+    const config = cashfreeConfig();
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({
+      configured: Boolean(config),
+      mode: config?.mode ?? null,
+      appIdPresent: Boolean(process.env.CASHFREE_APP_ID?.trim()),
+      secretPresent: Boolean(process.env.CASHFREE_SECRET_KEY?.trim()),
+      nodeEnv: process.env.NODE_ENV ?? null,
+      keys: describeCashfreeKeys(),
+    });
+  });
+
   router.get('/payments/cashfree/checkout', (req, res) => {
     const session = typeof req.query.session === 'string' ? req.query.session : '';
     const config = cashfreeConfig();
     if (!config || !/^[A-Za-z0-9_=-]{10,600}$/.test(session)) { res.status(400).type('html').send('<p>This payment link is not valid.</p>'); return; }
     res.setHeader('Cache-Control', 'no-store');
+    // The API's default security header only lets pages run scripts from our own server, which would block Cashfree's checkout
+    // script and leave this page on "Opening secure payment..." forever. This one page gets its own header that allows Cashfree
+    // (and our single inline starter script, by nonce) and nothing else.
+    const nonce = randomBytes(16).toString('base64');
+    res.setHeader('Content-Security-Policy', checkoutContentSecurityPolicy(nonce));
     res.type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>V MOTIV payment</title>
 <style>body{font-family:system-ui,sans-serif;display:grid;place-items:center;min-height:100vh;margin:0;color:#0b2545}</style></head>
 <body><p id="m">Opening secure payment…</p>
 <script src="https://sdk.cashfree.com/js/v3/cashfree.js"></script>
-<script>
+<script nonce="${nonce}">
   try {
     var cashfree = Cashfree({ mode: "${config.mode}" });
     cashfree.checkout({ paymentSessionId: ${JSON.stringify(session)}, redirectTarget: "_self" });
@@ -126,7 +166,7 @@ export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClie
     try {
       const order = await fetchCashfreeOrder(orderId, deps.gateway);
       paymentId = order.paymentId ?? '';
-      status = order.status === 'PAID' ? 'SUCCESS' : order.status === 'EXPIRED' ? 'FAILED' : 'PENDING';
+      status = order.state === 'PAID' ? 'SUCCESS' : order.state === 'FAILED' ? 'FAILED' : 'PENDING';
       if (status === 'SUCCESS') await settleOrder(orderId).catch(() => undefined);
     } catch { /* the app re-checks; show a neutral result */ }
     const link = `${scheme}://payment-result?status=${status}&orderId=${encodeURIComponent(orderId)}&paymentId=${encodeURIComponent(paymentId)}`;
@@ -157,7 +197,11 @@ export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClie
       const record = await deps.db.gatewayOrder.findUnique({ where: { orderId: String(req.params.orderId) } });
       if (!record || record.customerId !== user.id) throw new HttpError(404, 'ORDER_NOT_FOUND');
       const settled = record.status === 'SETTLED' ? record : await settleOrder(record.orderId);
-      res.json({ orderId: record.orderId, kind: record.kind, referenceId: record.referenceId, status: settled?.status ?? record.status, gatewayPaymentId: settled?.gatewayPaymentId ?? null });
+      const status = settled?.status ?? record.status;
+      // `state` is what the app shows: PAID (recorded), FAILED (declined / expired) or PENDING (still being confirmed).
+      let state: 'PAID' | 'FAILED' | 'PENDING' = status === 'SETTLED' ? 'PAID' : 'PENDING';
+      if (state !== 'PAID') state = await fetchCashfreeOrder(record.orderId, deps.gateway).then(order => (order.state === 'PAID' ? 'PENDING' : order.state)).catch(() => 'PENDING' as const);
+      res.json({ orderId: record.orderId, kind: record.kind, referenceId: record.referenceId, amountPaise: record.amountPaise.toString(), status, state, gatewayPaymentId: settled?.gatewayPaymentId ?? null });
     } catch (error) { next(error); }
   });
 

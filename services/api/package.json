@@ -9,6 +9,7 @@
     "cf:deploy": "wrangler deploy",
     "postinstall": "prisma generate",
     "build": "prisma generate && tsc",
+    "start": "node dist/server.js",
     "typecheck": "tsc --noEmit && tsc --noEmit -p scripts/tsconfig.json",
     "test": "vitest run",
     "worker": "tsx --env-file-if-exists=.env src/worker.ts",
@@ -22,6 +23,7 @@
     "db:normalize-names": "tsx --env-file-if-exists=.env prisma/normalize-vehicle-names.ts",
     "seed:rental-demo": "tsx --env-file-if-exists=.env scripts/seed-rental-demo.ts",
     "unseed:rental-demo": "tsx --env-file-if-exists=.env scripts/remove-rental-demo.ts",
+    "app-config:set": "tsx --env-file-if-exists=.env scripts/set-app-config.ts",
     "bootstrap:admin": "tsx --env-file-if-exists=.env scripts/bootstrap-admin.ts",
     "seed:admin": "tsx --env-file-if-exists=.env scripts/seed-admin.ts",
     "mfa:enroll": "tsx --env-file-if-exists=.env scripts/enroll-phone-mfa.ts"

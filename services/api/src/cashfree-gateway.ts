@@ -32,7 +32,15 @@ async function cashfreeRequest(path: string, init: { method?: string; body?: unk
       signal: controller.signal,
     });
     if (res.status === 404) throw new HttpError(402, 'PAYMENT_NOT_FOUND_AT_GATEWAY');
-    if (!res.ok) throw new HttpError(res.status === 400 || res.status === 422 ? 400 : 502, res.status === 400 || res.status === 422 ? 'PAYMENT_GATEWAY_REJECTED_ORDER' : 'PAYMENT_GATEWAY_UNAVAILABLE');
+    if (!res.ok) {
+      // Cashfree explains why it refused (wrong key for this mode, bad phone, return URL not https...). Keep that reason: it is
+      // written to the server log and sent back as the error message so a failure can be understood. It never contains our keys.
+      const detail = await res.json().catch(() => null) as { code?: string; type?: string; message?: string } | null;
+      const reason = [detail?.code, detail?.message].filter(Boolean).join(': ').slice(0, 300);
+      console.error(`[CASHFREE] ${init.method ?? 'GET'} ${path.replace(/\/orders\/[^/]+/, '/orders/:id')} -> ${res.status}${reason ? ` ${reason}` : ''} (mode ${config.mode})`);
+      const rejected = res.status === 400 || res.status === 422;
+      throw new HttpError(rejected ? 400 : 502, rejected ? 'PAYMENT_GATEWAY_REJECTED_ORDER' : 'PAYMENT_GATEWAY_UNAVAILABLE', reason || undefined);
+    }
     return await res.json();
   } catch (err) {
     if (err instanceof HttpError) throw err;
@@ -79,7 +87,24 @@ export async function createCashfreeOrder(
   return { orderId: String(body.order_id), paymentSessionId: String(body.payment_session_id), status: String(body.order_status ?? 'ACTIVE') };
 }
 
-export interface CashfreePaidOrder { orderId: string; status: string; orderAmountPaise: bigint; currency: string; paymentId: string | null; paidAmountPaise: bigint | null }
+export type CashfreePaymentState = 'PAID' | 'FAILED' | 'PENDING';
+
+export interface CashfreePaidOrder { orderId: string; status: string; orderAmountPaise: bigint; currency: string; paymentId: string | null; paidAmountPaise: bigint | null; state: CashfreePaymentState }
+
+/**
+ * The customer-facing result of an order. Cashfree keeps an order ACTIVE after a declined attempt (the customer may retry),
+ * so a failure shows up in the payment attempts, not in the order status.
+ * PAID: money received. FAILED: the order expired, or every attempt was declined / abandoned. PENDING: anything else
+ * (bank still confirming, or the customer has not paid yet).
+ */
+export function classifyPaymentState(orderStatus: string, payments: unknown): CashfreePaymentState {
+  const attempts = Array.isArray(payments) ? payments.map((p: any) => String(p?.payment_status ?? '').toUpperCase()) : [];
+  if (orderStatus === 'PAID' || attempts.includes('SUCCESS')) return 'PAID';
+  if (attempts.includes('PENDING') || attempts.includes('INITIATED')) return 'PENDING';
+  if (['EXPIRED', 'TERMINATED', 'CANCELLED'].includes(orderStatus)) return 'FAILED';
+  if (attempts.length > 0 && attempts.every(status => ['FAILED', 'USER_DROPPED', 'CANCELLED', 'VOID', 'NOT_ATTEMPTED'].includes(status))) return 'FAILED';
+  return 'PENDING';
+}
 
 /** What Cashfree says about an order and its successful payment (if any). Never trusts what the app claims. */
 export async function fetchCashfreeOrder(orderId: string, opts: CashfreeOptions = {}): Promise<CashfreePaidOrder> {
@@ -94,6 +119,7 @@ export async function fetchCashfreeOrder(orderId: string, opts: CashfreeOptions 
     currency: String(order?.order_currency ?? 'INR'),
     paymentId: success?.cf_payment_id !== undefined ? String(success.cf_payment_id) : null,
     paidAmountPaise: success ? toPaise(success.payment_amount) : null,
+    state: classifyPaymentState(String(order?.order_status ?? ''), payments),
   };
 }
 
@@ -135,4 +161,27 @@ export async function assertCashfreePaid(
   const paid = order.paidAmountPaise ?? order.orderAmountPaise;
   if (expectedPaise !== null && (opts.exact ? paid !== expectedPaise : paid < expectedPaise)) throw new HttpError(402, 'PAYMENT_AMOUNT_MISMATCH');
   return paid;
+}
+
+/**
+ * What kind of Cashfree keys the server holds, judged only from the public format markers (never the keys themselves):
+ * test app ids start with "TEST" and test secrets with "cfsk_ma_test_"; live secrets start with "cfsk_ma_prod_".
+ * Used to explain a 401 "authentication failed" - almost always keys that do not match the mode, or stray characters.
+ */
+export function describeCashfreeKeys(env: NodeJS.ProcessEnv = process.env) {
+  const rawId = env.CASHFREE_APP_ID ?? '';
+  const rawSecret = env.CASHFREE_SECRET_KEY ?? '';
+  const id = rawId.trim();
+  const secret = rawSecret.trim();
+  const kind = (value: string, test: RegExp, live: RegExp): 'test' | 'live' | 'unknown' => (test.test(value) ? 'test' : live.test(value) ? 'live' : 'unknown');
+  const appIdKind = kind(id, /^TEST/i, /^(?!TEST)[A-Za-z0-9]{8,}$/);
+  const secretKind = kind(secret, /^cfsk_ma_test_/i, /^cfsk_ma_prod_/i);
+  const mode = env.CASHFREE_ENV?.trim().toLowerCase() === 'production' ? 'production' : 'sandbox';
+  const problems: string[] = [];
+  if (/[\s"']/.test(id) || /[\s"']/.test(secret)) problems.push('A key contains a space, line break or quote character - paste the bare value only.');
+  if (secret.startsWith('cfsk_ma_') === false && secret) problems.push('The secret does not look like a Cashfree Payment Gateway secret (expected to start with cfsk_ma_test_ or cfsk_ma_prod_). Make sure the App ID and Secret are not swapped and are the Payment Gateway keys, not Payouts / Verification keys.');
+  if (mode === 'sandbox' && (secretKind === 'live' || appIdKind === 'live')) problems.push('CASHFREE_ENV is sandbox but the keys are LIVE keys. Use the test keys, or set CASHFREE_ENV=production.');
+  if (mode === 'production' && (secretKind === 'test' || appIdKind === 'test')) problems.push('CASHFREE_ENV is production but the keys are TEST keys. Use the live keys, or set CASHFREE_ENV=sandbox.');
+  if (appIdKind !== 'unknown' && secretKind !== 'unknown' && appIdKind !== secretKind) problems.push('The App ID and the Secret are from different environments (one test, one live).');
+  return { mode, appIdKind, secretKind, problems };
 }

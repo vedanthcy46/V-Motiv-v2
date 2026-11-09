@@ -71,3 +71,39 @@ describe('Cashfree gateway', () => {
     expect(() => assertCashfreeWebhookSignature(raw, undefined, good, env)).toThrow();
   });
 });
+
+import { describeCashfreeKeys } from '../src/cashfree-gateway.js';
+describe('describeCashfreeKeys (explains a 401 without revealing keys)', () => {
+  it('is quiet for matching test keys in sandbox', () => {
+    const r = describeCashfreeKeys({ CASHFREE_APP_ID: 'TEST1234abcd', CASHFREE_SECRET_KEY: 'cfsk_ma_test_abc123', CASHFREE_ENV: 'sandbox' } as any);
+    expect(r).toMatchObject({ appIdKind: 'test', secretKind: 'test', mode: 'sandbox', problems: [] });
+  });
+  it('flags live keys used in sandbox', () => {
+    const r = describeCashfreeKeys({ CASHFREE_APP_ID: '12345678abcd', CASHFREE_SECRET_KEY: 'cfsk_ma_prod_abc', CASHFREE_ENV: 'sandbox' } as any);
+    expect(r.problems.join(' ')).toContain('LIVE keys');
+  });
+  it('flags test keys used in production, stray characters and a secret in the wrong format', () => {
+    expect(describeCashfreeKeys({ CASHFREE_APP_ID: 'TEST1', CASHFREE_SECRET_KEY: 'cfsk_ma_test_x', CASHFREE_ENV: 'production' } as any).problems.join(' ')).toContain('TEST keys');
+    expect(describeCashfreeKeys({ CASHFREE_APP_ID: '"TEST1"', CASHFREE_SECRET_KEY: 'cfsk_ma_test_x', CASHFREE_ENV: 'sandbox' } as any).problems.join(' ')).toContain('quote');
+    expect(describeCashfreeKeys({ CASHFREE_APP_ID: 'TEST1', CASHFREE_SECRET_KEY: 'someothertoken', CASHFREE_ENV: 'sandbox' } as any).problems.join(' ')).toContain('does not look like');
+  });
+});
+
+import { classifyPaymentState } from '../src/cashfree-gateway.js';
+describe('classifyPaymentState (what the customer is told)', () => {
+  it('is PAID when money was received', () => {
+    expect(classifyPaymentState('PAID', [])).toBe('PAID');
+    expect(classifyPaymentState('ACTIVE', [{ payment_status: 'FAILED' }, { payment_status: 'SUCCESS' }])).toBe('PAID');
+  });
+  it('is FAILED when the order expired or every attempt was declined or abandoned', () => {
+    expect(classifyPaymentState('EXPIRED', [])).toBe('FAILED');
+    expect(classifyPaymentState('ACTIVE', [{ payment_status: 'FAILED' }])).toBe('FAILED'); // Cashfree keeps a declined order ACTIVE
+    expect(classifyPaymentState('ACTIVE', [{ payment_status: 'USER_DROPPED' }, { payment_status: 'FAILED' }])).toBe('FAILED');
+  });
+  it('is PENDING while a bank confirms, or when nothing was attempted yet', () => {
+    expect(classifyPaymentState('ACTIVE', [{ payment_status: 'PENDING' }])).toBe('PENDING');
+    expect(classifyPaymentState('ACTIVE', [{ payment_status: 'FAILED' }, { payment_status: 'PENDING' }])).toBe('PENDING');
+    expect(classifyPaymentState('ACTIVE', [])).toBe('PENDING');
+    expect(classifyPaymentState('ACTIVE', null)).toBe('PENDING');
+  });
+});

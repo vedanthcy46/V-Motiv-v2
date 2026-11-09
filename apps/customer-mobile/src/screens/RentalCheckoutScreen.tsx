@@ -53,6 +53,11 @@ import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
 import { KeyboardScrollView } from '../components/KeyboardScrollView';
 import { payWithCashfree } from '../services/cashfree';
+import { DateField } from '../components/DateField';
+import { addYears, todayIso } from '../utils/date-field';
+
+/** The latest date of birth that is still an adult (18 years ago today). */
+const dobLatest = () => addYears(todayIso(), -18);
 
 type Props = NativeStackScreenProps<RootStack, 'RentalCheckout'>;
 
@@ -256,24 +261,6 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             }
           },
         },
-        // A stock photo is not a driving licence: the sample option exists in development builds only.
-        ...(__DEV__ ? [
-        {
-          text: 'Use Sample Document (Preview)',
-          onPress: () => {
-            const sampleUrl = type === 'front'
-              ? 'https://images.unsplash.com/photo-1549399542-7e3f8b79c341?auto=format&fit=crop&w=1200&q=80'
-              : 'https://images.unsplash.com/photo-1554224155-8d04cb21cd6c?auto=format&fit=crop&w=1200&q=80';
-            if (type === 'front') {
-              setDriverLicenseFront(sampleUrl);
-              setLocalFrontAsset(null);
-            } else {
-              setDriverLicenseBack(sampleUrl);
-              setLocalBackAsset(null);
-            }
-          },
-        },
-        ] : []),
         { text: 'Cancel', style: 'cancel' },
       ]
     );
@@ -398,13 +385,9 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
           gatewaySignature: 'demo_sig_verified_vmotiv',
         });
       } else if (paid.outcome !== 'PAID') {
-        Alert.alert(
-          paid.outcome === 'PENDING' ? 'Payment is being confirmed' : 'Payment did not go through',
-          paid.outcome === 'PENDING'
-            ? 'We have not received confirmation yet. If money was deducted, your booking will be confirmed automatically within a few minutes.'
-            : 'No money was taken. Your reservation is held for a short time, so you can try again.',
-          [{ text: 'View Booking', onPress: () => navigation.replace('RentalBookingDetails', { bookingId }) }],
-        );
+        // The payment card has already shown the result (failed / still confirming). The reservation is held for a short
+        // time, so the booking page is where the customer can pay again or see it confirm.
+        navigation.replace('RentalBookingDetails', { bookingId });
         return;
       }
 
@@ -650,13 +633,13 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
             </View>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                <Text style={{ fontSize: 13, color: colors.textSecondary }}>Refundable Security Deposit</Text>
+                <Text style={{ fontSize: 13, color: colors.textSecondary }}>Refundable Security Deposit (pay at pickup)</Text>
                 <ShieldCheck size={14} color={colors.success} />
               </View>
               <Text style={{ fontSize: 13, fontWeight: '700', color: colors.success }}>₹{depositRupees.toLocaleString('en-IN')}</Text>
             </View>
             <Text style={{ fontSize: 11, color: colors.textMuted, fontStyle: 'italic' }}>
-              Deposit is held separately & refunded post-trip inspection. Not rental revenue.
+              The deposit is not charged in the app. You pay it at the hub when you collect the car (cash or UPI), and it is refunded after the return inspection, minus any extra charges.
             </Text>
 
             <View style={{ height: 1, backgroundColor: colors.border, marginVertical: 4 }} />
@@ -718,19 +701,14 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
           <View style={styles.formRow}>
             <View style={{ flex: 1 }}>
               <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>DATE OF BIRTH</Text>
-              <TextInput
-                style={[
-                  styles.textInput,
-                  {
-                    backgroundColor: colors.surfaceSecondary,
-                    borderColor: colors.border,
-                    color: colors.textPrimary,
-                  },
-                ]}
-                placeholder="YYYY-MM-DD"
-                placeholderTextColor={colors.textMuted}
+              <DateField
+                title="Date of birth"
+                placeholder="Select date"
                 value={dob}
-                onChangeText={setDob}
+                onChange={setDob}
+                maxDate={dobLatest()}
+                minDate="1920-01-01"
+                initialYear={new Date().getFullYear() - 30}
               />
             </View>
 
@@ -756,19 +734,13 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
 
           <View style={styles.formGroup}>
             <Text style={[styles.inputLabel, { color: colors.textSecondary }]}>LICENSE EXPIRY DATE</Text>
-            <TextInput
-              style={[
-                styles.textInput,
-                {
-                  backgroundColor: colors.surfaceSecondary,
-                  borderColor: colors.border,
-                  color: colors.textPrimary,
-                },
-              ]}
-              placeholder="YYYY-MM-DD"
-              placeholderTextColor={colors.textMuted}
+            <DateField
+              title="Licence expiry date"
+              placeholder="Select date"
               value={licenseExpiry}
-              onChangeText={setLicenseExpiry}
+              onChange={setLicenseExpiry}
+              minDate={todayIso()}
+              maxDate={addYears(todayIso(), 40)}
             />
           </View>
 

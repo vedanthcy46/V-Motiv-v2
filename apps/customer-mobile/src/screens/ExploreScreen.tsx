@@ -35,6 +35,7 @@ import {
 import { BrandHeader, EmptyState, Loading, PrimaryButton } from '../components/ui';
 import { VehicleCard } from '../components/VehicleCard';
 import { customer } from '../services/customer';
+import { describeAge } from '../services/inventory-offline';
 import type { RootStack, Tabs } from '../navigation/types';
 import type { SupportedCity, VehicleSummary } from '../types';
 import { useAppTheme, radius, space } from '../theme';
@@ -249,6 +250,8 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
+  // Set while the list comes from the copy saved on the device (the server could not be reached).
+  const [offlineSince, setOfflineSince] = useState<number | null>(null);
 
   // Live Inventory Counts by Brand & Model (matching available inventory)
   const inventoryBrandCounts = useMemo(() => {
@@ -395,6 +398,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
           ...priceBounds,
         });
         if (current === requestId.current) {
+          setOfflineSince(result.fromCache ? result.syncedAt ?? 0 : null);
           setItems((prev) =>
             pageToLoad === 1 ? result.items : [...prev, ...result.items.filter((next) => !prev.some((p) => p.id === next.id))],
           );
@@ -952,6 +956,12 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
         {saveMessage ? (
           <Text style={[saveMessage.includes('saved') ? styles.successText : styles.errorText, { color: saveMessage.includes('saved') ? c.success : c.error }]}>
             {saveMessage}
+          </Text>
+        ) : null}
+
+        {offlineSince !== null ? (
+          <Text accessibilityRole="alert" style={[styles.errorText, { color: c.textMuted }]}>
+            You're offline - showing saved cars (updated {describeAge(offlineSince)}). Pull down to refresh when you're back online.
           </Text>
         ) : null}
 

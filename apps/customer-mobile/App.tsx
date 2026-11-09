@@ -13,6 +13,8 @@ import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { ThemeProvider, useAppTheme } from './src/theme';
 import { BrandRevealScreen } from './src/components/BrandRevealScreen';
 import { ConnectIncomingCallOverlay } from './src/components/ConnectIncomingCallOverlay';
+import { PaymentStatusHost } from './src/components/PaymentStatusHost';
+import { UpdateAvailableCard } from './src/components/UpdateAvailableCard';
 import { SidebarProvider } from './src/components/AppSidebar';
 import { navigationRef } from './src/navigation/navigationRef';
 import type { RootStack } from './src/navigation/types';
@@ -80,6 +82,8 @@ function Root() {
     <SidebarProvider>
       <CustomerNavigator />
       {state === 'signed-in' ? <ConnectIncomingCallOverlay /> : null}
+      <PaymentStatusHost />
+      <UpdateAvailableCard />
     </SidebarProvider>
   );
 }

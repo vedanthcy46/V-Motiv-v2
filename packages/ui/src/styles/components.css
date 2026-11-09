@@ -19,7 +19,6 @@
 .vm-page-header { display: flex; align-items: flex-end; justify-content: space-between; gap: 1rem 2rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
 .vm-page-header p { color: color-mix(in oklab, var(--color-base-content) 66%, transparent); max-width: 46rem; }
 
-.vm-live-bar { position: fixed; z-index: 1200; left: 50%; bottom: 1.25rem; transform: translateX(-50%); max-width: min(40rem, calc(100vw - 2rem)); animation: vm-pop-in 0.2s ease both; }
 
 /* Solid count bubbles (nav badges, bell) */
 .badge.vm-count-solid { background: var(--color-primary); border-color: var(--color-primary); color: var(--color-primary-content); }

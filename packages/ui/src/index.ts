@@ -15,7 +15,7 @@ export { NotificationBell, type NotificationItem } from './components/Notificati
 export { StaffNotificationBell, tabFromDeepLink, type StaffNotification, type StaffNotificationSource } from './components/StaffNotificationBell';
 export { Navbar, SiteFooter, type NavbarLink } from './components/Navbar';
 
-export { toast, useToasts, dismissToast, type ToastTone } from './hooks/toastStore';
+export { toast, useToasts, dismissToast, type ToastTone, type ToastAction } from './hooks/toastStore';
 export { trackRequest, usePendingRequests } from './hooks/requestProgress';
 export { useAction, errorMessage, type ActionOptions } from './hooks/useAction';
 

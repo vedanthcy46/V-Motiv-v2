@@ -205,12 +205,7 @@ export function ServiceRequestDetailsScreen() {
           installmentType: amountToPay >= outstandingRupees ? 'FINAL_BALANCE' : 'INTERMEDIATE_ADVANCE',
         });
       } else if (paid.outcome !== 'PAID') {
-        Alert.alert(
-          paid.outcome === 'PENDING' ? 'Payment is being confirmed' : 'Payment did not go through',
-          paid.outcome === 'PENDING'
-            ? 'We have not received confirmation yet. If money was deducted, it will show here automatically within a few minutes.'
-            : 'No money was taken. You can try again.',
-        );
+        // The payment card has already shown the result (failed / still confirming).
         setPayBalanceModalVisible(false);
         void loadDetails();
         return;
@@ -218,19 +213,9 @@ export function ServiceRequestDetailsScreen() {
         gatewayPaymentId = paid.orderId;
       }
 
-      Alert.alert(
-        'Payment Successful! 🎉',
-        `Payment of ₹${amountToPay.toLocaleString('en-IN')} has been verified. Reference: ${gatewayPaymentId}.`,
-        [
-          {
-            text: 'OK',
-            onPress: () => {
-              setPayBalanceModalVisible(false);
-              void loadDetails();
-            },
-          },
-        ]
-      );
+      // The payment card has already shown "Payment confirmed" with the amount and reference.
+      setPayBalanceModalVisible(false);
+      void loadDetails();
     } catch (err: any) {
       Alert.alert('Payment Error', err?.message || 'Payment verification could not be completed.');
     } finally {

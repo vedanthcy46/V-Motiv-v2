@@ -15,6 +15,7 @@ export function Toaster() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-semibold leading-snug">{item.title}</p>
             {item.description ? <p className="mt-0.5 text-sm leading-snug opacity-80">{item.description}</p> : null}
+            {item.action ? <button type="button" className="btn btn-primary btn-xs mt-2" onClick={() => { item.action!.onClick(); dismissToast(item.id); }}>{item.action.label}</button> : null}
           </div>
           <button type="button" className="btn btn-ghost btn-xs btn-square" aria-label="Dismiss notification" onClick={() => dismissToast(item.id)}><Icon name="close" size={14} /></button>
         </div>

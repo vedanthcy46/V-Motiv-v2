@@ -1341,6 +1341,10 @@ export class PrismaFinanceStore {
           notes: input.notes || `Direct payment recorded for obligation ${obligation.obligationNumber}`,
         },
       });
+      // Money received into a company bank account increases its balance.
+      if (input.companyBankAccountId) {
+        await tx.companyBankAccount.update({ where: { id: input.companyBankAccountId }, data: { balancePaise: { increment: paymentPaise } } });
+      }
 
       // Create allocation record
       const allocation = await tx.receiptAllocation.create({
@@ -1532,6 +1536,10 @@ export class PrismaFinanceStore {
           recordedByEmployeeId: actor.userId,
         },
       });
+      // A receipt recorded as already verified is money in the bank now; an unverified one is credited when it is verified.
+      if (shouldAllocate && input.companyBankAccountId) {
+        await tx.companyBankAccount.update({ where: { id: input.companyBankAccountId }, data: { balancePaise: { increment: amountPaise } } });
+      }
 
       if (shouldAllocate && input.obligationId) {
         const obligation = await tx.buyerPaymentObligation.findUnique({
@@ -1615,16 +1623,23 @@ export class PrismaFinanceStore {
       throw new HttpError(409, 'RECEIPT_NOT_PENDING_VERIFICATION');
     }
 
-    const updated = await this.db.incomingReceipt.update({
-      where: { id },
-      data: {
-        status: 'VERIFIED',
-        verifiedByEmployeeId: actor.userId,
-        verifiedAt: new Date(),
-        notes: details?.notes || receipt.notes,
-        evidenceUri: details?.evidenceUri || receipt.evidenceUri,
-        version: { increment: 1 },
-      },
+    const updated = await this.db.$transaction(async tx => {
+      const verified = await tx.incomingReceipt.update({
+        where: { id },
+        data: {
+          status: 'VERIFIED',
+          verifiedByEmployeeId: actor.userId,
+          verifiedAt: new Date(),
+          notes: details?.notes || receipt.notes,
+          evidenceUri: details?.evidenceUri || receipt.evidenceUri,
+          version: { increment: 1 },
+        },
+      });
+      // Verified money is in the bank: credit the account it was received into.
+      if (receipt.companyBankAccountId) {
+        await tx.companyBankAccount.update({ where: { id: receipt.companyBankAccountId }, data: { balancePaise: { increment: receipt.amountPaise } } });
+      }
+      return verified;
     });
 
     await this.db.auditEvent.create({
