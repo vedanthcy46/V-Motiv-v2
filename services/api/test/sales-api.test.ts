@@ -396,6 +396,7 @@ describe('Sales Executive Portal API Boundaries', () => {
     const payload = {
       sellerName: 'Ramesh Rao',
       sellerPhone: '+919876543219',
+      sellerEmail: 'ramesh.rao@gmail.com',
       city: 'Bengaluru',
       pincode: '560002',
       make: 'Maruti',
