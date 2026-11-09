@@ -12,6 +12,7 @@ import {
   ScrollView,
   Share,
   StyleSheet,
+  Switch,
   Text,
   TextInput,
   TouchableOpacity,
@@ -66,6 +67,7 @@ import {
   fetchConnectStatus,
   issueConnectSticker,
   toggleConnectStatus,
+  updateConnectContactPreferences,
   revokeConnectQR,
   requestConnectSticker,
   markConnectAlertRead,
@@ -377,6 +379,23 @@ export function MyGarageScreen() {
       Alert.alert('Error', err.message || 'Could not update status');
     } finally {
       setConnectSubmitting(false);
+    }
+  };
+
+  /** Allow or stop calls / chat from passers-by on this car's sticker. Shows the change at once and puts it back if the server refuses. */
+  const handleContactPreference = async (key: 'callingEnabled' | 'messagingEnabled', value: boolean) => {
+    if (!activeConnectVehicle || !connectDetails?.link) return;
+    const vehicleId = activeConnectVehicle.id;
+    const previous = connectDetails;
+    const apply = (info: GarageConnectInfo): GarageConnectInfo => (info.link ? { ...info, link: { ...info.link, [key]: value } } : info);
+    setConnectDetails(apply(previous));
+    setConnectStatuses(prev => (prev[vehicleId] ? { ...prev, [vehicleId]: apply(prev[vehicleId]!) } : prev));
+    try {
+      await updateConnectContactPreferences(vehicleId, { [key]: value });
+    } catch (err: any) {
+      setConnectDetails(previous);
+      setConnectStatuses(prev => ({ ...prev, [vehicleId]: previous }));
+      Alert.alert('Could not save', err?.message || 'Your choice was not saved. Please try again.');
     }
   };
 
@@ -1565,6 +1584,35 @@ export function MyGarageScreen() {
                           ? 'Scanners will be able to message you or request a masked call when needed.'
                           : 'Scanners will see that the vehicle is temporarily not accepting requests.'}
                       </Text>
+
+                      {/* What passers-by may do (separate from pausing everything) */}
+                      <View style={{ marginTop: 12, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: isDark ? '#1E3A5F' : '#E2E8F0', gap: 10 }}>
+                        <Text style={{ color: c.text, fontWeight: '700', fontSize: 13 }}>Who can contact you</Text>
+                        {([
+                          { key: 'callingEnabled', title: 'Allow voice calls', hint: 'A scanner can ring you through the app without seeing your number.' },
+                          { key: 'messagingEnabled', title: 'Allow chat messages', hint: 'A scanner can send you private chat messages.' },
+                        ] as const).map(row => {
+                          const on = connectDetails.link?.[row.key] !== false;
+                          return (
+                            <View key={row.key} style={{ flexDirection: 'row', alignItems: 'center', gap: 12 }}>
+                              <View style={{ flex: 1 }}>
+                                <Text style={{ color: c.text, fontSize: 14, fontWeight: '600' }}>{row.title}</Text>
+                                <Text style={{ color: c.textMuted, fontSize: 12, marginTop: 2 }}>{row.hint}</Text>
+                              </View>
+                              <Switch
+                                value={on}
+                                onValueChange={value => void handleContactPreference(row.key, value)}
+                                accessibilityLabel={row.title}
+                                trackColor={{ false: isDark ? '#334155' : '#CBD5E1', true: '#10B981' }}
+                                thumbColor="#FFFFFF"
+                              />
+                            </View>
+                          );
+                        })}
+                        <Text style={{ color: c.textMuted, fontSize: 12 }}>
+                          Alerts such as lights left on, a blocked car or damage always reach you while the sticker is active. Use Pause Alerts to stop everything.
+                        </Text>
+                      </View>
 
                       {/* Token Info Row */}
                       <View style={[styles.tokenRow, { borderTopColor: isDark ? '#1E3A5F' : '#E2E8F0' }]}>

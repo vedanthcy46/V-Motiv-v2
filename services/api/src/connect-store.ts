@@ -7,6 +7,7 @@ import { HttpError } from './errors.js';
 import type { NotificationService } from './notification/notification-service.js';
 import { isCloudinaryConfigured, uploadToCloudinary } from './cloudinary.js';
 import { issueRealtimeTicket } from './connect-realtime.js';
+import { readContactPreferences, withContactPreferences, type ConnectContactPreferences } from './connect-preferences.js';
 
 export function sha256(text: string): string {
   if (typeof text !== 'string') return '';
@@ -47,6 +48,20 @@ export type PublicConnectAlertInput = {
 };
 
 const ACTIVE_CONNECT_STATUSES = ['ACTIVE', 'DISABLED'];
+
+/** "2023 Tata Nexon EV": names the car in every owner notification, so it is clear which vehicle a message is about. */
+export function connectVehicleLabel(vehicle: { year?: number | null; make?: string | null; model?: string | null } | null | undefined): string {
+  return [vehicle?.year, vehicle?.make, vehicle?.model].filter(Boolean).join(' ') || 'vehicle';
+}
+
+/** What each alert reason means to the owner, in plain words. */
+const ALERT_REASON_TITLES: Record<string, string> = {
+  BLOCKING_ACCESS: 'Your vehicle is blocking access',
+  LIGHTS_ON: 'Lights are on',
+  DAMAGE_OR_ACCIDENT: 'Damage or an accident was reported',
+  SAFETY_CONCERN: 'Safety concern reported',
+  OTHER: 'Someone needs your attention',
+};
 
 function stickerPublicUrl(token: string) {
   const origin = (process.env.CONNECT_PUBLIC_WEB_URL || 'https://www.vmotiv.in').replace(/\/$/, '');
@@ -159,6 +174,7 @@ export class PrismaConnectStore {
           stickerImageUrl: typeof (activeLink.metadata as Record<string, unknown> | null)?.stickerImageUrl === 'string'
             ? (activeLink.metadata as Record<string, unknown>).stickerImageUrl
             : null,
+          ...readContactPreferences(activeLink.metadata),
         }
         : null,
       stats: {
@@ -281,6 +297,12 @@ export class PrismaConnectStore {
     const stickerAsset = await this.uploadStickerAsset(publicUrl);
 
     const link = await this.db.$transaction(async (tx) => {
+      // A new sticker keeps what the owner chose for calls and chat on this vehicle.
+      const previous = await tx.customerGarageConnectLink.findFirst({
+        where: { vehicleId, status: { in: ACTIVE_CONNECT_STATUSES } },
+        orderBy: { createdAt: 'desc' },
+      });
+      const contactPreferences = readContactPreferences(previous?.metadata);
       await tx.customerGarageConnectLink.updateMany({
         where: { vehicleId, status: { in: ACTIVE_CONNECT_STATUSES } },
         data: { status: 'REVOKED' },
@@ -300,6 +322,7 @@ export class PrismaConnectStore {
             storage: 'CLOUDINARY',
             stickerImageUrl: stickerAsset.secureUrl,
             stickerImagePublicId: stickerAsset.publicId,
+            contactPreferences,
           },
         },
       });
@@ -336,7 +359,14 @@ export class PrismaConnectStore {
     };
   }
 
-  async lookupPublicSticker(rawToken: string) {
+  /** True when the signed-in person scanning is this vehicle's owner. An anonymous scan, or one whose sign-in cannot be read, is never "own". */
+  private async isOwnerScan(viewerUid: string | undefined, ownerUserId: string): Promise<boolean> {
+    if (!viewerUid) return false;
+    const viewer = await this.db.user.findFirst({ where: { firebaseUid: viewerUid }, select: { id: true } });
+    return Boolean(viewer && viewer.id === ownerUserId);
+  }
+
+  async lookupPublicSticker(rawToken: string, viewerUid?: string) {
     const link = await this.db.customerGarageConnectLink.findFirst({
       where: { qrTokenHash: sha256(rawToken), status: { in: ACTIVE_CONNECT_STATUSES } },
       include: { vehicle: { select: { make: true, model: true, year: true } } },
@@ -350,15 +380,18 @@ export class PrismaConnectStore {
       };
     }
 
+    const preferences = readContactPreferences(link.metadata);
     return {
       active: true,
+      // Lets the app tell an owner scanning their own car that they cannot call or message themselves.
+      isOwnVehicle: await this.isOwnerScan(viewerUid, link.userId),
       vehicle: {
         nickname: `${link.vehicle.year} ${link.vehicle.make} ${link.vehicle.model}`,
         make: link.vehicle.make,
         model: link.vehicle.model,
         year: link.vehicle.year,
-        messagingEnabled: true,
-        callingEnabled: true,
+        messagingEnabled: preferences.messagingEnabled,
+        callingEnabled: preferences.callingEnabled,
       },
     };
   }
@@ -402,7 +435,7 @@ export class PrismaConnectStore {
   async createPublicAlert(rawToken: string, input: PublicConnectAlertInput) {
     const link = await this.db.customerGarageConnectLink.findFirst({
       where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' },
-      include: { vehicle: { select: { make: true, model: true } } },
+      include: { vehicle: { select: { year: true, make: true, model: true } } },
     });
     if (!link) throw new HttpError(404, 'CONNECT_STICKER_NOT_FOUND');
 
@@ -455,10 +488,10 @@ export class PrismaConnectStore {
       userId: link.userId,
       vehicleId: link.vehicleId,
       referenceId: record.id,
-      title: `V MOTIV Connect: ${input.reason.replace(/_/g, ' ').toLowerCase()}`,
+      title: `${ALERT_REASON_TITLES[input.reason] ?? 'Someone needs your attention'}: ${connectVehicleLabel(link.vehicle)}`,
       body: input.message?.trim()
-        ? `${input.message.trim()}${photoBadge}`
-        : `A passerby needs your attention for your ${link.vehicle.make} ${link.vehicle.model}.${photoBadge}`,
+        ? `A passer-by who scanned your V MOTIV Connect sticker says: "${input.message.trim()}"${photoBadge}`
+        : `A passer-by who scanned the V MOTIV Connect sticker on your ${connectVehicleLabel(link.vehicle)} reported: ${(ALERT_REASON_TITLES[input.reason] ?? 'they need your attention').toLowerCase()}.${photoBadge}`,
       priority: input.reason === 'SAFETY_CONCERN' ? 'URGENT' : 'HIGH',
     });
 
@@ -468,17 +501,25 @@ export class PrismaConnectStore {
   async requestPublicCall(
     rawToken: string,
     visitorIp?: string,
-    options?: { mode?: 'VOICE' | 'CHAT'; initialMessage?: string }
+    options?: { mode?: 'VOICE' | 'CHAT'; initialMessage?: string },
+    viewerUid?: string,
   ) {
     const link = await this.db.customerGarageConnectLink.findFirst({
       where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' },
-      include: { vehicle: { select: { make: true, model: true } } },
+      include: { vehicle: { select: { year: true, make: true, model: true } } },
     });
     if (!link) throw new HttpError(404, 'CONNECT_STICKER_NOT_FOUND');
+    // An owner cannot ring or message their own car: the call would only ever ring their own phone.
+    if (await this.isOwnerScan(viewerUid, link.userId)) throw new HttpError(409, 'CONNECT_SELF_CONTACT');
 
     const mode = options?.mode || 'VOICE';
     const isChat = mode === 'CHAT';
     const initialText = options?.initialMessage?.trim();
+
+    // Enforced here, not just by hiding the buttons: anyone can call this API directly.
+    const preferences = readContactPreferences(link.metadata);
+    if (isChat && !preferences.messagingEnabled) throw new HttpError(403, 'CONNECT_MESSAGING_DISABLED');
+    if (!isChat && !preferences.callingEnabled) throw new HttpError(403, 'CONNECT_CALLING_DISABLED');
 
     // Auto-expire stale RINGING/ACCEPTED calls so a stuck previous session
     // never blocks new requests forever. Calls older than the TTL are
@@ -561,12 +602,12 @@ export class PrismaConnectStore {
       userId: link.userId,
       vehicleId: link.vehicleId,
       referenceId: call.id,
-      title: isChat ? 'V MOTIV Connect: Message from passerby' : 'Incoming V MOTIV Connect call',
+      title: isChat ? `New chat about your ${connectVehicleLabel(link.vehicle)}` : `Incoming call about your ${connectVehicleLabel(link.vehicle)}`,
       body: initialText
-        ? `Regarding ${link.vehicle.make} ${link.vehicle.model}: "${initialText}"`
+        ? `A passer-by who scanned your V MOTIV Connect sticker says: "${initialText}"`
         : isChat
-          ? `A passerby wants to chat about your ${link.vehicle.make} ${link.vehicle.model}.`
-          : `A passerby wants to call you privately about your ${link.vehicle.make} ${link.vehicle.model}.`,
+          ? `A passer-by who scanned your V MOTIV Connect sticker wants to chat privately. Open the app to reply.`
+          : `A passer-by is calling you through V MOTIV Connect. Your phone number stays hidden. Open the app to answer.`,
       priority: 'URGENT',
       callSessionId,
     });
@@ -667,14 +708,28 @@ export class PrismaConnectStore {
   async addPublicCallSignal(rawToken: string, callSessionId: string, kind: string, payload: Record<string, unknown>) {
     const link = await this.db.customerGarageConnectLink.findFirst({
       where: { qrTokenHash: sha256(rawToken), status: 'ACTIVE' },
-      include: { vehicle: { select: { make: true, model: true } } },
+      include: { vehicle: { select: { year: true, make: true, model: true } } },
     });
     const call = await this.db.connectCallSessionReference.findFirst({ where: { callSessionId, linkId: link?.id } });
     if (!call) throw new HttpError(404, 'CONNECT_CALL_NOT_FOUND');
     if (!['RINGING', 'ACCEPTED'].includes(call.status)) throw new HttpError(409, 'CONNECT_CALL_CLOSED');
+    if (kind === 'CHAT' && link && !readContactPreferences(link.metadata).messagingEnabled) throw new HttpError(403, 'CONNECT_MESSAGING_DISABLED');
 
     if (kind === 'HANGUP' || kind === 'CLOSE') {
       await this.db.connectCallSessionReference.update({ where: { id: call.id }, data: { status: 'CLOSED' } });
+      // The caller gave up while it was still ringing: leave a clear "missed call" in the owner's notifications. No call session id is
+      // attached, so this is a quiet record and never rings the owner's phone or opens the incoming-call screen.
+      if (call.status === 'RINGING' && call.callerType === 'visitor' && link) {
+        await this.dispatchOwnerNotification({
+          type: 'CONNECT_CALL_MISSED',
+          userId: link.userId,
+          vehicleId: link.vehicleId,
+          referenceId: call.id,
+          title: `Missed call about your ${connectVehicleLabel(link.vehicle)}`,
+          body: 'A passer-by called you through V MOTIV Connect but hung up before you answered. You can still check the vehicle alerts in My Garage.',
+          priority: 'HIGH',
+        });
+      }
     }
 
     try {
@@ -694,8 +749,8 @@ export class PrismaConnectStore {
         userId: link.userId,
         vehicleId: link.vehicleId,
         referenceId: call.id,
-        title: `V MOTIV Connect: ${link.vehicle.make} ${link.vehicle.model}`,
-        body: String(payload.text),
+        title: `New message about your ${connectVehicleLabel(link.vehicle)}`,
+        body: `A passer-by says: "${String(payload.text).slice(0, 300)}"`,
         priority: 'URGENT',
         callSessionId,
       }).catch(() => undefined);
@@ -803,7 +858,7 @@ export class PrismaConnectStore {
   }
 
   private async dispatchOwnerNotification(input: {
-    type: 'CONNECT_OWNER_ALERT_CREATED' | 'CONNECT_CALL_REQUESTED';
+    type: 'CONNECT_OWNER_ALERT_CREATED' | 'CONNECT_CALL_REQUESTED' | 'CONNECT_CALL_MISSED';
     userId: string;
     vehicleId: string;
     referenceId: string;
@@ -885,6 +940,39 @@ export class PrismaConnectStore {
       status: nextStatus,
       connectStatus: enabled ? 'CONNECTED' : 'DISABLED',
     };
+  }
+
+  /** Lets the owner allow or stop calls and chat on this vehicle's sticker (the one-way alert and the pause switch are separate). */
+  async updateContactPreferences(userId: string, vehicleId: string, update: Partial<ConnectContactPreferences>) {
+    const { internalUserId } = await this.assertVehicleOwnership(userId, vehicleId);
+
+    const activeLink = await this.db.customerGarageConnectLink.findFirst({
+      where: { vehicleId, userId: internalUserId, status: { in: ['ACTIVE', 'DISABLED'] } },
+      orderBy: { createdAt: 'desc' },
+    });
+    if (!activeLink) throw new HttpError(404, 'CONNECT_LINK_NOT_FOUND');
+
+    const before = readContactPreferences(activeLink.metadata);
+    const metadata = withContactPreferences(activeLink.metadata, update);
+    const after = readContactPreferences(metadata);
+
+    await this.db.$transaction(async (tx) => {
+      await tx.customerGarageConnectLink.update({
+        where: { id: activeLink.id },
+        data: { metadata: metadata as Prisma.InputJsonValue },
+      });
+      await tx.connectIntegrationAuditEvent.create({
+        data: {
+          userId: internalUserId,
+          action: 'CONNECT_CONTACT_PREFERENCES_UPDATED',
+          entityType: 'CustomerGarageConnectLink',
+          entityId: activeLink.id,
+          details: { vehicleId, before, after },
+        },
+      });
+    });
+
+    return { success: true, ...after };
   }
 
   async revokeConnectLink(userId: string, vehicleId: string, reason?: string) {

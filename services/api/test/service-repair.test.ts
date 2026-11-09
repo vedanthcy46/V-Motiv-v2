@@ -1,8 +1,27 @@
 import { describe, expect, it, vi } from 'vitest';
-import { REPAIR_PREMATURELY_PAID_SQL, REPAIR_STALE_BALANCE_SQL, repairPrematurelyPaidServiceRequests } from '../src/service-repair.js';
+import { ENSURE_COLUMNS_SQL, REPAIR_PREMATURELY_PAID_SQL, REPAIR_STALE_BALANCE_SQL, ensureSchemaAdditions, repairPrematurelyPaidServiceRequests } from '../src/service-repair.js';
 import { readFileSync } from 'node:fs';
 
 const normalise = (sql: string) => sql.split('\n').filter(line => !line.trim().startsWith('--')).join(' ').replace(/\s+/g, ' ').trim();
+
+describe('startup schema additions', () => {
+  it('runs the same additive statement as the migration, so the migration changes nothing afterwards', () => {
+    const migration = normalise(readFileSync(new URL('../prisma/migrations/20261109020000_notification_dismissed_at/migration.sql', import.meta.url), 'utf8'));
+    for (const sql of ENSURE_COLUMNS_SQL) {
+      expect(sql).toContain('ADD COLUMN IF NOT EXISTS');
+      expect(migration).toContain(normalise(sql));
+    }
+  });
+
+  it('runs every statement, and never throws if the database refuses', async () => {
+    const log = { info: vi.fn(), error: vi.fn() };
+    const run = vi.fn().mockResolvedValue(0);
+    expect(await ensureSchemaAdditions({ $executeRawUnsafe: run }, log)).toBe(true);
+    expect(run).toHaveBeenCalledTimes(ENSURE_COLUMNS_SQL.length);
+    expect(await ensureSchemaAdditions({ $executeRawUnsafe: async () => { throw new Error('denied'); } }, log)).toBe(false);
+    expect(log.error).toHaveBeenCalledOnce();
+  });
+});
 
 describe('startup repair of prematurely PAID service requests', () => {
   it('only matches PAID / PAYMENT_PENDING requests that have no invoice, and restores the status from the history log', () => {

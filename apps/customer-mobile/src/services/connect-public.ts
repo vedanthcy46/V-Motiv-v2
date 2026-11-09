@@ -3,7 +3,7 @@
  * send a Firebase token: a passer-by must be able to alert an owner without an
  * account, and the API returns no registration number, address, or phone data.
  */
-import { apiBaseUrl, resolveRequestUrl } from '../api';
+import { apiBaseUrl, getOptionalAuthToken, resolveRequestUrl } from '../api';
 
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{32,128}$/;
 
@@ -35,29 +35,64 @@ export type PublicConnectVehicle = {
   year?: number;
   messagingEnabled: boolean;
   callingEnabled: boolean;
+  /** True when the signed-in person scanning is this vehicle's owner (they cannot call or message themselves). */
+  isOwnVehicle?: boolean;
 };
 
 type PublicAlertReason = 'BLOCKING_ACCESS' | 'LIGHTS_ON' | 'DAMAGE_OR_ACCIDENT' | 'SAFETY_CONCERN' | 'OTHER';
-type ApiError = Error & { status?: number };
+type ApiError = Error & { status?: number; code?: string };
+
+/** What a person should read for each error the Connect API can return (it sends a code, not a sentence). */
+const CONNECT_ERROR_MESSAGES: Record<string, string> = {
+  CONNECT_STICKER_NOT_FOUND: 'This V MOTIV Connect sticker was not recognised.',
+  CONNECT_LINK_NOT_FOUND: 'This V MOTIV Connect sticker is not active.',
+  INVALID_CONNECT_QR_TOKEN: 'This QR code is not a valid V MOTIV Connect sticker.',
+  CONNECT_CALL_NOT_FOUND: 'This call is no longer available. Please start a new one.',
+  CONNECT_CALL_CLOSED: 'The owner has ended or declined this call.',
+  CONNECT_CALL_NOT_RINGING: 'This call is no longer ringing.',
+  CONNECT_SELF_CONTACT: 'This is your own vehicle, so you cannot call or message yourself. Open My Garage to see its alerts.',
+  CONNECT_CALLING_DISABLED: 'The owner is not taking voice calls for this vehicle. You can chat or send an alert instead.',
+  CONNECT_MESSAGING_DISABLED: 'The owner is not taking chat messages for this vehicle. You can call or send an alert instead.',
+  RATE_LIMITED: 'Too many requests. Please wait a moment and try again.',
+  INVALID_INPUT: 'Something in that request was not valid. Please try again.',
+};
+
+export function describeConnectFailure(status: number, body: { message?: string; error?: string; code?: string } | null): string {
+  if (body?.code && CONNECT_ERROR_MESSAGES[body.code]) return CONNECT_ERROR_MESSAGES[body.code]!;
+  if (body?.message) return body.message;
+  if (body?.error) return body.error;
+  if (status === 429) return CONNECT_ERROR_MESSAGES.RATE_LIMITED!;
+  if (status >= 500) return `V MOTIV Connect is not responding right now (error ${status}). Please try again in a minute.`;
+  return `Unable to contact V MOTIV Connect (${body?.code || `error ${status}`}).`;
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  // Public scans work without signing in. If the person is signed in, say so, only so the server can recognise an owner scanning
+  // their own vehicle; it is optional and ignored if it cannot be read.
+  const token = await getOptionalAuthToken();
   const response = await fetch(resolveRequestUrl(`/api/v2/public/connect${path}`), {
     ...init,
-    headers: { Accept: 'application/json', 'Content-Type': 'application/json', ...init?.headers },
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      ...init?.headers,
+    },
   });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(body?.message || body?.error || 'Unable to contact V MOTIV Connect.') as ApiError;
+    const error = new Error(describeConnectFailure(response.status, body)) as ApiError;
     error.status = response.status;
+    error.code = body?.code;
     throw error;
   }
   return body as T;
 }
 
 export async function lookupPublicConnectVehicle(token: string): Promise<PublicConnectVehicle> {
-  const response = await request<{ active: boolean; vehicle: PublicConnectVehicle }>(`/${encodeURIComponent(token)}`);
+  const response = await request<{ active: boolean; isOwnVehicle?: boolean; vehicle: PublicConnectVehicle }>(`/${encodeURIComponent(token)}`);
   if (!response.active) throw new Error('This V MOTIV Connect sticker is temporarily paused by its owner.');
-  return response.vehicle;
+  return { ...response.vehicle, isOwnVehicle: Boolean(response.isOwnVehicle) };
 }
 
 export async function sendPublicConnectAlert(

@@ -146,6 +146,25 @@ describe('NotificationService Unit Tests', () => {
     });
   });
 
+  it('clearing hides notifications instead of deleting them, and cleared ones are left out of the list and the unread count', async () => {
+    await service.getNotifications('user-1', { page: 1, limit: 10 });
+    expect(fakeDb.notification.findMany.mock.calls[0][0].where).toMatchObject({ userId: 'user-1', dismissedAt: null });
+    expect(fakeDb.notification.count).toHaveBeenCalledWith({ where: { userId: 'user-1', read: false, dismissedAt: null } });
+    await service.getUnreadCount('user-1');
+    expect(fakeDb.notification.count).toHaveBeenLastCalledWith({ where: { userId: 'user-1', read: false, dismissedAt: null } });
+
+    fakeDb.notification.updateMany.mockClear();
+    await service.dismissNotification('user-1', 'notif-uuid-1');
+    expect(fakeDb.notification.updateMany).toHaveBeenCalledWith({ where: { id: 'notif-uuid-1', userId: 'user-1', dismissedAt: null }, data: { dismissedAt: expect.any(Date) } });
+    // only the person's own notification can be cleared
+    expect(fakeDb.notification.updateMany.mock.calls.every(call => call[0].where.userId === 'user-1')).toBe(true);
+
+    fakeDb.notification.updateMany.mockClear();
+    await service.dismissAllNotifications('user-1');
+    expect(fakeDb.notification.updateMany).toHaveBeenCalledWith({ where: { userId: 'user-1', dismissedAt: null }, data: { dismissedAt: expect.any(Date) } });
+    expect(fakeDb.notification.delete ?? undefined).toBeUndefined(); // no hard delete exists on the fake, and none is used
+  });
+
   it('registers and unregisters push devices idempotently', async () => {
     await service.registerPushDevice('user-1', {
       token: 'ExponentPushToken[device-token-1]',

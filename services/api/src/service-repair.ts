@@ -60,6 +60,27 @@ WHERE sr.id = plan.id
   AND sr."outstandingBalancePaise" > GREATEST(0, plan.total - sr."verifiedPaidPaise")
   AND NOT EXISTS (SELECT 1 FROM "ServiceInvoice" i WHERE i."serviceRequestId" = sr.id)`;
 
+/**
+ * Columns the code now reads that a database may not have yet. The Render deploy does not run migrations, and a missing column makes
+ * every query on that table fail, so the API adds these itself at startup. Each statement is additive and idempotent, and is the same
+ * SQL as the matching migration, so running the migration later changes nothing.
+ */
+export const ENSURE_COLUMNS_SQL = [
+  // 20261109020000_notification_dismissed_at
+  `ALTER TABLE "Notification" ADD COLUMN IF NOT EXISTS "dismissedAt" TIMESTAMP(3)`,
+];
+
+/** Never throws: if the database refuses, the API still starts (and the migration can be run by hand). */
+export async function ensureSchemaAdditions(db: { $executeRawUnsafe: (sql: string) => Promise<number> }, log: Pick<Console, 'info' | 'error'> = console): Promise<boolean> {
+  try {
+    for (const sql of ENSURE_COLUMNS_SQL) await db.$executeRawUnsafe(sql);
+    return true;
+  } catch (error) {
+    log.error('[schema] could not add the new column(s); run `npm run db:deploy`', error instanceof Error ? error.message : error);
+    return false;
+  }
+}
+
 /** Runs the repair and returns how many requests were put back. Never throws: a failed repair must not stop the API from starting. */
 export async function repairPrematurelyPaidServiceRequests(db: { $executeRawUnsafe: (sql: string) => Promise<number> }, log: Pick<Console, 'info' | 'error'> = console): Promise<number> {
   try {

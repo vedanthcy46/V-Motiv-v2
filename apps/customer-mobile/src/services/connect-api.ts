@@ -37,6 +37,9 @@ export interface GarageConnectInfo {
     createdAt: string;
     lastSyncedAt?: string | null;
     stickerImageUrl?: string | null;
+    /** Whether a passer-by may start a voice call / a chat through this sticker (both on unless the owner turned them off). */
+    callingEnabled?: boolean;
+    messagingEnabled?: boolean;
   } | null;
   stats: {
     totalAlerts: number;
@@ -102,6 +105,16 @@ export async function toggleConnectStatus(
   return api(`/api/v2/customer/garage/${vehicleId}/connect/toggle`, {
     method: 'POST',
     body: jsonBody({ enabled }),
+  });
+}
+
+export async function updateConnectContactPreferences(
+  vehicleId: string,
+  update: { callingEnabled?: boolean; messagingEnabled?: boolean }
+): Promise<{ success: boolean; callingEnabled: boolean; messagingEnabled: boolean }> {
+  return api(`/api/v2/customer/garage/${vehicleId}/connect/contact-preferences`, {
+    method: 'POST',
+    body: jsonBody(update),
   });
 }
 

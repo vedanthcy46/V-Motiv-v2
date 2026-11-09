@@ -1,4 +1,4 @@
-import express, { type ErrorRequestHandler, type Router } from 'express';
+import express, { type ErrorRequestHandler, type RequestHandler, type Router } from 'express';
 import cors from 'cors';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -299,6 +299,8 @@ export function createApp(deps: {
     standardHeaders: 'draft-8',
     legacyHeaders: false,
     validate: false,
+    // JSON like every other error, so clients can show a real message instead of "unable to contact".
+    handler: (_req, res) => { res.status(429).json({ code: 'RATE_LIMITED', message: 'Too many requests. Please wait a moment and try again.' }); },
     keyGenerator: (req) => {
       const cfIp = req.headers['cf-connecting-ip'];
       if (typeof cfIp === 'string') return cfIp;
@@ -308,7 +310,12 @@ export function createApp(deps: {
     },
   });
 
-  const apiLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
+  const baseApiLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
+  // A live call polls for signals every 1.5 s on each side and sends a burst of connection candidates; that traffic is normal, so it
+  // has its own, larger allowance instead of using up (and being refused by) the general one.
+  const callSignalLimiter = createLimiter({ windowMs: 60_000, limit: 900 });
+  const callSignalPath = /\/calls\/[^/]+\/signals\/?$/;
+  const apiLimiter: RequestHandler = (req, res, next) => (callSignalPath.test(req.path) ? callSignalLimiter(req, res, next) : baseApiLimiter(req, res, next));
   const standardLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const salesLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const financeLimiter = createLimiter({ windowMs: 60_000, limit: 60 });
@@ -470,7 +477,7 @@ export function createApp(deps: {
     const connectCustomerRouter = createConnectCustomerRouter({ verify: deps.verify, store: deps.connect });
     unifiedApiRouter.use('/customer', connectCustomerRouter);
     unifiedApiRouter.use('/connect', connectCustomerRouter);
-    unifiedApiRouter.use('/public/connect', connectPublicLimiter, createConnectPublicRouter({ store: deps.connect }));
+    unifiedApiRouter.use('/public/connect', connectPublicLimiter, createConnectPublicRouter({ store: deps.connect, verify: deps.verify }));
 
     const connectWebhookRouter = createConnectWebhookRouter({ store: deps.connect });
     unifiedApiRouter.use('/webhooks/connect', connectWebhookRouter);

@@ -1629,6 +1629,8 @@ model Notification {
   targetApp String?
   read Boolean @default(false)
   readAt DateTime?
+  /** Set when the person clears it from their list. It is hidden, not deleted, so its queued push deliveries are not lost. */
+  dismissedAt DateTime?
   metadata Json?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt

@@ -342,6 +342,7 @@ export class NotificationService {
 
     const where: Prisma.NotificationWhereInput = {
       userId,
+      dismissedAt: null,
       ...(opts.unreadOnly ? { read: false } : {}),
       ...(opts.category ? { category: opts.category } : {}),
     };
@@ -354,7 +355,7 @@ export class NotificationService {
         take: limit,
       }),
       this.db.notification.count({ where }),
-      this.db.notification.count({ where: { userId, read: false } }),
+      this.db.notification.count({ where: { userId, read: false, dismissedAt: null } }),
     ]);
 
     return {
@@ -369,7 +370,7 @@ export class NotificationService {
 
   async getUnreadCount(userId: string): Promise<number> {
     return this.db.notification.count({
-      where: { userId, read: false },
+      where: { userId, read: false, dismissedAt: null },
     });
   }
 
@@ -384,6 +385,32 @@ export class NotificationService {
     return this.db.notification.updateMany({
       where: { userId, read: false },
       data: { read: true, readAt: new Date() },
+    });
+  }
+
+  /** Clears one notification from the person's list (it also counts as read). Only their own can be cleared. */
+  async dismissNotification(userId: string, notificationId: string) {
+    const now = new Date();
+    await this.db.notification.updateMany({
+      where: { id: notificationId, userId, read: false },
+      data: { read: true, readAt: now },
+    });
+    return this.db.notification.updateMany({
+      where: { id: notificationId, userId, dismissedAt: null },
+      data: { dismissedAt: now },
+    });
+  }
+
+  /** Clears everything from the person's list. */
+  async dismissAllNotifications(userId: string) {
+    const now = new Date();
+    await this.db.notification.updateMany({
+      where: { userId, read: false },
+      data: { read: true, readAt: now },
+    });
+    return this.db.notification.updateMany({
+      where: { userId, dismissedAt: null },
+      data: { dismissedAt: now },
     });
   }
 

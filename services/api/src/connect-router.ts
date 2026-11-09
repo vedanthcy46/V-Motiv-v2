@@ -31,6 +31,13 @@ const toggleSchema = z.object({
   enabled: z.boolean(),
 }).strict();
 
+const contactPreferencesSchema = z.object({
+  callingEnabled: z.boolean().optional(),
+  messagingEnabled: z.boolean().optional(),
+}).strict().refine(value => value.callingEnabled !== undefined || value.messagingEnabled !== undefined, {
+  message: 'Provide callingEnabled and/or messagingEnabled',
+});
+
 const revokeSchema = z.object({
   reason: z.string().trim().max(500).optional(),
 }).strict();
@@ -118,6 +125,18 @@ export function createConnectCustomerRouter(deps: {
       const input = parse(toggleSchema, req.body);
       const result = await deps.store.toggleConnectStatus(identity.uid, vehicleId, input.enabled);
       res.json(result);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // Allow or stop calls and chat from passers-by for this vehicle's sticker.
+  router.post('/garage/:id/connect/contact-preferences', auth, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const identity = res.locals.identity as Identity;
+      const vehicleId = uuid.parse(req.params.id);
+      const input = parse(contactPreferencesSchema, req.body);
+      res.json(await deps.store.updateContactPreferences(identity.uid, vehicleId, input));
     } catch (e) {
       next(e);
     }
@@ -230,13 +249,27 @@ export function createConnectCustomerRouter(deps: {
 }
 
 /** Public, privacy-preserving sticker scan routes. No Firebase session required. */
-export function createConnectPublicRouter(deps: { store: PrismaConnectStore }) {
+export function createConnectPublicRouter(deps: { store: PrismaConnectStore; verify?: VerifyToken }) {
+  /**
+   * Who is scanning, when they are signed in to the app. Public scans stay anonymous: a missing, expired or invalid sign-in simply
+   * means "anonymous" and never fails the request. It is only used to stop owners calling or messaging their own vehicle.
+   */
+  async function viewerUid(req: Request): Promise<string | undefined> {
+    const header = req.headers.authorization;
+    if (!deps.verify || !header?.startsWith('Bearer ')) return undefined;
+    try {
+      return (await deps.verify(header.slice(7), false)).uid;
+    } catch {
+      return undefined;
+    }
+  }
+
   const router = Router();
   const token = z.string().regex(/^[A-Za-z0-9_-]{32,128}$/);
 
   router.get('/:token', async (req: Request, res: Response, next: NextFunction) => {
     try {
-      res.json(await deps.store.lookupPublicSticker(token.parse(req.params.token)));
+      res.json(await deps.store.lookupPublicSticker(token.parse(req.params.token), await viewerUid(req)));
     } catch (e) {
       next(e);
     }
@@ -263,7 +296,7 @@ export function createConnectPublicRouter(deps: { store: PrismaConnectStore }) {
   router.post('/:token/call-requests', async (req: Request, res: Response, next: NextFunction) => {
     try {
       const input = parse(callRequestSchema, req.body);
-      res.status(201).json(await deps.store.requestPublicCall(token.parse(req.params.token), req.ip, input));
+      res.status(201).json(await deps.store.requestPublicCall(token.parse(req.params.token), req.ip, input, await viewerUid(req)));
     } catch (e) {
       next(e);
     }
