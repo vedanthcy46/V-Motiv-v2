@@ -30,6 +30,7 @@ import { attachConnectRealtime } from './connect-realtime.js';
 import { processEmail, resendSender } from './email.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
 import { keepAliveTarget, startKeepAlive } from './keep-alive.js';
+import { repairPrematurelyPaidServiceRequests } from './service-repair.js';
 import { parseServiceAccount } from './firebase-credential.js';
 
 const config = readConfig(process.env);
@@ -156,6 +157,9 @@ const app = createApp({
 });
 const server = app.listen(config.PORT, '0.0.0.0', () => console.info(`V MOTIV V2 API listening on 0.0.0.0:${config.PORT}`));
 attachConnectRealtime(server);
+
+// Put back service requests an earlier version wrongly marked PAID before they were billed (idempotent; see service-repair.ts).
+void repairPrematurelyPaidServiceRequests(db);
 
 // On Render's free plan the service sleeps after ~15 min without traffic: call our own health route every 5 minutes.
 const keepAliveUrl = keepAliveTarget(process.env);
