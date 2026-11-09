@@ -1997,7 +1997,7 @@ export class PrismaServiceStore {
       throw new HttpError(404, 'ESTIMATE_NOT_FOUND');
     }
     if (ESTIMATE_LOCKED_STATUSES.includes(estimate.serviceRequest.status)) {
-      throw new HttpError(409, 'SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION');
+      throw new HttpError(409, 'SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION', `SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION (the request is ${estimate.serviceRequest.status})`);
     }
     // A declined estimate can be reconsidered until the workshop issues a revised one
     // (which supersedes it) or the request moves on.
@@ -2429,7 +2429,7 @@ export class PrismaServiceStore {
       throw new HttpError(404, 'ESTIMATE_NOT_FOUND');
     }
     if (ESTIMATE_LOCKED_STATUSES.includes(estimate.serviceRequest.status)) {
-      throw new HttpError(409, 'SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION');
+      throw new HttpError(409, 'SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION', `SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION (the request is ${estimate.serviceRequest.status})`);
     }
     // Only the live estimate can be answered: awaiting the customer, or declined and being negotiated.
     if (estimate.status !== ServiceEstimateStatus.SENT_TO_CUSTOMER && estimate.status !== ServiceEstimateStatus.DECLINED) {
@@ -2978,7 +2978,7 @@ export class PrismaServiceStore {
     const sr = await this.db.serviceRequest.findUnique({ where: { id: requestId } });
     if (!sr) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
     if (ESTIMATE_LOCKED_STATUSES.includes(sr.status)) {
-      throw new HttpError(409, 'SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION');
+      throw new HttpError(409, 'SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION', `SERVICE_REQUEST_CLOSED_NO_ESTIMATE_ACTION (the request is ${sr.status})`);
     }
     assertServiceStep('ESTIMATE', sr);
     if (!input.items || input.items.length === 0) {
@@ -3683,6 +3683,13 @@ export class PrismaServiceStore {
     const capturedPaise = await assertCapturedAmount(input, claimedPaise, { exact: claimedPaise !== null });
     const amountPaise = capturedPaise ?? claimedPaise ?? (sr.outstandingBalancePaise > 0n ? sr.outstandingBalancePaise : 0n);
 
+    // The booking plan chosen at request time (the ₹500 diagnostic fee, an advance, ...) tells what this payment is for.
+    const plan = safeParseJson((sr as any).paymentPlanSnapshot, null) as { planId?: string; payNowPaise?: string; paidAt?: string | null } | null;
+    const planPayNow = (() => { try { return BigInt(plan?.payNowPaise ?? 0); } catch { return 0n; } })();
+    const planUnpaid = !!plan && planPayNow > 0n && !plan.paidAt;
+    const isDiagnosticPlan = plan?.planId === 'DIAGNOSTIC_FEE' && planUnpaid;
+    const isAdvancePlan = planUnpaid && !isDiagnosticPlan;
+
     // A gateway payment id can settle exactly one service request.
     const reused = await this.db.servicePaymentRecord.findFirst({
       where: { gatewayPaymentId: input.gatewayPaymentId, serviceRequestId: { not: sr.id } },
@@ -3695,8 +3702,8 @@ export class PrismaServiceStore {
       const payment = await tx.servicePaymentRecord.create({
         data: {
           serviceRequestId: sr.id,
-          type: input.installmentType === 'DIAGNOSTIC_FEE' ? 'DIAGNOSTIC_FEE' : (input.installmentType === 'BALANCE' ? 'FINAL_SETTLEMENT' : 'BOOKING_ADVANCE'),
-          installmentType: input.installmentType || 'BALANCE',
+          type: input.installmentType === 'DIAGNOSTIC_FEE' || isDiagnosticPlan ? 'DIAGNOSTIC_FEE' : (input.installmentType === 'BALANCE' ? 'FINAL_SETTLEMENT' : 'BOOKING_ADVANCE'),
+          installmentType: input.installmentType || (isDiagnosticPlan ? 'DIAGNOSTIC_FEE' : isAdvancePlan ? 'ADVANCE' : 'BALANCE'),
           amountPaise,
           status: ServicePaymentStatus.PAID_VERIFIED,
           paymentGateway: input.paymentGateway || 'RAZORPAY',
@@ -3714,12 +3721,19 @@ export class PrismaServiceStore {
       const totalVerified = allVerified.reduce((acc, p) => acc + p.amountPaise, 0n);
 
       const latestInvoice = sr.invoices[0];
-      const totalBill = latestInvoice ? latestInvoice.totalAmountPaise : (sr.estimates[0] ? sr.estimates[0].totalAmountPaise : sr.outstandingBalancePaise);
-      const newOutstanding = totalBill > totalVerified ? totalBill - totalVerified : 0n;
+      // Before an estimate or invoice exists, the bill is not known yet: the amount still owed is what was owed before this
+      // payment, less this payment. (Falling back to the old outstanding as "the bill" made a ₹500 diagnostic fee look like a fully
+      // paid job.)
+      const billKnown = !!latestInvoice || !!sr.estimates[0];
+      const totalBill = latestInvoice ? latestInvoice.totalAmountPaise : (sr.estimates[0] ? sr.estimates[0].totalAmountPaise : null);
+      const newOutstanding = totalBill !== null
+        ? (totalBill > totalVerified ? totalBill - totalVerified : 0n)
+        : (sr.outstandingBalancePaise > amountPaise ? sr.outstandingBalancePaise - amountPaise : 0n);
 
       const isFullyPaid = newOutstanding === 0n;
       const newPaymentStatus = isFullyPaid ? 'PAID_IN_FULL' : 'PARTIALLY_PAID';
-      const nextRequestStatus = isFullyPaid ? ServiceRequestStatus.PAID : sr.status;
+      // The request only becomes PAID once there is a bill and it is settled; a diagnostic fee or advance does not finish the job.
+      const nextRequestStatus = isFullyPaid && billKnown ? ServiceRequestStatus.PAID : sr.status;
 
       await tx.serviceRequest.update({
         where: { id: sr.id },
@@ -3728,7 +3742,11 @@ export class PrismaServiceStore {
           outstandingBalancePaise: newOutstanding,
           servicePaymentStatus: newPaymentStatus,
           status: nextRequestStatus,
-        },
+          ...(isDiagnosticPlan || isAdvancePlan ? {
+            depositStatus: isDiagnosticPlan ? 'DIAGNOSTIC_PAID' : 'ADVANCE_PAID',
+            paymentPlanSnapshot: JSON.stringify({ ...plan, paidAt: new Date().toISOString() }),
+          } : {}),
+        } as any,
       });
 
       if (latestInvoice) {
@@ -3817,8 +3835,13 @@ export class PrismaServiceStore {
       const totalVerifiedPaise = allVerified.reduce((acc, p) => acc + p.amountPaise, 0n);
 
       const latestInvoice = sr.invoices[0];
-      const totalBill = latestInvoice ? latestInvoice.totalAmountPaise : (sr.estimates[0] ? sr.estimates[0].totalAmountPaise : sr.outstandingBalancePaise);
-      const newOutstanding = totalBill > totalVerifiedPaise ? totalBill - totalVerifiedPaise : 0n;
+      // With no estimate or invoice yet there is no bill to settle: what is still owed is the earlier balance less this payment.
+      // (Taking the old balance as "the bill" made the first booking payment look like a fully paid job.)
+      const billKnown = !!latestInvoice || !!sr.estimates[0];
+      const totalBill = latestInvoice ? latestInvoice.totalAmountPaise : (sr.estimates[0] ? sr.estimates[0].totalAmountPaise : null);
+      const newOutstanding = totalBill !== null
+        ? (totalBill > totalVerifiedPaise ? totalBill - totalVerifiedPaise : 0n)
+        : (isAutoVerify ? (sr.outstandingBalancePaise > amountPaise ? sr.outstandingBalancePaise - amountPaise : 0n) : sr.outstandingBalancePaise);
 
       const isFullySettled = newOutstanding === 0n;
       const newPaymentStatus = isFullySettled ? 'PAID_IN_FULL' : (totalVerifiedPaise > 0n ? 'PARTIALLY_PAID' : 'UNPAID');
@@ -3828,8 +3851,10 @@ export class PrismaServiceStore {
         where: { serviceRequestId: requestId, type: 'CHECK_OUT' },
       });
 
-      let nextRequestStatus: ServiceRequestStatus = isFullySettled ? ServiceRequestStatus.PAID : ServiceRequestStatus.PAYMENT_PENDING;
-      if (isFullySettled && hasCheckout) {
+      // The job only moves to PAID / PAYMENT_PENDING / COMPLETED once there is a bill. A booking payment (diagnostic fee, package,
+      // advance) must not carry the job past check-in, diagnosis and the estimate.
+      let nextRequestStatus: ServiceRequestStatus = billKnown ? (isFullySettled ? ServiceRequestStatus.PAID : ServiceRequestStatus.PAYMENT_PENDING) : sr.status;
+      if (billKnown && isFullySettled && hasCheckout) {
         nextRequestStatus = ServiceRequestStatus.COMPLETED;
       }
 
@@ -3909,9 +3934,13 @@ export class PrismaServiceStore {
         const totalVerified = allVerified.reduce((acc, p) => acc + p.amountPaise, 0n);
 
         const latestInvoice = sr.invoices[0];
-        const totalBill = latestInvoice ? latestInvoice.totalAmountPaise : (sr.estimates[0] ? sr.estimates[0].totalAmountPaise : sr.outstandingBalancePaise);
-        const newOutstanding = totalBill > totalVerified ? totalBill - totalVerified : 0n;
+        const billKnown = !!latestInvoice || !!sr.estimates[0];
+        const totalBill = latestInvoice ? latestInvoice.totalAmountPaise : (sr.estimates[0] ? sr.estimates[0].totalAmountPaise : null);
+        const newOutstanding = totalBill !== null
+          ? (totalBill > totalVerified ? totalBill - totalVerified : 0n)
+          : (sr.outstandingBalancePaise > payment.amountPaise ? sr.outstandingBalancePaise - payment.amountPaise : 0n);
         const isFullyPaid = newOutstanding === 0n;
+        const nextStatus = isFullyPaid && billKnown ? ServiceRequestStatus.PAID : sr.status;
 
         await tx.serviceRequest.update({
           where: { id: sr.id },
@@ -3919,7 +3948,7 @@ export class PrismaServiceStore {
             verifiedPaidPaise: totalVerified,
             outstandingBalancePaise: newOutstanding,
             servicePaymentStatus: isFullyPaid ? 'PAID_IN_FULL' : 'PARTIALLY_PAID',
-            status: isFullyPaid ? ServiceRequestStatus.PAID : sr.status,
+            status: nextStatus,
           },
         });
 
@@ -3937,7 +3966,7 @@ export class PrismaServiceStore {
           data: {
             serviceRequestId: payment.serviceRequestId,
             fromStatus: payment.serviceRequest.status,
-            toStatus: isFullyPaid ? ServiceRequestStatus.PAID : payment.serviceRequest.status,
+            toStatus: nextStatus,
             title: 'Payment Verified by Finance',
             description: `Payment of ₹${(Number(payment.amountPaise) / 100).toLocaleString('en-IN')} verified. Outstanding balance: ₹${(Number(newOutstanding) / 100).toLocaleString('en-IN')}.`,
             actorRole: 'FINANCE',

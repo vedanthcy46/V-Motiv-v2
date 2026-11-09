@@ -324,6 +324,8 @@ export function ConnectGuestScreen() {
       // 4. Initialize WebRTC if Voice Call is requested
       if (mode === 'VOICE') {
         setPhase('CALLING');
+        // Which part of the call setup is running, so a failure says what went wrong instead of a generic message.
+        let callStep = 'microphone';
         try {
           // One shared prompt, re-read afterwards: an allowed microphone is never reported as not allowed.
           const micAccess = await ensureMicrophone();
@@ -333,9 +335,11 @@ export function ConnectGuestScreen() {
             throw error;
           }
 
+          callStep = 'audio connection';
           const pc = new RTCPeerConnection({ iceServers: ICE_SERVERS });
           peerRef.current = pc;
 
+          callStep = 'microphone capture';
           const stream = await mediaDevices.getUserMedia({ audio: true, video: false });
           localStreamRef.current = stream;
           stream.getTracks().forEach(track => pc.addTrack(track, stream));
@@ -355,15 +359,20 @@ export function ConnectGuestScreen() {
             }
           };
 
+          callStep = 'call offer';
           const offer = await pc.createOffer();
           await pc.setLocalDescription(offer);
           const payload = offer.toJSON() as Record<string, unknown>;
           socket.emit('webrtc:signal', { kind: 'OFFER', payload });
-          // The owner must be able to read a durable offer even when the
-          // realtime socket is unavailable (for example behind serverless).
-          await sendPublicCallSignal(token, sessionId, 'OFFER', payload);
+          // The owner must also be able to read a durable offer when the realtime socket is unavailable. This copy is a backup:
+          // if the server refuses it the call is not abandoned, because the live socket already carried the offer and it is sent
+          // again when the owner joins (resendGuestOffer).
+          callStep = 'sending the offer to the owner';
+          await sendPublicCallSignal(token, sessionId, 'OFFER', payload).catch(error => {
+            console.warn('[ConnectGuest] Could not store the call offer on the server:', error?.message || error);
+          });
         } catch (webrtcErr: any) {
-          console.warn('[ConnectGuest] WebRTC audio init warning:', webrtcErr?.message || webrtcErr);
+          console.warn(`[ConnectGuest] WebRTC audio init failed at "${callStep}":`, webrtcErr?.message || webrtcErr);
           // If microphone is unavailable, keep session in chat mode
           setPhase('CONNECTED');
           setSessionMode('CHAT');
@@ -378,7 +387,8 @@ export function ConnectGuestScreen() {
                 : [{ text: 'OK' }],
             );
           } else {
-            Alert.alert('Call could not start', 'The voice call could not be set up. You can still message the owner directly in the private room.');
+            const reason = String(webrtcErr?.message || webrtcErr || 'unknown error').slice(0, 140);
+            Alert.alert('Call could not start', `The voice call could not be set up. You can still message the owner directly in the private room.\n\nDetail: ${callStep} - ${reason}`);
           }
         }
       } else {
@@ -832,7 +842,12 @@ export function ConnectGuestScreen() {
 
                   {/* Realtime Action Buttons */}
                   <View style={styles.actionButtonsCol}>
-                    {vehicle.callingEnabled ? (
+                    {vehicle.isOwnVehicle ? (
+                      <Text style={{ color: theme.colors.textSecondary, fontSize: 13, textAlign: 'center' }}>
+                        This is your own vehicle, so you cannot call or message yourself. Open My Garage to see its alerts and manage this sticker.
+                      </Text>
+                    ) : null}
+                    {vehicle.callingEnabled && !vehicle.isOwnVehicle ? (
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel="Call owner privately"
@@ -850,7 +865,7 @@ export function ConnectGuestScreen() {
                       </Pressable>
                     ) : null}
 
-                    {vehicle.messagingEnabled ? (
+                    {vehicle.messagingEnabled && !vehicle.isOwnVehicle ? (
                       <Pressable
                         accessibilityRole="button"
                         accessibilityLabel="Start private chat"
@@ -866,6 +881,11 @@ export function ConnectGuestScreen() {
                           Start private chat
                         </Text>
                       </Pressable>
+                    ) : null}
+                    {!vehicle.isOwnVehicle && !vehicle.callingEnabled && !vehicle.messagingEnabled ? (
+                      <Text style={{ color: theme.colors.textSecondary, fontSize: 13, textAlign: 'center' }}>
+                        The owner is not taking calls or chat for this vehicle. You can still send them an alert below.
+                      </Text>
                     ) : null}
                   </View>
 

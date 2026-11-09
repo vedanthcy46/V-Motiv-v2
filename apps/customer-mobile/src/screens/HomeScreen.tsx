@@ -38,6 +38,8 @@ import { describeAge } from '../services/inventory-offline';
 import { readSellDraft, sellDraftKey } from '../services/sell-draft';
 import {
   fetchUserNotifications,
+  clearAllNotifications,
+  dismissNotification,
   markAllNotificationsRead,
   markNotificationRead,
   type InAppNotification,
@@ -600,6 +602,19 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
         onMarkAllAsRead={async () => {
           if (await markAllNotificationsRead()) {
             setNotifications((items) => items.map((n) => ({ ...n, read: true })));
+            setUnread(0);
+          }
+        }}
+        onDismiss={async (id) => {
+          if (await dismissNotification(id)) {
+            const wasUnread = notifications.some((n) => n.id === id && !n.read);
+            setNotifications((items) => items.filter((n) => n.id !== id));
+            if (wasUnread) setUnread((n) => Math.max(0, n - 1));
+          }
+        }}
+        onClearAll={async () => {
+          if (await clearAllNotifications()) {
+            setNotifications([]);
             setUnread(0);
           }
         }}

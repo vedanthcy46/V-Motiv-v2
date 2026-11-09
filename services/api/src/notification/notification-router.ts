@@ -110,6 +110,27 @@ export function createNotificationRouter(deps: {
     }
   });
 
+  // Clear from the list (hidden, not deleted). Registered before the :id route so "clear-all" is never read as an id.
+  router.post('/notifications/clear-all', auth, resolveUser, async (_req, res, next) => {
+    try {
+      const userId = res.locals.userId as string;
+      const result = await deps.service.dismissAllNotifications(userId);
+      res.json({ success: true, cleared: result.count });
+    } catch (err) {
+      next(err);
+    }
+  });
+
+  router.delete('/notifications/:id', auth, resolveUser, async (req, res, next) => {
+    try {
+      const userId = res.locals.userId as string;
+      const result = await deps.service.dismissNotification(userId, String(req.params.id));
+      res.json({ success: true, cleared: result.count });
+    } catch (err) {
+      next(err);
+    }
+  });
+
   router.post('/notifications/read-all', auth, resolveUser, async (_req, res, next) => {
     try {
       const userId = res.locals.userId as string;

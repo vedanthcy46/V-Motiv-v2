@@ -1,5 +1,6 @@
 import React, { useMemo } from 'react';
 import {
+  Alert,
   Modal,
   Pressable,
   ScrollView,
@@ -21,8 +22,17 @@ export interface NotificationsModalProps {
   onMarkAsRead: (id: string) => void | Promise<void>;
   onMarkAllAsRead: () => void | Promise<void>;
   onSelectNotification: (notification: InAppNotification) => void | Promise<void>;
+  /** Clears one notification from the list. When omitted, the per-notification clear button is not shown. */
+  onDismiss?: (id: string) => void | Promise<void>;
+  /** Clears every notification from the list. When omitted, "Clear all" is not shown. */
+  onClearAll?: () => void | Promise<void>;
   title?: string;
   subtitle?: string;
+}
+
+/** V MOTIV Connect entries are labelled by what they are, not by the internal category they are filed under. */
+function categoryLabel(notification: InAppNotification): string {
+  return notification.eventType?.startsWith('CONNECT_') ? 'V MOTIV CONNECT' : notification.category || 'UPDATE';
 }
 
 function formatRelativeTime(dateString: string | null | undefined): string {
@@ -50,12 +60,25 @@ export function NotificationsModal({
   onMarkAsRead,
   onMarkAllAsRead,
   onSelectNotification,
+  onDismiss,
+  onClearAll,
   title = 'Notifications',
   subtitle = 'Alerts & real-time updates',
 }: NotificationsModalProps) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
   const styles = useMemo(() => createStyles(colors, isDark), [colors, isDark]);
+
+  const confirmClearAll = () => {
+    Alert.alert(
+      'Clear all notifications?',
+      'This removes every notification from this list.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Clear all', style: 'destructive', onPress: () => void onClearAll?.() },
+      ],
+    );
+  };
 
   // Safe bottom padding guarantees breathing space above Android navigation bar / iOS home bar
   const bottomSafePadding = safeBottom(insets.bottom, 16) + space.md;
@@ -95,6 +118,11 @@ export function NotificationsModal({
                   <Text style={styles.markReadText}>Mark all read</Text>
                 </Pressable>
               )}
+              {onClearAll && notifications.length > 0 && (
+                <Pressable onPress={confirmClearAll} hitSlop={8} accessibilityRole="button" accessibilityLabel="Clear all notifications">
+                  <Text style={styles.clearAllText}>Clear all</Text>
+                </Pressable>
+              )}
               <Pressable style={styles.closeBtn} onPress={onClose} hitSlop={8}>
                 <X color={colors.textMuted} size={18} />
               </Pressable>
@@ -131,15 +159,27 @@ export function NotificationsModal({
                     <View style={styles.cardTopRow}>
                       <View style={styles.badgeRow}>
                         {!n.read && <View style={styles.unreadDot} />}
-                        <View style={styles.categoryBadge}>
-                          <Text style={styles.categoryBadgeText}>
-                            {n.category || 'UPDATE'}
+                        <View style={[styles.categoryBadge, n.eventType?.startsWith('CONNECT_') && styles.connectBadge]}>
+                          <Text style={[styles.categoryBadgeText, n.eventType?.startsWith('CONNECT_') && styles.connectBadgeText]}>
+                            {categoryLabel(n)}
                           </Text>
                         </View>
                       </View>
-                      <Text style={styles.timestampText}>
-                        {formatRelativeTime(n.createdAt)}
-                      </Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                        <Text style={styles.timestampText}>
+                          {formatRelativeTime(n.createdAt)}
+                        </Text>
+                        {onDismiss && (
+                          <Pressable
+                            onPress={() => void onDismiss(n.id)}
+                            hitSlop={10}
+                            accessibilityRole="button"
+                            accessibilityLabel="Clear this notification"
+                          >
+                            <X color={colors.textMuted} size={15} />
+                          </Pressable>
+                        )}
+                      </View>
                     </View>
 
                     <Text style={[styles.cardTitle, !n.read && styles.cardTitleUnread]}>
@@ -320,6 +360,17 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       paddingHorizontal: 6,
       paddingVertical: 2,
       borderRadius: 4,
+    },
+    clearAllText: {
+      color: colors.textMuted,
+      fontSize: 12,
+      fontWeight: '700',
+    },
+    connectBadge: {
+      backgroundColor: isDark ? 'rgba(247, 181, 3, 0.16)' : 'rgba(247, 181, 3, 0.22)',
+    },
+    connectBadgeText: {
+      color: isDark ? colors.brandAccent : '#7A5200',
     },
     categoryBadgeText: {
       color: colors.textMuted,

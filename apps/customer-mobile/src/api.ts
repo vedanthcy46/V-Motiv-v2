@@ -28,6 +28,22 @@ async function getAuthToken(forceRefresh: boolean): Promise<string | undefined> 
   return withDeadline(user.getIdToken(forceRefresh), 8_000, 'SESSION_TIMEOUT');
 }
 
+/**
+ * The signed-in person's token, or nothing. Never throws and never waits long: it is only used to tell the server who is scanning a
+ * public V MOTIV Connect sticker (so an owner cannot call their own car), and a scan must work for anonymous visitors and when the
+ * sign-in is slow or expired.
+ */
+export async function getOptionalAuthToken(): Promise<string | undefined> {
+  try {
+    return await Promise.race([
+      getAuthToken(false),
+      new Promise<undefined>(resolve => setTimeout(() => resolve(undefined), 2_500)),
+    ]);
+  } catch {
+    return undefined;
+  }
+}
+
 export function apiBaseUrl() {
   const scriptURL = (NativeModules.SourceCode as { scriptURL?: string } | undefined)?.scriptURL;
   return resolveApiBaseUrl({

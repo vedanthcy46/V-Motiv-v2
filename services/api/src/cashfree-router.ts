@@ -55,6 +55,22 @@ export function publicBaseUrl(req: { protocol: string; get(name: string): string
   return `${req.get('x-forwarded-proto') ?? req.protocol}://${req.get('x-forwarded-host') ?? req.get('host')}`;
 }
 
+/**
+ * How much a service request can be paid right now: the outstanding balance, or - when that is zero because the booking only has
+ * a booking plan to pay (the diagnostic fee, or an advance on a package that has no price yet) - the plan's amount that has not been paid.
+ */
+export function serviceAmountDue(request: { outstandingBalancePaise: bigint; verifiedPaidPaise?: bigint | null; paymentPlanSnapshot?: unknown }): bigint {
+  const outstanding = request.outstandingBalancePaise > 0n ? request.outstandingBalancePaise : 0n;
+  let planDue = 0n;
+  try {
+    const plan = typeof request.paymentPlanSnapshot === 'string' ? JSON.parse(request.paymentPlanSnapshot) : request.paymentPlanSnapshot;
+    const planNow = BigInt((plan as { payNowPaise?: string | number } | null)?.payNowPaise ?? 0);
+    const alreadyPaid = BigInt(request.verifiedPaidPaise ?? 0);
+    if (planNow > 0n && !(plan as { paidAt?: string | null } | null)?.paidAt && alreadyPaid < planNow) planDue = planNow - alreadyPaid;
+  } catch { /* an unreadable plan means no plan amount */ }
+  return outstanding > planDue ? outstanding : planDue;
+}
+
 export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClient; settle?: CashfreeSettlers; gateway?: CashfreeOptions; appScheme?: string }) {
   const router = Router();
   const auth = authentication(deps.verify);
@@ -79,9 +95,10 @@ export function createCashfreeRouter(deps: { verify: VerifyToken; db: PrismaClie
       if (!pending || pending.amountPaise <= 0n) throw new HttpError(409, 'NOTHING_TO_PAY');
       return { amountPaise: pending.amountPaise, label: `Rental ${booking.bookingNumber}`, orderPrefix: `rent_${booking.bookingNumber.replace(/[^A-Za-z0-9]/g, '').slice(0, 14)}` };
     }
-    const request = await deps.db.serviceRequest.findFirst({ where: { id: referenceId, customerId: { in: [userId, uid].filter(id => /^[0-9a-f-]{36}$/i.test(id)) } }, select: { id: true, outstandingBalancePaise: true, requestNumber: true } as any }) as any;
+    const request = await deps.db.serviceRequest.findFirst({ where: { id: referenceId, customerId: { in: [userId, uid].filter(id => /^[0-9a-f-]{36}$/i.test(id)) } }, select: { id: true, outstandingBalancePaise: true, verifiedPaidPaise: true, paymentPlanSnapshot: true, requestNumber: true } as any }) as any;
     if (!request) throw new HttpError(404, 'SERVICE_REQUEST_NOT_FOUND');
-    const outstanding: bigint = request.outstandingBalancePaise;
+    // The outstanding balance, or the unpaid booking-plan amount (e.g. the ₹500 diagnostic fee) when there is no balance yet.
+    const outstanding: bigint = serviceAmountDue(request);
     if (outstanding <= 0n) throw new HttpError(409, 'NOTHING_TO_PAY');
     const amount = requested ?? outstanding;
     if (amount > outstanding) throw new HttpError(400, 'AMOUNT_EXCEEDS_BALANCE');

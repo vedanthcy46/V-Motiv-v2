@@ -167,6 +167,26 @@ export async function markNotificationRead(id: string): Promise<boolean> {
   }
 }
 
+/** Clears one notification from the list (hidden, not deleted). */
+export async function dismissNotification(id: string): Promise<boolean> {
+  try {
+    await api(`/api/v2/notifications/${id}`, { method: 'DELETE' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Clears every notification from the list. */
+export async function clearAllNotifications(): Promise<boolean> {
+  try {
+    await api('/api/v2/notifications/clear-all', { method: 'POST' });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function markAllNotificationsRead(): Promise<boolean> {
   try {
     await api('/api/v2/notifications/read-all', { method: 'POST' });

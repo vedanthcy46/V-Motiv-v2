@@ -31,6 +31,7 @@ const TOKEN_HASH = sha256(RAW_TOKEN);
 function setupApp() {
   const verify = vi.fn().mockImplementation(async (token: string) => {
     if (token === 'other-token') return otherCustomerToken;
+    if (token === 'bad-token') throw new Error('auth/argument-error');
     return customerToken;
   });
 
@@ -239,7 +240,8 @@ function setupApp() {
     }),
   };
 
-  const store = new PrismaConnectStore(mockDb, undefined, async (publicUrl) => ({
+  const notifications = { dispatchDomainEvent: vi.fn().mockResolvedValue(undefined), drainPushTickets: vi.fn().mockResolvedValue(0) };
+  const store = new PrismaConnectStore(mockDb, notifications as any, async (publicUrl) => ({
     secureUrl: `https://res.cloudinary.com/vmotiv/image/upload/connect/${encodeURIComponent(publicUrl.slice(-12))}.png`,
     publicId: `vmotiv/connect-stickers/test-${crypto.randomUUID()}`,
   }));
@@ -251,7 +253,7 @@ function setupApp() {
     connect: store,
   });
 
-  return { app, mockDb, vehicles, links, alerts };
+  return { app, mockDb, vehicles, links, alerts, notifications };
 }
 
 describe('V MOTIV V2 — Connect Integration API Suite', () => {
@@ -505,6 +507,167 @@ describe('V MOTIV V2 — Connect Integration API Suite', () => {
     expect(incoming.status).toBe(200);
     expect(incoming.body.items).toHaveLength(2);
     expect(incoming.body.items.some((item: { callerType: string }) => item.callerType === 'visitor')).toBe(true);
+  });
+
+  describe('per-vehicle call / message switches', () => {
+    async function issued() {
+      const ctx = setupApp();
+      const issue = await request(ctx.app).post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/issue`).set('Authorization', 'Bearer valid-customer-token').send({});
+      const token = issue.body.stickerUrl.split('/').pop();
+      const setPrefs = (body: Record<string, unknown>) => request(ctx.app).post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/contact-preferences`).set('Authorization', 'Bearer valid-customer-token').send(body);
+      return { ...ctx, token, setPrefs };
+    }
+
+    it('14. both are on by default, in the owner status and in the public lookup', async () => {
+      const { app, token } = await issued();
+      const status = await request(app).get(`/api/v2/customer/garage/${VEHICLE_ID}/connect`).set('Authorization', 'Bearer valid-customer-token');
+      expect(status.body.link).toMatchObject({ callingEnabled: true, messagingEnabled: true });
+      const lookup = await request(app).get(`/api/v2/public/connect/${token}`);
+      expect(lookup.body.vehicle).toMatchObject({ callingEnabled: true, messagingEnabled: true });
+    });
+
+    it('15. the owner can switch calls off and chat stays on, and the public lookup reflects it', async () => {
+      const { app, token, setPrefs } = await issued();
+      const res = await setPrefs({ callingEnabled: false });
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ success: true, callingEnabled: false, messagingEnabled: true });
+      const lookup = await request(app).get(`/api/v2/public/connect/${token}`);
+      expect(lookup.body.vehicle).toMatchObject({ callingEnabled: false, messagingEnabled: true });
+      const status = await request(app).get(`/api/v2/customer/garage/${VEHICLE_ID}/connect`).set('Authorization', 'Bearer valid-customer-token');
+      expect(status.body.link).toMatchObject({ callingEnabled: false, messagingEnabled: true });
+    });
+
+    it('16. a voice call is refused on the server when calls are off, but chat still works', async () => {
+      const { app, token, setPrefs } = await issued();
+      await setPrefs({ callingEnabled: false });
+      const call = await request(app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode: 'VOICE' });
+      expect(call.status).toBe(403);
+      expect(call.body.code).toBe('CONNECT_CALLING_DISABLED');
+      const chat = await request(app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode: 'CHAT', initialMessage: 'Your lights are on' });
+      expect(chat.status).toBe(201);
+    });
+
+    it('17. chat is refused on the server when messages are off, including messages sent into an existing session', async () => {
+      const { app, token, setPrefs } = await issued();
+      const call = await request(app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode: 'VOICE' });
+      expect(call.status).toBe(201);
+      await setPrefs({ messagingEnabled: false });
+      const chatRequest = await request(app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode: 'CHAT' });
+      expect(chatRequest.status).toBe(403);
+      expect(chatRequest.body.code).toBe('CONNECT_MESSAGING_DISABLED');
+      const message = await request(app).post(`/api/v2/public/connect/${token}/calls/${call.body.callSessionId}/signals`).send({ kind: 'CHAT', payload: { text: 'hello' } });
+      expect(message.status).toBe(403);
+      // call signalling itself is not affected
+      const offer = await request(app).post(`/api/v2/public/connect/${token}/calls/${call.body.callSessionId}/signals`).send({ kind: 'OFFER', payload: { sdp: 'x', type: 'offer' } });
+      expect(offer.status).toBe(201);
+    });
+
+    it('18. the one-way alert still works when both are off', async () => {
+      const { app, token, setPrefs } = await issued();
+      await setPrefs({ callingEnabled: false, messagingEnabled: false });
+      const alert = await request(app).post(`/api/v2/public/connect/${token}/alerts`).send({ reason: 'LIGHTS_ON', message: 'The headlights look switched on.' });
+      expect(alert.status).toBe(201);
+    });
+
+    it('19. needs at least one switch, rejects unknown fields, and only the owner can change them', async () => {
+      const { app, setPrefs } = await issued();
+      expect((await setPrefs({})).status).toBe(400);
+      expect((await setPrefs({ callingEnabled: 'no' })).status).toBe(400);
+      expect((await setPrefs({ callingEnabled: false, somethingElse: true })).status).toBe(400);
+      const stranger = await request(app).post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/contact-preferences`).set('Authorization', 'Bearer other-token').send({ callingEnabled: false });
+      expect(stranger.status).toBe(404);
+    });
+
+    it('20. a re-issued sticker keeps the owner\'s choices', async () => {
+      const { app, setPrefs } = await issued();
+      await setPrefs({ callingEnabled: false });
+      const again = await request(app).post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/issue`).set('Authorization', 'Bearer valid-customer-token').send({});
+      const newToken = again.body.stickerUrl.split('/').pop();
+      const lookup = await request(app).get(`/api/v2/public/connect/${newToken}`);
+      expect(lookup.body.vehicle).toMatchObject({ callingEnabled: false, messagingEnabled: true });
+    });
+  });
+
+  describe('owner scanning their own vehicle', () => {
+    async function issued() {
+      const ctx = setupApp();
+      const issue = await request(ctx.app).post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/issue`).set('Authorization', 'Bearer valid-customer-token').send({});
+      return { ...ctx, token: issue.body.stickerUrl.split('/').pop() as string };
+    }
+
+    it('21. the public lookup says "own vehicle" only to the signed-in owner', async () => {
+      const { app, token } = await issued();
+      const owner = await request(app).get(`/api/v2/public/connect/${token}`).set('Authorization', 'Bearer valid-customer-token');
+      expect(owner.body.isOwnVehicle).toBe(true);
+      const stranger = await request(app).get(`/api/v2/public/connect/${token}`).set('Authorization', 'Bearer other-token');
+      expect(stranger.body.isOwnVehicle).toBe(false);
+      const anonymous = await request(app).get(`/api/v2/public/connect/${token}`);
+      expect(anonymous.body.isOwnVehicle).toBe(false);
+    });
+
+    it('22. an owner cannot call or chat with their own vehicle, but another person can', async () => {
+      const { app, token } = await issued();
+      for (const mode of ['VOICE', 'CHAT'] as const) {
+        const own = await request(app).post(`/api/v2/public/connect/${token}/call-requests`).set('Authorization', 'Bearer valid-customer-token').send({ consentGiven: true, mode });
+        expect(own.status).toBe(409);
+        expect(own.body.code).toBe('CONNECT_SELF_CONTACT');
+      }
+      const stranger = await request(app).post(`/api/v2/public/connect/${token}/call-requests`).set('Authorization', 'Bearer other-token').send({ consentGiven: true, mode: 'VOICE' });
+      expect(stranger.status).toBe(201);
+    });
+
+    it('23. an invalid or expired sign-in never breaks a public scan: it is simply treated as anonymous', async () => {
+      const { app, token } = await issued();
+      const lookup = await request(app).get(`/api/v2/public/connect/${token}`).set('Authorization', 'Bearer bad-token');
+      expect(lookup.status).toBe(200);
+      expect(lookup.body.isOwnVehicle).toBe(false);
+      const call = await request(app).post(`/api/v2/public/connect/${token}/call-requests`).set('Authorization', 'Bearer bad-token').send({ consentGiven: true, mode: 'VOICE' });
+      expect(call.status).toBe(201);
+    });
+  });
+
+  describe('clear owner notifications', () => {
+    async function issued() {
+      const ctx = setupApp();
+      const issue = await request(ctx.app).post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/issue`).set('Authorization', 'Bearer valid-customer-token').send({});
+      return { ...ctx, token: issue.body.stickerUrl.split('/').pop() as string };
+    }
+    const sent = (notifications: { dispatchDomainEvent: ReturnType<typeof vi.fn> }) => notifications.dispatchDomainEvent.mock.calls.map(call => call[0]);
+
+    it('24. a call names the vehicle and says the phone number stays hidden', async () => {
+      const { app, token, notifications } = await issued();
+      await request(app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode: 'VOICE' });
+      const event = sent(notifications).find(e => e.type === 'CONNECT_CALL_REQUESTED');
+      expect(event.title).toBe('Incoming call about your 2023 Honda City');
+      expect(event.body).toContain('phone number stays hidden');
+      expect(event.metadata.callSessionId).toBeTruthy();
+    });
+
+    it('25. an alert says what was reported and about which vehicle', async () => {
+      const { app, token, notifications } = await issued();
+      await request(app).post(`/api/v2/public/connect/${token}/alerts`).send({ reason: 'LIGHTS_ON', message: 'The headlights look switched on.' });
+      const event = sent(notifications).find(e => e.type === 'CONNECT_OWNER_ALERT_CREATED');
+      expect(event.title).toBe('Lights are on: 2023 Honda City');
+      expect(event.body).toContain('The headlights look switched on.');
+    });
+
+    it('26. hanging up while it is still ringing leaves a missed-call notification that cannot ring the phone', async () => {
+      const { app, token, notifications } = await issued();
+      const call = await request(app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode: 'VOICE' });
+      await request(app).post(`/api/v2/public/connect/${token}/calls/${call.body.callSessionId}/signals`).send({ kind: 'HANGUP', payload: {} });
+      const missed = sent(notifications).find(e => e.type === 'CONNECT_CALL_MISSED');
+      expect(missed.title).toBe('Missed call about your 2023 Honda City');
+      // no call session id: it must not be treated as a live ringing call by the push channel or the incoming-call screen
+      expect(missed.metadata.callSessionId).toBeUndefined();
+    });
+
+    it('27. no missed call is recorded when the owner already answered', async () => {
+      const { app, token, notifications } = await issued();
+      const call = await request(app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode: 'VOICE' });
+      await request(app).post(`/api/v2/customer/connect/calls/${call.body.callSessionId}/respond`).set('Authorization', 'Bearer valid-customer-token').send({ decision: 'ACCEPT' });
+      await request(app).post(`/api/v2/public/connect/${token}/calls/${call.body.callSessionId}/signals`).send({ kind: 'HANGUP', payload: {} });
+      expect(sent(notifications).some(e => e.type === 'CONNECT_CALL_MISSED')).toBe(false);
+    });
   });
 
   it('13. POST /api/v2/public/connect/:token/alerts supports photos and POST /:token/photos uploads image', async () => {

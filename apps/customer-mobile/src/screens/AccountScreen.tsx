@@ -30,6 +30,8 @@ import { BrandLogo } from '../components/BrandLogo';
 import { NotificationsModal } from '../components/NotificationsModal';
 import {
   fetchUserNotifications,
+  clearAllNotifications,
+  dismissNotification,
   markAllNotificationsRead,
   markNotificationRead,
   type InAppNotification,
@@ -532,6 +534,19 @@ export function AccountScreen() {
           await markAllNotificationsRead();
           setNotifications((prev) => prev.map((n) => ({ ...n, read: true })));
           setUnreadCount(0);
+        }}
+        onDismiss={async (id) => {
+          if (await dismissNotification(id)) {
+            const wasUnread = notifications.some((n) => n.id === id && !n.read);
+            setNotifications((prev) => prev.filter((n) => n.id !== id));
+            if (wasUnread) setUnreadCount((prev) => Math.max(0, prev - 1));
+          }
+        }}
+        onClearAll={async () => {
+          if (await clearAllNotifications()) {
+            setNotifications([]);
+            setUnreadCount(0);
+          }
         }}
         onSelectNotification={handleCustomerNotificationNavigation}
         title="Notifications"

@@ -66,7 +66,9 @@ export function Modal({ open = true, title, description, onClose, size = 'md', c
   );
 
   return createPortal(
-    <div className="modal modal-open" role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) requestClose(); }}>
+    // z-index 1200: above the portals' older full-screen panels (.modal-overlay at 1000-1100, e.g. the service job drawer), which
+    // otherwise hid this dialog behind them so the button that opened it appeared to do nothing. Still under the progress bar and toaster.
+    <div className="modal modal-open" style={{ zIndex: 1200 }} role="presentation" onMouseDown={event => { if (event.target === event.currentTarget) requestClose(); }}>
       <div
         ref={panel}
         role="dialog"
