@@ -3683,6 +3683,13 @@ export class PrismaServiceStore {
     const capturedPaise = await assertCapturedAmount(input, claimedPaise, { exact: claimedPaise !== null });
     const amountPaise = capturedPaise ?? claimedPaise ?? (sr.outstandingBalancePaise > 0n ? sr.outstandingBalancePaise : 0n);
 
+    // The booking plan chosen at request time (the ₹500 diagnostic fee, an advance, ...) tells what this payment is for.
+    const plan = safeParseJson((sr as any).paymentPlanSnapshot, null) as { planId?: string; payNowPaise?: string; paidAt?: string | null } | null;
+    const planPayNow = (() => { try { return BigInt(plan?.payNowPaise ?? 0); } catch { return 0n; } })();
+    const planUnpaid = !!plan && planPayNow > 0n && !plan.paidAt;
+    const isDiagnosticPlan = plan?.planId === 'DIAGNOSTIC_FEE' && planUnpaid;
+    const isAdvancePlan = planUnpaid && !isDiagnosticPlan;
+
     // A gateway payment id can settle exactly one service request.
     const reused = await this.db.servicePaymentRecord.findFirst({
       where: { gatewayPaymentId: input.gatewayPaymentId, serviceRequestId: { not: sr.id } },
@@ -3695,8 +3702,8 @@ export class PrismaServiceStore {
       const payment = await tx.servicePaymentRecord.create({
         data: {
           serviceRequestId: sr.id,
-          type: input.installmentType === 'DIAGNOSTIC_FEE' ? 'DIAGNOSTIC_FEE' : (input.installmentType === 'BALANCE' ? 'FINAL_SETTLEMENT' : 'BOOKING_ADVANCE'),
-          installmentType: input.installmentType || 'BALANCE',
+          type: input.installmentType === 'DIAGNOSTIC_FEE' || isDiagnosticPlan ? 'DIAGNOSTIC_FEE' : (input.installmentType === 'BALANCE' ? 'FINAL_SETTLEMENT' : 'BOOKING_ADVANCE'),
+          installmentType: input.installmentType || (isDiagnosticPlan ? 'DIAGNOSTIC_FEE' : isAdvancePlan ? 'ADVANCE' : 'BALANCE'),
           amountPaise,
           status: ServicePaymentStatus.PAID_VERIFIED,
           paymentGateway: input.paymentGateway || 'RAZORPAY',
@@ -3714,12 +3721,19 @@ export class PrismaServiceStore {
       const totalVerified = allVerified.reduce((acc, p) => acc + p.amountPaise, 0n);
 
       const latestInvoice = sr.invoices[0];
-      const totalBill = latestInvoice ? latestInvoice.totalAmountPaise : (sr.estimates[0] ? sr.estimates[0].totalAmountPaise : sr.outstandingBalancePaise);
-      const newOutstanding = totalBill > totalVerified ? totalBill - totalVerified : 0n;
+      // Before an estimate or invoice exists, the bill is not known yet: the amount still owed is what was owed before this
+      // payment, less this payment. (Falling back to the old outstanding as "the bill" made a ₹500 diagnostic fee look like a fully
+      // paid job.)
+      const billKnown = !!latestInvoice || !!sr.estimates[0];
+      const totalBill = latestInvoice ? latestInvoice.totalAmountPaise : (sr.estimates[0] ? sr.estimates[0].totalAmountPaise : null);
+      const newOutstanding = totalBill !== null
+        ? (totalBill > totalVerified ? totalBill - totalVerified : 0n)
+        : (sr.outstandingBalancePaise > amountPaise ? sr.outstandingBalancePaise - amountPaise : 0n);
 
       const isFullyPaid = newOutstanding === 0n;
       const newPaymentStatus = isFullyPaid ? 'PAID_IN_FULL' : 'PARTIALLY_PAID';
-      const nextRequestStatus = isFullyPaid ? ServiceRequestStatus.PAID : sr.status;
+      // The request only becomes PAID once there is a bill and it is settled; a diagnostic fee or advance does not finish the job.
+      const nextRequestStatus = isFullyPaid && billKnown ? ServiceRequestStatus.PAID : sr.status;
 
       await tx.serviceRequest.update({
         where: { id: sr.id },
@@ -3728,7 +3742,11 @@ export class PrismaServiceStore {
           outstandingBalancePaise: newOutstanding,
           servicePaymentStatus: newPaymentStatus,
           status: nextRequestStatus,
-        },
+          ...(isDiagnosticPlan || isAdvancePlan ? {
+            depositStatus: isDiagnosticPlan ? 'DIAGNOSTIC_PAID' : 'ADVANCE_PAID',
+            paymentPlanSnapshot: JSON.stringify({ ...plan, paidAt: new Date().toISOString() }),
+          } : {}),
+        } as any,
       });
 
       if (latestInvoice) {
