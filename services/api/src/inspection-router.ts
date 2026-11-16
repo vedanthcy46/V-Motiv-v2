@@ -4,6 +4,7 @@ import { z } from 'zod';
 import { inspectorMfaGuard } from './inspector-mfa.js';
 import { authentication, type Identity, type VerifyToken } from './auth.js';
 import { PrismaInspectionStore } from './inspection-store.js';
+import { OPENING_STOCK_DOCUMENTS } from './opening-stock.js';
 
 const uuid = z.string().uuid();
 
@@ -140,6 +141,7 @@ const prepareListingInput = z.object({
   verifiedTags: z.array(z.string().trim()).optional(),
   mediaUrls: z.array(z.string().trim().min(5)).optional(),
   branchId: z.string().uuid().optional(),
+  registrationNumber: z.string().trim().min(5).max(20).optional(),
   expectedVersion: z.number().int().positive(),
 }).strict();
 
@@ -160,6 +162,29 @@ const updateListingInput = z.object({
   odometerKm: z.number().int().min(0).max(2_000_000).optional(),
   engineCapacityCc: z.number().int().min(0).max(10_000).optional(),
   mediaUrls: z.array(z.string().trim().min(5).max(1000)).max(60).optional(),
+}).strict();
+
+const openingStockItem = z.object({
+  registrationNumber: z.string().trim().min(5).max(20),
+  make: z.string().trim().min(1).max(60),
+  model: z.string().trim().min(1).max(80),
+  variant: z.string().trim().max(80).optional(),
+  manufacturingYear: z.coerce.number().int(),
+  fuelType: z.string().trim().min(2).max(30),
+  transmission: z.string().trim().min(2).max(30),
+  odometerKm: z.coerce.number().int(),
+  acquisitionCostPaise: z.coerce.bigint(),
+  physicalLocation: z.string().trim().max(200).optional(),
+  notes: z.string().trim().max(2_000).optional(),
+  documentsOnFile: z.array(z.enum(OPENING_STOCK_DOCUMENTS)).max(10).optional(),
+}).strict();
+
+const openingStockInput = openingStockItem.extend({ branchId: z.string().uuid().optional() }).strict();
+
+const openingStockBulkInput = z.object({
+  branchId: z.string().uuid().optional(),
+  dryRun: z.boolean().optional(),
+  items: z.array(openingStockItem).min(1).max(200),
 }).strict();
 
 const publishListingInput = z.object({
@@ -419,6 +444,17 @@ export function createOperationsInspectionRouter(deps: { verify: VerifyToken; st
 
   router.get('/branches', async (_req, res, next) => {
     try { res.json(await deps.store.getBranches(res.locals.inspectionActor)); }
+    catch (e) { next(e); }
+  });
+
+  // Cars the hub already owned before the app existed (see opening-stock.ts). Registered before the :id routes.
+  router.post('/inventory/opening-stock', async (req, res, next) => {
+    try { res.status(201).json(await deps.store.addOpeningStock(res.locals.inspectionActor, openingStockInput.parse(req.body))); }
+    catch (e) { next(e); }
+  });
+
+  router.post('/inventory/opening-stock/bulk', async (req, res, next) => {
+    try { res.json(await deps.store.addOpeningStockBulk(res.locals.inspectionActor, openingStockBulkInput.parse(req.body))); }
     catch (e) { next(e); }
   });
 

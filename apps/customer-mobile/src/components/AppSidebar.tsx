@@ -9,6 +9,7 @@ import React, {
   type ReactNode,
 } from 'react';
 import {
+  Alert,
   View,
   Text,
   StyleSheet,
@@ -43,8 +44,10 @@ import {
   ShieldCheck,
   LogOut,
   LogIn,
+  Recycle,
   Sparkles,
 } from 'lucide-react-native';
+import { comingSoonMessage, isFeatureOpen } from '../constants/features';
 import { useAppTheme } from '../theme';
 import { useAuth } from '../auth/AuthProvider';
 import { navigate, navigateToTab } from '../navigation/navigationRef';
@@ -452,8 +455,16 @@ export function SidebarProvider({ children }: SidebarProviderProps) {
                   </TouchableOpacity>
 
                   <TouchableOpacity
-                    style={styles.navItem}
-                    onPress={() => handleNavToStack('RentalHome')}
+                    style={[styles.navItem, !isFeatureOpen('rental') && { opacity: 0.6 }]}
+                    onPress={() => {
+                      if (isFeatureOpen('rental')) {
+                        handleNavToStack('RentalHome');
+                        return;
+                      }
+                      const message = comingSoonMessage('rental');
+                      Alert.alert(message.title, message.body, [{ text: 'Got it' }]);
+                    }}
+                    accessibilityState={{ disabled: !isFeatureOpen('rental') }}
                     activeOpacity={0.7}
                   >
                     <View style={[styles.navIconBox, { backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FFFBEB' }]}>
@@ -463,7 +474,7 @@ export function SidebarProvider({ children }: SidebarProviderProps) {
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                         <Text style={[styles.navTitle, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>Self-Drive Rentals</Text>
                         <View style={styles.popularBadge}>
-                          <Text style={styles.popularBadgeText}>NEW</Text>
+                          <Text style={styles.popularBadgeText}>{isFeatureOpen('rental') ? 'NEW' : 'COMING SOON'}</Text>
                         </View>
                       </View>
                       <Text style={styles.navSubtitle}>Hourly & daily fleet cars</Text>
@@ -480,8 +491,28 @@ export function SidebarProvider({ children }: SidebarProviderProps) {
                       <Wrench size={18} color="#A855F7" />
                     </View>
                     <View style={styles.navTextBox}>
-                      <Text style={[styles.navTitle, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>Service & Repairs</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                        <Text style={[styles.navTitle, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>Service & Repairs</Text>
+                        <View style={styles.popularBadge}>
+                          <Text style={styles.popularBadgeText}>MAIN</Text>
+                        </View>
+                      </View>
                       <Text style={styles.navSubtitle}>Maintenance, RSA & parts</Text>
+                    </View>
+                    <ChevronRight size={15} color={isDark ? '#64748B' : '#94A3B8'} />
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={styles.navItem}
+                    onPress={() => handleNavToStack('ScrapHome')}
+                    activeOpacity={0.7}
+                  >
+                    <View style={[styles.navIconBox, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5' }]}>
+                      <Recycle size={18} color="#10B981" />
+                    </View>
+                    <View style={styles.navTextBox}>
+                      <Text style={[styles.navTitle, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>Scrap a Car</Text>
+                      <Text style={styles.navSubtitle}>Responsible disposal</Text>
                     </View>
                     <ChevronRight size={15} color={isDark ? '#64748B' : '#94A3B8'} />
                   </TouchableOpacity>

@@ -17,14 +17,9 @@ import {
   ArrowRight,
   Bell,
   CarFront,
-  CalendarDays,
-  Wrench,
   Recycle,
   Tag,
   Clock,
-  Sparkles,
-  CheckCircle2,
-  ShieldCheck,
   KeyRound,
   Menu,
 } from 'lucide-react-native';
@@ -32,6 +27,8 @@ import { useSidebar } from '../components/AppSidebar';
 import { BrandLogo } from '../components/BrandLogo';
 import { PriceBlock } from '../components/PriceBlock';
 import { NotificationsModal } from '../components/NotificationsModal';
+import { MoreServiceTile, ServiceHeroCard } from '../components/HomeServiceCards';
+import { comingSoonMessage, isFeatureOpen } from '../constants/features';
 import { CustomerButton } from '../components/customer-ui';
 import { customer } from '../services/customer';
 import { describeAge } from '../services/inventory-offline';
@@ -50,12 +47,6 @@ import { useTabScreenBottomPadding } from '../layout/safe-layout';
 import { formatPrice } from '../format';
 import type { Tabs } from '../navigation/types';
 import type { VehicleSummary } from '../types';
-
-const SECONDARY_SERVICES = [
-  { title: 'Car Service', body: 'Maintenance & repairs', Icon: Wrench },
-  { title: 'Rent a Car', body: 'Short or long term', Icon: CalendarDays },
-  { title: 'Scrap a Car', body: 'Responsible disposal', Icon: Recycle },
-];
 
 export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
   const tabBottomPadding = useTabScreenBottomPadding();
@@ -132,12 +123,19 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
     }
   };
 
-  const comingSoon = (title: string) =>
-    Alert.alert(
-      `${title} — Coming Soon`,
-      'This service is being planned. Bookings are not yet available.\n\nYou can still buy or sell a car with V MOTIV today.',
-      [{ text: 'Got it' }],
-    );
+  // Rentals are coming soon (constants/features.ts): the tile is blocked and only explains that. Flip the status there to open it.
+  const openRental = () => {
+    if (!isFeatureOpen('rental')) {
+      const message = comingSoonMessage('rental');
+      Alert.alert(message.title, message.body, [{ text: 'Got it' }]);
+      return;
+    }
+    if (state !== 'signed-in') {
+      navigation.navigate('Account');
+      return;
+    }
+    root?.navigate('RentalHome');
+  };
 
   const greeting = profile?.displayName
     ? `Hi, ${profile.displayName.split(' ')[0]} 👋`
@@ -188,7 +186,10 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
           </Text>
         </View>
 
-        {/* ── Primary action cards ── */}
+        {/* ── Main service ── */}
+        <ServiceHeroCard onPress={() => (state === 'signed-in' ? root?.navigate('ServiceHome') : navigation.navigate('Account'))} />
+
+        {/* ── Buy and sell ── */}
         <View style={styles.primaryRow}>
           {/* Buy */}
           <Pressable
@@ -247,208 +248,29 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
           </View>
         )}
 
-        {/* ── Secondary services ── */}
+        {/* ── More services ── */}
         <View style={styles.sectionHeader}>
           <Text accessibilityRole="header" style={[styles.sectionTitle, { color: c.textPrimary }]}>
             More services
           </Text>
-          <Text style={[styles.sectionMeta, { color: c.textMuted }]}>Coming soon</Text>
         </View>
         <View style={styles.secondaryRow}>
-          {SECONDARY_SERVICES.map(({ title, body, Icon }) => {
-            const isCarService = title === 'Car Service';
-            const isRental = title === 'Rent a Car';
-            const isLive = isCarService || isRental;
-            return (
-              <Pressable
-                key={title}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isCarService
-                    ? 'Car Service. Book maintenance & repairs.'
-                    : isRental
-                    ? 'Rent a Car. Self-drive advance rental.'
-                    : `${title}. Coming soon.`
-                }
-                onPress={() => {
-                  if (state !== 'signed-in') {
-                    navigation.navigate('Account');
-                    return;
-                  }
-                  if (isCarService) {
-                    root?.navigate('ServiceHome');
-                  } else if (isRental) {
-                    root?.navigate('RentalHome');
-                  } else {
-                    comingSoon(title);
-                  }
-                }}
-                style={({ pressed }) => [
-                  styles.secondaryCard,
-                  {
-                    backgroundColor: isLive ? (isDark ? '#142742' : '#FFFDF5') : c.surface,
-                    borderColor: isLive ? c.brandAccent : c.border,
-                  },
-                  pressed && { opacity: 0.75 },
-                ]}
-              >
-                <Icon size={26} color={isLive ? c.brandAccent : c.textSecondary} accessibilityElementsHidden />
-                <Text style={[styles.secondaryCardTitle, { color: c.textPrimary }]}>{title}</Text>
-                <Text style={[styles.secondaryCardBody, { color: c.textSecondary }]}>{body}</Text>
-                <View style={[styles.comingSoonBadge, { backgroundColor: isLive ? c.brandAccent : c.surfaceSecondary }]}>
-                  <Text style={[styles.comingSoonText, { color: isLive ? c.brandNavy : c.textMuted }]}>
-                    {isCarService ? 'BOOK' : isRental ? 'RENT' : 'SOON'}
-                  </Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* ── Featured Live Services (Bigger Cards for Service & Rental) ── */}
-        <View style={styles.featuredSectionHeader}>
-          <Text accessibilityRole="header" style={[styles.sectionTitle, { color: c.textPrimary }]}>
-            Vehicle Services & Rentals
-          </Text>
-          <View style={[styles.livePill, { backgroundColor: c.brandAccent + '25' }]}>
-            <Sparkles size={12} color={c.brandAccent} />
-            <Text style={[styles.livePillText, { color: isDark ? c.brandAccent : c.brandNavy }]}>LIVE</Text>
-          </View>
-        </View>
-
-        <View style={styles.featuredServicesContainer}>
-          {/* Bigger Card 1: Car Service */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Car Service and Repairs. Scheduled maintenance, diagnosis, doorstep pickup and live tracking. Book now."
-            onPress={() => (state === 'signed-in' ? root?.navigate('ServiceHome') : navigation.navigate('Account'))}
-            style={({ pressed }) => [
-              styles.featuredCard,
-              {
-                backgroundColor: isDark ? '#0F213D' : '#FFFFFF',
-                borderColor: isDark ? c.border : c.border,
-              },
-              pressed && { opacity: 0.88, transform: [{ scale: 0.99 }] },
-            ]}
-          >
-            <View style={styles.featuredCardHeader}>
-              <View style={[styles.featuredIconBox, { backgroundColor: c.brandAccent + '22' }]}>
-                <Wrench size={26} color={c.brandAccent} />
-              </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <View style={styles.featuredTitleRow}>
-                  <Text style={[styles.featuredCardTitle, { color: c.textPrimary }]}>
-                    Car Service & Repairs
-                  </Text>
-                  <View style={[styles.tagBadge, { backgroundColor: '#10B98120' }]}>
-                    <Text style={[styles.tagBadgeText, { color: '#10B981' }]}>DOORSTEP</Text>
-                  </View>
-                </View>
-                <Text style={[styles.featuredCardSubtitle, { color: c.textSecondary }]}>
-                  Scheduled service, AC repair, battery & diagnostics with transparent estimates
-                </Text>
-              </View>
-            </View>
-
-            {/* Feature Highlights Pills */}
-            <View style={styles.featurePillsRow}>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <CheckCircle2 size={12} color="#10B981" />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Free Pickup & Drop</Text>
-              </View>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <ShieldCheck size={12} color={c.brandAccent} />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Multi-Point QC</Text>
-              </View>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <Clock size={12} color={c.textMuted} />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Live Tracking</Text>
-              </View>
-            </View>
-
-            {/* Bottom Action Footer */}
-            <View style={[styles.featuredFooter, { borderTopColor: isDark ? '#1C3154' : c.border }]}>
-              <Text style={[styles.featuredCtaText, { color: isDark ? c.brandAccent : c.brandNavy }]}>
-                Book Service Appointment
-              </Text>
-              <View
-                style={[
-                  styles.featuredArrowCircle,
-                  { backgroundColor: isDark ? c.brandAccent : c.brandNavy },
-                ]}
-              >
-                <ArrowRight size={16} color={isDark ? c.brandNavy : '#FFFFFF'} />
-              </View>
-            </View>
-          </Pressable>
-
-          {/* Bigger Card 2: Self-Drive Car Rental */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Self-Drive Car Rental. Browse vehicles and date-specific estimates."
-            onPress={() => (state === 'signed-in' ? root?.navigate('RentalHome') : navigation.navigate('Account'))}
-            style={({ pressed }) => [
-              styles.featuredCard,
-              {
-                backgroundColor: isDark ? '#091A33' : '#FFFFFF',
-                borderColor: isDark ? c.border : c.border,
-                borderWidth: 1,
-              },
-              pressed && { opacity: 0.88, transform: [{ scale: 0.99 }] },
-            ]}
-          >
-            <View style={styles.featuredCardHeader}>
-              <View style={[styles.featuredIconBox, { backgroundColor: c.brandAccent + '22' }]}>
-                <KeyRound size={26} color={c.brandAccent} />
-              </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <View style={styles.featuredTitleRow}>
-                  <Text style={[styles.featuredCardTitle, { color: c.textPrimary }]}>
-                    Self-Drive Car Rental
-                  </Text>
-                  <View style={[styles.tagBadge, { backgroundColor: c.brandAccent + '25' }]}>
-                    <Text style={[styles.tagBadgeText, { color: isDark ? c.brandAccent : c.brandNavy }]}>
-                      DATE-SPECIFIC
-                    </Text>
-                  </View>
-                </View>
-                <Text style={[styles.featuredCardSubtitle, { color: c.textSecondary }]}>
-                  Browse eligible fleet vehicles, active hubs and date-specific estimates
-                </Text>
-              </View>
-            </View>
-
-            {/* Feature Highlights Pills */}
-            <View style={styles.featurePillsRow}>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <CheckCircle2 size={12} color={c.brandAccent} />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Eligible fleet only</Text>
-              </View>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <ShieldCheck size={12} color={c.success} />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Date availability</Text>
-              </View>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <Clock size={12} color={c.brandAccent} />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Upfront estimate</Text>
-              </View>
-            </View>
-
-            {/* Bottom Action Footer */}
-            <View style={[styles.featuredFooter, { borderTopColor: isDark ? '#1C3154' : c.border }]}>
-              <Text style={[styles.featuredCtaText, { color: isDark ? c.brandAccent : c.brandNavy }]}>
-                Explore Rental Fleet
-              </Text>
-              <View
-                style={[
-                  styles.featuredArrowCircle,
-                  { backgroundColor: isDark ? c.brandAccent : c.brandNavy },
-                ]}
-              >
-                <ArrowRight size={16} color={isDark ? c.brandNavy : '#FFFFFF'} />
-              </View>
-            </View>
-          </Pressable>
+          <MoreServiceTile
+            featureKey="rental"
+            status={isFeatureOpen('rental') ? 'open' : 'coming-soon'}
+            title="Rent a Car"
+            body="Self-drive rentals"
+            Icon={KeyRound}
+            onPress={openRental}
+          />
+          <MoreServiceTile
+            featureKey="scrap"
+            status={isFeatureOpen('scrap') ? 'open' : 'coming-soon'}
+            title="Scrap a Car"
+            body="Responsible disposal"
+            Icon={Recycle}
+            onPress={() => root?.navigate('ScrapHome')}
+          />
         </View>
 
         {/* ── My requests shortcut ── */}

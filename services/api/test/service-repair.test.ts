@@ -6,9 +6,11 @@ const normalise = (sql: string) => sql.split('\n').filter(line => !line.trim().s
 
 describe('startup schema additions', () => {
   it('runs the same additive statement as the migration, so the migration changes nothing afterwards', () => {
-    const migration = normalise(readFileSync(new URL('../prisma/migrations/20261109020000_notification_dismissed_at/migration.sql', import.meta.url), 'utf8'));
+    const migration = ['20261109020000_notification_dismissed_at', '20261116000000_opening_stock']
+      .map(name => normalise(readFileSync(new URL(`../prisma/migrations/${name}/migration.sql`, import.meta.url), 'utf8')))
+      .join(' ');
     for (const sql of ENSURE_COLUMNS_SQL) {
-      expect(sql).toContain('ADD COLUMN IF NOT EXISTS');
+      expect(sql).toMatch(/ADD COLUMN IF NOT EXISTS|DROP NOT NULL/); // every statement is additive and safe to repeat
       expect(migration).toContain(normalise(sql));
     }
   });

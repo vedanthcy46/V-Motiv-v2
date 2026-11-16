@@ -63,7 +63,8 @@ export function resolveRequestUrl(path: string) {
 }
 
 export class ApiError extends Error {
-  constructor(readonly status: number, readonly code: string, message?: string) {
+  /** `details` is the server's response body when it had one (for example `fields`, the per-input problems of a rejected form). */
+  constructor(readonly status: number, readonly code: string, message?: string, readonly details?: unknown) {
     super(message || code);
   }
 }
@@ -132,7 +133,7 @@ export async function api<T>(path: string, init: RequestInit = {}, forceRefresh 
         : issueMessage
           ? `${issuePath ? `${issuePath}: ` : ''}${issueMessage}`
           : code;
-      throw new ApiError(response.status, code, message);
+      throw new ApiError(response.status, code, message, body);
     }
     if (body === undefined && rawText.trim()) {
       throw new ApiError(response.status, 'INVALID_API_RESPONSE');

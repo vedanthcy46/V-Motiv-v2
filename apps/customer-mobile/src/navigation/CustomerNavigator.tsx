@@ -29,6 +29,10 @@ import { ConnectGuestScreen } from '../screens/ConnectGuestScreen';
 import { ServiceHomeScreen } from '../screens/ServiceHomeScreen';
 import { ServiceRequestDetailsScreen } from '../screens/ServiceRequestDetailsScreen';
 import { RentalHomeScreen } from '../screens/RentalHomeScreen';
+import { ScrapHomeScreen } from '../screens/ScrapHomeScreen';
+import { ScrapRequestScreen } from '../screens/ScrapRequestScreen';
+import { MyScrapRequestsScreen } from '../screens/MyScrapRequestsScreen';
+import { ScrapRequestDetailsScreen } from '../screens/ScrapRequestDetailsScreen';
 import { RentalSearchResultsScreen } from '../screens/RentalSearchResultsScreen';
 import { RentalVehicleDetailsScreen } from '../screens/RentalVehicleDetailsScreen';
 import { RentalCheckoutScreen } from '../screens/RentalCheckoutScreen';
@@ -192,6 +196,26 @@ export function CustomerNavigator() {
       <Stack.Screen
         name="ServiceRequestDetails"
         component={ServiceRequestDetailsScreen}
+        options={{ presentation: 'card', animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
+        name="ScrapHome"
+        component={ScrapHomeScreen}
+        options={{ presentation: 'card', animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
+        name="ScrapRequest"
+        component={ScrapRequestScreen}
+        options={{ presentation: 'card', animation: 'slide_from_right', gestureEnabled: false }}
+      />
+      <Stack.Screen
+        name="MyScrapRequests"
+        component={MyScrapRequestsScreen}
+        options={{ presentation: 'card', animation: 'slide_from_right' }}
+      />
+      <Stack.Screen
+        name="ScrapRequestDetails"
+        component={ScrapRequestDetailsScreen}
         options={{ presentation: 'card', animation: 'slide_from_right' }}
       />
       <Stack.Screen

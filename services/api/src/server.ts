@@ -23,6 +23,7 @@ import { PrismaSalesStore } from './sales-store.js';
 import { PrismaInspectionStore } from './inspection-store.js';
 import { PrismaFinanceStore } from './finance-store.js';
 import { PrismaServiceStore } from './service-store.js';
+import { PrismaScrapStore } from './scrap/scrap-store.js';
 import { PrismaRentalStore } from './rental-store.js';
 import { PrismaConnectStore } from './connect-store.js';
 import { PrismaValuationStore } from './valuation-store.js';
@@ -146,6 +147,7 @@ const app = createApp({
   inspection: new PrismaInspectionStore(db, undefined, notificationService),
   finance: new PrismaFinanceStore(db, notificationService),
   service: new PrismaServiceStore(db, notificationService),
+  scrap: new PrismaScrapStore(db),
   rental: new PrismaRentalStore(db, notificationService),
   connect: new PrismaConnectStore(db, notificationService),
   valuation: new PrismaValuationStore(db),

@@ -45,6 +45,8 @@ import {
 } from '../services/rental-api';
 import { kmPackageSummary } from '../services/rental-km';
 import { BrandLogo } from '../components/BrandLogo';
+import { ComingSoonNotice } from '../components/ComingSoonNotice';
+import { isFeatureOpen } from '../constants/features';
 import { safeBottom } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalHome'>;
@@ -66,7 +68,13 @@ const TIME_SLOTS = [
 
 const PRESET_DAYS = [1, 2, 3, 5, 7, 10, 14];
 
-export function RentalHomeScreen({ navigation }: Props) {
+/** Rentals are coming soon (see constants/features.ts): until they are opened, nobody can reach the booking screens from here. */
+export function RentalHomeScreen(props: Props) {
+  if (!isFeatureOpen('rental')) return <ComingSoonNotice featureKey="rental" onBack={() => props.navigation.goBack()} />;
+  return <RentalHomeContent {...props} />;
+}
+
+function RentalHomeContent({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
   const { state: authState } = useAuth();

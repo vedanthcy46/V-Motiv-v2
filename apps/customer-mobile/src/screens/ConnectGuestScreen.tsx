@@ -112,6 +112,11 @@ export function ConnectGuestScreen() {
   const [phase, setPhase] = useState<SessionPhase>('READY');
   const [sessionMode, setSessionMode] = useState<SessionMode>('VOICE');
   const [activeCallSessionId, setActiveCallSessionId] = useState<string | null>(null);
+  // The call that is currently open, kept in a ref so ending it always knows which call to close (endSession is created once).
+  const liveSessionRef = useRef<{ token: string; sessionId: string } | null>(null);
+  // Safety nets that end the call when the other side goes away without a clean hang-up (see endSession and the call setup).
+  const connectionLostTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ownerLeftTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [callDuration, setCallDuration] = useState(0);
   const [isMuted, setIsMuted] = useState(false);
   const [speakerphoneOn, setSpeakerphoneOn] = useState(false);
@@ -197,10 +202,21 @@ export function ConnectGuestScreen() {
       clearInterval(pollTimerRef.current);
       pollTimerRef.current = null;
     }
+    // Tell the owner. The live message alone is not enough: it is lost if the socket is not connected yet or is closed straight away,
+    // which left the owner's call open after the caller hung up. The saved HANGUP signal closes the call on the server, and the owner's
+    // screen sees that within a couple of seconds even if the live message never arrives. If the owner already ended it, this is refused
+    // as "closed", which is fine.
+    const live = liveSessionRef.current;
+    liveSessionRef.current = null;
+    if (connectionLostTimerRef.current) { clearTimeout(connectionLostTimerRef.current); connectionLostTimerRef.current = null; }
+    if (ownerLeftTimerRef.current) { clearTimeout(ownerLeftTimerRef.current); ownerLeftTimerRef.current = null; }
     if (socketRef.current) {
       socketRef.current.emit('call:hangup');
       socketRef.current.disconnect();
       socketRef.current = null;
+    }
+    if (live) {
+      void sendPublicCallSignal(live.token, live.sessionId, 'HANGUP', {}).catch(() => undefined);
     }
     if (localStreamRef.current) {
       localStreamRef.current.getTracks().forEach(t => t.stop());
@@ -237,6 +253,7 @@ export function ConnectGuestScreen() {
       // 1. Request/create call session
       const call = await requestPublicConnectCall(token, mode);
       const sessionId = call.callSessionId;
+      liveSessionRef.current = { token, sessionId };
       setActiveCallSessionId(sessionId);
 
       // 2. Fetch visitor realtime ticket for Socket.IO
@@ -275,7 +292,21 @@ export function ConnectGuestScreen() {
       };
 
       socket.on('peer:joined', ({ from }: any) => {
-        if (from === 'OWNER') resendGuestOffer();
+        if (from === 'OWNER') {
+          if (ownerLeftTimerRef.current) { clearTimeout(ownerLeftTimerRef.current); ownerLeftTimerRef.current = null; }
+          resendGuestOffer();
+        }
+      });
+
+      // The owner's connection dropped without a hang-up (app closed, signal lost): end after a short grace period, unless they come back.
+      socket.on('peer:left', ({ from }: any) => {
+        if (from !== 'OWNER' || ownerLeftTimerRef.current || !liveSessionRef.current) return;
+        ownerLeftTimerRef.current = setTimeout(() => {
+          ownerLeftTimerRef.current = null;
+          if (!liveSessionRef.current) return;
+          Alert.alert('Session Ended', 'The vehicle owner has left the call.');
+          endSession();
+        }, 10_000);
       });
 
       socket.on('call:ready', () => {
@@ -355,8 +386,24 @@ export function ConnectGuestScreen() {
           };
 
           pc.onconnectionstatechange = () => {
-            if (pc.connectionState === 'connected') {
+            if (peerRef.current !== pc) return; // this call has already been ended
+            const state = pc.connectionState;
+            if (state === 'connected') {
+              if (connectionLostTimerRef.current) { clearTimeout(connectionLostTimerRef.current); connectionLostTimerRef.current = null; }
               setPhase('CONNECTED');
+            } else if (state === 'failed' || state === 'closed') {
+              // The audio link is gone for good: do not leave the screen on a call nobody is on.
+              Alert.alert('Call ended', 'The call connection was lost.');
+              endSession();
+            } else if (state === 'disconnected' && !connectionLostTimerRef.current) {
+              // Often a brief blip that recovers by itself, so wait a few seconds before giving up.
+              connectionLostTimerRef.current = setTimeout(() => {
+                connectionLostTimerRef.current = null;
+                if (peerRef.current === pc && pc.connectionState !== 'connected') {
+                  Alert.alert('Call ended', 'The call connection was lost.');
+                  endSession();
+                }
+              }, 8_000);
             }
           };
 
@@ -401,6 +448,13 @@ export function ConnectGuestScreen() {
       pollTimerRef.current = setInterval(async () => {
         try {
           const response = await fetchPublicCallSignals(token, sessionId, signalCursor.current);
+          if (!liveSessionRef.current) return; // the call was ended while this request was in flight
+          // The call's own status is the source of truth: even if the HANGUP signal itself was missed, a closed call is over.
+          if (response.status === 'CLOSED' || response.status === 'DECLINED') {
+            Alert.alert('Session Ended', response.status === 'DECLINED' ? 'The vehicle owner declined this call.' : 'The vehicle owner has ended the call.');
+            endSession();
+            return;
+          }
           for (const signal of response.items) {
             signalCursor.current = signal.createdAt;
             const pc = peerRef.current;

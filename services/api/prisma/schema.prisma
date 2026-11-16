@@ -526,6 +526,7 @@ model User {
   rentalDriverVerifications RentalDriverVerification[]
   rentalAgreements RentalAgreementAcceptance[]
   connectLinks CustomerGarageConnectLink[]
+  scrapRequests ScrapRequest[] @relation("ScrapRequestCustomer")
   connectNotifications ConnectNotificationReference[]
 }
 model CustomerAddress {
@@ -1133,7 +1134,12 @@ model VehicleHandover {
 model VehicleStockUnit {
   id String @id @default(uuid()) @db.Uuid
   stockCode String @unique
-  acquisitionCaseId String @unique @db.Uuid
+  /// Null for opening stock: a car the hub already owned before the app existed, so it has no lead, inspection or purchase case.
+  acquisitionCaseId String? @unique @db.Uuid
+  /// ACQUISITION (bought through the app's flow) or OPENING_STOCK (entered by hand for a car that was already there).
+  source String @default("ACQUISITION")
+  /// For opening stock: documents on file, who entered it and when.
+  openingStockDetails Json?
   vehicleId String? @unique @db.Uuid
   branchId String? @db.Uuid
   receivedByEmployeeId String @db.Uuid
@@ -1152,7 +1158,7 @@ model VehicleStockUnit {
   version Int @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  acquisitionCase AcquisitionCase @relation(fields: [acquisitionCaseId], references: [id], onDelete: Restrict)
+  acquisitionCase AcquisitionCase? @relation(fields: [acquisitionCaseId], references: [id], onDelete: Restrict)
   vehicle Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
   branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
   workOrders RefurbishmentWorkOrder[]
@@ -2181,6 +2187,7 @@ model CustomerVehicle {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
   serviceRequests ServiceRequest[]
   connectLinks CustomerGarageConnectLink[]
+  scrapRequests ScrapRequest[]
 
   @@index([userId, isArchived])
   @@index([registrationNumber])
@@ -3020,4 +3027,725 @@ model AppConfig {
   updatedAt DateTime @updatedAt
 
   @@unique([app, platform])
+}
+
+// =============================================================================
+// Vehicle scrapping (see docs/SCRAP_MODULE_ARCHITECTURE.md)
+//
+// V MOTIV coordinates a customer, inspectors and an authorised Registered Vehicle Scrapping Facility (RVSF). It is not the RVSF and not a
+// government service. Everything below that sounds official (certificates, registration status) is a RECORD of evidence received from the
+// real issuer, with an honest verification state; nothing here generates an official document.
+//
+// Conventions: money is BigInt paise; staff references are plain UUID columns (the Employee/User models are shared across the platform and are
+// not changed here); the case status and the financial / registration / pickup / certificate states are kept apart on purpose.
+// =============================================================================
+
+enum ScrapRequestStatus {
+  DRAFT
+  SUBMITTED
+  SALES_REVIEW
+  DOCUMENTS_REQUIRED
+  ASSESSMENT_PENDING
+  ASSESSMENT_COMPLETED
+  OPERATIONS_REVIEW
+  PARTNER_QUOTE_PENDING
+  OFFER_PENDING_CUSTOMER
+  OFFER_ACCEPTED
+  COLLECTION_SCHEDULED
+  COLLECTED
+  FACILITY_RECEIVED
+  DEPOSIT_CONFIRMED
+  SCRAPPING_IN_PROGRESS
+  SCRAPPING_COMPLETED
+  REGISTRATION_UPDATE_PENDING
+  COMPLETED
+  ON_HOLD
+  REJECTED
+  CANCELLED
+}
+
+/** Where the customer's money stands. Derived from verified transactions; never set from a screen. */
+enum ScrapPaymentRollup {
+  NOT_APPLICABLE
+  NOT_STARTED
+  OBLIGATION_RECORDED
+  PARTIALLY_PAID
+  PAID_VERIFIED
+  FAILED
+  DISPUTED
+}
+
+/** Follow-up of the vehicle's registration record after scrapping. Separate from the case status. */
+enum ScrapRegistrationStatus {
+  NOT_STARTED
+  PENDING
+  EVIDENCE_RECEIVED
+  VERIFIED
+  FAILED
+}
+
+enum ScrapPartnerStatus {
+  PENDING_VERIFICATION
+  ACTIVE
+  SUSPENDED
+  DEREGISTERED
+}
+
+enum ScrapDocumentStatus {
+  REQUESTED
+  UPLOADED
+  UNDER_REVIEW
+  ACCEPTED
+  REJECTED
+  EXPIRED
+}
+
+enum ScrapEstimateStatus {
+  ESTIMATED
+  QUOTATION_REQUIRED
+  EXPIRED
+}
+
+enum ScrapAssessmentStatus {
+  ASSIGNED
+  ACCEPTED
+  IN_PROGRESS
+  SUBMITTED
+  APPROVED
+  REINSPECTION_REQUIRED
+  SUPERSEDED
+}
+
+enum ScrapQuoteStatus {
+  RECEIVED
+  UNDER_VERIFICATION
+  VERIFIED
+  REJECTED
+  EXPIRED
+  SUPERSEDED
+}
+
+enum ScrapOfferStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  SENT_TO_CUSTOMER
+  ACCEPTED
+  REJECTED
+  EXPIRED
+  SUPERSEDED
+  WITHDRAWN
+}
+
+enum ScrapOfferDecision {
+  ACCEPTED
+  REJECTED
+}
+
+enum ScrapPickupStatus {
+  SCHEDULED
+  CUSTOMER_CONFIRMED
+  AGENT_ASSIGNED
+  COLLECTED
+  FAILED
+  RESCHEDULED
+  CANCELLED
+}
+
+enum ScrapCustodianType {
+  CUSTOMER
+  TRANSPORT
+  FACILITY
+  VMOTIV
+}
+
+enum ScrapCertificateType {
+  CERTIFICATE_OF_DEPOSIT
+  CERTIFICATE_OF_VEHICLE_SCRAPPING
+}
+
+enum ScrapVerificationState {
+  PENDING
+  RECEIVED
+  UNDER_REVIEW
+  VERIFIED
+  REJECTED
+  DISPUTED
+}
+
+enum ScrapPayerType {
+  RVSF
+  VMOTIV
+}
+
+enum ScrapObligationStatus {
+  RECORDED
+  PARTIALLY_SETTLED
+  SETTLED
+  FAILED
+  DISPUTED
+  CANCELLED
+}
+
+enum ScrapTransactionKind {
+  PAYMENT
+  REVERSAL
+  ADJUSTMENT
+}
+
+enum ScrapTransactionStatus {
+  PENDING_VERIFICATION
+  VERIFIED
+  FAILED
+}
+
+enum ScrapSettlementStatus {
+  DRAFT
+  PENDING_APPROVAL
+  APPROVED
+  PAID
+  DISPUTED
+}
+
+enum ScrapDisputeStatus {
+  OPEN
+  UNDER_REVIEW
+  ESCALATED
+  RESOLVED
+  REJECTED
+}
+
+model ScrapRequest {
+  id String @id @default(uuid()) @db.Uuid
+  requestNumber String @unique
+  customerId String @db.Uuid
+  customer User @relation("ScrapRequestCustomer", fields: [customerId], references: [id], onDelete: Restrict)
+  /// Set when the customer picked a car from My Garage. The garage entry is not changed by scrapping.
+  customerVehicleId String? @db.Uuid
+  customerVehicle CustomerVehicle? @relation(fields: [customerVehicleId], references: [id], onDelete: SetNull)
+  status ScrapRequestStatus @default(DRAFT)
+  /// While ON_HOLD: where the case was, so it can only resume there.
+  holdFromStatus ScrapRequestStatus?
+  holdReason String?
+  /// Upper-case letters and digits only. Used to refuse a second active request for the same car (see the partial unique index in the migration).
+  registrationNormalized String?
+  city String?
+  pickupAddress Json?
+  /// What the customer declared about ownership, loans, dues and claims. A declaration is not proof of ownership.
+  ownershipDeclaration Json?
+  ownershipDeclaredAt DateTime?
+  /// Reasons the case cannot move past sales review (for example a legal restriction or stolen-vehicle concern), set by staff.
+  blockingFlags String[] @default([])
+  salesAssigneeId String? @db.Uuid
+  opsAssigneeId String? @db.Uuid
+  partnerId String? @db.Uuid
+  partner ScrapPartner? @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  paymentState ScrapPaymentRollup @default(NOT_STARTED)
+  registrationStatus ScrapRegistrationStatus @default(NOT_STARTED)
+  /// Client-generated key so a retried or double-tapped submit creates one request.
+  submissionKey String?
+  /// While DRAFT: the customer's answers so far (vehicle, questionnaire, ownership, pickup address) as one payload. It is turned into proper rows at submit, and cleared.
+  draftData Json?
+  /// Bumped on every change; a writer must present the version it read.
+  version Int @default(1)
+  submittedAt DateTime?
+  completedAt DateTime?
+  cancelledAt DateTime?
+  cancelReason String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  vehicle ScrapVehicleSnapshot?
+  answers ScrapConditionAnswer[]
+  documents ScrapDocument[]
+  estimates ScrapEstimate[]
+  assessments ScrapAssessment[]
+  quotes ScrapPartnerQuote[]
+  offers ScrapOffer[]
+  pickups ScrapPickup[]
+  custodyEvents ScrapCustodyEvent[]
+  certificates ScrapCertificate[]
+  obligations ScrapPaymentObligation[]
+  settlements ScrapSettlement[]
+  statusEvents ScrapStatusEvent[]
+  disputes ScrapDispute[]
+
+  @@unique([customerId, submissionKey])
+  @@index([customerId, status, createdAt])
+  @@index([status, createdAt])
+  @@index([salesAssigneeId, status])
+  @@index([partnerId, status])
+  @@index([registrationNormalized])
+}
+
+/// The vehicle as the customer described it. Nothing here is officially verified: RC and VIN are customer-declared until staff verify them.
+model ScrapVehicleSnapshot {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @unique @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  registrationNumber String
+  make String
+  model String
+  variant String?
+  manufacturingYear Int
+  registrationYear Int?
+  fuelType String
+  /// Drives the valuation strategy and which partners may take it (for example PASSENGER_CAR, TWO_WHEELER, COMMERCIAL).
+  vehicleCategory String
+  odometerKm Int?
+  vin String?
+  isElectric Boolean @default(false)
+  /// Estimated by the customer or category defaults until an assessor records a measured weight.
+  estimatedWeightKg Int?
+  measuredWeightKg Int?
+  /// CUSTOMER_DECLARED until a staff member checks it against evidence; never "official" by itself.
+  identitySource String @default("CUSTOMER_DECLARED")
+  identityVerifiedAt DateTime?
+  identityVerifiedById String? @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model ScrapConditionAnswer {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  questionKey String
+  answer Json
+  /// The version of the questionnaire the customer saw, so old answers stay readable if questions change.
+  questionnaireVersion Int @default(1)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([requestId, questionKey])
+}
+
+/// A document or photo of the vehicle. The file lives in PRIVATE storage; only a storage key is kept here, never a public URL.
+model ScrapDocument {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  /// A key from the document policy (for example RC, ID_PROOF, LOAN_NOC, VEHICLE_PHOTO), so the list can change without a migration.
+  documentType String
+  status ScrapDocumentStatus @default(REQUESTED)
+  storageKey String?
+  mimeType String?
+  sizeBytes Int?
+  checksumSha256 String?
+  uploadedById String? @db.Uuid
+  reviewedById String? @db.Uuid
+  reviewedAt DateTime?
+  rejectionReason String?
+  expiresAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([requestId, documentType])
+  @@index([status, createdAt])
+}
+
+/// A rough figure shown to the customer early, or "quotation required" when there is no approved data to compute one. Never a promise.
+model ScrapEstimate {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  version Int
+  status ScrapEstimateStatus
+  /// Which calculation produced it, so an old estimate can be explained later.
+  calculationVersion String
+  /// The data used: category, weight, the material prices / rate card and their timestamps. Null when no estimate could be made.
+  sourceData Json?
+  adjustments Json?
+  minPaise BigInt?
+  maxPaise BigInt?
+  currency String @default("INR")
+  computedAt DateTime @default(now())
+  expiresAt DateTime?
+
+  @@unique([requestId, version])
+}
+
+/// An inspector's assessment. Once SUBMITTED it never changes: a correction is a new version that supersedes it.
+model ScrapAssessment {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  version Int
+  status ScrapAssessmentStatus @default(ASSIGNED)
+  inspectorId String @db.Uuid
+  assignedById String @db.Uuid
+  scheduledAt DateTime?
+  address Json?
+  checklist Json?
+  observations String?
+  hazards String[] @default([])
+  measuredWeightKg Int?
+  submittedAt DateTime?
+  reviewedById String? @db.Uuid
+  reviewedAt DateTime?
+  reviewNotes String?
+  supersedesId String? @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  media ScrapAssessmentMedia[]
+
+  @@unique([requestId, version])
+  @@index([inspectorId, status, scheduledAt])
+}
+
+model ScrapAssessmentMedia {
+  id String @id @default(uuid()) @db.Uuid
+  assessmentId String @db.Uuid
+  assessment ScrapAssessment @relation(fields: [assessmentId], references: [id], onDelete: Restrict)
+  /// What the photo shows (for example VIN_PLATE, ENGINE_BAY, FRONT, REAR, DAMAGE).
+  kind String
+  storageKey String
+  mimeType String
+  checksumSha256 String?
+  capturedAt DateTime
+  /// Only when the inspector's device legitimately provided it.
+  latitude Decimal? @db.Decimal(9, 6)
+  longitude Decimal? @db.Decimal(9, 6)
+  createdAt DateTime @default(now())
+
+  @@index([assessmentId])
+}
+
+/// A Registered Vehicle Scrapping Facility. It only receives cases once a person at V MOTIV has verified it and it is ACTIVE; typing a
+/// registration reference is not verification.
+model ScrapPartner {
+  id String @id @default(uuid()) @db.Uuid
+  legalName String
+  registrationReference String @unique
+  registeredAddress String
+  serviceAreas String[] @default([])
+  approvedCategories String[] @default([])
+  status ScrapPartnerStatus @default(PENDING_VERIFICATION)
+  /// How it was checked (for example MANUAL_DOCUMENT_REVIEW now, OFFICIAL_PORTAL_LOOKUP only once such an integration exists) and the evidence.
+  verificationMethod String?
+  verificationEvidence Json?
+  verifiedById String? @db.Uuid
+  verifiedAt DateTime?
+  registrationValidUntil DateTime?
+  suspendedAt DateTime?
+  suspendedById String? @db.Uuid
+  suspensionReason String?
+  settlementArrangement String?
+  collectionCapabilities Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  contacts ScrapPartnerContact[]
+  contracts ScrapPartnerContract[]
+  requests ScrapRequest[]
+  quotes ScrapPartnerQuote[]
+  settlements ScrapSettlement[]
+  certificates ScrapCertificate[]
+
+  @@index([status])
+}
+
+model ScrapPartnerContact {
+  id String @id @default(uuid()) @db.Uuid
+  partnerId String @db.Uuid
+  partner ScrapPartner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  name String
+  email String
+  phone String?
+  /// Set when this contact has a login (so partner-side access can be limited to their own facility's cases).
+  userId String? @db.Uuid
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  @@unique([partnerId, email])
+}
+
+model ScrapPartnerContract {
+  id String @id @default(uuid()) @db.Uuid
+  partnerId String @db.Uuid
+  partner ScrapPartner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  reference String
+  validFrom DateTime
+  validUntil DateTime?
+  documentKey String?
+  terms Json?
+  createdAt DateTime @default(now())
+
+  @@unique([partnerId, reference])
+}
+
+/// What a facility is willing to pay or charge for this vehicle. It is a record of a real quotation; it is never computed to look like one.
+model ScrapPartnerQuote {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  partnerId String @db.Uuid
+  partner ScrapPartner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  version Int
+  status ScrapQuoteStatus @default(RECEIVED)
+  /// What the facility offers to pay for the vehicle, before any V MOTIV or transport adjustment.
+  quotedAmountPaise BigInt
+  towingChargePaise BigInt @default(0)
+  processingChargePaise BigInt @default(0)
+  currency String @default("INR")
+  validUntil DateTime
+  rateCardReference String?
+  documentKey String?
+  receivedById String? @db.Uuid
+  receivedAt DateTime @default(now())
+  verifiedById String? @db.Uuid
+  verifiedAt DateTime?
+  rejectionReason String?
+  offers ScrapOffer[]
+
+  @@unique([requestId, partnerId, version])
+  @@index([status, validUntil])
+}
+
+/// What the customer is offered. Immutable once sent: a change is a new version that supersedes the old one.
+model ScrapOffer {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  quoteId String @db.Uuid
+  quote ScrapPartnerQuote @relation(fields: [quoteId], references: [id], onDelete: Restrict)
+  version Int
+  status ScrapOfferStatus @default(DRAFT)
+  customerPayoutPaise BigInt
+  currency String @default("INR")
+  /// Who pays the customer: the facility directly, or V MOTIV. V MOTIV is not assumed to hold customer funds.
+  payerType ScrapPayerType @default(RVSF)
+  calculationVersion String
+  adjustments Json?
+  terms Json?
+  termsVersion String?
+  /// Internal approval under the approval-threshold policy.
+  approvedById String? @db.Uuid
+  approvedAt DateTime?
+  sentAt DateTime?
+  expiresAt DateTime
+  supersedesId String? @db.Uuid
+  createdById String @db.Uuid
+  createdAt DateTime @default(now())
+  acceptance ScrapOfferAcceptance?
+  obligations ScrapPaymentObligation[]
+
+  @@unique([requestId, version])
+  @@index([status, expiresAt])
+}
+
+/// The customer's explicit decision on one offer version. One decision per offer.
+model ScrapOfferAcceptance {
+  id String @id @default(uuid()) @db.Uuid
+  offerId String @unique @db.Uuid
+  offer ScrapOffer @relation(fields: [offerId], references: [id], onDelete: Restrict)
+  customerId String @db.Uuid
+  decision ScrapOfferDecision
+  decidedAt DateTime @default(now())
+  termsVersion String?
+  note String?
+  /// Evidence of who agreed, kept hashed or coarse (no raw IP): device and a salted network hash.
+  deviceInfo Json?
+  networkHash String?
+}
+
+model ScrapPickup {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  version Int
+  status ScrapPickupStatus @default(SCHEDULED)
+  windowStart DateTime
+  windowEnd DateTime
+  address Json
+  customerConfirmedAt DateTime?
+  agentName String?
+  agentPhone String?
+  agentEmployeeId String? @db.Uuid
+  transportProvider String?
+  /// Whether the collected vehicle was matched to the request (registration / chassis check), with the evidence.
+  identityMatched Boolean?
+  identityEvidence Json?
+  failureReason String?
+  scheduledById String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  custodyEvents ScrapCustodyEvent[]
+
+  @@unique([requestId, version])
+  @@index([status, windowStart])
+}
+
+/// Who had the vehicle, and when it changed hands. Insert-only: a mistake is corrected by a later event, never by editing an old one.
+/// Pickup completion is not facility receipt, and facility receipt is not completed scrapping.
+model ScrapCustodyEvent {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  pickupId String? @db.Uuid
+  pickup ScrapPickup? @relation(fields: [pickupId], references: [id], onDelete: Restrict)
+  /// For example PICKUP_COLLECTED, KEYS_AND_DOCUMENTS_HANDED_OVER, TRANSPORT_ACKNOWLEDGED, FACILITY_RECEIVED, EXCEPTION.
+  action String
+  fromCustodianType ScrapCustodianType?
+  fromCustodianRef String?
+  toCustodianType ScrapCustodianType
+  toCustodianRef String?
+  actorId String? @db.Uuid
+  actorType String
+  occurredAt DateTime
+  location Json?
+  evidence Json?
+  exceptionReason String?
+  createdAt DateTime @default(now())
+
+  @@index([requestId, occurredAt])
+}
+
+/// A record of an official certificate received from the facility or authority. We never create one; `verificationState` says honestly how far
+/// it has been checked, and `verificationMethod` says by what (a manual document review is not a government verification).
+model ScrapCertificate {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  type ScrapCertificateType
+  officialReference String
+  issuingPartnerId String @db.Uuid
+  issuingPartner ScrapPartner @relation(fields: [issuingPartnerId], references: [id], onDelete: Restrict)
+  issuedAt DateTime
+  /// The original document, in private storage.
+  storageKey String
+  verificationState ScrapVerificationState @default(RECEIVED)
+  verificationMethod String?
+  verificationEvidence Json?
+  verifiedById String? @db.Uuid
+  verifiedAt DateTime?
+  rejectionReason String?
+  receivedById String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([requestId, type, officialReference])
+  @@index([requestId, type, verificationState])
+}
+
+/// What is owed to the customer, by whom. Recorded from the accepted offer; V MOTIV may only be the payer when the offer says so.
+model ScrapPaymentObligation {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  offerId String @db.Uuid
+  offer ScrapOffer @relation(fields: [offerId], references: [id], onDelete: Restrict)
+  payerType ScrapPayerType
+  amountPaise BigInt
+  currency String @default("INR")
+  status ScrapObligationStatus @default(RECORDED)
+  dueBy DateTime?
+  /// The payee as recorded, masked (for example the last four digits), never the full account number.
+  beneficiary Json?
+  createdById String @db.Uuid
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  transactions ScrapPaymentTransaction[]
+
+  @@unique([offerId, payerType])
+  @@index([requestId])
+}
+
+/// Money that moved, or was reversed. Insert-only. A transaction counts as paid only once it is VERIFIED against real evidence by a person
+/// with that permission; a response from an app screen is never evidence.
+model ScrapPaymentTransaction {
+  id String @id @default(uuid()) @db.Uuid
+  obligationId String @db.Uuid
+  obligation ScrapPaymentObligation @relation(fields: [obligationId], references: [id], onDelete: Restrict)
+  kind ScrapTransactionKind @default(PAYMENT)
+  amountPaise BigInt
+  currency String @default("INR")
+  /// Repeating a request with the same key returns the same transaction instead of creating a second one.
+  idempotencyKey String @unique
+  method String?
+  externalReference String?
+  status ScrapTransactionStatus @default(PENDING_VERIFICATION)
+  evidence Json?
+  failureReason String?
+  recordedById String @db.Uuid
+  verifiedById String? @db.Uuid
+  verifiedAt DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([obligationId, status])
+}
+
+/// What V MOTIV and the facility settle between themselves (commission, expenses, transport). Not the customer's payout.
+model ScrapSettlement {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  partnerId String @db.Uuid
+  partner ScrapPartner @relation(fields: [partnerId], references: [id], onDelete: Restrict)
+  version Int
+  grossPaise BigInt
+  commissionPaise BigInt @default(0)
+  processingExpensePaise BigInt @default(0)
+  transportPaise BigInt @default(0)
+  netPaise BigInt
+  currency String @default("INR")
+  status ScrapSettlementStatus @default(DRAFT)
+  preparedById String @db.Uuid
+  approvedById String? @db.Uuid
+  approvedAt DateTime?
+  notes String?
+  createdAt DateTime @default(now())
+
+  @@unique([requestId, partnerId, version])
+}
+
+/// Every change of case status: who, when, why, with what evidence. Insert-only.
+model ScrapStatusEvent {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  fromStatus ScrapRequestStatus?
+  toStatus ScrapRequestStatus
+  actorId String? @db.Uuid
+  /// CUSTOMER, STAFF, PARTNER or SYSTEM.
+  actorType String
+  reason String?
+  evidence Json?
+  correlationId String?
+  createdAt DateTime @default(now())
+
+  @@index([requestId, createdAt])
+}
+
+model ScrapDispute {
+  id String @id @default(uuid()) @db.Uuid
+  requestId String @db.Uuid
+  request ScrapRequest @relation(fields: [requestId], references: [id], onDelete: Restrict)
+  raisedById String @db.Uuid
+  raisedByType String
+  /// For example PRICE_DISCREPANCY, WRONG_BENEFICIARY, CERTIFICATE_MISMATCH, PICKUP_DAMAGE, OTHER.
+  category String
+  description String
+  status ScrapDisputeStatus @default(OPEN)
+  assignedToId String? @db.Uuid
+  resolution String?
+  resolvedById String? @db.Uuid
+  resolvedAt DateTime?
+  evidence Json?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([requestId, status])
+  @@index([status, createdAt])
+}
+
+/// Rules an administrator can change without a release: required documents, approval thresholds, SLAs, cancellation policy, eligible
+/// locations and vehicle categories. Versioned so an old case can be explained under the rule that applied.
+model ScrapPolicy {
+  key String @id
+  value Json
+  version Int @default(1)
+  updatedById String? @db.Uuid
+  updatedAt DateTime @updatedAt
+  createdAt DateTime @default(now())
 }

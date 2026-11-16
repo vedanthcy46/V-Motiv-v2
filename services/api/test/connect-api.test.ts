@@ -670,6 +670,40 @@ describe('V MOTIV V2 — Connect Integration API Suite', () => {
     });
   });
 
+  it('28. when the caller hangs up an answered call, the owner call poll reports it CLOSED', async () => {
+    const ctx = setupApp();
+    const issue = await request(ctx.app).post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/issue`).set('Authorization', 'Bearer valid-customer-token').send({});
+    const token = issue.body.stickerUrl.split('/').pop();
+    const call = await request(ctx.app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode: 'VOICE' });
+    await request(ctx.app).post(`/api/v2/customer/connect/calls/${call.body.callSessionId}/respond`).set('Authorization', 'Bearer valid-customer-token').send({ decision: 'ACCEPT' });
+    const before = await request(ctx.app).get(`/api/v2/customer/connect/calls/${call.body.callSessionId}/signals`).set('Authorization', 'Bearer valid-customer-token');
+    expect(before.body.status).toBe('ACCEPTED');
+
+    const hangup = await request(ctx.app).post(`/api/v2/public/connect/${token}/calls/${call.body.callSessionId}/signals`).send({ kind: 'HANGUP', payload: {} });
+    expect(hangup.status).toBe(201);
+    const after = await request(ctx.app).get(`/api/v2/customer/connect/calls/${call.body.callSessionId}/signals`).set('Authorization', 'Bearer valid-customer-token');
+    expect(after.status).toBe(200);
+    expect(after.body.status).toBe('CLOSED');
+    // a second hang-up (for example the owner had already ended it) is refused as closed and is harmless
+    const again = await request(ctx.app).post(`/api/v2/public/connect/${token}/calls/${call.body.callSessionId}/signals`).send({ kind: 'HANGUP', payload: {} });
+    expect(again.status).toBe(409);
+  });
+
+  it('29. when the owner hangs up, the caller call poll reports it CLOSED and carries the HANGUP signal', async () => {
+    const ctx = setupApp();
+    const issue = await request(ctx.app).post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/issue`).set('Authorization', 'Bearer valid-customer-token').send({});
+    const token = issue.body.stickerUrl.split('/').pop();
+    const call = await request(ctx.app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode: 'VOICE' });
+    await request(ctx.app).post(`/api/v2/customer/connect/calls/${call.body.callSessionId}/respond`).set('Authorization', 'Bearer valid-customer-token').send({ decision: 'ACCEPT' });
+
+    const hangup = await request(ctx.app).post(`/api/v2/customer/connect/calls/${call.body.callSessionId}/signals`).set('Authorization', 'Bearer valid-customer-token').send({ kind: 'HANGUP', payload: {} });
+    expect(hangup.status).toBe(201);
+    const poll = await request(ctx.app).get(`/api/v2/public/connect/${token}/calls/${call.body.callSessionId}/signals`);
+    expect(poll.status).toBe(200);
+    expect(poll.body.status).toBe('CLOSED');
+    expect(poll.body.items.some((item: { kind: string }) => item.kind === 'HANGUP')).toBe(true);
+  });
+
   it('13. POST /api/v2/public/connect/:token/alerts supports photos and POST /:token/photos uploads image', async () => {
     const { app, alerts } = setupApp();
     const issue = await request(app)

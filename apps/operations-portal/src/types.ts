@@ -198,10 +198,22 @@ export type VehicleHandover = {
   version: number;
 };
 
+/** What happened to each row of an opening-stock import (row = position among the cars sent, starting at 1). */
+export type OpeningStockBulkResult = {
+  dryRun: boolean;
+  total: number;
+  created: number;
+  wouldCreate: number;
+  failed: number;
+  items: Array<{ row: number; registrationNumber: string; status: 'CREATED' | 'WOULD_CREATE' | 'FAILED'; stockId?: string; stockCode?: string; code?: string; message?: string }>;
+};
+
 export type VehicleStockUnit = {
   id: string;
   stockCode: string;
-  acquisitionCaseId: string;
+  /** Null for opening stock: a car the hub already owned before the app existed. */
+  acquisitionCaseId?: string | null;
+  source?: 'ACQUISITION' | 'OPENING_STOCK';
   vehicleId?: string | null;
   branchId?: string | null;
   branch?: Branch | null;

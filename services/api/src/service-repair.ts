@@ -68,6 +68,10 @@ WHERE sr.id = plan.id
 export const ENSURE_COLUMNS_SQL = [
   // 20261109020000_notification_dismissed_at
   `ALTER TABLE "Notification" ADD COLUMN IF NOT EXISTS "dismissedAt" TIMESTAMP(3)`,
+  // 20261116000000_opening_stock
+  `ALTER TABLE "VehicleStockUnit" ALTER COLUMN "acquisitionCaseId" DROP NOT NULL`,
+  `ALTER TABLE "VehicleStockUnit" ADD COLUMN IF NOT EXISTS "source" TEXT NOT NULL DEFAULT 'ACQUISITION'`,
+  `ALTER TABLE "VehicleStockUnit" ADD COLUMN IF NOT EXISTS "openingStockDetails" JSONB`,
 ];
 
 /** Never throws: if the database refuses, the API still starts (and the migration can be run by hand). */

@@ -18,8 +18,10 @@ import type {
   ServiceJobItem,
   ServiceQueueResponse,
   TestDrive,
+  OpeningStockBulkResult,
   VehicleStockUnit,
 } from './types';
+import type { OpeningStockRow } from './openingStockCsv';
 
 import { ApiError, createApiClient, resolveApiBase, type ApiClient } from '@vmotiv/ui';
 
@@ -156,6 +158,11 @@ export const api = {
 
   // --- Inventory & Stock Units ---
   inventory: (u: User) => call<VehicleStockUnit[]>(u, '/operations/inventory'),
+  /** A car the hub already owned before the app existed. It arrives as received stock and must pass inspection before it is listed. */
+  addOpeningStock: (u: User, body: OpeningStockRow & { branchId: string }) =>
+    call<VehicleStockUnit>(u, '/operations/inventory/opening-stock', { method: 'POST', body: JSON.stringify(body) }),
+  addOpeningStockBulk: (u: User, body: { branchId: string; dryRun: boolean; items: OpeningStockRow[] }) =>
+    call<OpeningStockBulkResult>(u, '/operations/inventory/opening-stock/bulk', { method: 'POST', body: JSON.stringify(body) }),
   updateStockVehicleSpecs: (
     u: User,
     stockId: string,
@@ -228,6 +235,7 @@ export const api = {
       verifiedTags?: string[];
       mediaUrls?: string[];
       branchId?: string;
+      registrationNumber?: string;
       expectedVersion: number;
     }
   ) => call<unknown>(u, `/operations/inventory/${stockId}/prepare-listing`, { method: 'POST', body: JSON.stringify(body) }),

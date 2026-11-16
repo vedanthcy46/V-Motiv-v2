@@ -17,6 +17,7 @@ import {
   type User,
 } from 'firebase/auth';
 import { auth, firebaseConfigured } from './firebase';
+import { OpeningStockTools } from './components/OpeningStockTools';
 import { api, ApiError, operationsNotifications } from './api';
 import type {
   AcquisitionCase,
@@ -926,16 +927,15 @@ export const App: FC = () => {
           mediaUrls: allUrls,
         });
       } else {
-        // Registration number is a stock-level detail; keep it in step before the listing is prepared.
-        if (studioRegistration.trim() && studioRegistration.trim() !== (studioModal.stockItem.registrationNumber ?? '')) {
-          await api.updateListing(user, studioModal.stockItem.id, { registrationNumber: studioRegistration.trim() }).catch(() => undefined);
-        }
+        // The registration number goes in the same request as the rest. Saving it separately first changed the record's version, so the
+        // main save below then failed with "someone else updated this record" against its own earlier save.
         await api.prepareListing(user, studioModal.stockItem.id, {
           title: studioTitle,
           color: studioColor || undefined,
           conditionSummary: studioSummary || undefined,
           mediaUrls: allUrls.length ? allUrls : undefined,
           branchId: studioBranchId || undefined,
+          registrationNumber: studioRegistration.trim() || undefined,
           expectedVersion: studioModal.stockItem.version,
         });
       }
@@ -2132,6 +2132,13 @@ export const App: FC = () => {
                 <button className="btn-secondary" onClick={() => void loadAllData()} disabled={loading}>
                   <IconRefresh />
                 </button>
+                {user ? (
+                  <OpeningStockTools
+                    user={user}
+                    branches={branches}
+                    onAdded={message => { setSuccessMsg(message); void loadAllData(); }}
+                  />
+                ) : null}
               </div>
             </div>
 
@@ -2154,6 +2161,9 @@ export const App: FC = () => {
                       <tr key={s.id}>
                         <td>
                           <strong>{s.stockCode}</strong>
+                          {s.source === 'OPENING_STOCK' ? (
+                            <span className="badge badge-info" style={{ marginLeft: '0.4rem' }} title="Entered by hand: a car the hub already owned before the app. It must pass inspection before it can be listed.">OPENING STOCK</span>
+                          ) : null}
                           <div style={{ fontSize: '0.75rem', color: 'var(--muted)' }}>Inwarded: {formatDate(s.createdAt)}</div>
                         </td>
                         <td>

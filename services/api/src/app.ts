@@ -43,6 +43,8 @@ import type { PrismaFinanceStore } from './finance-store.js';
 import type { NotificationService } from './notification/index.js';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaServiceStore } from './service-store.js';
+import { createScrapRouter } from './scrap/scrap-router.js';
+import type { PrismaScrapStore } from './scrap/scrap-store.js';
 import { createServiceCustomerRouter, createServiceOperationsRouter } from './service-router.js';
 import { createCashfreeRouter } from './cashfree-router.js';
 import type { PrismaRentalStore } from './rental-store.js';
@@ -160,6 +162,7 @@ export function createApp(deps: {
   notificationRouter?: Router;
   notificationService?: NotificationService;
   service?: PrismaServiceStore;
+  scrap?: PrismaScrapStore;
   rental?: PrismaRentalStore;
   connect?: PrismaConnectStore;
   valuation?: PrismaValuationStore;
@@ -320,6 +323,7 @@ export function createApp(deps: {
   const salesLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const financeLimiter = createLimiter({ windowMs: 60_000, limit: 60 });
   const serviceLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
+  const scrapLimiter = createLimiter({ windowMs: 60_000, limit: 90 });
   const rentalLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const connectLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const connectPublicLimiter = createLimiter({ windowMs: 15 * 60_000, limit: 30 });
@@ -420,6 +424,9 @@ export function createApp(deps: {
   if (deps.notificationRouter) {
     unifiedApiRouter.use(deps.notificationRouter);
   }
+
+  // Vehicle scrapping: customer routes under /customer/scrap, staff routes under /scrap.
+  if (deps.scrap) unifiedApiRouter.use(createScrapRouter({ verify: deps.verify, store: deps.scrap, limiter: scrapLimiter }));
 
   if (deps.service) {
     const serviceCustomerRouter = createServiceCustomerRouter({ verify: deps.verify, store: deps.service });

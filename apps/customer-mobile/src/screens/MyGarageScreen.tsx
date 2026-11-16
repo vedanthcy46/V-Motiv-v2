@@ -32,6 +32,7 @@ import {
   ChevronRight,
   Clock,
   Edit2,
+  Recycle,
   ExternalLink,
   Gauge,
   Lock,
@@ -820,6 +821,14 @@ export function MyGarageScreen() {
                 </TouchableOpacity>
 
                 <View style={styles.subActionsRow}>
+                  <TouchableOpacity
+                    onPress={() => navigation.navigate('ScrapRequest', { vehicleId: v.id })}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Scrap ${v.make} ${v.model}`}
+                    style={[styles.iconActionBtn, { borderColor: c.border }]}
+                  >
+                    <Recycle size={16} color={c.text} />
+                  </TouchableOpacity>
                   <TouchableOpacity
                     onPress={() => openEditModal(v)}
                     style={[styles.iconActionBtn, { borderColor: c.border }]}

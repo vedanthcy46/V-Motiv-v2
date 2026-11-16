@@ -12,6 +12,8 @@ import { readEnrolledFactorCount } from './src/auth/mfa-enrollment-service';
 import { OnboardingScreen } from './src/screens/OnboardingScreen';
 import { ThemeProvider, useAppTheme } from './src/theme';
 import { BrandRevealScreen } from './src/components/BrandRevealScreen';
+import { AppIntroScreen } from './src/components/AppIntroScreen';
+import { hasSeenAppIntro, markAppIntroSeen } from './src/services/app-intro';
 import { ConnectIncomingCallOverlay } from './src/components/ConnectIncomingCallOverlay';
 import { PaymentStatusHost } from './src/components/PaymentStatusHost';
 import { UpdateAvailableCard } from './src/components/UpdateAvailableCard';
@@ -89,8 +91,16 @@ function Root() {
 }
 
 function MainContent({ onFinishReveal }: { onFinishReveal: () => void }) {
-  const [revealed, setRevealed] = useState(false);
+  // brand -> (checking whether the introduction was seen) -> introduction, first launch only -> app
+  const [stage, setStage] = useState<'brand' | 'checking' | 'intro' | 'app'>('brand');
   const { theme, isDark } = useAppTheme();
+
+  useEffect(() => {
+    if (stage !== 'checking') return undefined;
+    let active = true;
+    void hasSeenAppIntro().then(seen => { if (active) setStage(seen ? 'app' : 'intro'); });
+    return () => { active = false; };
+  }, [stage]);
 
   const navTheme = useMemo(() => {
     const base = isDark ? DarkTheme : DefaultTheme;
@@ -116,16 +126,25 @@ function MainContent({ onFinishReveal }: { onFinishReveal: () => void }) {
         backgroundColor={theme.colors.surface}
         translucent={Platform.OS === 'android'}
       />
-      {revealed ? (
+      {stage === 'app' ? (
         <AuthProvider>
           <NavigationContainer<RootStack> ref={navigationRef} theme={navTheme} linking={linking}>
             <Root />
           </NavigationContainer>
         </AuthProvider>
+      ) : stage === 'intro' ? (
+        <AppIntroScreen
+          onFinish={() => {
+            void markAppIntroSeen();
+            setStage('app');
+          }}
+        />
+      ) : stage === 'checking' ? (
+        <View style={{ flex: 1, backgroundColor: theme.colors.background }} />
       ) : (
         <BrandRevealScreen
           onFinish={() => {
-            setRevealed(true);
+            setStage('checking');
             onFinishReveal();
           }}
         />
