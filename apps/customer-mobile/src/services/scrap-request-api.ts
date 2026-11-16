@@ -9,3 +9,16 @@ export interface ScrapRequestResult {
 
 export const sendScrapRequest = (payload: ReturnType<typeof toPayload>) =>
   api<ScrapRequestResult>('/api/v2/customer/scrap/requests', { method: 'POST', body: jsonBody(payload) });
+
+export interface ScrapListItem {
+  id: string;
+  requestNumber: string;
+  status: 'NEW' | 'CONTACTED' | 'CLOSED';
+  statusText: string;
+  vehicle: { registrationNumber: string; make: string; model: string; manufacturingYear: number };
+  city: string;
+  createdAt: string;
+}
+
+/** The customer's own scrap requests, newest first (for the Activity page). */
+export const listScrapRequests = () => api<{ items: ScrapListItem[] }>('/api/v2/customer/scrap/requests');

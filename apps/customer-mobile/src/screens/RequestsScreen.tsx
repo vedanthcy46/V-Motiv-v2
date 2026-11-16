@@ -24,12 +24,14 @@ import {
   IndianRupee,
   MapPin,
   QrCode,
+  Recycle,
   ShieldCheck,
   Wrench,
   XCircle,
 } from 'lucide-react-native';
 import { customer } from '../services/customer';
 import { fetchCustomerServiceRequests, type ServiceRequestSummary } from '../services/service-api';
+import { listScrapRequests, type ScrapListItem } from '../services/scrap-request-api';
 import { fetchCustomerRentals, type RentalBookingDetails } from '../services/rental-api';
 import { fetchConnectAlerts, markConnectAlertRead, type ConnectNotificationItem } from '../services/connect-api';
 import { useAuth } from '../auth/AuthProvider';
@@ -45,6 +47,7 @@ type FeedEntry =
   | { type: 'activity'; key: string; ts: number; item: ActivityItem }
   | { type: 'service'; key: string; ts: number; item: ServiceRequestSummary }
   | { type: 'rental'; key: string; ts: number; item: RentalBookingDetails }
+  | { type: 'scrap'; key: string; ts: number; item: ScrapListItem }
   | { type: 'connect'; key: string; ts: number; item: ConnectNotificationItem };
 
 function timeOf(value?: string | null): number {
@@ -52,7 +55,7 @@ function timeOf(value?: string | null): number {
   return Number.isFinite(t) ? t : 0;
 }
 
-type FilterTab = 'ALL' | 'CONNECT' | 'SERVICE' | 'RENTAL' | 'SELLING' | 'TEST_DRIVES' | 'PURCHASES' | 'SUPPORT';
+type FilterTab = 'ALL' | 'CONNECT' | 'SERVICE' | 'RENTAL' | 'SCRAP' | 'SELLING' | 'TEST_DRIVES' | 'PURCHASES' | 'SUPPORT';
 
 export function RequestsScreen() {
   const tabBottomPadding = useTabScreenBottomPadding();
@@ -70,6 +73,7 @@ export function RequestsScreen() {
   const [cases, setCases] = useState<SupportCase[]>([]);
   const [serviceRequests, setServiceRequests] = useState<ServiceRequestSummary[]>([]);
   const [rentals, setRentals] = useState<RentalBookingDetails[]>([]);
+  const [scrapRequests, setScrapRequests] = useState<ScrapListItem[]>([]);
   const [connectAlerts, setConnectAlerts] = useState<ConnectNotificationItem[]>([]);
   const [activityItems, setActivityItems] = useState<ActivityItem[]>([]);
   const [activityTotal, setActivityTotal] = useState(0);
@@ -87,17 +91,18 @@ export function RequestsScreen() {
       ...activityItems.map((item): FeedEntry => ({ type: 'activity', key: 'a:' + item.id, ts: timeOf(item.updatedAt), item })),
       ...serviceRequests.map((item): FeedEntry => ({ type: 'service', key: 's:' + item.id, ts: timeOf(item.createdAt), item })),
       ...rentals.map((item): FeedEntry => ({ type: 'rental', key: 'r:' + item.id, ts: timeOf(item.updatedAt || item.createdAt), item })),
+      ...scrapRequests.map((item): FeedEntry => ({ type: 'scrap', key: 'x:' + item.id, ts: timeOf(item.createdAt), item })),
       ...connectAlerts.map((item): FeedEntry => ({ type: 'connect', key: 'c:' + item.id, ts: timeOf(item.createdAt), item })),
     ];
     return entries.sort((x, y) => y.ts - x.ts);
-  }, [activityItems, serviceRequests, rentals, connectAlerts]);
+  }, [activityItems, serviceRequests, rentals, scrapRequests, connectAlerts]);
 
   // silent = background refresh: no spinner, keeps what is on screen, throws on failure so the refresher can back off.
   const loadData = useCallback(async (silent = false) => {
     if (state !== 'signed-in') return;
     try {
       if (!silent) setError('');
-      const [d, s, p, cs, activity, sr, ca, rnt, qt] = await Promise.all([
+      const [d, s, p, cs, activity, sr, ca, rnt, qt, scr] = await Promise.all([
         customer.testDrives(),
         customer.sellingRequests(),
         customer.purchaseEnquiries(),
@@ -107,6 +112,7 @@ export function RequestsScreen() {
         fetchConnectAlerts().catch(() => ({ items: [], total: 0, page: 1, limit: 20, totalPages: 1 })),
         fetchCustomerRentals().catch(() => []),
         customer.quotations().catch(() => [] as CustomerQuotation[]),
+        listScrapRequests().then(result => result.items).catch(() => [] as ScrapListItem[]),
       ]);
       setDrives(d);
       setSelling(s);
@@ -116,6 +122,7 @@ export function RequestsScreen() {
       setServiceRequests(sr);
       setConnectAlerts(ca.items || []);
       setRentals(rnt);
+      setScrapRequests(scr);
       setActivityItems(activity.items);
       setActivityTotal(activity.total);
       setActivityPage(activity.page);
@@ -200,7 +207,7 @@ export function RequestsScreen() {
     }
   }
 
-  const totalCount = activityTotal + connectAlerts.length + serviceRequests.length + rentals.length;
+  const totalCount = activityTotal + connectAlerts.length + serviceRequests.length + rentals.length + scrapRequests.length;
 
   function openActivity(item: ActivityItem) {
     if (item.kind === 'SELLING') {
@@ -518,6 +525,34 @@ export function RequestsScreen() {
     );
   }
 
+  /** A scrap request. There is no details page: our team phones the customer and handles the rest offline, so the card says where it stands. */
+  function renderScrapCard(item: ScrapListItem) {
+    const shownStatus = item.status === 'NEW' ? 'RECEIVED' : item.status;
+    return (
+      <View key={item.id} accessible accessibilityLabel={`Scrap request ${item.requestNumber}, ${item.vehicle.make} ${item.vehicle.model}. ${item.statusText}`} style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
+        <View style={styles.cardHeader}>
+          <View style={{ flex: 1 }}>
+            <Text style={[styles.cardTitle, { color: c.textPrimary }]}>
+              {item.vehicle.make} {item.vehicle.model} ({item.vehicle.manufacturingYear})
+            </Text>
+            <Text style={[styles.cardSubtitle, { color: c.brandAccent }]}>Scrap request · {item.requestNumber}</Text>
+          </View>
+          <StatusBadge status={shownStatus} themeColors={c} />
+        </View>
+        <View style={styles.driveDetails}>
+          <View style={styles.driveRow}>
+            <Recycle size={14} color={c.brandAccent} />
+            <Text style={[styles.driveText, { color: c.textSecondary }]}>{item.vehicle.registrationNumber} · {item.city}</Text>
+          </View>
+          <Text style={[styles.driveText, { color: c.textSecondary }]}>{item.statusText}</Text>
+        </View>
+        <Text style={[styles.metaText, { color: c.textMuted }]}>
+          Requested {new Date(item.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}
+        </Text>
+      </View>
+    );
+  }
+
   function renderFeedEntry(entry: FeedEntry) {
     switch (entry.type) {
       case 'activity':
@@ -526,6 +561,8 @@ export function RequestsScreen() {
         return <View style={styles.feedGap}>{renderServiceCard(entry.item)}</View>;
       case 'rental':
         return <View style={styles.feedGap}>{renderRentalCard(entry.item)}</View>;
+      case 'scrap':
+        return <View style={styles.feedGap}>{renderScrapCard(entry.item)}</View>;
       case 'connect':
         return <View style={styles.feedGap}>{renderConnectAlertCard(entry.item)}</View>;
     }
@@ -569,6 +606,7 @@ export function RequestsScreen() {
             { key: 'CONNECT', label: `Connect (${connectAlerts.length})` },
             { key: 'SERVICE', label: `Service (${serviceRequests.length})` },
             { key: 'RENTAL', label: `Rentals (${rentals.length})` },
+            { key: 'SCRAP', label: `Scrap (${scrapRequests.length})` },
             { key: 'SELLING', label: `Selling (${selling.length})` },
             { key: 'TEST_DRIVES', label: `Test Drives (${drives.length})` },
             { key: 'PURCHASES', label: `Enquiries (${purchases.length})` },
@@ -950,6 +988,20 @@ export function RequestsScreen() {
                       </View>
                     </TouchableOpacity>
                   ))}
+                </View>
+              )}
+
+              {/* Scrap requests */}
+              {filter === 'SCRAP' && (
+                <View style={styles.section}>
+                  <Text style={[styles.sectionTitle, { color: c.textPrimary }]}>Scrap Requests</Text>
+                  {scrapRequests.length === 0 ? (
+                    <Text style={[styles.emptyBody, { color: c.textSecondary }]}>
+                      No scrap requests yet. Tap Scrap a Car on Home to ask us to scrap an old vehicle.
+                    </Text>
+                  ) : (
+                    scrapRequests.map(renderScrapCard)
+                  )}
                 </View>
               )}
 
