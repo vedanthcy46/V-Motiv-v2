@@ -53,6 +53,8 @@ export type AcquisitionValuationStatus = 'DRAFT' | 'PENDING_APPROVAL' | 'APPROVE
 export interface SalesStore {
   actor(uid: string): Promise<SalesActor>;
   dashboard(actor: SalesActor): Promise<unknown>;
+  scrapRequests(actor: SalesActor, opts: { status?: "NEW" | "CONTACTED" | "CLOSED"; search?: string; limit?: number }): Promise<unknown>;
+  updateScrapRequest(actor: SalesActor, id: string, input: { status: "NEW" | "CONTACTED" | "CLOSED"; note?: string }): Promise<unknown>;
   
   // Seller Leads
   sellerLeads(actor: SalesActor, query: LeadQuery): Promise<unknown>;
@@ -356,6 +358,42 @@ export class PrismaSalesStore implements SalesStore {
     });
     if (!employee) throw new HttpError(403, 'SALES_ACCESS_DENIED');
     return toActor(employee);
+  }
+
+  /** Scrap-a-car requests from customers, newest first. Every sales person sees all of them: there are few, and whoever is free should call. */
+  async scrapRequests(_actor: SalesActor, opts: { status?: 'NEW' | 'CONTACTED' | 'CLOSED'; search?: string; limit?: number }) {
+    const search = opts.search?.trim();
+    const rows = await this.db.scrapRequest.findMany({
+      where: {
+        ...(opts.status ? { status: opts.status } : {}),
+        ...(search ? { OR: [{ requestNumber: { contains: search.toUpperCase() } }, { registrationNumber: { contains: search.toUpperCase().replace(/[^A-Z0-9]/g, '') || '-' } }, { contactPhone: { contains: search.replace(/s/g, '') } }] } : {}),
+      },
+      orderBy: { createdAt: 'desc' },
+      take: opts.limit ?? 50,
+      include: { customer: { select: { displayName: true, email: true } } },
+    });
+    return { items: rows.map(row => ({
+      id: row.id, requestNumber: row.requestNumber, status: row.status, registrationNumber: row.registrationNumber, make: row.make, model: row.model, manufacturingYear: row.manufacturingYear,
+      fuelType: row.fuelType, odometerKm: row.odometerKm, condition: row.condition, city: row.city, pickupAddress: row.pickupAddress, contactPhone: row.contactPhone,
+      customerName: row.customer.displayName || row.customer.email, staffNote: row.staffNote, contactedAt: row.contactedAt, createdAt: row.createdAt,
+    })) };
+  }
+
+  /** Marks a request contacted or closed, with an optional note. The first person to change it is recorded as handling it. */
+  async updateScrapRequest(actor: SalesActor, id: string, input: { status: 'CONTACTED' | 'CLOSED' | 'NEW'; note?: string }) {
+    const existing = await this.db.scrapRequest.findUnique({ where: { id } });
+    if (!existing) throw new HttpError(404, 'SCRAP_REQUEST_NOT_FOUND');
+    const updated = await this.db.scrapRequest.update({
+      where: { id },
+      data: {
+        status: input.status,
+        ...(input.note !== undefined ? { staffNote: input.note || null } : {}),
+        handledById: existing.handledById ?? actor.userId,
+        ...(input.status === 'CONTACTED' && !existing.contactedAt ? { contactedAt: new Date() } : {}),
+      },
+    });
+    await this.db.auditEvent.create({ data: { actorId: actor.userId, action: 'SCRAP_REQUEST_UPDATED', entityType: 'ScrapRequest', entityId: id, details: { from: existing.status, to: input.status } } });
+    return { id: updated.id, status: updated.status, staffNote: updated.staffNote, contactedAt: updated.contactedAt };
   }
 
   async dashboard(actor: SalesActor) {
@@ -2764,8 +2802,17 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
       orderBy: { createdAt: 'desc' },
     });
 
+    // 7. Customers who asked us to scrap a vehicle and have not been called yet
+    const newScrapRequests = await this.db.scrapRequest.findMany({
+      where: { status: 'NEW' },
+      select: { id: true, requestNumber: true, make: true, model: true, manufacturingYear: true, city: true, contactPhone: true },
+      orderBy: { createdAt: 'desc' },
+      take: 5,
+    });
+
     return {
       unassignedLeads: unassigned,
+      newScrapRequests,
       overdueTasks,
       pendingTestDrives: recentTestDrives,
       pendingDiscounts: pendingDiscounts.map(d => ({
@@ -2794,7 +2841,7 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
         finalPricePaise: s.finalAmountPaise.toString(),
         validUntil: s.validUntil.toISOString(),
       })),
-      totalUnread: unassigned.length + overdueTasks.length + recentTestDrives.length + pendingDiscounts.length + pendingValuations.length + sentQuotations.length,
+      totalUnread: newScrapRequests.length + unassigned.length + overdueTasks.length + recentTestDrives.length + pendingDiscounts.length + pendingValuations.length + sentQuotations.length,
     };
   }
 

@@ -269,7 +269,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
             title="Scrap a Car"
             body="Responsible disposal"
             Icon={Recycle}
-            onPress={() => root?.navigate('ScrapHome')}
+            onPress={() => root?.navigate('ScrapRequest')}
           />
         </View>
 

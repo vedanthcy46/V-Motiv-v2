@@ -3,6 +3,7 @@ import {
   describeApiError, initTheme, mountLiveChangeBar, useAutoRefresh, useChangeWatcher, type NavSection, type NotificationItem,
 } from '@vmotiv/ui';
 import { VehicleMakeModel } from './components/VehicleMakeModel';
+import { ScrapRequests } from './components/ScrapRequests';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
@@ -63,6 +64,7 @@ type PageKey =
   | 'communications'
   | 'service-leads'
   | 'rental-leads'
+  | 'scrap'
   | 'reports';
 
 const formatCurrency = (paise: string | number | null | undefined): string => {
@@ -472,6 +474,7 @@ function App() {
       items: [
         { key: 'service-leads', label: 'Service bookings', icon: <Icons.TestDrives size={17} /> },
         { key: 'rental-leads', label: 'Rental enquiries', icon: <Icons.Inventory size={17} /> },
+        { key: 'scrap', label: 'Scrap-a-car requests', icon: <Icons.Inventory size={17} />, badge: notifications?.newScrapRequests?.length },
       ],
     },
     {
@@ -498,6 +501,7 @@ function App() {
   }));
   notifications?.pendingDiscounts?.forEach(d => addAlert(`discount-${d.id}`, `Discount pending: ${formatCurrency(d.requestedDiscountPaise)}`, `${d.vehicleTitle} · ${d.customerName}`, () => setPage('pipeline')));
   notifications?.sentQuotations?.forEach(q => addAlert(`quote-${q.id}`, `Quote sent: ${q.quotationNumber}`, `${q.vehicleTitle} · ${q.customerName} · ${formatCurrency(q.finalPricePaise)}`));
+  notifications?.newScrapRequests?.forEach(r => addAlert(`scrap-${r.id}`, `Scrap request: ${r.manufacturingYear} ${r.make} ${r.model}`, `${r.city} · call ${r.contactPhone} (${r.requestNumber})`, () => setPage('scrap')));
   notifications?.pendingTestDrives?.forEach(td => addAlert(`drive-${td.id}`, `Test drive: ${td.listing.title}`, `${td.user?.displayName || 'Customer'} · ${td.requestedDate} (${td.timeSlot})`, () => setPage('testdrives')));
   notifications?.unassignedLeads?.forEach(l => addAlert(`lead-${l.id}`, `Unassigned: ${l.make} ${l.model}`, `${l.city} · Ref: ${l.referenceCode}`, () => setPage('seller')));
   notifications?.overdueTasks?.forEach(t => addAlert(`task-${t.id}`, `Overdue: ${t.type}`, t.details, () => setPage('tasks')));
@@ -1918,6 +1922,8 @@ function App() {
               initialCustomerId={prefilledCustomerId}
             />
           )}
+
+          {page === 'scrap' && user && <ScrapRequests user={user} onChanged={() => void loadData(user, { silent: true })} />}
 
           {/* ==================================================== */}
           {/* VIEW: SERVICE LEADS & BOOKINGS                       */}

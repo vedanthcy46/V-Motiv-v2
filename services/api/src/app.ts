@@ -35,6 +35,7 @@ import type { AdminStore } from './admin-store.js';
 import { createAdminRouter } from './admin-router.js';
 import { parsePlatform, readAppConfig } from './app-config.js';
 import { createSalesRouter } from './sales-router.js';
+import { createScrapRequestRouter, type ScrapRequestStore } from './scrap-requests.js';
 import type { SalesStore } from './sales-store.js';
 import { createFinanceAcquisitionRouter, createInspectorRouter, createInspectionReviewRouter, createOperationsInspectionRouter } from './inspection-router.js';
 import type { PrismaInspectionStore } from './inspection-store.js';
@@ -43,8 +44,6 @@ import type { PrismaFinanceStore } from './finance-store.js';
 import type { NotificationService } from './notification/index.js';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaServiceStore } from './service-store.js';
-import { createScrapRouter } from './scrap/scrap-router.js';
-import type { PrismaScrapStore } from './scrap/scrap-store.js';
 import { createServiceCustomerRouter, createServiceOperationsRouter } from './service-router.js';
 import { createCashfreeRouter } from './cashfree-router.js';
 import type { PrismaRentalStore } from './rental-store.js';
@@ -154,6 +153,7 @@ export function createApp(deps: {
   customer?: CustomerStore;
   adminWebOrigin?: string;
   employeePortalOrigins?: string[];
+  scrap?: ScrapRequestStore;
   adminPortalDestinations?: { admin: string; sales: string; inspectionReview: string; operations: string; inspector: string };
   admin?: AdminStore;
   sales?: SalesStore;
@@ -162,7 +162,6 @@ export function createApp(deps: {
   notificationRouter?: Router;
   notificationService?: NotificationService;
   service?: PrismaServiceStore;
-  scrap?: PrismaScrapStore;
   rental?: PrismaRentalStore;
   connect?: PrismaConnectStore;
   valuation?: PrismaValuationStore;
@@ -323,7 +322,6 @@ export function createApp(deps: {
   const salesLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const financeLimiter = createLimiter({ windowMs: 60_000, limit: 60 });
   const serviceLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
-  const scrapLimiter = createLimiter({ windowMs: 60_000, limit: 90 });
   const rentalLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const connectLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const connectPublicLimiter = createLimiter({ windowMs: 15 * 60_000, limit: 30 });
@@ -425,8 +423,9 @@ export function createApp(deps: {
     unifiedApiRouter.use(deps.notificationRouter);
   }
 
-  // Vehicle scrapping: customer routes under /customer/scrap, staff routes under /scrap.
-  if (deps.scrap) unifiedApiRouter.use(createScrapRouter({ verify: deps.verify, store: deps.scrap, limiter: scrapLimiter }));
+  // Vehicle scrapping: a customer asks, sales is notified and phones them. Staff handle the requests through /sales/scrap-requests.
+  if (deps.scrap) unifiedApiRouter.use(createScrapRequestRouter({ verify: deps.verify, store: deps.scrap, limiter: createLimiter({ windowMs: 60_000, limit: 30 }) }));
+
 
   if (deps.service) {
     const serviceCustomerRouter = createServiceCustomerRouter({ verify: deps.verify, store: deps.service });

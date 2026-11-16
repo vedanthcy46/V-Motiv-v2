@@ -25,7 +25,6 @@
     "unseed:rental-demo": "tsx --env-file-if-exists=.env scripts/remove-rental-demo.ts",
     "app-config:set": "tsx --env-file-if-exists=.env scripts/set-app-config.ts",
     "bootstrap:admin": "tsx --env-file-if-exists=.env scripts/bootstrap-admin.ts",
-    "sync:scrap-permissions": "tsx --env-file-if-exists=.env scripts/sync-scrap-permissions.ts",
     "seed:admin": "tsx --env-file-if-exists=.env scripts/seed-admin.ts",
     "mfa:enroll": "tsx --env-file-if-exists=.env scripts/enroll-phone-mfa.ts"
   },

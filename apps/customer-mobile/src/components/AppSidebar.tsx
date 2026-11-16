@@ -504,7 +504,7 @@ export function SidebarProvider({ children }: SidebarProviderProps) {
 
                   <TouchableOpacity
                     style={styles.navItem}
-                    onPress={() => handleNavToStack('ScrapHome')}
+                    onPress={() => handleNavToStack('ScrapRequest')}
                     activeOpacity={0.7}
                   >
                     <View style={[styles.navIconBox, { backgroundColor: isDark ? 'rgba(16, 185, 129, 0.15)' : '#ECFDF5' }]}>

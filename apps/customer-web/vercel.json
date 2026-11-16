@@ -9,16 +9,5 @@
       "source": "/((?!api/|brand/|favicon|robots|sitemap).*)",
       "destination": "/index.html"
     }
-  ],
-  "headers": [
-    {
-      "source": "/scrap(.*)",
-      "headers": [
-        {
-          "key": "Cross-Origin-Opener-Policy",
-          "value": "same-origin-allow-popups"
-        }
-      ]
-    }
   ]
 }

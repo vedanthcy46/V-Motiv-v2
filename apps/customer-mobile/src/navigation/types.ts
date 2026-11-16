@@ -41,11 +41,8 @@ export type RootStack = {
   ServiceRequestDetails: { requestId: string };
   Wishlist: undefined;
   RentalHome: undefined;
-  ScrapHome: undefined;
-  /** The intake wizard. With a requestId it resumes that draft; with a vehicleId it starts from that garage car. */
-  ScrapRequest: { requestId?: string; vehicleId?: string } | undefined;
-  MyScrapRequests: undefined;
-  ScrapRequestDetails: { requestId: string; justSubmitted?: boolean };
+  /** Ask us to scrap a vehicle. With a vehicleId the form starts from that garage car. */
+  ScrapRequest: { vehicleId?: string } | undefined;
   RentalSearchResults: {
     hubId?: string;
     city?: string;

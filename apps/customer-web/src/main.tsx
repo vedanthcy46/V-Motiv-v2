@@ -1,6 +1,5 @@
-import React, { Suspense, lazy, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { isScrapPath } from './scrap/route';
 import { Toaster, initTheme, RequestProgress } from '@vmotiv/ui';
 import './styles.css';
 
@@ -156,21 +155,9 @@ function MarketingApp() {
   );
 }
 
-// The scrapping area (sign-in, forms, requests) is a separate chunk that downloads only when someone opens /scrap, so the landing page stays
-// as small and fast as before.
-const ScrapApp = lazy(() => import('./scrap/ScrapApp'));
-
 function App() {
   const match = window.location.pathname.match(/^\/connect\/([A-Za-z0-9_-]{32,128})\/?$/i);
-  if (match) return <ConnectGetAppPage token={match[1]} />;
-  if (isScrapPath(window.location.pathname)) {
-    return (
-      <Suspense fallback={<p role="status" style={{ padding: 24 }}>Loading…</p>}>
-        <ScrapApp />
-      </Suspense>
-    );
-  }
-  return <MarketingApp />;
+  return match ? <ConnectGetAppPage token={match[1]} /> : <MarketingApp />;
 }
 
 createRoot(document.getElementById('root')!).render(
