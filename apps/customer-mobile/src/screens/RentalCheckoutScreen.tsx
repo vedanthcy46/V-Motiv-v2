@@ -67,30 +67,6 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
   const { colors, isDark } = useAppTheme();
   const { state: authState } = useAuth();
 
-  if (authState !== 'signed-in') {
-    return (
-      <View style={{ flex: 1, backgroundColor: colors.background }}>
-        <View
-          style={{
-            paddingTop: insets.top + 8,
-            paddingHorizontal: 16,
-            paddingBottom: 12,
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.border,
-          }}
-        >
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
-            <ArrowLeft size={22} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <Text style={{ fontSize: 16, fontWeight: '700', color: colors.textPrimary }}>Rental Checkout</Text>
-        </View>
-        <AuthScreen includeTopInset={false} showHeader={false} />
-      </View>
-    );
-  }
 
   // 15-minute hold timer state
   const [secondsRemaining, setSecondsRemaining] = useState(15 * 60);
@@ -126,6 +102,7 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
   const [submitting, setSubmitting] = useState(false);
 
   useEffect(() => {
+    if (authState !== 'signed-in') return undefined; // the hold clock runs only for a signed-in customer
     const timer = setInterval(() => {
       setSecondsRemaining(prev => {
         if (prev <= 1) {
@@ -141,9 +118,10 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [navigation]);
+  }, [navigation, authState]);
 
   useEffect(() => {
+    if (authState !== 'signed-in') return undefined;
     let isMounted = true;
     async function loadOptions() {
       try {
@@ -171,7 +149,33 @@ export function RentalCheckoutScreen({ route, navigation }: Props) {
     return () => {
       isMounted = false;
     };
-  }, [holdId]);
+  }, [holdId, authState]);
+
+  // Signed-out view. It sits below every hook on purpose: returning before a hook changes how many hooks run when the person signs in or out.
+  if (authState !== 'signed-in') {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <View
+          style={{
+            paddingTop: insets.top + 8,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: colors.surface,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border,
+          }}
+        >
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
+            <ArrowLeft size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <Text style={{ fontSize: 16, fontWeight: '700', color: colors.textPrimary }}>Rental Checkout</Text>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
+  }
 
   const minutes = Math.floor(secondsRemaining / 60);
   const seconds = secondsRemaining % 60;

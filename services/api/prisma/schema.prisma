@@ -3064,3 +3064,46 @@ model ScrapRequest {
   @@index([status, createdAt])
   @@index([customerId, createdAt])
 }
+
+// Home-screen content the Operations team manages: banners, and photos and videos of the hubs. See src/home-content.ts.
+enum HomeContentKind {
+  BANNER
+  HUB_PHOTO
+  HUB_VIDEO
+}
+
+enum HomeContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model HomeContent {
+  id String @id @default(uuid()) @db.Uuid
+  kind HomeContentKind
+  status HomeContentStatus @default(DRAFT)
+  title String?
+  subtitle String?
+  /// The image, or for a hub video the video file. Always an https address from our media account.
+  mediaUrl String
+  /// Cover image for a video (for a Cloudinary video it can be derived, so this may be empty).
+  thumbnailUrl String?
+  durationSeconds Int?
+  /// NONE, SCREEN (actionTarget is a screen name), LISTING (a listing id) or URL (an https address).
+  actionType String @default("NONE")
+  actionTarget String?
+  ctaLabel String?
+  /// Null shows it in every city.
+  city String?
+  hubName String?
+  startsAt DateTime?
+  endsAt DateTime?
+  sortOrder Int @default(0)
+  createdById String? @db.Uuid
+  updatedById String? @db.Uuid
+  publishedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, kind, sortOrder])
+}

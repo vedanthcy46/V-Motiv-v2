@@ -35,7 +35,9 @@ import { RentalVehicleDetailsScreen } from '../screens/RentalVehicleDetailsScree
 import { RentalCheckoutScreen } from '../screens/RentalCheckoutScreen';
 import { RentalBookingDetailsScreen } from '../screens/RentalBookingDetailsScreen';
 import { useAppTheme } from '../theme';
-import { useTabBarBottomOffset } from '../layout/safe-layout';
+import { TAB_BAR_HEIGHT, useTabBarBottomOffset } from '../layout/safe-layout';
+import { hiddenDistance } from '../layout/tab-bar-scroll';
+import { AnimatedTabBar, TabBarVisibilityProvider } from '../components/TabBarVisibility';
 import { useAuth } from '../auth/AuthProvider';
 import type { RootStack, Tabs } from './types';
 
@@ -62,8 +64,10 @@ function CustomerTabs() {
   const bottomFloatingInset = useTabBarBottomOffset();
 
   return (
+    <TabBarVisibilityProvider hiddenDistance={hiddenDistance(TAB_BAR_HEIGHT, bottomFloatingInset)}>
     <Tab.Navigator
       initialRouteName={authState === 'signed-in' ? 'Home' : 'Explore'}
+      tabBar={props => <AnimatedTabBar {...props} />}
       screenOptions={({ route }) => ({
         headerShown: false,
         tabBarHideOnKeyboard: true,
@@ -106,6 +110,7 @@ function CustomerTabs() {
       <Tab.Screen name="Activity" component={RequestsScreen} />
       <Tab.Screen name="Account" component={AccountScreen} />
     </Tab.Navigator>
+    </TabBarVisibilityProvider>
   );
 }
 

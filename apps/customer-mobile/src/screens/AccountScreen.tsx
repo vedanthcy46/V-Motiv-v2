@@ -39,10 +39,12 @@ import {
 import { useAuth } from '../auth/AuthProvider';
 import { AuthScreen } from './AuthScreen';
 import { useAppTheme, type ThemeMode, radius, space } from '../theme';
+import { useTabBarScroll } from '../components/TabBarVisibility';
 import { useTabScreenBottomPadding } from '../layout/safe-layout';
 
 export function AccountScreen() {
   const tabBottomPadding = useTabScreenBottomPadding();
+  const tabBarScroll = useTabBarScroll(); // hides the bottom tab bar while scrolling down, shows it on the way up
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { state, profile, busy: authBusy, signOut, clearSessionData, isInspector, setActiveMode } = useAuth();
@@ -229,6 +231,7 @@ export function AccountScreen() {
       </View>
 
       <ScrollView
+        {...tabBarScroll}
         contentContainerStyle={[
           styles.content,
           { paddingBottom: tabBottomPadding },

@@ -35,6 +35,9 @@ import type { AdminStore } from './admin-store.js';
 import { createAdminRouter } from './admin-router.js';
 import { parsePlatform, readAppConfig } from './app-config.js';
 import { createSalesRouter } from './sales-router.js';
+import { requestTiming } from './request-timing.js';
+import { createHomeContentManageRouter, createHomeContentPublicRouter, type HomeContentStore } from './home-content.js';
+import { signDirectUpload } from './cloudinary.js';
 import { createScrapRequestRouter, type ScrapRequestStore } from './scrap-requests.js';
 import type { SalesStore } from './sales-store.js';
 import { createFinanceAcquisitionRouter, createInspectorRouter, createInspectionReviewRouter, createOperationsInspectionRouter } from './inspection-router.js';
@@ -154,6 +157,17 @@ export function createApp(deps: {
   adminWebOrigin?: string;
   employeePortalOrigins?: string[];
   scrap?: ScrapRequestStore;
+  homeContent?: HomeContentStore;
+  /**
+   * Send queued emails after the response instead of before it. A drain is several database round trips and then a call to the email
+   * provider, which a person was waiting through at sign-in and on every booking. Only for a long-running server: a serverless host may stop
+   * work that outlives the response.
+   */
+  emailDrainInBackground?: boolean;
+  /** Response compression, supplied by the long-running server only (edge hosts compress for us). */
+  compression?: RequestHandler;
+  /** Requests slower than this many milliseconds are logged by route. 0 or unset turns it off. */
+  slowRequestMs?: number;
   adminPortalDestinations?: { admin: string; sales: string; inspectionReview: string; operations: string; inspector: string };
   admin?: AdminStore;
   sales?: SalesStore;
@@ -174,11 +188,13 @@ export function createApp(deps: {
   deps.verify = withMfaStatusSync(deps.verify, (deps as { db?: any }).db);
   const app = express();
   app.disable('x-powered-by');
+  if (deps.slowRequestMs) app.use(requestTiming({ slowMs: deps.slowRequestMs }));
   // Required for Vercel/proxy environments: enables correct IP detection for rate limiting
   app.set('trust proxy', 1);
   app.use(helmet({
     crossOriginOpenerPolicy: false,
   }));
+  if (deps.compression) app.use(deps.compression);
   const rawWebOrigins = (deps.webOrigin || '').split(',').map(s => s.trim().replace(/\/+$/, '')).filter(Boolean);
   const primaryWebOrigin = rawWebOrigins[0] || 'http://localhost:3100';
   let configuredWebHost = 'localhost';
@@ -281,6 +297,10 @@ export function createApp(deps: {
     catch { res.status(503).json({ code: 'DATABASE_UNAVAILABLE' }); }
   });
   const triggerEmailDrain = async () => {
+    if (deps.drainEmails && deps.emailDrainInBackground) {
+      void deps.drainEmails().catch((err: any) => console.error('[EMAIL DRAIN HOOK FAILED]', err?.message || err));
+      return;
+    }
     if (deps.drainEmails) {
       try {
         await deps.drainEmails();
@@ -325,6 +345,12 @@ export function createApp(deps: {
   const rentalLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const connectLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const connectPublicLimiter = createLimiter({ windowMs: 15 * 60_000, limit: 30 });
+
+  // Home content management (Operations). Must come before the generic /operations router below, which would otherwise answer first.
+  if (deps.homeContent && deps.db) {
+    const manageHome = createHomeContentManageRouter({ verify: deps.verify, db: deps.db, store: deps.homeContent, signUpload: () => signDirectUpload('home-content') });
+    for (const prefix of ['/api/v2/operations/home-content', '/api/v1/operations/home-content', '/api/operations/home-content', '/operations/home-content']) app.use(prefix, standardLimiter, manageHome);
+  }
 
   if (deps.inspection) {
     const inspectorRouter = createInspectorRouter({ verify: deps.verify, store: deps.inspection });
@@ -421,6 +447,11 @@ export function createApp(deps: {
 
   if (deps.notificationRouter) {
     unifiedApiRouter.use(deps.notificationRouter);
+  }
+
+  // Home-screen banners and hub media: read publicly by the apps (managed through the routes mounted above).
+  if (deps.homeContent && deps.db) {
+    unifiedApiRouter.use(createHomeContentPublicRouter({ store: deps.homeContent, limiter: createLimiter({ windowMs: 60_000, limit: 120 }) }));
   }
 
   // Vehicle scrapping: a customer asks, sales is notified and phones them. Staff handle the requests through /sales/scrap-requests.

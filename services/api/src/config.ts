@@ -14,6 +14,26 @@ function normalizeOrigin(val?: string): string | undefined {
   return list[0];
 }
 
+/**
+ * Connection settings for Neon. Added only when the address does not already set them, so anything chosen in the environment wins.
+ *  - Timeouts so a cold database (Neon suspends idle compute) has time to wake instead of failing the first request.
+ *  - On a pooled address ("-pooler" in the host): pgbouncer=true (required with Neon's pooler, which cannot keep prepared statements) and a
+ *    connection limit. Prisma's own default is based on CPU count, which on a small instance is only a few connections, so concurrent
+ *    requests would queue for one. The pooler multiplexes them, so a larger number is safe here. Change it with DB_CONNECTION_LIMIT.
+ */
+export function tuneDatabaseUrl(database: URL, env: NodeJS.ProcessEnv = {}): URL {
+  if (!database.hostname.endsWith('.neon.tech')) return database;
+  const set = (name: string, value: string) => { if (!database.searchParams.has(name)) database.searchParams.set(name, value); };
+  set('connect_timeout', '30');
+  set('pool_timeout', '30');
+  if (database.hostname.includes('-pooler')) {
+    set('pgbouncer', 'true');
+    const limit = Number(env.DB_CONNECTION_LIMIT);
+    set('connection_limit', String(Number.isInteger(limit) && limit >= 1 && limit <= 100 ? limit : 10));
+  }
+  return database;
+}
+
 export function readConfig(env: NodeJS.ProcessEnv) {
   const rawWebOrigin = env.WEB_ORIGIN;
   const parsedWebOrigins = parseOriginList(rawWebOrigin);
@@ -53,9 +73,7 @@ export function readConfig(env: NodeJS.ProcessEnv) {
 
   const database = new URL(config.DATABASE_URL);
   if (database.hostname.endsWith('.neon.tech')) {
-    if (!database.searchParams.has('connect_timeout')) database.searchParams.set('connect_timeout', '30');
-    if (!database.searchParams.has('pool_timeout')) database.searchParams.set('pool_timeout', '30');
-    config.DATABASE_URL = database.toString();
+    config.DATABASE_URL = tuneDatabaseUrl(database, env).toString();
   }
   if (!['postgres:', 'postgresql:'].includes(database.protocol)) throw new Error('PostgreSQL is required.');
   if (config.NODE_ENV !== 'production' &&

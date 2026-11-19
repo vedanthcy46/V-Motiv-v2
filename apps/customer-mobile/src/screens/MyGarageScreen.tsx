@@ -51,6 +51,7 @@ import {
   Zap,
 } from 'lucide-react-native';
 import { useAppTheme, radius, space } from '../theme';
+import { useTabBarScroll } from '../components/TabBarVisibility';
 import { useTabScreenBottomPadding, safeBottom } from '../layout/safe-layout';
 import { useAuth } from '../auth/AuthProvider';
 import { AuthScreen } from './AuthScreen';
@@ -89,6 +90,7 @@ export function MyGarageScreen() {
   // Lists come from the administrator-managed master data (cached, with a bundled offline fallback).
   const catalog = useCatalog();
   const tabBottomPadding = useTabScreenBottomPadding();
+  const tabBarScroll = useTabBarScroll(); // hides the bottom tab bar while scrolling down, shows it on the way up
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { theme, isDark } = useAppTheme();
@@ -100,38 +102,6 @@ export function MyGarageScreen() {
     accent: theme.colors.brandAccent,
   };
 
-  if (authState !== 'signed-in') {
-    return (
-      <View style={[styles.container, { backgroundColor: c.background }]}>
-        <View
-          style={{
-            paddingTop: insets.top + space.sm,
-            paddingHorizontal: 16,
-            paddingBottom: 12,
-            flexDirection: 'row',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            backgroundColor: c.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: c.border,
-          }}
-        >
-          <BrandLogo variant="horizontal" size={26} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
-          <View
-            style={{
-              paddingHorizontal: 8,
-              paddingVertical: 3,
-              borderRadius: 6,
-              backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7',
-            }}
-          >
-            <Text style={{ fontSize: 10, fontWeight: '800', color: c.accent }}>MY GARAGE</Text>
-          </View>
-        </View>
-        <AuthScreen includeTopInset={false} showHeader={false} />
-      </View>
-    );
-  }
 
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -459,19 +429,53 @@ export function MyGarageScreen() {
   };
 
   useEffect(() => {
-    void loadVehicles();
-  }, [loadVehicles]);
+    if (authState === 'signed-in') void loadVehicles();
+  }, [loadVehicles, authState]);
 
   useFocusEffect(
     useCallback(() => {
-      void loadVehicles();
-    }, [loadVehicles])
+      if (authState === 'signed-in') void loadVehicles();
+    }, [loadVehicles, authState])
   );
 
   const onRefresh = useCallback(() => {
     setRefreshing(true);
     void loadVehicles();
   }, [loadVehicles]);
+
+  // Signed-out view. It sits below every hook on purpose: returning before a hook changes how many hooks run when the person signs in or out.
+  if (authState !== 'signed-in') {
+    return (
+      <View style={[styles.container, { backgroundColor: c.background }]}>
+        <View
+          style={{
+            paddingTop: insets.top + space.sm,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            backgroundColor: c.surface,
+            borderBottomWidth: 1,
+            borderBottomColor: c.border,
+          }}
+        >
+          <BrandLogo variant="horizontal" size={26} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
+          <View
+            style={{
+              paddingHorizontal: 8,
+              paddingVertical: 3,
+              borderRadius: 6,
+              backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7',
+            }}
+          >
+            <Text style={{ fontSize: 10, fontWeight: '800', color: c.accent }}>MY GARAGE</Text>
+          </View>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
+  }
 
   const openAddModal = () => {
     setEditingVehicle(null);
@@ -631,6 +635,7 @@ export function MyGarageScreen() {
       </View>
 
       <KeyboardScrollView
+        {...tabBarScroll}
         contentContainerStyle={[styles.scrollContent, { paddingBottom: tabBottomPadding }]}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} tintColor={c.accent} />}
         showsVerticalScrollIndicator={false}

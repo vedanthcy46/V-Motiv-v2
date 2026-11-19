@@ -40,6 +40,7 @@ import type { RootStack, Tabs } from '../navigation/types';
 import type { SupportedCity, VehicleSummary } from '../types';
 import { useAppTheme, radius, space } from '../theme';
 import { buildKmOptions, buildPriceOptions, buildYearOptions, priceBoundsFromKey, type InventoryFacets } from '../services/inventory-facets';
+import { useTabBarScroll } from '../components/TabBarVisibility';
 import { useTabScreenBottomPadding, safeBottom } from '../layout/safe-layout';
 import { friendlyError } from '../format';
 import { useAuth } from '../auth/AuthProvider';
@@ -197,6 +198,7 @@ function getPriceBounds(range: string): { minPricePaise?: number; maxPricePaise?
 
 export function ExploreScreen({ navigation }: { navigation: Nav }) {
   const tabBottomPadding = useTabScreenBottomPadding();
+  const tabBarScroll = useTabBarScroll(); // hides the bottom tab bar while scrolling down, shows it on the way up
   const insets = useSafeAreaInsets();
   const { state } = useAuth();
   const { theme, isDark } = useAppTheme();
@@ -970,6 +972,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
 
       {/* Car Cards List */}
       <FlatList
+        {...tabBarScroll}
         data={loading ? [] : items}
         keyExtractor={(item) => item.id}
         onEndReached={() => void loadMore()}

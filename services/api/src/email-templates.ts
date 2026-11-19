@@ -1,6 +1,14 @@
 import type { EmailOutbox } from '@prisma/client';
 import { currentCalendarYear } from './calendar.js';
 
+// The look of every V MOTIV email. One layout, light and easy to read:
+//   - a brand-navy header band with the white logo (the logo file is white, so it needs a dark background),
+//   - a clean white card with the title, a short status label, the message, and one clear button,
+//   - lines written as "Label: value" shown as a tidy details table, bullets as lists, and plain web addresses as links,
+//   - a quiet footer with the support contact.
+// It is built with tables and inline styles because email apps (Outlook, Gmail, Apple Mail) ignore most modern CSS. The plain-text version
+// of each email is sent separately and is unchanged.
+
 function escapeHtml(str: string): string {
   return str
     .replace(/&/g, '&amp;')
@@ -20,220 +28,239 @@ export type EmailTemplateData = {
   footerLockupUrl?: string; // Retained for backwards compatibility
 };
 
-// Official single V MOTIV header logo
-// Hosted on our own domain (the previous third-party image host removed the file, leaving a broken image in every email).
+// Hosted on our own domain (a third-party image host once removed the file and left a broken image in every email).
 export const BRAND_HEADER_LOGO_URL = 'https://vmotiv.in/brand/vmotiv-header-logo.png';
 export const BRAND_FOOTER_LOCKUP_URL = 'https://vmotiv.in/brand/vmotiv-logo.png'; // Retained for backwards compatibility
 
+// ------------------------------------------------------------------------------------------------------------------------------------
+// Colours. Text on white is always dark enough to read comfortably (all pairs here pass WCAG AA).
+// ------------------------------------------------------------------------------------------------------------------------------------
+const NAVY = '#061A38';
+const YELLOW = '#F7B503';
+const INK = '#1F2937'; // body text
+const MUTED = '#64748B'; // labels and small print (4.8:1 on white)
+const LINE = '#E5EAF2';
+const PAGE = '#F3F5F9';
+const SOFT = '#F8FAFC';
+const FONT = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif";
+
+type Tone = 'brand' | 'success' | 'danger' | 'info' | 'neutral';
+const TONES: Record<Tone, { bg: string; fg: string }> = {
+  brand: { bg: '#FEF3C7', fg: '#92400E' },
+  success: { bg: '#D1FAE5', fg: '#047857' },
+  danger: { bg: '#FEE2E2', fg: '#B91C1C' },
+  info: { bg: '#DBEAFE', fg: '#1D4ED8' },
+  neutral: { bg: '#E5E7EB', fg: '#374151' },
+};
+
+interface TemplateSpec {
+  /** Short status label shown above the title. */
+  badge: string;
+  tone: Tone;
+  /** Button text. */
+  cta: string;
+  /** Where the button goes, relative to the website address. */
+  ctaPath: string;
+  /** One line saying what kind of email this is. */
+  subtitle: string;
+  /** A short note at the bottom; falls back to the general promise. */
+  assurance?: [title: string, body: string];
+}
+
+const DEFAULT_ASSURANCE: [string, string] = ['V MOTIV Promise:', 'Complete transparency, verified standards, and total accountability across all automotive services.'];
+
+const DEFAULT_SPEC: TemplateSpec = { badge: 'NOTIFICATION', tone: 'brand', cta: 'Open V MOTIV App', ctaPath: '', subtitle: 'V MOTIV Automotive Mobility Ecosystem' };
+
+const ACCOUNT = '/account';
+
+const TEMPLATES: Record<string, Partial<TemplateSpec>> = {
+  'purchase-enquiry-v1': {
+    badge: 'ENQUIRY RECORDED', cta: 'View in Activity', ctaPath: ACCOUNT, subtitle: 'Vehicle Purchase Enquiry Confirmation',
+    assurance: ['180-Point Certification:', 'Every V MOTIV pre-owned vehicle undergoes our strict 180-point mechanical, structural, and electrical certification. No surprises. No rollbacks.'],
+  },
+  'test-drive-requested-v1': {
+    badge: 'TEST DRIVE REQUEST', cta: 'Manage Appointment', ctaPath: ACCOUNT, subtitle: 'Test Drive Schedule Request',
+    assurance: ['Doorstep & Hub Drives:', 'All test drive vehicles are sanitised, inspected, and accompanied by certified automotive specialists.'],
+  },
+  'selling-requested-v1': {
+    badge: 'SELLING REQUEST', cta: 'Track Valuation', ctaPath: ACCOUNT, subtitle: 'Doorstep Valuation & Inspection Request',
+    assurance: ['Guaranteed Purchase:', 'Transparent fair-market pricing, free 180-point inspection, instant bank transfer, and free RC transfer.'],
+  },
+  'offer-accepted-v1': { badge: 'OFFER ACCEPTED', tone: 'success', cta: 'View Offer Details', ctaPath: ACCOUNT, subtitle: 'Direct Purchase Agreement Confirmation' },
+  'offer-declined-v1': { badge: 'OFFER DECLINED', tone: 'neutral', cta: 'View in Activity', ctaPath: ACCOUNT, subtitle: 'Acquisition Offer Update' },
+  'rental-booking-confirmed-v1': {
+    badge: 'RENTAL CONFIRMED', tone: 'success', cta: 'View Rental Booking', ctaPath: ACCOUNT, subtitle: 'Self-Drive Fleet Booking Confirmed',
+    assurance: ['V MOTIV Rental Assurance:', 'Sanitized, GPS-enabled fleet with comprehensive vehicle insurance, transparent fuel policy, and 24/7 Roadside Assistance hotline (1800-866-848).'],
+  },
+  'rental-kyc-reviewed-v1': {
+    badge: 'RENTAL KYC', tone: 'info', cta: 'View Verification', ctaPath: ACCOUNT, subtitle: 'Driver KYC Document Review Update',
+    assurance: ['Safe Driving Compliance:', 'Strict identity verification ensures road safety and fleet security for all drivers across our network.'],
+  },
+  'rental-trip-started-v1': {
+    badge: 'TRIP ACTIVE', cta: 'View Active Trip', ctaPath: ACCOUNT, subtitle: 'Vehicle Handover Completed · Have a Safe Drive',
+    assurance: ['24/7 Roadside Assistance:', 'In case of breakdown, puncture, or towing emergency, call our immediate response helpline at 1800-866-848.'],
+  },
+  'rental-trip-returned-v1': {
+    badge: 'TRIP CONCLUDED', tone: 'success', cta: 'View Settlement & Refund', ctaPath: ACCOUNT, subtitle: 'Vehicle Return & Deposit Settlement Summary',
+    assurance: ['Deposit Refund Guarantee:', 'Security deposit refunds are automatically processed to your original payment method within 3 to 5 business days.'],
+  },
+  'rental-booking-cancelled-v1': {
+    badge: 'RENTAL CANCELLED', tone: 'danger', cta: 'View Booking Status', ctaPath: ACCOUNT, subtitle: 'Rental Booking Cancellation & Refund',
+    assurance: ['Cancellation Policy:', 'Eligible refunds are processed directly per our transparent cancellation terms without hidden deductions.'],
+  },
+  'service-request-submitted-v1': {
+    badge: 'SERVICE CONFIRMED', tone: 'success', cta: 'Track Service Job', ctaPath: ACCOUNT, subtitle: 'Workshop Service Booking Scheduled',
+    assurance: ['V MOTIV Workshop Guarantee:', 'Certified technicians, genuine OEM/OES spares, itemized estimate approvals, and multi-point quality control.'],
+  },
+  'service-cancelled-v1': { badge: 'SERVICE CANCELLED', tone: 'danger', cta: 'View Service Details', ctaPath: ACCOUNT, subtitle: 'Workshop Service Request Cancelled' },
+  'support-case-v1': {
+    badge: 'SUPPORT TICKET', cta: 'View Support Case', ctaPath: '/support', subtitle: 'Customer Support Request Received',
+    assurance: ['Dedicated Customer Support:', 'Our customer care team tracks every ticket with end-to-end accountability. Direct response within 24 hours.'],
+  },
+  'support-reply-v1': { badge: 'CASE UPDATE', cta: 'View Conversation', ctaPath: '/support', subtitle: 'New Support Message on Case' },
+  'welcome-v1': { badge: 'ACCOUNT CONFIRMED', tone: 'success', cta: 'Browse Verified Cars', ctaPath: '', subtitle: 'Welcome to Total Certainty in Automotive Mobility' },
+  'retail-quotation-v1': { badge: 'OFFICIAL QUOTATION', tone: 'info', cta: 'View & Accept Quotation', ctaPath: ACCOUNT, subtitle: 'Authorized Retail Quotation' },
+  'employee-invitation-v1': {
+    badge: 'EMPLOYEE INVITATION', cta: 'Review invitation', ctaPath: '', subtitle: 'Secure Employee Onboarding',
+    assurance: ['Secure Workspace Access:', 'This invitation is protected with time-limited single-use authentication tokens and multi-factor authorization.'],
+  },
+  'inspection-assigned-v1': { badge: 'INSPECTION ASSIGNED', cta: 'Open Inspector App', ctaPath: '/inspector', subtitle: 'New Vehicle Inspection Assignment' },
+  'inspection-rework-v1': { badge: 'CORRECTIONS REQUIRED', tone: 'danger', cta: 'Review Feedback', ctaPath: '/inspector', subtitle: 'Reviewer Feedback on Inspection Report' },
+  'inspection-approved-v1': { badge: 'INSPECTION APPROVED', tone: 'success', cta: 'View Certification', ctaPath: '/inspection-review', subtitle: 'Vehicle Certification Report Approved' },
+  'inspection-requested-v1': { badge: 'INSPECTION REQUEST', tone: 'info', cta: 'Open Operations', ctaPath: '/operations', subtitle: 'New Inspection Request in Dispatch Queue' },
+  'offer-communicated-v1': { badge: 'PURCHASE OFFER', tone: 'success', cta: 'Review Offer', ctaPath: ACCOUNT, subtitle: 'Official Acquisition Offer for Your Vehicle' },
+  'payment-verified-v1': { badge: 'PAYMENT VERIFIED', tone: 'success', cta: 'View Account', ctaPath: ACCOUNT, subtitle: 'Direct Purchase Payment Processed' },
+};
+
+// ------------------------------------------------------------------------------------------------------------------------------------
+// The message body. The emails are written as plain text; this turns that text into clean HTML without changing what it says.
+// ------------------------------------------------------------------------------------------------------------------------------------
+
+const BULLET = /^\s*[•\-*]\s+(.*)$/;
+const NUMBERED = /^\s*\d+[.)]\s+(.*)$/;
+/** "Label: value" (the label is short and has no colon of its own). */
+const KEY_VALUE = /^([^:\n]{1,42}?):\s+(\S.*)$/;
+/** A line that only names a section: "Appointment Details:". */
+const HEADING = /^[^:\n]{1,60}:$/;
+
+/** Escapes text, then turns web addresses into links. Done in this order so nothing the sender typed can become markup. */
+function inline(raw: string): string {
+  return escapeHtml(raw).replace(/https?:\/\/[^\s<]+/g, match => {
+    const trailing = /[.,;:!?)]+$/.exec(match)?.[0] ?? '';
+    const url = trailing ? match.slice(0, -trailing.length) : match;
+    return `<a href="${url}" style="color: #1D4ED8; text-decoration: underline; word-break: break-all;">${url}</a>${trailing}`;
+  });
+}
+
+const P = `margin: 0 0 16px 0; font-size: 15px; line-height: 1.65; color: ${INK};`;
+
+function detailsTable(rows: Array<[string, string]>): string {
+  const cells = rows.map(([label, value], index) => {
+    const border = index === rows.length - 1 ? '' : `border-bottom: 1px solid ${LINE};`;
+    return `<tr>
+          <td valign="top" style="padding: 11px 14px; ${border} font-size: 13px; line-height: 1.5; color: ${MUTED}; width: 42%;">${inline(label)}</td>
+          <td valign="top" style="padding: 11px 14px; ${border} font-size: 14px; line-height: 1.5; color: #0F172A; font-weight: 600;">${inline(value)}</td>
+        </tr>`;
+  }).join('\n        ');
+  return `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin: 0 0 20px 0; background-color: ${SOFT}; border: 1px solid ${LINE}; border-radius: 8px; border-collapse: separate;">
+        ${cells}
+      </table>`;
+}
+
+function list(items: string[], ordered: boolean): string {
+  const tag = ordered ? 'ol' : 'ul';
+  const lis = items.map(item => `<li style="margin: 0 0 6px 0; padding-left: 2px;">${inline(item)}</li>`).join('');
+  return `<${tag} style="margin: 0 0 16px 0; padding: 0 0 0 22px; font-size: 15px; line-height: 1.6; color: ${INK};">${lis}</${tag}>`;
+}
+
+const QUOTE_STYLE = `margin: 0 0 18px 0; padding: 12px 16px; background-color: ${SOFT}; border-left: 3px solid ${YELLOW}; border-radius: 4px; font-size: 15px; line-height: 1.6; color: #334155; font-style: italic;`;
+const isQuoted = (line: string) => line.length > 1 && line.startsWith('"') && line.endsWith('"');
+
+/** The email text as HTML. Exported for tests. */
+export function renderEmailBody(text: string): string {
+  const blocks = text.replace(/\r\n/g, '\n').split(/\n\s*\n/).map(block => block.trim()).filter(Boolean);
+  const out: string[] = [];
+
+  for (const block of blocks) {
+    // A quoted message (for example what the customer wrote).
+    if (isQuoted(block)) {
+      out.push(`<blockquote style="${QUOTE_STYLE}">${inline(block).replace(/\n/g, '<br>')}</blockquote>`);
+      continue;
+    }
+
+    const lines = block.split('\n').map(line => line.trim()).filter(Boolean);
+    let i = 0;
+    while (i < lines.length) {
+      const line = lines[i]!;
+
+      // A quoted line inside a block, for example the customer's message right under its heading.
+      if (isQuoted(line)) {
+        out.push(`<blockquote style="${QUOTE_STYLE}">${inline(line)}</blockquote>`);
+        i += 1;
+        continue;
+      }
+
+      if (HEADING.test(line)) {
+        out.push(`<p style="margin: 22px 0 8px 0; font-size: 15px; font-weight: 700; color: ${NAVY};">${inline(line)}</p>`);
+        i += 1;
+        continue;
+      }
+
+      // A run of bullets or numbered lines. If every one is "Label: value" it is a details table, otherwise a list.
+      if (BULLET.test(line) || NUMBERED.test(line)) {
+        const ordered = NUMBERED.test(line) && !BULLET.test(line);
+        const matcher = ordered ? NUMBERED : BULLET;
+        const items: string[] = [];
+        while (i < lines.length && matcher.test(lines[i]!)) { items.push(matcher.exec(lines[i]!)![1]!.trim()); i += 1; }
+        const pairs = items.map(item => KEY_VALUE.exec(item));
+        if (!ordered && pairs.every(Boolean)) out.push(detailsTable(pairs.map(pair => [pair![1]!, pair![2]!] as [string, string])));
+        else out.push(list(items, ordered));
+        continue;
+      }
+
+      // A run of "Label: value" lines is a details table.
+      if (KEY_VALUE.test(line)) {
+        const rows: Array<[string, string]> = [];
+        while (i < lines.length && KEY_VALUE.test(lines[i]!) && !BULLET.test(lines[i]!) && !NUMBERED.test(lines[i]!)) {
+          const match = KEY_VALUE.exec(lines[i]!)!;
+          rows.push([match[1]!, match[2]!]);
+          i += 1;
+        }
+        out.push(detailsTable(rows));
+        continue;
+      }
+
+      // Plain sentences until the next structured line.
+      const sentences: string[] = [];
+      while (i < lines.length && !isQuoted(lines[i]!) && !HEADING.test(lines[i]!) && !BULLET.test(lines[i]!) && !NUMBERED.test(lines[i]!) && !KEY_VALUE.test(lines[i]!)) { sentences.push(lines[i]!); i += 1; }
+      out.push(`<p style="${P}">${sentences.map(inline).join('<br>')}</p>`);
+    }
+  }
+  return out.join('\n      ');
+}
+
+/** The first sentence of the message, shown by inbox lists as the preview next to the subject. */
+function previewText(text: string): string {
+  const first = text.replace(/\r\n/g, '\n').split('\n').map(line => line.trim()).find(line => line && !HEADING.test(line)) ?? '';
+  return first.length > 110 ? `${first.slice(0, 107)}…` : first;
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------------
+// The page
+// ------------------------------------------------------------------------------------------------------------------------------------
+
 export function renderEmailHtml(event: EmailTemplateData): string {
-  const {
-    templateVersion,
-    subject,
-    text,
-    recipient,
-    webOrigin = 'https://vmotiv.in',
-    headerLogoUrl = BRAND_HEADER_LOGO_URL,
-  } = event;
+  const { templateVersion, subject, text, recipient, webOrigin = 'https://vmotiv.in', headerLogoUrl = BRAND_HEADER_LOGO_URL } = event;
+  const spec = { ...DEFAULT_SPEC, ...(TEMPLATES[templateVersion] ?? {}) };
+  const tone = TONES[spec.tone];
+  const [assuranceTitle, assuranceBody] = spec.assurance ?? DEFAULT_ASSURANCE;
 
-  let badgeText = 'NOTIFICATION';
-  let badgeColor = '#F7B503';
-  let ctaTitle = 'Open V MOTIV App';
-  let ctaUrl = webOrigin;
-  let bannerSubtitle = 'V MOTIV Automotive Mobility Ecosystem';
-
-  let assuranceTitle = 'V MOTIV Promise:';
-  let assuranceBody = 'Complete transparency, verified standards, and total accountability across all automotive services.';
-
-  if (templateVersion === 'purchase-enquiry-v1') {
-    badgeText = 'ENQUIRY RECORDED';
-    ctaTitle = 'View in Activity';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Vehicle Purchase Enquiry Confirmation';
-    assuranceTitle = '180-Point Certification:';
-    assuranceBody = 'Every V MOTIV pre-owned vehicle undergoes our strict 180-point mechanical, structural, and electrical certification. No surprises. No rollbacks.';
-  } else if (templateVersion === 'test-drive-requested-v1') {
-    badgeText = 'TEST DRIVE REQUEST';
-    ctaTitle = 'Manage Appointment';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Test Drive Schedule Request';
-    assuranceTitle = 'Doorstep & Hub Drives:';
-    assuranceBody = 'All test drive vehicles are sanitised, inspected, and accompanied by certified automotive specialists.';
-  } else if (templateVersion === 'selling-requested-v1') {
-    badgeText = 'SELLING REQUEST';
-    ctaTitle = 'Track Valuation';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Doorstep Valuation & Inspection Request';
-    assuranceTitle = 'Guaranteed Purchase:';
-    assuranceBody = 'Transparent fair-market pricing, free 180-point inspection, instant bank transfer, and free RC transfer.';
-  } else if (templateVersion === 'offer-accepted-v1') {
-    badgeText = 'OFFER ACCEPTED';
-    badgeColor = '#10B981';
-    ctaTitle = 'View Offer Details';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Direct Purchase Agreement Confirmation';
-  } else if (templateVersion === 'offer-declined-v1') {
-    badgeText = 'OFFER DECLINED';
-    badgeColor = '#94A3B8';
-    ctaTitle = 'View in Activity';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Acquisition Offer Update';
-  } else if (templateVersion === 'rental-booking-confirmed-v1') {
-    badgeText = 'RENTAL CONFIRMED';
-    badgeColor = '#10B981';
-    ctaTitle = 'View Rental Booking';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Self-Drive Fleet Booking Confirmed';
-    assuranceTitle = 'V MOTIV Rental Assurance:';
-    assuranceBody = 'Sanitized, GPS-enabled fleet with comprehensive vehicle insurance, transparent fuel policy, and 24/7 Roadside Assistance hotline (1800-866-848).';
-  } else if (templateVersion === 'rental-kyc-reviewed-v1') {
-    badgeText = 'RENTAL KYC';
-    badgeColor = '#3B82F6';
-    ctaTitle = 'View Verification';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Driver KYC Document Review Update';
-    assuranceTitle = 'Safe Driving Compliance:';
-    assuranceBody = 'Strict identity verification ensures road safety and fleet security for all drivers across our network.';
-  } else if (templateVersion === 'rental-trip-started-v1') {
-    badgeText = 'TRIP ACTIVE';
-    badgeColor = '#F7B503';
-    ctaTitle = 'View Active Trip';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Vehicle Handover Completed · Have a Safe Drive';
-    assuranceTitle = '24/7 Roadside Assistance:';
-    assuranceBody = 'In case of breakdown, puncture, or towing emergency, call our immediate response helpline at 1800-866-848.';
-  } else if (templateVersion === 'rental-trip-returned-v1') {
-    badgeText = 'TRIP CONCLUDED';
-    badgeColor = '#10B981';
-    ctaTitle = 'View Settlement & Refund';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Vehicle Return & Deposit Settlement Summary';
-    assuranceTitle = 'Deposit Refund Guarantee:';
-    assuranceBody = 'Security deposit refunds are automatically processed to your original payment method within 3 to 5 business days.';
-  } else if (templateVersion === 'rental-booking-cancelled-v1') {
-    badgeText = 'RENTAL CANCELLED';
-    badgeColor = '#EF4444';
-    ctaTitle = 'View Booking Status';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Rental Booking Cancellation & Refund';
-    assuranceTitle = 'Cancellation Policy:';
-    assuranceBody = 'Eligible refunds are processed directly per our transparent cancellation terms without hidden deductions.';
-  } else if (templateVersion === 'service-request-submitted-v1') {
-    badgeText = 'SERVICE CONFIRMED';
-    badgeColor = '#10B981';
-    ctaTitle = 'Track Service Job';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Workshop Service Booking Scheduled';
-    assuranceTitle = 'V MOTIV Workshop Guarantee:';
-    assuranceBody = 'Certified technicians, genuine OEM/OES spares, itemized estimate approvals, and multi-point quality control.';
-  } else if (templateVersion === 'service-cancelled-v1') {
-    badgeText = 'SERVICE CANCELLED';
-    badgeColor = '#EF4444';
-    ctaTitle = 'View Service Details';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Workshop Service Request Cancelled';
-  } else if (templateVersion === 'support-case-v1') {
-    badgeText = 'SUPPORT TICKET';
-    ctaTitle = 'View Support Case';
-    ctaUrl = `${webOrigin}/support`;
-    bannerSubtitle = 'Customer Support Request Received';
-    assuranceTitle = 'Dedicated Customer Support:';
-    assuranceBody = 'Our customer care team tracks every ticket with end-to-end accountability. Direct response within 24 hours.';
-  } else if (templateVersion === 'support-reply-v1') {
-    badgeText = 'CASE UPDATE';
-    badgeColor = '#F7B503';
-    ctaTitle = 'View Conversation';
-    ctaUrl = `${webOrigin}/support`;
-    bannerSubtitle = 'New Support Message on Case';
-  } else if (templateVersion === 'welcome-v1') {
-    badgeText = 'ACCOUNT CONFIRMED';
-    badgeColor = '#10B981';
-    ctaTitle = 'Browse Verified Cars';
-    ctaUrl = `${webOrigin}`;
-    bannerSubtitle = 'Welcome to Total Certainty in Automotive Mobility';
-  } else if (templateVersion === 'retail-quotation-v1') {
-    badgeText = 'OFFICIAL QUOTATION';
-    badgeColor = '#2563EB';
-    ctaTitle = 'View & Accept Quotation';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Authorized Retail Quotation';
-  } else if (templateVersion === 'employee-invitation-v1') {
-    badgeText = 'EMPLOYEE INVITATION';
-    ctaTitle = 'Review invitation';
-    const invitationUrl = text.match(/https?:\/\/[^\s]+\/accept-invitation\?token=[A-Za-z0-9_%.-]+/)?.[0];
-    ctaUrl = invitationUrl || webOrigin;
-    bannerSubtitle = 'Secure Employee Onboarding';
-    assuranceTitle = 'Secure Workspace Access:';
-    assuranceBody = 'This invitation is protected with time-limited single-use authentication tokens and multi-factor authorization.';
-  } else if (templateVersion === 'inspection-assigned-v1') {
-    badgeText = 'INSPECTION ASSIGNED';
-    badgeColor = '#F7B503';
-    ctaTitle = 'Open Inspector App';
-    ctaUrl = `${webOrigin}/inspector`;
-    bannerSubtitle = 'New Vehicle Inspection Assignment';
-  } else if (templateVersion === 'inspection-rework-v1') {
-    badgeText = 'CORRECTIONS REQUIRED';
-    badgeColor = '#EF4444';
-    ctaTitle = 'Review Feedback';
-    ctaUrl = `${webOrigin}/inspector`;
-    bannerSubtitle = 'Reviewer Feedback on Inspection Report';
-  } else if (templateVersion === 'inspection-approved-v1') {
-    badgeText = 'INSPECTION APPROVED';
-    badgeColor = '#10B981';
-    ctaTitle = 'View Certification';
-    ctaUrl = `${webOrigin}/inspection-review`;
-    bannerSubtitle = 'Vehicle Certification Report Approved';
-  } else if (templateVersion === 'inspection-requested-v1') {
-    badgeText = 'INSPECTION REQUEST';
-    badgeColor = '#3B82F6';
-    ctaTitle = 'Open Operations';
-    ctaUrl = `${webOrigin}/operations`;
-    bannerSubtitle = 'New Inspection Request in Dispatch Queue';
-  } else if (templateVersion === 'offer-communicated-v1') {
-    badgeText = 'PURCHASE OFFER';
-    badgeColor = '#10B981';
-    ctaTitle = 'Review Offer';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Official Acquisition Offer for Your Vehicle';
-  } else if (templateVersion === 'payment-verified-v1') {
-    badgeText = 'PAYMENT VERIFIED';
-    badgeColor = '#10B981';
-    ctaTitle = 'View Account';
-    ctaUrl = `${webOrigin}/account`;
-    bannerSubtitle = 'Direct Purchase Payment Processed';
+  let ctaUrl = `${webOrigin}${spec.ctaPath}`;
+  if (templateVersion === 'employee-invitation-v1') {
+    ctaUrl = text.match(/https?:\/\/[^\s]+\/accept-invitation\?token=[A-Za-z0-9_%.-]+/)?.[0] || webOrigin;
   }
 
-  // Format text paragraphs and list items
-  const paragraphs = text.split('\n\n').filter(Boolean);
-  const formattedBody = paragraphs
-    .map((block) => {
-      const lines = block.split('\n');
-      if (lines.length > 1 && lines.every((line) => line.trim().startsWith('•') || line.trim().startsWith('-') || /^\d+\./.test(line.trim()))) {
-        const items = lines
-          .map((line) => {
-            const clean = line.replace(/^[•\-\d+\.]\s*/, '').trim();
-            return `<li style="margin-bottom: 8px; color: #CBD5E1; line-height: 1.5;">${escapeHtml(clean)}</li>`;
-          })
-          .join('');
-        return `<ul style="margin: 12px 0 16px 20px; padding: 0;">${items}</ul>`;
-      }
-
-      if (block.startsWith('"') && block.endsWith('"')) {
-        return `<div style="background-color: #0A2246; border-left: 3px solid #F7B503; padding: 12px 16px; margin: 16px 0; border-radius: 4px; font-style: italic; color: #F1F5F9; line-height: 1.6;">${escapeHtml(block)}</div>`;
-      }
-
-      const renderedLines = lines.map((l) => {
-        if (/^[A-Za-z0-9\s#\-\[\]\(\)]+:$/.test(l.trim())) {
-          return `<strong style="display: block; color: #F7B503; margin-top: 14px; margin-bottom: 6px; font-size: 13px; text-transform: uppercase; letter-spacing: 0.5px;">${escapeHtml(l)}</strong>`;
-        }
-        if (l.trim().startsWith('•') || l.trim().startsWith('-')) {
-          return `<div style="margin-left: 8px; margin-bottom: 4px; color: #CBD5E1;">${escapeHtml(l)}</div>`;
-        }
-        return `<span style="display: block; margin-bottom: 4px;">${escapeHtml(l)}</span>`;
-      }).join('');
-
-      return `<div style="margin-bottom: 14px; color: #E2E8F0; line-height: 1.6; font-size: 14px;">${renderedLines}</div>`;
-    })
-    .join('');
+  const preview = previewText(text);
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -241,143 +268,95 @@ export function renderEmailHtml(event: EmailTemplateData): string {
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta http-equiv="X-UA-Compatible" content="IE=edge">
+  <meta name="color-scheme" content="light">
+  <meta name="supported-color-schemes" content="light">
   <title>${escapeHtml(subject)}</title>
   <style>
-    body {
-      margin: 0;
-      padding: 0;
-      background-color: #020B18;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-      color: #E2E8F0;
-      -webkit-font-smoothing: antialiased;
-    }
-    table {
-      border-collapse: collapse;
-    }
-    a {
-      color: #F7B503;
-      text-decoration: none;
-    }
+    body { margin: 0; padding: 0; background-color: ${PAGE}; -webkit-text-size-adjust: 100%; -ms-text-size-adjust: 100%; }
+    table { border-collapse: collapse; }
+    img { border: 0; outline: none; text-decoration: none; -ms-interpolation-mode: bicubic; }
+    a { color: #1D4ED8; }
     @media only screen and (max-width: 620px) {
-      .container {
-        width: 100% !important;
-        border-radius: 0 !important;
-      }
-      .content-padding {
-        padding: 24px 16px !important;
-      }
-      .header-padding {
-        padding: 20px 16px !important;
-      }
+      .outer { padding: 0 !important; }
+      .card { border-radius: 0 !important; border-left: 0 !important; border-right: 0 !important; }
+      .pad { padding-left: 20px !important; padding-right: 20px !important; }
+      .title { font-size: 21px !important; }
     }
   </style>
 </head>
-<body style="background-color: #020B18; margin: 0; padding: 24px 12px;">
-  <center>
-    <table class="container" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; margin: 0 auto; background-color: #061A38; border: 1px solid #1E293B; border-radius: 14px; overflow: hidden; text-align: left;">
-      <!-- ─── HEADER WITH SINGLE OFFICIAL BRAND LOGO ─── -->
-      <tr>
-        <td class="header-padding" style="background-color: #020B18; padding: 22px 28px; border-bottom: 1px solid #1E293B;">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-              <td valign="middle">
-                <a href="${escapeHtml(webOrigin)}" style="display: block; text-decoration: none;">
-                  <img
-                    src="${escapeHtml(headerLogoUrl)}"
-                    alt="V MOTIV"
-                    width="180"
-                    style="display: block; border: 0; outline: none; text-decoration: none; width: 180px; max-width: 180px; height: auto;"
-                  />
-                </a>
-              </td>
-              <td align="right" valign="middle">
-                <span style="display: inline-block; padding: 5px 12px; border-radius: 20px; font-size: 10px; font-weight: 700; color: ${badgeColor}; border: 1px solid ${badgeColor}; letter-spacing: 0.5px; text-transform: uppercase;">
-                  ${escapeHtml(badgeText)}
-                </span>
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
+<body style="margin: 0; padding: 0; background-color: ${PAGE}; font-family: ${FONT}; color: ${INK};">
+  <!-- Inbox preview text (hidden in the email itself) -->
+  <div style="display: none; max-height: 0; overflow: hidden; mso-hide: all; font-size: 1px; line-height: 1px; color: ${PAGE}; opacity: 0;">${escapeHtml(preview)}&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;&zwnj;&nbsp;</div>
 
-      <!-- Subject & Banner Subtitle -->
-      <tr>
-        <td style="padding: 26px 28px 12px 28px; background: linear-gradient(180deg, #092044 0%, #061A38 100%);">
-          <div style="font-size: 11px; font-weight: 700; color: #F7B503; text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 6px;">
-            ${escapeHtml(bannerSubtitle)}
-          </div>
-          <h1 style="margin: 0; font-size: 19px; font-weight: 800; color: #FFFFFF; line-height: 1.4;">
-            ${escapeHtml(subject)}
-          </h1>
-        </td>
-      </tr>
+  <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: ${PAGE};">
+    <tr>
+      <td class="outer" align="center" style="padding: 28px 12px;">
+        <table class="card" role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 600px; background-color: #FFFFFF; border: 1px solid ${LINE}; border-radius: 12px; border-collapse: separate; overflow: hidden;">
 
-      <!-- Content Body -->
-      <tr>
-        <td class="content-padding" style="padding: 20px 28px 28px 28px;">
-          <div style="background-color: #081D3C; border: 1px solid #1E3A66; border-radius: 10px; padding: 20px; margin-bottom: 24px;">
-            ${formattedBody}
-          </div>
+          <!-- Header: brand navy with the white logo, and a yellow line under it -->
+          <tr>
+            <td class="pad" style="background-color: ${NAVY}; padding: 14px 32px; border-bottom: 3px solid ${YELLOW};">
+              <a href="${escapeHtml(webOrigin)}" style="text-decoration: none;">
+                <img src="${escapeHtml(headerLogoUrl)}" alt="V MOTIV" width="96" style="display: block; width: 96px; max-width: 96px; height: auto;">
+              </a>
+            </td>
+          </tr>
 
-          <!-- Primary CTA Button -->
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="margin-top: 8px; margin-bottom: 24px;">
-            <tr>
-              <td align="center">
-                <a href="${escapeHtml(ctaUrl)}" style="background-color: #F7B503; color: #020B18; font-weight: 800; font-size: 14px; text-decoration: none; padding: 14px 32px; border-radius: 8px; display: inline-block; letter-spacing: 0.4px;">
-                  ${escapeHtml(ctaTitle)} &rarr;
-                </a>
-              </td>
-            </tr>
-          </table>
+          <!-- Title -->
+          <tr>
+            <td class="pad" style="padding: 32px 32px 8px 32px;">
+              <span style="display: inline-block; padding: 4px 10px; border-radius: 999px; background-color: ${tone.bg}; color: ${tone.fg}; font-size: 11px; font-weight: 700; letter-spacing: 0.6px; text-transform: uppercase;">${escapeHtml(spec.badge)}</span>
+              <h1 class="title" style="margin: 14px 0 6px 0; font-size: 24px; line-height: 1.3; font-weight: 700; color: ${NAVY};">${escapeHtml(subject)}</h1>
+              <p style="margin: 0; font-size: 14px; line-height: 1.5; color: ${MUTED};">${escapeHtml(spec.subtitle)}</p>
+            </td>
+          </tr>
 
-          <!-- Context-Aware Assurance Banner -->
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: rgba(247, 181, 3, 0.05); border: 1px solid rgba(247, 181, 3, 0.2); border-radius: 8px; padding: 12px 16px;">
-            <tr>
-              <td style="font-size: 12px; color: #94A3B8; line-height: 1.5;">
-                <strong style="color: #F7B503;">${escapeHtml(assuranceTitle)}</strong> ${escapeHtml(assuranceBody)}
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
+          <!-- Message -->
+          <tr>
+            <td class="pad" style="padding: 24px 32px 8px 32px;">
+              ${renderEmailBody(text)}
+            </td>
+          </tr>
 
-      <!-- ─── CLEAN BRAND FOOTER (SINGLE UNIFIED BRAND SIGNATURE - NO CONFUSING SECONDARY LOGOS) ─── -->
-      <tr>
-        <td align="center" style="background-color: #031024; padding: 24px 28px; border-top: 1px solid #1E293B; border-bottom: 1px solid #1E293B;">
-          <div style="font-size: 12px; font-weight: 800; color: #F7B503; letter-spacing: 1.8px; text-transform: uppercase; margin-bottom: 6px;">
-            YOUR VEHICLE. OUR ACCOUNTABILITY.
-          </div>
-          <div style="font-size: 12px; color: #94A3B8; max-width: 440px; margin: 0 auto; line-height: 1.6;">
-            All-in-One Mobility Ecosystem &middot; Verified Cars &middot; Self-Drive Fleet &middot; Workshop Care
-          </div>
-        </td>
-      </tr>
+          <!-- Button -->
+          <tr>
+            <td class="pad" style="padding: 8px 32px 28px 32px;">
+              <table role="presentation" cellpadding="0" cellspacing="0">
+                <tr>
+                  <td align="center" bgcolor="${YELLOW}" style="background-color: ${YELLOW}; border-radius: 8px;">
+                    <a href="${escapeHtml(ctaUrl)}" style="display: inline-block; padding: 14px 30px; font-size: 15px; font-weight: 700; line-height: 1; color: ${NAVY}; text-decoration: none; border-radius: 8px;">${escapeHtml(spec.cta)} &rarr;</a>
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
 
-      <!-- Footer Contact & Copyright -->
-      <tr>
-        <td style="background-color: #020B18; padding: 22px 28px; font-size: 11px; color: #64748B; line-height: 1.6;">
-          <table role="presentation" width="100%" cellpadding="0" cellspacing="0">
-            <tr>
-              <td>
-                <div style="color: #94A3B8; font-weight: 600; margin-bottom: 4px;">
-                  V MOTIV Private Limited
-                </div>
-                <div>This automated notification was delivered to <strong>${escapeHtml(recipient)}</strong>.</div>
-                <div style="margin-top: 8px;">
-                  Need assistance? Contact our team at <a href="mailto:support@vmotiv.in" style="color: #F7B503;">support@vmotiv.in</a> or 24/7 helpline <strong>1800-866-848</strong>.
-                </div>
-              </td>
-            </tr>
-            <tr>
-              <td style="padding-top: 16px; border-top: 1px solid #0F1D30; margin-top: 12px; font-size: 10px; color: #475569;">
-                &copy; ${currentCalendarYear()} V MOTIV. All rights reserved. Bangalore, Chennai, Mumbai, Hyderabad, Delhi NCR.
-              </td>
-            </tr>
-          </table>
-        </td>
-      </tr>
-    </table>
-  </center>
+          <!-- Note -->
+          <tr>
+            <td class="pad" style="padding: 0 32px 32px 32px;">
+              <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: ${SOFT}; border-left: 3px solid ${YELLOW}; border-radius: 4px;">
+                <tr>
+                  <td style="padding: 12px 16px; font-size: 13px; line-height: 1.6; color: #475569;">
+                    <strong style="color: ${NAVY};">${escapeHtml(assuranceTitle)}</strong> ${escapeHtml(assuranceBody)}
+                  </td>
+                </tr>
+              </table>
+            </td>
+          </tr>
+
+          <!-- Footer -->
+          <tr>
+            <td class="pad" style="background-color: ${SOFT}; padding: 22px 32px; border-top: 1px solid ${LINE}; font-size: 12px; line-height: 1.7; color: ${MUTED};">
+              <div style="font-weight: 700; color: #334155;">V MOTIV Private Limited</div>
+              <div>This email was sent to <strong style="color: #334155;">${escapeHtml(recipient)}</strong>.</div>
+              <div style="margin-top: 6px;">Need help? Write to <a href="mailto:support@vmotiv.in" style="color: #1D4ED8;">support@vmotiv.in</a> or call our 24/7 helpline <strong style="color: #334155;">1800-866-848</strong>.</div>
+              <div style="margin-top: 10px; font-size: 11px; color: #64748B;">&copy; ${currentCalendarYear()} V MOTIV. All rights reserved.</div>
+            </td>
+          </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
 </body>
 </html>`;
 }

@@ -39,6 +39,7 @@ import { BrandLogo } from '../components/BrandLogo';
 import { AuthScreen } from './AuthScreen';
 import { useAppTheme, radius, space } from '../theme';
 import { useAutoRefresh } from '../hooks/useAutoRefresh';
+import { useTabBarScroll } from '../components/TabBarVisibility';
 import { useTabScreenBottomPadding } from '../layout/safe-layout';
 import { formatPaise, friendlyError } from '../format';
 import type { ActivityItem, CustomerQuotation, PurchaseEnquiry, SellingRequest, SupportCase, TestDrive } from '../types';
@@ -59,6 +60,7 @@ type FilterTab = 'ALL' | 'CONNECT' | 'SERVICE' | 'RENTAL' | 'SCRAP' | 'SELLING' 
 
 export function RequestsScreen() {
   const tabBottomPadding = useTabScreenBottomPadding();
+  const tabBarScroll = useTabBarScroll(); // hides the bottom tab bar while scrolling down, shows it on the way up
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<any>();
   const { state } = useAuth();
@@ -651,6 +653,7 @@ export function RequestsScreen() {
         </View>
       ) : filter === 'ALL' ? (
         <FlatList
+          {...tabBarScroll}
           contentContainerStyle={[styles.list, { paddingBottom: tabBottomPadding }]}
           refreshControl={
             <RefreshControl
@@ -683,6 +686,7 @@ export function RequestsScreen() {
         />
       ) : (
         <FlatList
+          {...tabBarScroll}
           contentContainerStyle={[styles.list, { paddingBottom: tabBottomPadding }]}
           refreshControl={
             <RefreshControl

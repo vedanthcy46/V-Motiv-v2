@@ -54,6 +54,7 @@ import {
 } from './icons';
 // The two big workshop and rental screens are only downloaded when their tab is opened.
 const ServiceOperationsPanel = lazy(() => import('./components/ServiceOperationsPanel').then(m => ({ default: m.ServiceOperationsPanel })));
+const HomeContentManager = lazy(() => import('./components/HomeContentManager').then(m => ({ default: m.HomeContentManager })));
 const RentalOperationsPanel = lazy(() => import('./components/RentalOperationsPanel').then(m => ({ default: m.RentalOperationsPanel })));
 import {
   Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader, SkeletonRows, StaffNotificationBell, tabFromDeepLink, toast,
@@ -77,6 +78,7 @@ type TabKey =
   | 'deliveries'
   | 'service'
   | 'rentals'
+  | 'homecontent'
   | 'team';
 
 const DEFAULT_BODY_TYPES = [
@@ -135,6 +137,7 @@ const TAB_GROUPS: Record<TabKey, DataGroup[]> = {
   deliveries: ['inventory', 'testDrives'],
   service: ['dashboard'],
   rentals: ['dashboard'],
+  homecontent: [],
   team: ['inspectors'],
 };
 
@@ -1117,6 +1120,7 @@ export const App: FC = () => {
     deliveries: 'Test Drives & Buyer Delivery',
     service: 'Car Service & Workshop Operations',
     rentals: 'Rental Fleet & Trips',
+    homecontent: 'App Home Content',
     team: 'Operations Team & Tasks',
   };
 
@@ -1156,6 +1160,7 @@ export const App: FC = () => {
         { key: 'deliveries', label: 'Test drives and delivery', icon: <IconDelivery />, badge: testDrives.length },
         { key: 'service', label: 'Car service and hubs', icon: <IconService /> },
         { key: 'rentals', label: 'Rental fleet and trips', icon: <IconRentals /> },
+        { key: 'homecontent', label: 'App home content', icon: <IconPublish /> },
         { key: 'team', label: 'Operations team', icon: <IconLock /> },
       ],
     },
@@ -2919,6 +2924,15 @@ export const App: FC = () => {
               onError={err => reportError(err)}
               onSuccess={msg => setSuccessMsg(msg)}
             />
+          </Suspense>
+        ) : null}
+
+        {/* ======================================================== */}
+        {/* APP HOME CONTENT: banners and hub photos and videos       */}
+        {/* ======================================================== */}
+        {activeTab === 'homecontent' ? (
+          <Suspense fallback={<SkeletonRows rows={6} />}>
+            <HomeContentManager user={user} />
           </Suspense>
         ) : null}
 

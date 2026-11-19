@@ -79,33 +79,6 @@ function RentalHomeContent({ navigation }: Props) {
   const { colors, isDark } = useAppTheme();
   const { state: authState } = useAuth();
 
-  if (authState !== 'signed-in') {
-    return (
-      <View style={{ flex: 1, backgroundColor: colors.background }}>
-        <View
-          style={{
-            paddingTop: insets.top + 8,
-            paddingHorizontal: 16,
-            paddingBottom: 12,
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.border,
-          }}
-        >
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
-            <ArrowLeft size={22} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <BrandLogo variant="horizontal" size={24} bodyColor={isDark ? '#FFFFFF' : colors.brandNavy} />
-          <View style={{ marginLeft: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7' }}>
-            <Text style={{ fontSize: 10, fontWeight: '800', color: colors.brandAccent }}>RENTALS</Text>
-          </View>
-        </View>
-        <AuthScreen includeTopInset={false} showHeader={false} />
-      </View>
-    );
-  }
 
   const [hubs, setHubs] = useState<RentalHub[]>([]);
   const [selectedHub, setSelectedHub] = useState<RentalHub | null>(null);
@@ -135,6 +108,7 @@ function RentalHomeContent({ navigation }: Props) {
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
 
   useEffect(() => {
+    if (authState !== 'signed-in') return undefined;
     let mounted = true;
     async function loadData() {
       try {
@@ -162,7 +136,7 @@ function RentalHomeContent({ navigation }: Props) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [authState]);
 
   const totalDurationHours = Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60)));
   const durationDays = Math.floor(totalDurationHours / 24);
@@ -293,6 +267,35 @@ function RentalHomeContent({ navigation }: Props) {
 
     return { adjustedFirstDay, cells, monthName: calendarMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) };
   }, [calendarMonth, startDate, endDate]);
+
+  // Signed-out view. It sits below every hook on purpose: returning before a hook changes how many hooks run when the person signs in or out.
+  if (authState !== 'signed-in') {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <View
+          style={{
+            paddingTop: insets.top + 8,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: colors.surface,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border,
+          }}
+        >
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
+            <ArrowLeft size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <BrandLogo variant="horizontal" size={24} bodyColor={isDark ? '#FFFFFF' : colors.brandNavy} />
+          <View style={{ marginLeft: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7' }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: colors.brandAccent }}>RENTALS</Text>
+          </View>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
+  }
 
   const handleSearch = () => {
     if (!selectedHub) {
