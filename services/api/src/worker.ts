@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client';
 import { readConfig } from './config.js';
 import { processEmail, resendSender } from './email.js';
 import { NotificationService } from './notification/index.js';
+import { runNotificationCycle } from './employee-notifications/cycle.js';
 
 const config = readConfig(process.env);
 const db = new PrismaClient({
@@ -39,6 +40,14 @@ try {
       } catch (err: any) {
         console.error('[WORKER_EMAIL_PROCESS_ERROR]', err?.message || err);
       }
+    }
+
+    // 1b. Employee notifications: outbox -> inbox, detectors, escalations, digests
+    try {
+      const cycle = await runNotificationCycle(db, { workerId: `worker-${process.pid}` });
+      if (cycle.outbox.processed + cycle.outbox.failed + cycle.outbox.dead > 0) console.info('[WORKER_NOTIFICATION_CYCLE]', JSON.stringify(cycle.outbox));
+    } catch (err: any) {
+      console.error('[WORKER_NOTIFICATION_CYCLE_ERROR]', err?.message || err);
     }
 
     // 2. Drain Expo Push Tickets

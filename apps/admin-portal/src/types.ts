@@ -262,3 +262,9 @@ export type RentalKmPolicy = {
   extraKmRatePaise: string | null;
   vehicleCount: number;
 };
+
+export type ActivityMonitorItem = { id: string; createdAt: string; action: string; domain: string; entityType: string; entityId: string; outcome: string; actor: string | null; details: Record<string, string | number | boolean | null> };
+export type ActivityMonitorPage = {
+  page: number; limit: number; total: number; items: ActivityMonitorItem[];
+  summary: { last24hByDomain: Record<string, number>; last24hTotal: number; exceptions: Array<{ id: string; action: string; entityType: string; entityId: string; outcome: string; createdAt: string; domain: string }> };
+};

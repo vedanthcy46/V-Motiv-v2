@@ -470,6 +470,22 @@ enum NotificationChannel {
   PUSH
   EMAIL
 }
+/// How an employee notification is treated: CRITICAL is persistent, pushed and escalated; ACTION_REQUIRED links to real work;
+/// INFORMATIONAL stays in the inbox (or a digest) and is not pushed.
+enum NotificationSeverity {
+  CRITICAL
+  ACTION_REQUIRED
+  INFORMATIONAL
+}
+
+enum OutboxStatus {
+  PENDING
+  PROCESSING
+  PROCESSED
+  FAILED
+  DEAD
+}
+
 enum NotificationPriority {
   LOW
   NORMAL
@@ -1282,6 +1298,8 @@ model Employee {
   locationIds String[] @default([]) @db.Uuid
   employeeCode String? @unique
   designation String?
+  /// The manager an overdue, unacknowledged alert escalates to.
+  reportsToId String? @db.Uuid
   status EmployeeStatus @default(ACTIVE)
   mfaStatus MfaStatus @default(REQUIRED)
   lastAccessAt DateTime?
@@ -1451,6 +1469,7 @@ model Branch {
   city String
   address String?
   active Boolean @default(true)
+  timezone String @default("Asia/Kolkata")
   supportsService Boolean @default(true)
   supportsRentals Boolean @default(true)
   createdAt DateTime @default(now())
@@ -1641,11 +1660,136 @@ model Notification {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  deliveries NotificationDelivery[]
+  // --- Employee inbox (set by the central notification pipeline; null for customer notifications) ---
+  severity NotificationSeverity @default(INFORMATIONAL)
+  module String?
+  branchId String? @db.Uuid
+  resourceType String?
+  resourceId String?
+  /// An allow-listed in-portal route, e.g. /rentals/bookings/:id. Never an arbitrary URL.
+  actionRoute String?
+  /// The outbox event this was created from. With userId it is unique, so a replayed event cannot create a second inbox item.
+  eventId String? @db.Uuid
+  dedupKey String?
+  requiresAck Boolean @default(false)
+  acknowledgedAt DateTime?
+  /// Set when the business work behind it is done (or the record was reassigned): it stays in history but is no longer actionable.
+  resolvedAt DateTime?
+  supersededAt DateTime?
+  expiresAt DateTime?
+  escalationLevel Int @default(0)
 
+  deliveries NotificationDelivery[]
+  escalations NotificationEscalationEvent[]
+
+  @@unique([eventId, userId])
   @@index([userId, read, createdAt])
   @@index([userId, category, createdAt])
   @@index([eventType, createdAt])
+  @@index([userId, createdAt])
+  @@index([userId, severity, createdAt])
+  @@index([branchId, module])
+  @@index([requiresAck, acknowledgedAt, resolvedAt, createdAt])
+  @@index([resourceType, resourceId])
+}
+
+/// The durable record of "something happened that someone may need to act on". Written in the same transaction as the business
+/// change; a worker turns it into inbox items and deliveries. Safe to replay: the dedup key and the per-recipient unique key
+/// stop a repeat from creating duplicates.
+model DomainOutboxEvent {
+  id String @id @default(uuid()) @db.Uuid
+  eventType String
+  aggregateType String
+  aggregateId String
+  branchId String? @db.Uuid
+  actorId String? @db.Uuid
+  /// Only allow-listed, non-sensitive fields (see employee-notifications/catalog.ts).
+  payload Json
+  dedupKey String? @unique
+  status OutboxStatus @default(PENDING)
+  attempts Int @default(0)
+  maxAttempts Int @default(8)
+  nextAttemptAt DateTime @default(now())
+  leaseUntil DateTime?
+  lockedBy String?
+  lastError String?
+  policyVersion Int?
+  /// What routing decided: how many recipients, which strategy, and whether the designated owner was missing (fallback used).
+  routing Json?
+  createdAt DateTime @default(now())
+  processedAt DateTime?
+
+  @@index([status, nextAttemptAt])
+  @@index([eventType, createdAt])
+  @@index([aggregateType, aggregateId])
+}
+
+/// Versioned routing rules. The newest enabled version of an event type wins; code defaults apply when none is stored.
+model NotificationRoutingPolicy {
+  id String @id @default(uuid()) @db.Uuid
+  eventType String
+  version Int
+  enabled Boolean @default(true)
+  module String
+  requiredPermission String?
+  recipientStrategy String
+  /// BRANCH (event branch must be one the employee is assigned to), GLOBAL (employee needs global scope), ASSIGNED (the assignee only).
+  branchScope String @default("BRANCH")
+  severity NotificationSeverity
+  deliveryChannels String[] @default([])
+  requiresAcknowledgement Boolean @default(false)
+  escalationPolicyKey String?
+  dedupWindowMinutes Int @default(0)
+  note String?
+  createdById String? @db.Uuid
+  createdAt DateTime @default(now())
+
+  @@unique([eventType, version])
+  @@index([eventType, enabled])
+}
+
+/// Who owns a work queue. Notifications for an unassigned queue go to its designated owners and subscribers, not to everyone with the role.
+model NotificationQueueMember {
+  id String @id @default(uuid()) @db.Uuid
+  queueKey String
+  userId String @db.Uuid
+  /// Null means every branch the employee is authorised for.
+  branchId String? @db.Uuid
+  memberRole String @default("MEMBER")
+  active Boolean @default(true)
+  createdAt DateTime @default(now())
+
+  @@index([queueKey, active, branchId])
+  @@index([userId])
+}
+
+model NotificationEscalationPolicy {
+  id String @id @default(uuid()) @db.Uuid
+  key String @unique
+  description String?
+  /// [{ "afterMinutes": 30, "to": "QUEUE_OWNER" | "REPORTS_TO" | "ADMIN_RESPONDER" }, ...] in order.
+  steps Json
+  respectWorkingHours Boolean @default(true)
+  workingHoursStart String @default("09:00")
+  workingHoursEnd String @default("19:00")
+  workingDays Int[] @default([1, 2, 3, 4, 5, 6])
+  /// ISO dates (yyyy-mm-dd) on which the clock does not run.
+  holidays String[] @default([])
+  enabled Boolean @default(true)
+  updatedAt DateTime @updatedAt
+}
+
+model NotificationEscalationEvent {
+  id String @id @default(uuid()) @db.Uuid
+  notificationId String @db.Uuid
+  notification Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  level Int
+  escalatedToUserId String? @db.Uuid
+  outcome String
+  reason String?
+  createdAt DateTime @default(now())
+
+  @@unique([notificationId, level])
 }
 
 model NotificationPreference {
@@ -1663,6 +1807,10 @@ model NotificationPreference {
   quietHoursEnabled Boolean @default(false)
   quietHoursStart String? @default("22:00")
   quietHoursEnd String? @default("08:00")
+  /// Employees: OFF or DAILY email digest of unread inbox items.
+  digestFrequency String @default("OFF")
+  /// Employee modules (SALES, OPERATIONS, FINANCE, ADMIN, INSPECTION) whose non-critical notifications are muted.
+  mutedModules String[] @default([])
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }

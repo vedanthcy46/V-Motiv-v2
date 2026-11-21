@@ -51,7 +51,13 @@ import { BrandLogo } from '../components/BrandLogo';
 import { useAuth } from '../auth/AuthProvider';
 import { api, resolveRequestUrl } from '../api';
 import { color, radius, space, useAppTheme } from '../theme';
-import { registerForPushNotificationsAsync, type InAppNotification } from '../services/notifications';
+import * as ExpoNotifications from 'expo-notifications';
+import { registerForPushNotificationsAsync } from '../services/notifications';
+import {
+  OPEN_REFUSAL_MESSAGE, acknowledgeEmployeeNotification, authoriseNotificationOpen, inspectorTargetFromRoute, listEmployeeNotifications,
+  markAllEmployeeNotificationsRead, markEmployeeNotificationRead, parsePushData, type EmployeeNotification,
+} from '../services/employee-notifications';
+import { onRefreshSignal } from '../services/refresh-bus';
 import {
   cachedJobsKey,
   cachedTemplateKey,
@@ -431,7 +437,9 @@ export function InspectorScreen() {
   // Inspector In-App Notifications
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [unreadNotifsCount, setUnreadNotifsCount] = useState(0);
-  const [notifications, setNotifications] = useState<InAppNotification[]>([]);
+  const [notifications, setNotifications] = useState<EmployeeNotification[]>([]);
+  const [notificationsError, setNotificationsError] = useState<string | null>(null);
+  const handledPushes = useRef(new Set<string>());
 
   // 1. Initial Load of Assigned Jobs, Queue Counts & Notifications
   useEffect(() => {
@@ -441,34 +449,63 @@ export function InspectorScreen() {
     void registerForPushNotificationsAsync('INSPECTOR');
   }, [user]);
 
+  // Push: a new notification refreshes the inbox and queue; tapping one (app running, in the background, or opened cold) opens the job.
+  useEffect(() => {
+    const handle = (response: ExpoNotifications.NotificationResponse | null) => {
+      if (!response) return;
+      const key = response.notification.request.identifier;
+      if (handledPushes.current.has(key)) return;
+      const data = parsePushData(response.notification.request.content.data);
+      if (!data || (data.module && data.module !== 'INSPECTION')) return;
+      handledPushes.current.add(key);
+      void openNotificationById(data.notificationId);
+    };
+    void ExpoNotifications.getLastNotificationResponseAsync().then(handle).catch(() => undefined);
+    const tap = ExpoNotifications.addNotificationResponseReceivedListener(handle);
+    const refresh = onRefreshSignal(() => { void loadNotifications(); void refreshQueueCounts(); });
+    return () => { tap.remove(); refresh(); };
+  }, [user, jobs]);
+
   async function loadNotifications() {
     if (!user) return;
     try {
-      const res = await api<{ items: InAppNotification[]; unreadCount: number }>('/api/v2/notifications?limit=30');
-      setNotifications(res.items || []);
-      setUnreadNotifsCount(res.unreadCount || 0);
+      const res = await listEmployeeNotifications(30);
+      setNotifications(res.items);
+      setUnreadNotifsCount(res.unreadCount);
+      setNotificationsError(null);
     } catch {
-      // Offline fallback
+      // Offline: keep showing what is already on screen, and say so instead of pretending it is current.
+      setNotificationsError('Could not refresh. Showing the last list you loaded.');
     }
   }
 
   async function markNotificationAsRead(id: string) {
     try {
-      await api(`/api/v2/notifications/${id}/read`, { method: 'PATCH' });
+      await markEmployeeNotificationRead(id);
       setNotifications(prev => prev.map(n => n.id === id ? { ...n, read: true } : n));
       setUnreadNotifsCount(prev => Math.max(0, prev - 1));
     } catch {
-      // offline
+      // offline: it stays unread on the server and will show as unread again after the next refresh
     }
   }
 
   async function markAllNotificationsAsRead() {
     try {
-      await api('/api/v2/notifications/read-all', { method: 'POST' });
+      await markAllEmployeeNotificationsRead();
       setNotifications(prev => prev.map(n => ({ ...n, read: true })));
       setUnreadNotifsCount(0);
     } catch {
-      // offline
+      Alert.alert('Could not mark as read', 'Check your connection and try again.');
+    }
+  }
+
+  async function acknowledgeNotification(n: EmployeeNotification) {
+    try {
+      await acknowledgeEmployeeNotification(n.id);
+      setNotifications(prev => prev.map(item => item.id === n.id ? { ...item, acknowledgedAt: new Date().toISOString(), read: true } : item));
+      if (!n.read) setUnreadNotifsCount(prev => Math.max(0, prev - 1));
+    } catch {
+      Alert.alert('Could not acknowledge', 'Check your connection and try again.');
     }
   }
 
@@ -626,39 +663,58 @@ export function InspectorScreen() {
     }
   }
 
-  // Navigation-Aware Notification Handler
-  async function handleNotificationNavigation(n: InAppNotification) {
-    if (!n.read) {
-      void markNotificationAsRead(n.id);
-    }
+  // Opening a notification (from the list, or from tapping a push): the server decides whether it may still be opened.
+  // A push payload is never trusted on its own: the job could have been reassigned, finished, or this person's access could have ended.
+  async function openNotificationById(notificationId: string, fallback?: EmployeeNotification) {
     setNotificationsOpen(false);
+    let decision;
+    try {
+      decision = await authoriseNotificationOpen(notificationId);
+    } catch (err: any) {
+      const message = /40[134]|NOT_FOUND|EMPLOYEE_REQUIRED/.test(String(err?.status ?? err?.code ?? err?.message))
+        ? 'This notification is no longer available to you.'
+        : 'No connection. Try opening it again when you are online.';
+      Alert.alert(fallback?.title ?? 'Notification', message, [{ text: 'OK' }]);
+      return;
+    }
+    if (!decision.allowed) {
+      Alert.alert(fallback?.title ?? 'Notification', OPEN_REFUSAL_MESSAGE[decision.reason] ?? 'This can no longer be opened.', [{ text: 'OK' }]);
+      void loadNotifications();
+      return;
+    }
+    void markNotificationAsRead(notificationId);
+    const target = inspectorTargetFromRoute(decision.actionRoute);
+    if (!target) {
+      Alert.alert(fallback?.title ?? 'Notification', fallback?.body ?? 'Nothing to open for this notification.', [{ text: 'OK' }]);
+      return;
+    }
 
-    const targetId = n.entityId || (n.deepLink ? n.deepLink.match(/([0-9a-fA-F-]{36}|[0-9a-zA-Z_-]+)$/)?.[1] : null);
-    if (!targetId) return;
-
-    // 1. Search in current loaded jobs
-    let target = jobs.find(j => j.id === targetId || (j.request && (j.request as any).id === targetId));
-
-    // 2. If not found in current filtered subset, reload all assignments
-    if (!target && user) {
+    const matches = (j: Assignment) => j.id === target.id || (j.request && (j.request as any).id === target.id) || (j as any).report?.id === target.id;
+    let job = jobs.find(matches);
+    if (!job && user) {
       try {
         setBusy(true);
         const live = await api<Assignment[]>('/api/v2/inspector/assignments');
         setJobs(live);
         setStatusFilter('ALL');
-        target = live.find(j => j.id === targetId || (j.request && (j.request as any).id === targetId));
+        job = live.find(matches);
       } catch (err) {
         console.warn('[NAVIGATE_NOTIFICATION_ERROR]', err);
       } finally {
         setBusy(false);
       }
     }
+    if (job) void startInspection(job);
+    else Alert.alert(fallback?.title ?? 'Job not found', 'This job is not in your list any more. It may have been reassigned or completed.', [{ text: 'OK' }]);
+  }
 
-    if (target) {
-      void startInspection(target);
-    } else {
-      Alert.alert(n.title, n.body, [{ text: 'OK' }]);
+  function handleNotificationNavigation(n: EmployeeNotification) {
+    if (!n.actionable || !n.actionRoute) {
+      if (!n.read) void markNotificationAsRead(n.id);
+      Alert.alert(n.title, n.supersededAt ? 'This job was reassigned.' : n.resolvedAt ? 'This has already been dealt with.' : n.body, [{ text: 'OK' }]);
+      return;
     }
+    void openNotificationById(n.id, n);
   }
 
   // 3. Save Draft (Local First + Cloud Sync)
@@ -2447,6 +2503,7 @@ export function InspectorScreen() {
               contentContainerStyle={{ paddingBottom: space.sm }}
               showsVerticalScrollIndicator={false}
             >
+              {notificationsError ? <Text style={[styles.notifEmptySub, { paddingHorizontal: space.md }]}>{notificationsError}</Text> : null}
               {notifications.length === 0 ? (
                 <View style={styles.notifEmptyWrap}>
                   <Bell color={color.muted} size={32} />
@@ -2457,7 +2514,8 @@ export function InspectorScreen() {
                 </View>
               ) : (
                 notifications.map(n => {
-                  const hasTarget = Boolean(n.entityId || n.deepLink);
+                  const hasTarget = Boolean(n.actionRoute && n.actionable);
+                  const needsAck = n.requiresAck && !n.acknowledgedAt && n.actionable;
                   return (
                     <Pressable
                       key={n.id}
@@ -2473,7 +2531,7 @@ export function InspectorScreen() {
                           {!n.read && <View style={styles.unreadDot} />}
                           <View style={styles.notifCategoryTag}>
                             <Text style={styles.notifCategoryTagText}>
-                              {n.category || 'INSPECTION'}
+                              {n.severity === 'CRITICAL' ? 'CRITICAL' : n.severity === 'ACTION_REQUIRED' ? 'ACTION REQUIRED' : 'UPDATE'}
                             </Text>
                           </View>
                         </View>
@@ -2490,12 +2548,22 @@ export function InspectorScreen() {
                         {n.body}
                       </Text>
 
-                      {hasTarget && (
+                      {!n.actionable && (
+                        <Text style={styles.notifTimeText}>{n.supersededAt ? 'Reassigned' : n.resolvedAt ? 'Done' : 'Expired'}</Text>
+                      )}
+                      {(hasTarget || needsAck) && (
                         <View style={styles.notifActionRow}>
-                          <View style={styles.notifNavPill}>
-                            <Text style={styles.notifNavPillText}>Open Inspection</Text>
-                            <ChevronRight size={13} color={color.yellow} />
-                          </View>
+                          {hasTarget && (
+                            <View style={styles.notifNavPill}>
+                              <Text style={styles.notifNavPillText}>Open Inspection</Text>
+                              <ChevronRight size={13} color={color.yellow} />
+                            </View>
+                          )}
+                          {needsAck && (
+                            <Pressable style={styles.notifNavPill} onPress={() => void acknowledgeNotification(n)} hitSlop={6}>
+                              <Text style={styles.notifNavPillText}>Acknowledge</Text>
+                            </Pressable>
+                          )}
                         </View>
                       )}
                     </Pressable>

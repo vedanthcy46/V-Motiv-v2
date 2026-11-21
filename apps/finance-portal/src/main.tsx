@@ -1,8 +1,8 @@
 import {
-  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader, StaffNotificationBell,
-  tabFromDeepLink, initTheme, modalIsOpen, mountLiveChangeBar, toast, useAutoRefresh, useChangeWatcher, type NavSection,
+  Alert, AppShell, AuthLayout, Button, CenterState, EmployeeNotificationBell, MfaChallengeModal, NotificationInbox, PageLoader,
+  createEmployeeNotificationsClient, routeToPage, initTheme, modalIsOpen, mountLiveChangeBar, toast, useAutoRefresh, useChangeWatcher, type NavSection,
 } from '@vmotiv/ui';
-import { Component, useEffect, useRef, useState, type FC, type FormEvent, type ReactNode } from 'react';
+import { Component, useEffect, useMemo, useRef, useState, type FC, type FormEvent, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
 import {
   GoogleAuthProvider,
@@ -24,7 +24,6 @@ import {
 import { auth, firebaseConfigured } from './firebase';
 import {
   financeApi,
-  financeNotifications,
   ApiError,
   type FinanceActor,
   type DashboardMetrics,
@@ -196,7 +195,8 @@ type TabKey =
   | 'ledger'
   | 'invoices'
   | 'profitability'
-  | 'audit';
+  | 'audit'
+  | 'notifications';
 
 type DataGroup = 'dashboard' | 'settlements' | 'obligations' | 'receipts' | 'refunds' | 'expenses' | 'vendors' | 'banking' | 'exceptions' | 'ledger' | 'invoices' | 'profitability' | 'audit';
 const ALL_GROUPS: readonly DataGroup[] = ['dashboard', 'settlements', 'obligations', 'receipts', 'refunds', 'expenses', 'vendors', 'banking', 'exceptions', 'ledger', 'invoices', 'profitability', 'audit'];
@@ -223,8 +223,15 @@ const MODAL_REFRESH: Record<string, readonly DataGroup[]> = {
   ISSUE_INVOICE: ['dashboard', 'invoices'],
 };
 
+/** Notification routes that open a screen in this portal; the rest are explained in the inbox. */
+const FINANCE_ROUTE_TABS: Record<string, TabKey> = {
+  '/payments': 'receipts', '/payouts': 'seller-settlements', '/refunds': 'refunds', '/settlements': 'seller-settlements', '/seller-settlements': 'seller-settlements', '/reconciliation': 'exceptions',
+};
+
 function App() {
   const [user, setUser] = useState<User | null>(null);
+  // The employee inbox lives under /employees/me, so it uses an unprefixed client (this portal's own client is prefixed with /finance).
+  const inboxClient = useMemo(() => user ? createEmployeeNotificationsClient({ apiBase: import.meta.env.VITE_API_BASE, getToken: force => user.getIdToken(force) }) : null, [user]);
   const [actor, setActor] = useState<FinanceActor | null>(null);
   const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState<TabKey>('overview');
@@ -545,7 +552,13 @@ function App() {
         { key: 'audit', label: 'Audit trail', icon: <IconAudit /> },
       ],
     },
+    { title: 'Inbox', items: [{ key: 'notifications', label: 'Notifications', icon: <IconClock /> }] },
   ];
+  const openFromNotification = (route: string, item: { module: string }) => {
+    const target = routeToPage<TabKey>('FINANCE', FINANCE_ROUTE_TABS, route, item);
+    if (typeof target !== 'string') { toast.info('Cannot open it here', { description: target.redirect }); setTab('notifications'); return; }
+    setTab(target);
+  };
 
   const tabTitles: Record<TabKey, string> = {
     overview: 'Treasury overview',
@@ -561,6 +574,7 @@ function App() {
     invoices: 'Commercial tax invoices',
     profitability: 'Vehicle unit profitability',
     audit: 'Immutable financial audit trail',
+    notifications: 'Notifications',
   };
 
   return (
@@ -576,17 +590,7 @@ function App() {
         title={tabTitles[tab]}
         toolbar={
           <>
-            {user ? (
-              <StaffNotificationBell
-                title="Finance notifications"
-                source={financeNotifications(user)}
-                onOpenItem={item => {
-                  const next = tabFromDeepLink(item.deepLink);
-                  if (next && next in tabTitles) setTab(next as TabKey);
-                  else if (item.deepLink?.includes('payoutId=')) setTab('seller-settlements');
-                }}
-              />
-            ) : null}
+            {inboxClient ? <EmployeeNotificationBell api={inboxClient.api} stream={inboxClient.stream} onNavigate={openFromNotification} onViewAll={() => setTab('notifications')} /> : null}
             <span className="badge badge-soft badge-warning hidden font-semibold sm:inline-flex">{(actor.roles[0] || 'FINANCE').replace(/_/g, ' ')}</span>
             <Button variant="ghost" size="sm" aria-label="Refresh data" title="Refresh data" loading={refreshing} onClick={() => void refreshAll()} icon={<IconRefresh />} />
           </>
@@ -594,6 +598,12 @@ function App() {
       >
           {error && (
             <Alert tone="warning" title="Some data could not be loaded" className="mb-4" onDismiss={() => setError('')}>{error}</Alert>
+          )}
+
+          {tab === 'notifications' && inboxClient && (
+            <div>
+              <NotificationInbox api={inboxClient.api} stream={inboxClient.stream} moduleHint="FINANCE" onNavigate={openFromNotification} />
+            </div>
           )}
 
           {/* TAB 1: OVERVIEW */}

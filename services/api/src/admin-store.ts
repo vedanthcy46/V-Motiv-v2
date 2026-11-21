@@ -1,6 +1,8 @@
 import crypto from 'node:crypto';
 import { PrismaClient, type EmployeeRole, type EmployeeStatus, type PolicyStatus, type Prisma, type SupportCaseStatus } from '@prisma/client';
 import { z } from 'zod';
+import { enqueueDomainEvent } from './employee-notifications/outbox.js';
+import { resolveNotificationsForResource } from './employee-notifications/resolve.js';
 import type { Identity } from './auth.js';
 import { HttpError } from './errors.js';
 import type { PermissionKey } from './admin-catalog.js';
@@ -677,6 +679,7 @@ export class PrismaAdminStore implements AdminStore {
     requirePermission(actor, 'policy.propose');
     return this.db.$transaction(async tx => {
       const request = await tx.approvalRequest.create({ data: { requestType: 'POLICY_VERSION', requesterId: actor.userId, requiredPermission: 'policy.approve', payload: input as Prisma.InputJsonValue, expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) }, select: { id: true, status: true, version: true, createdAt: true, expiresAt: true } });
+      await enqueueDomainEvent(tx, { eventType: 'POLICY_CHANGE_APPROVAL', aggregateId: request.id, actorId: actor.userId, excludeUserIds: [actor.userId], dedupKey: `APPROVAL:${request.id}` });
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'POLICY_VERSION_PROPOSED', entityType: 'ApprovalRequest', entityId: request.id, details: { key: input.key } } });
       return request;
     });
@@ -743,6 +746,7 @@ export class PrismaAdminStore implements AdminStore {
         payload: { email, fullName: input.fullName, designation: input.designation, roleId: input.roleId, branchIds: input.branchIds, expiresInHours: input.expiresInHours, reason },
       }, select: { id: true, requestType: true, status: true, version: true, expiresAt: true, createdAt: true } });
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'APPROVAL_REQUEST_CREATED', entityType: 'ApprovalRequest', entityId: request.id, details: { requestType: request.requestType, role: role.key, branchIds: input.branchIds } } });
+      await enqueueDomainEvent(tx, { eventType: 'EMPLOYEE_INVITE_APPROVAL', aggregateId: request.id, actorId: actor.userId, excludeUserIds: [actor.userId], branchId: input.branchIds?.[0] ?? null, dedupKey: `APPROVAL:${request.id}` });
       return request;
     });
   }
@@ -821,16 +825,10 @@ export class PrismaAdminStore implements AdminStore {
               data: { status: 'OFFER_PENDING' },
             });
           }
-          await tx.notification.create({
-            data: {
-              userId: request.requesterId,
-              eventType: 'ACQUISITION_OFFER_REJECTED',
-              title: 'Offer not approved',
-              body: `Administration did not approve the proposed offer${(request.payload as any)?.referenceCode ? ` for ${(request.payload as any).referenceCode}` : ''}${input.reason ? `: ${input.reason}` : '.'} Propose a revised amount.`,
-              entityType: 'ApprovalRequest',
-              entityId: id,
-            },
-          }).catch(() => undefined);
+          await enqueueDomainEvent(tx, {
+            eventType: 'ACQUISITION_OFFER_REJECTED', aggregateId: String((request.payload as any)?.leadId ?? id), actorId: actor.userId, assigneeUserIds: [request.requesterId],
+            payload: { referenceCode: (request.payload as any)?.referenceCode }, dedupKey: `OFFER_REJECTED:${id}`,
+          });
         }
         await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'APPROVAL_REJECTED', entityType: 'ApprovalRequest', entityId: id, details: { reason: input.reason } } });
         return { stale: false, value: { id, status: 'REJECTED' } } as const;
@@ -931,16 +929,10 @@ export class PrismaAdminStore implements AdminStore {
               },
             }).catch(() => undefined);
           }
-          await tx.notification.create({
-            data: {
-              userId: request.requesterId,
-              eventType: 'ACQUISITION_OFFER_APPROVED',
-              title: 'Offer approved and sent',
-              body: `Administration approved ₹${rupees} for ${lead?.make ?? ''} ${lead?.model ?? ''} (${lead?.referenceCode ?? ''}). The seller has been told.`,
-              entityType: 'AcquisitionOffer',
-              entityId: offer.id,
-            },
-          }).catch(() => undefined);
+          await enqueueDomainEvent(tx, {
+            eventType: 'ACQUISITION_OFFER_APPROVED', aggregateId: valuation.leadId ?? offer.id, actorId: actor.userId, assigneeUserIds: [request.requesterId],
+            payload: { referenceCode: lead?.referenceCode }, dedupKey: `OFFER_APPROVED:${id}`,
+          });
         }
 
         await tx.approvalDecision.create({ data: { requestId: id, actorId: actor.userId, decision: 'APPROVE', reason: input.reason, requestVersion: request.version } });
@@ -1000,6 +992,8 @@ export class PrismaAdminStore implements AdminStore {
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'APPROVAL_APPROVED_AND_EXECUTED', entityType: 'ApprovalRequest', entityId: id, details: { invitationId: invitation.id, requestVersion: request.version } } });
       return { stale: false, value: { id, status: 'APPROVED', invitation } } as const;
     });
+    // The decision is made: whoever was asked is no longer asked, and the alert stops escalating.
+    await resolveNotificationsForResource(this.db, 'ApprovalRequest', id).catch(() => undefined);
     if (result.stale) throw new HttpError(409, result.code);
     return result.value;
   }
@@ -1134,6 +1128,11 @@ export class PrismaAdminStore implements AdminStore {
       await tx.employee.update({ where: { userId: employeeId }, data: { status, active: status === 'ACTIVE' } });
       await tx.user.update({ where: { id: employeeId }, data: { status: status === 'ACTIVE' ? 'ACTIVE' : status } });
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: `EMPLOYEE_${status}`, entityType: 'Employee', entityId: employeeId, details: { reason } } });
+      if (status !== 'ACTIVE') {
+        // No new pushes to their phones, and they stop being a queue owner. Their open alerts remain (and escalate) so the work is not lost.
+        await tx.pushDevice.updateMany({ where: { userId: employeeId, active: true }, data: { active: false } });
+        await tx.notificationQueueMember.updateMany({ where: { userId: employeeId, active: true }, data: { active: false } });
+      }
       return { firebaseUid: target.user.firebaseUid };
     });
   }
@@ -1581,6 +1580,7 @@ export class PrismaAdminStore implements AdminStore {
           expiresAt: new Date(Date.now() + 48 * 3600 * 1000),
         },
       });
+      await enqueueDomainEvent(this.db, { eventType: 'SENSITIVE_EXPORT_APPROVAL', aggregateId: approval.id, actorId: actor.userId, excludeUserIds: [actor.userId], dedupKey: `APPROVAL:${approval.id}` });
       const job = await this.db.exportJob.create({
         data: {
           resourceType: input.resourceType,

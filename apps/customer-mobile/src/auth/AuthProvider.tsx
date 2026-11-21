@@ -7,6 +7,7 @@ import { withDeadline } from '../api-network';
 import { friendlyError } from '../format';
 import type { Profile } from '../types';
 import { registerForPushNotificationsAsync } from '../services/notifications';
+import { unregisterEmployeeDevice } from '../services/employee-notifications';
 
 const isExpoGo =
   Constants.appOwnership === 'expo' ||
@@ -296,6 +297,8 @@ function useFirebaseSessionBase() {
 
   const signOut = useCallback(async () => {
     if (!authModule) return;
+    // Release this phone from the employee's push list while the session is still valid, so alerts for them stop arriving on it.
+    await Promise.race([unregisterEmployeeDevice(), new Promise<void>(resolve => setTimeout(resolve, 3_000))]);
     generation.current++;
     setBusy(true);
     setSyncing(false);

@@ -1108,7 +1108,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
       if (newlyReady) {
         const lead = await tx.acquisitionCase.findUnique({ where: { id: caseId }, select: { lead: { select: { id: true, referenceCode: true, make: true, model: true } } } });
         // Finance is told the moment the last document is verified, so the payout can be prepared without waiting.
-        if (lead) outbox.push(() => notifyReadyForPayment(this.notificationService, lead.lead, caseId).catch(() => undefined));
+        if (lead) outbox.push(() => notifyReadyForPayment(this.notificationService, lead.lead, caseId, undefined, this.db).catch(() => undefined));
       }
       return updated;
     });
@@ -1884,7 +1884,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
       if (status === 'PASSED') {
         outbox.push(() => this.notifyTeam(this.db, { type: 'VEHICLE_QC_PASSED', roles: ['LISTING_EXECUTIVE', 'OPERATIONS_MANAGER'], title: 'Quality check passed', body: 'A car passed quality control and is ready for its listing details and photos.', actionUrl: '/operations?tab=studio', referenceId: report.stockUnitId, entityType: 'VehicleStockUnit' }));
       } else if (status === 'REWORK_REQUIRED') {
-        outbox.push(() => this.notifyTeam(this.db, { type: 'VEHICLE_QC_PASSED', roles: ['OPERATIONS_MANAGER', 'INVENTORY_MANAGER'], title: 'Quality check: rework needed', body: 'A car failed quality control and needs more work before it can be listed.', actionUrl: '/operations?tab=refurbishment', referenceId: report.stockUnitId, entityType: 'VehicleStockUnit' }));
+        outbox.push(() => this.notifyTeam(this.db, { type: 'VEHICLE_QC_REWORK_REQUIRED', roles: ['OPERATIONS_MANAGER', 'INVENTORY_MANAGER'], title: 'Quality check: rework needed', body: 'A car failed quality control and needs more work before it can be listed.', actionUrl: '/operations?tab=refurbishment', referenceId: report.stockUnitId, entityType: 'VehicleStockUnit' }));
       }
       return updated;
     });
@@ -2992,14 +2992,15 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
             type: 'INSPECTION_REVIEW_APPROVED',
             category: 'INSPECTION',
             priority: 'NORMAL',
-            recipientRoles: ['SALES', 'FINANCE', 'SUPER_ADMIN'],
+            // The salesperson who owns the lead hears first. (It used to go to every Sales, Finance and Super Admin employee.)
+            recipientUserIds: await this.db.sellerLeadAssignment.findMany({ where: { leadId: report.request?.leadId ?? '', releasedAt: null }, select: { employeeId: true } }).then(rows => rows.map(row => row.employeeId).filter((value): value is string => Boolean(value))).catch(() => [] as string[]),
             branchId: report.request?.branchId || undefined,
             title: `Inspection Approved: ${vehicleTitle}`,
             body: `Inspection report for ${vehicleTitle} (${refCode}) has been certified and approved. Ready for offer generation.`,
             actionUrl: `/inspection-review?reportId=${id}`,
-            referenceId: id,
+            referenceId: report.request?.leadId ?? id,
             entityType: 'InspectionReport',
-            metadata: { targetApp: 'SALES', reportId: id },
+            metadata: { targetApp: 'SALES', reportId: id, referenceCode: refCode, vehicle: vehicleTitle },
             emailTemplate: 'inspection-approved-v1',
             emailSubject: `Inspection Certified & Approved: ${vehicleTitle} [${refCode}]`,
             emailBody: `The 180-point vehicle inspection report for ${vehicleTitle} (${refCode}) has been officially certified and approved.\n\nThe certified valuation and condition grade are now available for customer offer finalization.`,
