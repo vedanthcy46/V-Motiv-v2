@@ -8,6 +8,15 @@ import { INSPECTOR_INELIGIBILITY_MESSAGES, inspectorIneligibility } from './insp
 import { knownTemplateItem, templateFor, currentTemplate, isItemApplicable, type InspectionTemplateItem } from './inspection-template.js';
 import { InspectionMediaService } from './inspection-media.js';
 import type { NotificationService } from './notification/index.js';
+import {
+  OPENING_STOCK_SOURCE,
+  normalizeFuel,
+  normalizeRegistrationNumber,
+  normalizeTransmission,
+  openingStockCode,
+  openingStockProblems,
+  type OpeningStockItem,
+} from './opening-stock.js';
 
 export type InspectionActor = {
   userId: string;
@@ -1371,6 +1380,162 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // Opening stock: cars the hub already owned before the app existed
+  // ---------------------------------------------------------------------------
+
+  private async resolveOpeningStockBranch(actor: InspectionActor, branchId?: string) {
+    const isAdmin = actor.roles.some(role => ['ADMIN', 'SUPER_ADMIN'].includes(role));
+    const id = branchId || (actor.branchIds.length === 1 ? actor.branchIds[0] : undefined);
+    if (!id) throw new HttpError(400, 'BRANCH_SELECTION_REQUIRED', 'Choose the hub this car is at.');
+    if (!isAdmin && !actor.branchIds.includes(id)) throw new HttpError(403, 'BRANCH_ACCESS_DENIED');
+    const branch = await this.db.branch.findFirst({ where: { id, active: true } });
+    if (!branch) throw new HttpError(400, 'INVALID_BRANCH');
+    return branch;
+  }
+
+  /** The car already in live stock (not sold or retired) with this registration number, however it was typed (spaces, dashes, case). */
+  private async findLiveStockByRegistration(normalizedRegistration: string) {
+    const candidates = await this.db.vehicleStockUnit.findMany({
+      where: { registrationNumber: { contains: normalizedRegistration.slice(-4), mode: 'insensitive' }, status: { notIn: ['SOLD', 'RETIRED'] } },
+      select: { id: true, stockCode: true, registrationNumber: true },
+    });
+    return candidates.find(unit => unit.registrationNumber && normalizeRegistrationNumber(unit.registrationNumber) === normalizedRegistration) ?? null;
+  }
+
+  /** Checks one car can be entered: valid details, and not already in stock. Throws the reason. */
+  private async assertOpeningStockAllowed(item: OpeningStockItem) {
+    const problems = openingStockProblems(item);
+    if (problems.length) throw new HttpError(400, problems[0]!.code, problems.map(problem => problem.message).join(' '));
+    const existing = await this.findLiveStockByRegistration(normalizeRegistrationNumber(item.registrationNumber));
+    if (existing) throw new HttpError(409, 'STOCK_ALREADY_EXISTS', `${existing.stockCode} is already in stock with this registration number.`);
+  }
+
+  private async insertOpeningStock(actor: InspectionActor, item: OpeningStockItem, branch: { id: string; name: string }) {
+    const registration = normalizeRegistrationNumber(item.registrationNumber);
+    let lastError: unknown;
+    for (let attempt = 0; attempt < 4; attempt += 1) {
+      const stockCode = openingStockCode();
+      try {
+        return await this.db.$transaction(async tx => {
+          const unit = await tx.vehicleStockUnit.create({
+            data: {
+              stockCode,
+              source: OPENING_STOCK_SOURCE,
+              branchId: branch.id,
+              receivedByEmployeeId: actor.userId,
+              status: 'RECEIVED',
+              physicalLocation: item.physicalLocation?.trim() || branch.name,
+              registrationNumber: registration,
+              make: item.make.trim(),
+              model: item.model.trim(),
+              variant: item.variant?.trim() || null,
+              manufacturingYear: item.manufacturingYear,
+              fuelType: normalizeFuel(item.fuelType)!,
+              transmission: normalizeTransmission(item.transmission)!,
+              odometerKm: item.odometerKm,
+              acquisitionCostPaise: item.acquisitionCostPaise,
+              notes: item.notes?.trim() || null,
+              openingStockDetails: {
+                documentsOnFile: item.documentsOnFile ?? [],
+                enteredAt: new Date().toISOString(),
+                enteredBy: actor.userId,
+              },
+            },
+          });
+          await tx.auditEvent.create({
+            data: {
+              actorId: actor.userId,
+              action: 'OPENING_STOCK_ADDED',
+              entityType: 'VehicleStockUnit',
+              entityId: unit.id,
+              details: { stockCode, registrationNumber: registration, branchId: branch.id, acquisitionCostPaise: item.acquisitionCostPaise.toString() },
+            },
+          });
+          return unit;
+        });
+      } catch (error) {
+        lastError = error;
+        if ((error as { code?: string })?.code !== 'P2002') throw error; // only a clash on the generated code is worth another try
+      }
+    }
+    throw lastError;
+  }
+
+  /** Adds one car the hub already owned. It arrives as received stock and must pass inspection before it can be listed. */
+  async addOpeningStock(actor: InspectionActor, input: OpeningStockItem & { branchId?: string }) {
+    checkRole(actor, inventoryRoles);
+    const branch = await this.resolveOpeningStockBranch(actor, input.branchId);
+    await this.assertOpeningStockAllowed(input);
+    const unit = await this.insertOpeningStock(actor, input, branch);
+    await this.notifyTeam(this.db, {
+      type: 'VEHICLE_STOCK_INWARD',
+      roles: ['INSPECTION_REVIEWER', 'OPERATIONS_MANAGER', 'INVENTORY_MANAGER'],
+      title: `Opening stock added: ${unit.make} ${unit.model}`,
+      body: `${unit.make} ${unit.model} (${unit.stockCode}) was entered as opening stock at ${branch.name}. It needs inspection before it can be listed.`,
+      actionUrl: '/operations?tab=inventory',
+      referenceId: unit.id,
+      entityType: 'VehicleStockUnit',
+      branchId: branch.id,
+    });
+    return unit;
+  }
+
+  /**
+   * Adds many cars at once (for example the hub's first load from a spreadsheet). Each row is checked and saved on its own, so one bad row
+   * never blocks the rest, and the answer says what happened to every row. With `dryRun` nothing is saved: it only reports what would be.
+   */
+  async addOpeningStockBulk(actor: InspectionActor, input: { items: OpeningStockItem[]; branchId?: string; dryRun?: boolean }) {
+    checkRole(actor, inventoryRoles);
+    const branch = await this.resolveOpeningStockBranch(actor, input.branchId);
+    const seen = new Set<string>();
+    const rows: Array<{ row: number; registrationNumber: string; status: 'CREATED' | 'WOULD_CREATE' | 'FAILED'; stockId?: string; stockCode?: string; code?: string; message?: string }> = [];
+    for (const [index, item] of input.items.entries()) {
+      const row = index + 1;
+      const registrationNumber = normalizeRegistrationNumber(item.registrationNumber || '');
+      try {
+        if (registrationNumber && seen.has(registrationNumber)) throw new HttpError(409, 'DUPLICATE_IN_FILE', 'This registration number appears more than once in the file.');
+        await this.assertOpeningStockAllowed(item);
+        seen.add(registrationNumber);
+        if (input.dryRun) {
+          rows.push({ row, registrationNumber, status: 'WOULD_CREATE' });
+          continue;
+        }
+        const unit = await this.insertOpeningStock(actor, item, branch);
+        rows.push({ row, registrationNumber, status: 'CREATED', stockId: unit.id, stockCode: unit.stockCode });
+      } catch (error) {
+        rows.push({
+          row,
+          registrationNumber,
+          status: 'FAILED',
+          code: (error as { code?: string })?.code && typeof (error as { code?: string }).code === 'string' ? (error as { code: string }).code : 'ROW_FAILED',
+          message: error instanceof Error ? error.message : 'This row could not be added.',
+        });
+      }
+    }
+    const created = rows.filter(item => item.status === 'CREATED').length;
+    if (created > 0) {
+      await this.notifyTeam(this.db, {
+        type: 'VEHICLE_STOCK_INWARD',
+        roles: ['INSPECTION_REVIEWER', 'OPERATIONS_MANAGER', 'INVENTORY_MANAGER'],
+        title: `${created} opening-stock car${created === 1 ? '' : 's'} added`,
+        body: `${created} car${created === 1 ? ' was' : 's were'} entered as opening stock at ${branch.name}. They need inspection before they can be listed.`,
+        actionUrl: '/operations?tab=inventory',
+        referenceId: rows.find(item => item.stockId)!.stockId!,
+        entityType: 'VehicleStockUnit',
+        branchId: branch.id,
+      });
+    }
+    return {
+      dryRun: Boolean(input.dryRun),
+      total: rows.length,
+      created,
+      wouldCreate: rows.filter(item => item.status === 'WOULD_CREATE').length,
+      failed: rows.filter(item => item.status === 'FAILED').length,
+      items: rows,
+    };
+  }
+
   async stockUnits(actor: InspectionActor) {
     await refreshMasterBodyTypes(this.db as any);
     checkRole(actor, stockReadRoles);
@@ -1754,6 +1919,8 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     verifiedTags?: string[];
     mediaUrls?: string[];
     branchId?: string;
+    /** A registration number entered while preparing the listing. It is saved in the same step, so the record's version changes once. */
+    registrationNumber?: string;
     expectedVersion: number;
   }) {
     await refreshMasterBodyTypes(this.db as any);
@@ -1781,7 +1948,9 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     const rawInspectionReg = typeof inspectionIdentity.registrationNumber === 'string' ? inspectionIdentity.registrationNumber.trim() : '';
     const inspectionReg = !isInvalidRegNumberOrUuid(rawInspectionReg) ? rawInspectionReg : '';
 
-    const resolvedReg = stock.registrationNumber || stock.acquisitionCase?.lead?.registrationNumber || inspectionReg || null;
+    // What staff typed in the listing studio wins; otherwise what is already on the car, then what the lead or inspection recorded.
+    const typedReg = input.registrationNumber?.trim().toUpperCase().replace(/\s+/g, '');
+    const resolvedReg = typedReg || stock.registrationNumber || stock.acquisitionCase?.lead?.registrationNumber || inspectionReg || null;
     const resolvedVariant = stock.variant || stock.acquisitionCase?.lead?.variant || (inspectionIdentity.variant as string) || null;
     const resolvedColor = input.color || stock.vehicle?.color || stock.acquisitionCase?.lead?.color || (inspectionIdentity.color as string) || null;
     const resolvedRegYear = stock.acquisitionCase?.lead?.registrationYear || (typeof inspectionIdentity.registrationYear === 'number' ? inspectionIdentity.registrationYear : null) || null;
@@ -2148,6 +2317,11 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
     if (hasUnfinishedWorkOrders) throw new HttpError(409, 'WORK_ORDERS_NOT_COMPLETED');
     const hasPassedQC = stock.qualityControlReports.some(qc => qc.status === 'PASSED');
     if (stock.workOrders.length > 0 && !hasPassedQC) throw new HttpError(409, 'QC_REPORT_NOT_PASSED');
+    // Opening stock (a car entered by hand, with no purchase history) is never listed on trust: it needs a passed inspection even if it
+    // had no repair work, which is the one case the check above lets through.
+    if (stock.source === OPENING_STOCK_SOURCE && !hasPassedQC) {
+      throw new HttpError(409, 'OPENING_STOCK_INSPECTION_REQUIRED', 'This car was entered as opening stock. It must pass inspection before it can be listed.');
+    }
     if (!stock.vehicleId || !stock.vehicle) throw new HttpError(409, 'VEHICLE_DETAILS_NOT_PREPARED');
 
     // A car goes live only with everything a customer needs to see (photos, colour, registration, condition, branch).

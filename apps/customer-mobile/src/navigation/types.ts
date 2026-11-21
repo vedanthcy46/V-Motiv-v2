@@ -41,6 +41,8 @@ export type RootStack = {
   ServiceRequestDetails: { requestId: string };
   Wishlist: undefined;
   RentalHome: undefined;
+  /** Ask us to scrap a vehicle. With a vehicleId the form starts from that garage car. */
+  ScrapRequest: { vehicleId?: string } | undefined;
   RentalSearchResults: {
     hubId?: string;
     city?: string;

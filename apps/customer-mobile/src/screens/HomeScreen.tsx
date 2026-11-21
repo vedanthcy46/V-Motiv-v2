@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Image,
+  Linking,
   Pressable,
   RefreshControl,
   ScrollView,
@@ -17,24 +18,26 @@ import {
   ArrowRight,
   Bell,
   CarFront,
-  CalendarDays,
-  Wrench,
-  Recycle,
-  Tag,
   Clock,
-  Sparkles,
-  CheckCircle2,
-  ShieldCheck,
   KeyRound,
   Menu,
+  Recycle,
+  Tag,
+  Wrench,
+  type LucideIcon,
 } from 'lucide-react-native';
 import { useSidebar } from '../components/AppSidebar';
 import { BrandLogo } from '../components/BrandLogo';
+import { HomeBanners } from '../components/HomeBanners';
+import { HubMedia } from '../components/HubMedia';
+import { useTabBarScroll } from '../components/TabBarVisibility';
 import { PriceBlock } from '../components/PriceBlock';
 import { NotificationsModal } from '../components/NotificationsModal';
+import { comingSoonMessage, isFeatureOpen } from '../constants/features';
 import { CustomerButton } from '../components/customer-ui';
 import { customer } from '../services/customer';
 import { describeAge } from '../services/inventory-offline';
+import { destinationForItem, destinationForScreen, type Destination, type HomeItem, type ScreenName } from '../services/home-content';
 import { readSellDraft, sellDraftKey } from '../services/sell-draft';
 import {
   fetchUserNotifications,
@@ -45,20 +48,28 @@ import {
   type InAppNotification,
 } from '../services/notifications';
 import { useAuth } from '../auth/AuthProvider';
+import { useHomeContent } from '../hooks/useHomeContent';
 import { useAppTheme } from '../theme';
 import { useTabScreenBottomPadding } from '../layout/safe-layout';
 import { formatPrice } from '../format';
 import type { Tabs } from '../navigation/types';
 import type { VehicleSummary } from '../types';
 
-const SECONDARY_SERVICES = [
-  { title: 'Car Service', body: 'Maintenance & repairs', Icon: Wrench },
-  { title: 'Rent a Car', body: 'Short or long term', Icon: CalendarDays },
-  { title: 'Scrap a Car', body: 'Responsible disposal', Icon: Recycle },
+/**
+ * Service is the main thing people come for, so it gets a full-width card of its own. The other four are equal tiles in one row below it, each
+ * with a one-word label (the full name is read out by screen readers) so a label can never be cut off on a small phone.
+ */
+const SERVICE_ACTION: { screen: ScreenName; title: string; hint: string; Icon: LucideIcon } = { screen: 'SERVICE', title: 'Car Service', hint: 'Book repairs and maintenance', Icon: Wrench };
+const OTHER_ACTIONS: Array<{ screen: ScreenName; label: string; full: string; Icon: LucideIcon; feature?: 'rental' }> = [
+  { screen: 'BUY', label: 'Buy', full: 'Buy a car', Icon: CarFront },
+  { screen: 'SELL', label: 'Sell', full: 'Sell a car', Icon: Tag },
+  { screen: 'RENTAL', label: 'Rent', full: 'Rent a car', Icon: KeyRound, feature: 'rental' },
+  { screen: 'SCRAP', label: 'Scrap', full: 'Scrap a car', Icon: Recycle },
 ];
 
 export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
   const tabBottomPadding = useTabScreenBottomPadding();
+  const tabBarScroll = useTabBarScroll(); // hides the bottom tab bar while scrolling down, shows it on the way up
   const { state, profile } = useAuth();
   const { openSidebar } = useSidebar();
   const { theme, isDark } = useAppTheme();
@@ -73,6 +84,8 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
   const [unread, setUnread] = useState(0);
   const root = navigation.getParent();
+  // Banners and hub media managed by Operations. Empty until something is published, in which case those sections are simply not shown.
+  const home = useHomeContent(profile?.preferredCity?.trim() ?? '');
 
   useFocusEffect(
     useCallback(() => {
@@ -132,12 +145,36 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
     }
   };
 
-  const comingSoon = (title: string) =>
-    Alert.alert(
-      `${title} — Coming Soon`,
-      'This service is being planned. Bookings are not yet available.\n\nYou can still buy or sell a car with V MOTIV today.',
-      [{ text: 'Got it' }],
-    );
+  const ctx = { signedIn: state === 'signed-in', rentalOpen: isFeatureOpen('rental') };
+
+  /** Carries out a tap from the quick actions or a banner. Where each one leads is decided in services/home-content.ts. */
+  const go = (destination: Destination) => {
+    const navigator = root as unknown as { navigate: (name: string, params?: unknown) => void } | undefined;
+    switch (destination.type) {
+      case 'signin':
+        navigation.navigate('Account');
+        return;
+      case 'tab':
+        navigation.navigate(destination.name);
+        return;
+      case 'root':
+        navigator?.navigate(destination.name);
+        return;
+      case 'vehicle':
+        navigator?.navigate('Vehicle', { listingId: destination.listingId });
+        return;
+      case 'url':
+        void Linking.openURL(destination.url).catch(() => Alert.alert('Could not open the link', 'Please try again later.'));
+        return;
+      case 'comingSoon': {
+        const message = comingSoonMessage(destination.feature);
+        Alert.alert(message.title, message.body, [{ text: 'Got it' }]);
+        return;
+      }
+      case 'none':
+        return;
+    }
+  };
 
   const greeting = profile?.displayName
     ? `Hi, ${profile.displayName.split(' ')[0]} 👋`
@@ -146,6 +183,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
   return (
     <SafeAreaView style={[styles.safe, { backgroundColor: c.background }]} edges={['top', 'left', 'right']}>
       <ScrollView
+        {...tabBarScroll}
         contentContainerStyle={[styles.scroll, { paddingBottom: tabBottomPadding }]}
         refreshControl={<RefreshControl refreshing={loading} onRefresh={() => void refresh()} tintColor={c.brandAccent} />}
         showsVerticalScrollIndicator={false}
@@ -180,57 +218,51 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
           </Pressable>
         </View>
 
-        {/* ── Greeting ── */}
-        <View style={styles.greetSection}>
-          <Text style={[styles.greetText, { color: c.textSecondary }]}>{greeting}</Text>
-          <Text accessibilityRole="header" style={[styles.greetTitle, { color: c.textPrimary }]}>
-            What would you like to do?
-          </Text>
-        </View>
+        <Text accessibilityRole="header" style={[styles.greetText, { color: c.textPrimary }]}>{greeting}</Text>
 
-        {/* ── Primary action cards ── */}
-        <View style={styles.primaryRow}>
-          {/* Buy */}
+        {/* ── Promotional banners (managed by Operations) ── */}
+        <HomeBanners items={home.banners} onOpen={(item) => go(destinationForItem(item, ctx))} />
+
+        {/* ── What would you like to do: Service is the main card, then one row of four ── */}
+        <View style={{ gap: 12 }}>
           <Pressable
             accessibilityRole="button"
-            accessibilityLabel="Buy a Car. Explore available cars, see prices and request a test drive."
-            onPress={() => navigation.navigate('Explore')}
-            style={({ pressed }) => [
-              styles.primaryCard,
-              { backgroundColor: isDark ? c.surface : c.brandNavy, borderWidth: 1, borderColor: c.border },
-              pressed && { opacity: 0.85 },
-            ]}
+            accessibilityLabel={`${SERVICE_ACTION.title}. ${SERVICE_ACTION.hint}`}
+            onPress={() => go(destinationForScreen(SERVICE_ACTION.screen, ctx))}
+            style={({ pressed }) => [styles.serviceCard, { backgroundColor: c.brandAccent }, pressed && { opacity: 0.92 }]}
           >
-            <CarFront size={36} color={c.brandAccent} accessibilityElementsHidden />
-            <Text style={[styles.primaryCardTitle, { color: '#FFFFFF' }]}>Buy a Car</Text>
-            <Text style={[styles.primaryCardBody, { color: '#BAC7D9' }]}>
-              Explore cars, see prices and request a test drive.
-            </Text>
-            <View style={styles.primaryCardArrow}>
-              <ArrowRight size={20} color={c.brandAccent} accessibilityElementsHidden />
+            <View style={[styles.serviceIcon, { backgroundColor: c.brandNavy }]}>
+              <SERVICE_ACTION.Icon size={28} color={c.brandAccent} accessibilityElementsHidden />
+            </View>
+            <View style={styles.serviceText}>
+              <Text style={[styles.serviceTitle, { color: c.brandNavy }]}>{SERVICE_ACTION.title}</Text>
+              <Text numberOfLines={2} style={[styles.serviceHint, { color: c.brandNavy }]}>{SERVICE_ACTION.hint}</Text>
+            </View>
+            <View style={[styles.serviceArrow, { backgroundColor: c.brandNavy }]}>
+              <ArrowRight size={18} color={c.brandAccent} accessibilityElementsHidden />
             </View>
           </Pressable>
 
-          {/* Sell */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Sell a Car. Tell us about your car and save progress as you go."
-            onPress={() => (state === 'signed-in' ? root?.navigate('Sell') : navigation.navigate('Account'))}
-            style={({ pressed }) => [
-              styles.primaryCard,
-              { backgroundColor: c.brandAccent },
-              pressed && { opacity: 0.85 },
-            ]}
-          >
-            <Tag size={36} color={c.brandNavy} accessibilityElementsHidden />
-            <Text style={[styles.primaryCardTitle, { color: c.brandNavy }]}>Sell a Car</Text>
-            <Text style={[styles.primaryCardBody, { color: '#1A2E4C' }]}>
-              Tell us about your car. Save progress as you go.
-            </Text>
-            <View style={styles.primaryCardArrow}>
-              <ArrowRight size={20} color={c.brandNavy} accessibilityElementsHidden />
-            </View>
-          </Pressable>
+          <View style={styles.tileRow}>
+            {OTHER_ACTIONS.map(({ screen, label, full, Icon, feature }) => {
+              const soon = feature ? !isFeatureOpen(feature) : false;
+              return (
+                <Pressable
+                  key={screen}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${full}${soon ? ', coming soon' : ''}`}
+                  onPress={() => go(destinationForScreen(screen, ctx))}
+                  style={({ pressed }) => [styles.tile, { backgroundColor: c.surface, borderColor: c.border }, pressed && { opacity: 0.8 }]}
+                >
+                  <View style={[styles.tileIcon, { backgroundColor: isDark ? 'rgba(247,181,3,0.16)' : '#FFF5D6', opacity: soon ? 0.6 : 1 }]}>
+                    <Icon size={24} color={isDark ? c.brandAccent : c.brandNavy} accessibilityElementsHidden />
+                  </View>
+                  <Text numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.85} style={[styles.tileLabel, { color: c.textPrimary }]}>{label}</Text>
+                  {soon ? <View style={[styles.soon, { backgroundColor: c.brandAccent }]}><Text style={[styles.soonText, { color: c.brandNavy }]}>SOON</Text></View> : null}
+                </Pressable>
+              );
+            })}
+          </View>
         </View>
 
         {/* ── Draft resume ── */}
@@ -243,230 +275,12 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
                 <Text style={[styles.draftBody, { color: c.textSecondary }]}>Continue from where you left off.</Text>
               </View>
             </View>
-            <CustomerButton title="Resume" onPress={() => (state === 'signed-in' ? root?.navigate('Sell') : navigation.navigate('Account'))} />
+            <CustomerButton title="Resume" onPress={() => go(destinationForScreen('SELL', ctx))} />
           </View>
         )}
 
-        {/* ── Secondary services ── */}
-        <View style={styles.sectionHeader}>
-          <Text accessibilityRole="header" style={[styles.sectionTitle, { color: c.textPrimary }]}>
-            More services
-          </Text>
-          <Text style={[styles.sectionMeta, { color: c.textMuted }]}>Coming soon</Text>
-        </View>
-        <View style={styles.secondaryRow}>
-          {SECONDARY_SERVICES.map(({ title, body, Icon }) => {
-            const isCarService = title === 'Car Service';
-            const isRental = title === 'Rent a Car';
-            const isLive = isCarService || isRental;
-            return (
-              <Pressable
-                key={title}
-                accessibilityRole="button"
-                accessibilityLabel={
-                  isCarService
-                    ? 'Car Service. Book maintenance & repairs.'
-                    : isRental
-                    ? 'Rent a Car. Self-drive advance rental.'
-                    : `${title}. Coming soon.`
-                }
-                onPress={() => {
-                  if (state !== 'signed-in') {
-                    navigation.navigate('Account');
-                    return;
-                  }
-                  if (isCarService) {
-                    root?.navigate('ServiceHome');
-                  } else if (isRental) {
-                    root?.navigate('RentalHome');
-                  } else {
-                    comingSoon(title);
-                  }
-                }}
-                style={({ pressed }) => [
-                  styles.secondaryCard,
-                  {
-                    backgroundColor: isLive ? (isDark ? '#142742' : '#FFFDF5') : c.surface,
-                    borderColor: isLive ? c.brandAccent : c.border,
-                  },
-                  pressed && { opacity: 0.75 },
-                ]}
-              >
-                <Icon size={26} color={isLive ? c.brandAccent : c.textSecondary} accessibilityElementsHidden />
-                <Text style={[styles.secondaryCardTitle, { color: c.textPrimary }]}>{title}</Text>
-                <Text style={[styles.secondaryCardBody, { color: c.textSecondary }]}>{body}</Text>
-                <View style={[styles.comingSoonBadge, { backgroundColor: isLive ? c.brandAccent : c.surfaceSecondary }]}>
-                  <Text style={[styles.comingSoonText, { color: isLive ? c.brandNavy : c.textMuted }]}>
-                    {isCarService ? 'BOOK' : isRental ? 'RENT' : 'SOON'}
-                  </Text>
-                </View>
-              </Pressable>
-            );
-          })}
-        </View>
-
-        {/* ── Featured Live Services (Bigger Cards for Service & Rental) ── */}
-        <View style={styles.featuredSectionHeader}>
-          <Text accessibilityRole="header" style={[styles.sectionTitle, { color: c.textPrimary }]}>
-            Vehicle Services & Rentals
-          </Text>
-          <View style={[styles.livePill, { backgroundColor: c.brandAccent + '25' }]}>
-            <Sparkles size={12} color={c.brandAccent} />
-            <Text style={[styles.livePillText, { color: isDark ? c.brandAccent : c.brandNavy }]}>LIVE</Text>
-          </View>
-        </View>
-
-        <View style={styles.featuredServicesContainer}>
-          {/* Bigger Card 1: Car Service */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Car Service and Repairs. Scheduled maintenance, diagnosis, doorstep pickup and live tracking. Book now."
-            onPress={() => (state === 'signed-in' ? root?.navigate('ServiceHome') : navigation.navigate('Account'))}
-            style={({ pressed }) => [
-              styles.featuredCard,
-              {
-                backgroundColor: isDark ? '#0F213D' : '#FFFFFF',
-                borderColor: isDark ? c.border : c.border,
-              },
-              pressed && { opacity: 0.88, transform: [{ scale: 0.99 }] },
-            ]}
-          >
-            <View style={styles.featuredCardHeader}>
-              <View style={[styles.featuredIconBox, { backgroundColor: c.brandAccent + '22' }]}>
-                <Wrench size={26} color={c.brandAccent} />
-              </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <View style={styles.featuredTitleRow}>
-                  <Text style={[styles.featuredCardTitle, { color: c.textPrimary }]}>
-                    Car Service & Repairs
-                  </Text>
-                  <View style={[styles.tagBadge, { backgroundColor: '#10B98120' }]}>
-                    <Text style={[styles.tagBadgeText, { color: '#10B981' }]}>DOORSTEP</Text>
-                  </View>
-                </View>
-                <Text style={[styles.featuredCardSubtitle, { color: c.textSecondary }]}>
-                  Scheduled service, AC repair, battery & diagnostics with transparent estimates
-                </Text>
-              </View>
-            </View>
-
-            {/* Feature Highlights Pills */}
-            <View style={styles.featurePillsRow}>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <CheckCircle2 size={12} color="#10B981" />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Free Pickup & Drop</Text>
-              </View>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <ShieldCheck size={12} color={c.brandAccent} />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Multi-Point QC</Text>
-              </View>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <Clock size={12} color={c.textMuted} />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Live Tracking</Text>
-              </View>
-            </View>
-
-            {/* Bottom Action Footer */}
-            <View style={[styles.featuredFooter, { borderTopColor: isDark ? '#1C3154' : c.border }]}>
-              <Text style={[styles.featuredCtaText, { color: isDark ? c.brandAccent : c.brandNavy }]}>
-                Book Service Appointment
-              </Text>
-              <View
-                style={[
-                  styles.featuredArrowCircle,
-                  { backgroundColor: isDark ? c.brandAccent : c.brandNavy },
-                ]}
-              >
-                <ArrowRight size={16} color={isDark ? c.brandNavy : '#FFFFFF'} />
-              </View>
-            </View>
-          </Pressable>
-
-          {/* Bigger Card 2: Self-Drive Car Rental */}
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel="Self-Drive Car Rental. Browse vehicles and date-specific estimates."
-            onPress={() => (state === 'signed-in' ? root?.navigate('RentalHome') : navigation.navigate('Account'))}
-            style={({ pressed }) => [
-              styles.featuredCard,
-              {
-                backgroundColor: isDark ? '#091A33' : '#FFFFFF',
-                borderColor: isDark ? c.border : c.border,
-                borderWidth: 1,
-              },
-              pressed && { opacity: 0.88, transform: [{ scale: 0.99 }] },
-            ]}
-          >
-            <View style={styles.featuredCardHeader}>
-              <View style={[styles.featuredIconBox, { backgroundColor: c.brandAccent + '22' }]}>
-                <KeyRound size={26} color={c.brandAccent} />
-              </View>
-              <View style={{ flex: 1, marginLeft: 12 }}>
-                <View style={styles.featuredTitleRow}>
-                  <Text style={[styles.featuredCardTitle, { color: c.textPrimary }]}>
-                    Self-Drive Car Rental
-                  </Text>
-                  <View style={[styles.tagBadge, { backgroundColor: c.brandAccent + '25' }]}>
-                    <Text style={[styles.tagBadgeText, { color: isDark ? c.brandAccent : c.brandNavy }]}>
-                      DATE-SPECIFIC
-                    </Text>
-                  </View>
-                </View>
-                <Text style={[styles.featuredCardSubtitle, { color: c.textSecondary }]}>
-                  Browse eligible fleet vehicles, active hubs and date-specific estimates
-                </Text>
-              </View>
-            </View>
-
-            {/* Feature Highlights Pills */}
-            <View style={styles.featurePillsRow}>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <CheckCircle2 size={12} color={c.brandAccent} />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Eligible fleet only</Text>
-              </View>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <ShieldCheck size={12} color={c.success} />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Date availability</Text>
-              </View>
-              <View style={[styles.featurePill, { backgroundColor: c.surfaceSecondary }]}>
-                <Clock size={12} color={c.brandAccent} />
-                <Text style={[styles.featurePillText, { color: c.textSecondary }]}>Upfront estimate</Text>
-              </View>
-            </View>
-
-            {/* Bottom Action Footer */}
-            <View style={[styles.featuredFooter, { borderTopColor: isDark ? '#1C3154' : c.border }]}>
-              <Text style={[styles.featuredCtaText, { color: isDark ? c.brandAccent : c.brandNavy }]}>
-                Explore Rental Fleet
-              </Text>
-              <View
-                style={[
-                  styles.featuredArrowCircle,
-                  { backgroundColor: isDark ? c.brandAccent : c.brandNavy },
-                ]}
-              >
-                <ArrowRight size={16} color={isDark ? c.brandNavy : '#FFFFFF'} />
-              </View>
-            </View>
-          </Pressable>
-        </View>
-
-        {/* ── My requests shortcut ── */}
-        <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-          <Text accessibilityRole="header" style={[styles.cardTitle, { color: c.textPrimary }]}>
-            My Requests
-          </Text>
-          <Text style={[styles.cardBody, { color: c.textSecondary }]}>
-            Follow your selling request, enquiries, offers and test drives in Activity.
-          </Text>
-          <CustomerButton
-            secondary
-            title={state === 'signed-in' ? 'Open Activity' : 'Sign in to view requests'}
-            onPress={() =>
-              navigation.navigate(state === 'signed-in' ? 'Activity' : 'Account')
-            }
-          />
-        </View>
+        {/* ── Hub photos and videos (managed by Operations) ── */}
+        <HubMedia videos={home.hubVideos} photos={home.hubPhotos} />
 
         {/* ── Recently listed ── */}
         <View style={styles.sectionHeader}>
@@ -551,41 +365,6 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
             onPress={() => navigation.navigate('Explore')}
           />
         )}
-
-        {/* ── How selling works ── */}
-        <View style={[styles.card, { backgroundColor: c.surface, borderColor: c.border }]}>
-          <Text accessibilityRole="header" style={[styles.cardTitle, { color: c.textPrimary }]}>
-            Selling, one step at a time
-          </Text>
-          <View style={styles.howStep}>
-            <View style={[styles.howNum, { backgroundColor: c.brandAccent }]}>
-              <Text style={[styles.howNumText, { color: c.brandNavy }]}>1</Text>
-            </View>
-            <Text style={[styles.howBody, { color: c.textSecondary }]}>Tell us about your car — takes about 5 minutes.</Text>
-          </View>
-          <View style={styles.howStep}>
-            <View style={[styles.howNum, { backgroundColor: c.brandAccent }]}>
-              <Text style={[styles.howNumText, { color: c.brandNavy }]}>2</Text>
-            </View>
-            <Text style={[styles.howBody, { color: c.textSecondary }]}>Our team reviews your request and schedules an inspection.</Text>
-          </View>
-          <View style={styles.howStep}>
-            <View style={[styles.howNum, { backgroundColor: c.brandAccent }]}>
-              <Text style={[styles.howNumText, { color: c.brandNavy }]}>3</Text>
-            </View>
-            <Text style={[styles.howBody, { color: c.textSecondary }]}>Track inspection and offer updates live in Activity.</Text>
-          </View>
-          <CustomerButton title="Sell your car" onPress={() => (state === 'signed-in' ? root?.navigate('Sell') : navigation.navigate('Account'))} />
-        </View>
-
-        {/* ── Support ── */}
-        <CustomerButton
-          secondary
-          title="Get help with your request"
-          onPress={() =>
-            state === 'signed-in' ? root?.navigate('Support') : navigation.navigate('Account')
-          }
-        />
       </ScrollView>
 
       <NotificationsModal
@@ -672,43 +451,86 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: '800',
   },
-  greetSection: {
-    gap: 6,
-  },
   greetText: {
-    fontSize: 15,
-    fontWeight: '600',
-  },
-  greetTitle: {
-    fontSize: 26,
-    lineHeight: 34,
+    fontSize: 20,
     fontWeight: '800',
   },
-  primaryRow: {
+  serviceCard: {
     flexDirection: 'row',
+    alignItems: 'center',
     gap: 14,
-  },
-  primaryCard: {
-    flex: 1,
+    minHeight: 92,
     borderRadius: 20,
-    padding: 20,
-    minHeight: 180,
-    gap: 8,
-    position: 'relative',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
   },
-  primaryCardTitle: {
+  serviceIcon: {
+    width: 54,
+    height: 54,
+    borderRadius: 16,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  serviceText: {
+    flex: 1,
+    gap: 2,
+  },
+  serviceTitle: {
     fontSize: 19,
     fontWeight: '800',
-    marginTop: 4,
   },
-  primaryCardBody: {
-    fontSize: 13,
+  serviceHint: {
+    fontSize: 13.5,
     lineHeight: 18,
-    flex: 1,
+    fontWeight: '600',
   },
-  primaryCardArrow: {
-    alignSelf: 'flex-end',
-    marginTop: 4,
+  serviceArrow: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tileRow: {
+    flexDirection: 'row',
+    gap: 10,
+  },
+  tile: {
+    flex: 1,
+    minHeight: 96,
+    borderRadius: 18,
+    borderWidth: 1,
+    paddingVertical: 12,
+    paddingHorizontal: 6,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  tileIcon: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  tileLabel: {
+    fontSize: 14,
+    fontWeight: '700',
+    textAlign: 'center',
+    alignSelf: 'stretch',
+  },
+  soon: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    borderRadius: 6,
+    paddingHorizontal: 4,
+    paddingVertical: 1,
+  },
+  soonText: {
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.4,
   },
   draftCard: {
     borderRadius: 16,
@@ -739,155 +561,10 @@ const styles = StyleSheet.create({
     fontSize: 19,
     fontWeight: '700',
   },
-  sectionMeta: {
-    fontSize: 13,
-    fontWeight: '600',
-  },
   sectionLink: {
     fontSize: 14,
     fontWeight: '700',
     textDecorationLine: 'underline',
-  },
-  secondaryRow: {
-    flexDirection: 'row',
-    gap: 10,
-  },
-  secondaryCard: {
-    flex: 1,
-    borderRadius: 16,
-    borderWidth: 1,
-    padding: 14,
-    gap: 6,
-    minHeight: 120,
-    position: 'relative',
-  },
-  secondaryCardTitle: {
-    fontSize: 13,
-    fontWeight: '700',
-    marginTop: 4,
-  },
-  secondaryCardBody: {
-    fontSize: 11,
-    lineHeight: 15,
-  },
-  comingSoonBadge: {
-    position: 'absolute',
-    top: 10,
-    right: 10,
-    borderRadius: 6,
-    paddingHorizontal: 5,
-    paddingVertical: 2,
-  },
-  comingSoonText: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  featuredSectionHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    marginTop: 8,
-  },
-  livePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-    borderRadius: 8,
-  },
-  livePillText: {
-    fontSize: 10,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  featuredServicesContainer: {
-    gap: 14,
-  },
-  featuredCard: {
-    borderRadius: 20,
-    borderWidth: 1,
-    padding: 16,
-    gap: 14,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 3 },
-    shadowOpacity: 0.08,
-    shadowRadius: 8,
-    elevation: 3,
-  },
-  featuredCardHeader: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-  },
-  featuredIconBox: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  featuredTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    flexWrap: 'wrap',
-    gap: 6,
-  },
-  featuredCardTitle: {
-    fontSize: 17,
-    fontWeight: '800',
-    letterSpacing: -0.3,
-  },
-  tagBadge: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 6,
-  },
-  tagBadgeText: {
-    fontSize: 9,
-    fontWeight: '800',
-    letterSpacing: 0.5,
-  },
-  featuredCardSubtitle: {
-    fontSize: 12,
-    lineHeight: 17,
-    marginTop: 4,
-  },
-  featurePillsRow: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
-    gap: 8,
-  },
-  featurePill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 8,
-  },
-  featurePillText: {
-    fontSize: 11,
-    fontWeight: '600',
-  },
-  featuredFooter: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingTop: 12,
-    borderTopWidth: 1,
-  },
-  featuredCtaText: {
-    fontSize: 13,
-    fontWeight: '700',
-  },
-  featuredArrowCircle: {
-    width: 32,
-    height: 32,
-    borderRadius: 16,
-    alignItems: 'center',
-    justifyContent: 'center',
   },
   card: {
     borderRadius: 20,
@@ -895,36 +572,9 @@ const styles = StyleSheet.create({
     padding: 20,
     gap: 12,
   },
-  cardTitle: {
-    fontSize: 19,
-    fontWeight: '700',
-  },
   cardBody: {
     fontSize: 15,
     lineHeight: 22,
-  },
-  howStep: {
-    flexDirection: 'row',
-    alignItems: 'flex-start',
-    gap: 12,
-  },
-  howNum: {
-    width: 28,
-    height: 28,
-    borderRadius: 14,
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-    marginTop: 1,
-  },
-  howNumText: {
-    fontSize: 13,
-    fontWeight: '800',
-  },
-  howBody: {
-    fontSize: 15,
-    lineHeight: 22,
-    flex: 1,
   },
   vehicleCard: {
     borderRadius: 20,
@@ -958,11 +608,6 @@ const styles = StyleSheet.create({
   },
   vehicleSpec: {
     fontSize: 13,
-  },
-  vehiclePrice: {
-    fontSize: 18,
-    fontWeight: '800',
-    marginTop: 4,
   },
   emptyText: {
     fontSize: 15,

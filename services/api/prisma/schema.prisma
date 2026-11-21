@@ -527,6 +527,7 @@ model User {
   rentalAgreements RentalAgreementAcceptance[]
   connectLinks CustomerGarageConnectLink[]
   connectNotifications ConnectNotificationReference[]
+  scrapRequests ScrapRequest[]
 }
 model CustomerAddress {
   id String @id @default(uuid()) @db.Uuid
@@ -1133,7 +1134,12 @@ model VehicleHandover {
 model VehicleStockUnit {
   id String @id @default(uuid()) @db.Uuid
   stockCode String @unique
-  acquisitionCaseId String @unique @db.Uuid
+  /// Null for opening stock: a car the hub already owned before the app existed, so it has no lead, inspection or purchase case.
+  acquisitionCaseId String? @unique @db.Uuid
+  /// ACQUISITION (bought through the app's flow) or OPENING_STOCK (entered by hand for a car that was already there).
+  source String @default("ACQUISITION")
+  /// For opening stock: documents on file, who entered it and when.
+  openingStockDetails Json?
   vehicleId String? @unique @db.Uuid
   branchId String? @db.Uuid
   receivedByEmployeeId String @db.Uuid
@@ -1152,7 +1158,7 @@ model VehicleStockUnit {
   version Int @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  acquisitionCase AcquisitionCase @relation(fields: [acquisitionCaseId], references: [id], onDelete: Restrict)
+  acquisitionCase AcquisitionCase? @relation(fields: [acquisitionCaseId], references: [id], onDelete: Restrict)
   vehicle Vehicle? @relation(fields: [vehicleId], references: [id], onDelete: Restrict)
   branch Branch? @relation(fields: [branchId], references: [id], onDelete: Restrict)
   workOrders RefurbishmentWorkOrder[]
@@ -3020,4 +3026,84 @@ model AppConfig {
   updatedAt DateTime @updatedAt
 
   @@unique([app, platform])
+}
+
+// A customer asking us to scrap an old vehicle. Deliberately small: our team phones the customer and everything after that (inspection,
+// price, paperwork, pickup, certificates) is handled outside the system. V MOTIV does not generate or verify any official document.
+enum ScrapRequestStatus {
+  NEW
+  CONTACTED
+  CLOSED
+}
+
+model ScrapRequest {
+  id String @id @default(uuid()) @db.Uuid
+  requestNumber String @unique
+  customerId String @db.Uuid
+  customer User @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// Makes a retried submission (double tap, lost response) return the same request instead of creating another.
+  submissionKey String? @unique
+  registrationNumber String
+  make String
+  model String
+  manufacturingYear Int
+  fuelType String?
+  odometerKm Int?
+  /// The customer's own words about the condition. Free text; nothing is derived from it.
+  condition String?
+  city String
+  pickupAddress String?
+  contactPhone String
+  status ScrapRequestStatus @default(NEW)
+  staffNote String?
+  handledById String? @db.Uuid
+  contactedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, createdAt])
+  @@index([customerId, createdAt])
+}
+
+// Home-screen content the Operations team manages: banners, and photos and videos of the hubs. See src/home-content.ts.
+enum HomeContentKind {
+  BANNER
+  HUB_PHOTO
+  HUB_VIDEO
+}
+
+enum HomeContentStatus {
+  DRAFT
+  PUBLISHED
+  ARCHIVED
+}
+
+model HomeContent {
+  id String @id @default(uuid()) @db.Uuid
+  kind HomeContentKind
+  status HomeContentStatus @default(DRAFT)
+  title String?
+  subtitle String?
+  /// The image, or for a hub video the video file. Always an https address from our media account.
+  mediaUrl String
+  /// Cover image for a video (for a Cloudinary video it can be derived, so this may be empty).
+  thumbnailUrl String?
+  durationSeconds Int?
+  /// NONE, SCREEN (actionTarget is a screen name), LISTING (a listing id) or URL (an https address).
+  actionType String @default("NONE")
+  actionTarget String?
+  ctaLabel String?
+  /// Null shows it in every city.
+  city String?
+  hubName String?
+  startsAt DateTime?
+  endsAt DateTime?
+  sortOrder Int @default(0)
+  createdById String? @db.Uuid
+  updatedById String? @db.Uuid
+  publishedAt DateTime?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([status, kind, sortOrder])
 }

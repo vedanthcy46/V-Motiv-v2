@@ -96,7 +96,9 @@ export function createApiClient(options: ApiClientOptions) {
     if (!response.ok) {
       const payload = (await response.json().catch(() => ({}))) as { code?: string; message?: string };
       const code = preferMessage && payload.message && payload.message !== payload.code ? payload.message : payload.code || payload.message || 'REQUEST_FAILED';
-      throw new ApiError(response.status, code);
+      // The body travels with the error (for example `fields`, the per-input problems of a rejected form). Existing callers that only read
+      // `status` and `code` are unaffected.
+      throw new ApiError(response.status, code, payload);
     }
     if (response.status === 204) return undefined as T;
     const type = response.headers.get('content-type');

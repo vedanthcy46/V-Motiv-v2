@@ -94,33 +94,6 @@ export function ServiceHomeScreen() {
     accent: theme.colors.brandAccent,
   };
 
-  if (authState !== 'signed-in') {
-    return (
-      <View style={{ flex: 1, backgroundColor: c.background }}>
-        <View
-          style={{
-            paddingTop: insets.top + space.sm,
-            paddingHorizontal: 16,
-            paddingBottom: 12,
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: c.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: c.border,
-          }}
-        >
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
-            <ArrowLeft size={22} color={c.text} />
-          </TouchableOpacity>
-          <BrandLogo variant="horizontal" size={24} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
-          <View style={{ marginLeft: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7' }}>
-            <Text style={{ fontSize: 10, fontWeight: '800', color: c.accent }}>SERVICE</Text>
-          </View>
-        </View>
-        <AuthScreen includeTopInset={false} showHeader={false} />
-      </View>
-    );
-  }
 
   // Wizard Steps: 1: Car, 2: Issue, 3: Questions, 4: Fulfillment, 5: Slot, 6: Review
   const [step, setStep] = useState<number>(1);
@@ -259,8 +232,8 @@ export function ServiceHomeScreen() {
   }, [preselectedVehicleId]);
 
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    if (authState === 'signed-in') void loadData();
+  }, [loadData, authState]);
 
   // Load template when category is selected
   const handleSelectCategory = async (cat: ServiceIssueCategory) => {
@@ -324,6 +297,35 @@ export function ServiceHomeScreen() {
       setLoadingPaymentOptions(false);
     }
   }, []);
+
+  // Signed-out view. It sits below every hook on purpose: returning before a hook changes how many hooks run when the person signs in or out.
+  if (authState !== 'signed-in') {
+    return (
+      <View style={{ flex: 1, backgroundColor: c.background }}>
+        <View
+          style={{
+            paddingTop: insets.top + space.sm,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: c.surface,
+            borderBottomWidth: 1,
+            borderBottomColor: c.border,
+          }}
+        >
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
+            <ArrowLeft size={22} color={c.text} />
+          </TouchableOpacity>
+          <BrandLogo variant="horizontal" size={24} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
+          <View style={{ marginLeft: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7' }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: c.accent }}>SERVICE</Text>
+          </View>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
+  }
 
   const handleBookService = async () => {
     if (!selectedVehicle || !selectedHub || !selectedCategory) return;

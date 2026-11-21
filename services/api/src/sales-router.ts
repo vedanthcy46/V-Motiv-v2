@@ -224,6 +224,9 @@ const requestReservationInput = z.object({
   notes: z.string().trim().max(500).optional(),
 }).strict();
 
+const scrapUpdateInput = z.object({ status: z.enum(['NEW', 'CONTACTED', 'CLOSED']), note: z.string().trim().max(1000).optional() }).strict();
+const scrapListQuery = z.object({ status: z.enum(['NEW', 'CONTACTED', 'CLOSED']).optional(), search: z.string().trim().max(40).optional() }).strip();
+
 const releaseReservationInput = z.object({
   reason: z.string().trim().max(500).optional(),
 }).strict();
@@ -251,6 +254,9 @@ export function createSalesRouter(deps: { verify: VerifyToken; store: SalesStore
   router.get('/me', (_req, res) => res.json(res.locals.salesActor));
   router.get('/dashboard', async (_req, res) => res.json(await deps.store.dashboard(res.locals.salesActor)));
   router.get('/notifications', async (_req, res) => res.json(await deps.store.notifications(res.locals.salesActor)));
+  // Scrap-a-car requests (customers who asked us to scrap a vehicle)
+  router.get('/scrap-requests', async (req, res) => res.json(await deps.store.scrapRequests(res.locals.salesActor, scrapListQuery.parse(req.query))));
+  router.patch('/scrap-requests/:id', async (req, res) => res.json(await deps.store.updateScrapRequest(res.locals.salesActor, uuid.parse(req.params.id), scrapUpdateInput.parse(req.body))));
   router.get('/reports', async (_req, res) => res.json(await deps.store.reports(res.locals.salesActor)));
 
   // Seller leads

@@ -18,8 +18,10 @@ import type {
   ServiceJobItem,
   ServiceQueueResponse,
   TestDrive,
+  OpeningStockBulkResult,
   VehicleStockUnit,
 } from './types';
+import type { OpeningStockRow } from './openingStockCsv';
 
 import { ApiError, createApiClient, resolveApiBase, type ApiClient } from '@vmotiv/ui';
 
@@ -156,6 +158,11 @@ export const api = {
 
   // --- Inventory & Stock Units ---
   inventory: (u: User) => call<VehicleStockUnit[]>(u, '/operations/inventory'),
+  /** A car the hub already owned before the app existed. It arrives as received stock and must pass inspection before it is listed. */
+  addOpeningStock: (u: User, body: OpeningStockRow & { branchId: string }) =>
+    call<VehicleStockUnit>(u, '/operations/inventory/opening-stock', { method: 'POST', body: JSON.stringify(body) }),
+  addOpeningStockBulk: (u: User, body: { branchId: string; dryRun: boolean; items: OpeningStockRow[] }) =>
+    call<OpeningStockBulkResult>(u, '/operations/inventory/opening-stock/bulk', { method: 'POST', body: JSON.stringify(body) }),
   updateStockVehicleSpecs: (
     u: User,
     stockId: string,
@@ -228,6 +235,7 @@ export const api = {
       verifiedTags?: string[];
       mediaUrls?: string[];
       branchId?: string;
+      registrationNumber?: string;
       expectedVersion: number;
     }
   ) => call<unknown>(u, `/operations/inventory/${stockId}/prepare-listing`, { method: 'POST', body: JSON.stringify(body) }),
@@ -516,4 +524,44 @@ export const api = {
   }) => call<unknown>(u, `/operations/rentals/bookings/${bookingId}/return`, { method: 'POST', body: JSON.stringify(body) }),
   approveRentalExtension: (u: User, extensionId: string, body: { approved: boolean; reason?: string }) =>
     call<unknown>(u, `/operations/rentals/extensions/${extensionId}/approve`, { method: 'POST', body: JSON.stringify(body) }),
+};
+
+// ------------------------------------------------------------------------------------------------------------------------------------
+// Home content: the banners and hub photos and videos shown on the customer app's Home screen.
+// ------------------------------------------------------------------------------------------------------------------------------------
+
+export type HomeContentItem = {
+  id: string;
+  kind: 'BANNER' | 'HUB_PHOTO' | 'HUB_VIDEO';
+  status: 'DRAFT' | 'PUBLISHED' | 'ARCHIVED';
+  state: 'DRAFT' | 'ARCHIVED' | 'SCHEDULED' | 'EXPIRED' | 'LIVE';
+  title: string | null;
+  subtitle: string | null;
+  mediaUrl: string;
+  thumbnailUrl: string | null;
+  posterUrl: string | null;
+  durationSeconds: number | null;
+  actionType: 'NONE' | 'SCREEN' | 'LISTING' | 'URL';
+  actionTarget: string | null;
+  ctaLabel: string | null;
+  city: string | null;
+  hubName: string | null;
+  startsAt: string | null;
+  endsAt: string | null;
+  sortOrder: number;
+  updatedAt: string;
+};
+
+export type UploadSignature = { cloudName: string; apiKey: string; timestamp: number; folder: string; signature: string };
+
+export const homeContentApi = {
+  list: (u: User) => call<{ items: HomeContentItem[] }>(u, '/operations/home-content'),
+  create: (u: User, body: unknown) => call<HomeContentItem>(u, '/operations/home-content', { method: 'POST', body: JSON.stringify(body) }),
+  update: (u: User, id: string, body: unknown) => call<HomeContentItem>(u, `/operations/home-content/${id}`, { method: 'PATCH', body: JSON.stringify(body) }),
+  publish: (u: User, id: string) => call<HomeContentItem>(u, `/operations/home-content/${id}/publish`, { method: 'POST' }),
+  unpublish: (u: User, id: string) => call<HomeContentItem>(u, `/operations/home-content/${id}/unpublish`, { method: 'POST' }),
+  archive: (u: User, id: string) => call<HomeContentItem>(u, `/operations/home-content/${id}/archive`, { method: 'POST' }),
+  move: (u: User, id: string, direction: 'UP' | 'DOWN') => call<{ moved: boolean }>(u, `/operations/home-content/${id}/move`, { method: 'POST', body: JSON.stringify({ direction }) }),
+  remove: (u: User, id: string) => call<{ deleted: boolean }>(u, `/operations/home-content/${id}`, { method: 'DELETE' }),
+  uploadSignature: (u: User) => call<UploadSignature>(u, '/operations/home-content/upload-signature', { method: 'POST' }),
 };

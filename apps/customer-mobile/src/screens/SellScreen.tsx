@@ -199,33 +199,6 @@ export function SellScreen() {
   const { theme, isDark } = useAppTheme();
   const c = theme.colors;
 
-  if (authState !== 'signed-in') {
-    return (
-      <View style={{ flex: 1, backgroundColor: c.background }}>
-        <View
-          style={{
-            paddingTop: insets.top + space.sm,
-            paddingHorizontal: 16,
-            paddingBottom: 12,
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: c.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: c.border,
-          }}
-        >
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
-            <ChevronLeft size={24} color={c.textPrimary} />
-          </TouchableOpacity>
-          <BrandLogo variant="horizontal" size={24} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
-          <View style={{ marginLeft: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7' }}>
-            <Text style={{ fontSize: 10, fontWeight: '800', color: c.brandAccent }}>SELL CAR</Text>
-          </View>
-        </View>
-        <AuthScreen includeTopInset={false} showHeader={false} />
-      </View>
-    );
-  }
 
   const [cities, setCities] = useState<SupportedCity[]>([]);
   const [savedAddresses, setSavedAddresses] = useState<CustomerAddress[]>([]);
@@ -557,6 +530,35 @@ export function SellScreen() {
     sellerPhone, city, pincode, inspectionLocationType, inspectionDate,
     inspectionTimeSlot, inspectionAddress, submittedLead,
   ]);
+
+  // Signed-out view. It sits below every hook on purpose: returning before a hook changes how many hooks run when the person signs in or out.
+  if (authState !== 'signed-in') {
+    return (
+      <View style={{ flex: 1, backgroundColor: c.background }}>
+        <View
+          style={{
+            paddingTop: insets.top + space.sm,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: c.surface,
+            borderBottomWidth: 1,
+            borderBottomColor: c.border,
+          }}
+        >
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
+            <ChevronLeft size={24} color={c.textPrimary} />
+          </TouchableOpacity>
+          <BrandLogo variant="horizontal" size={24} bodyColor={isDark ? '#FFFFFF' : c.brandNavy} />
+          <View style={{ marginLeft: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7' }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: c.brandAccent }}>SELL CAR</Text>
+          </View>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
+  }
 
   const validateStep = (s: number): boolean => {
     setError('');

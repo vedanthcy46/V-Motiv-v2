@@ -205,6 +205,23 @@ export async function uploadToCloudinary(params: {
   });
 }
 
+/**
+ * What the operations portal needs to upload a photo or video straight to our Cloudinary account: the public account name and key, a time
+ * stamp, a fixed folder, and a signature made with the secret (which is never sent). Null when Cloudinary is not configured.
+ * The signature covers the folder and time stamp only, so it cannot be reused to upload somewhere else, and it expires quickly.
+ */
+export function signDirectUpload(folder: string, now: number = Math.floor(Date.now() / 1000)): { cloudName: string; apiKey: string; timestamp: number; folder: string; signature: string } | null {
+  const credentials = getCloudinaryCredentials();
+  if (!credentials) return null;
+  const signature = crypto.createHash('sha1').update(`folder=${folder}&timestamp=${now}${credentials.apiSecret}`).digest('hex');
+  return { cloudName: credentials.cloudName, apiKey: credentials.apiKey, timestamp: now, folder, signature };
+}
+
+/** The account name, for checking that media addresses come from our own account. */
+export function cloudinaryCloudName(): string | null {
+  return getCloudinaryCredentials()?.cloudName ?? null;
+}
+
 export function getCloudinaryClient() {
   configureCloudinary();
   return cloudinary;

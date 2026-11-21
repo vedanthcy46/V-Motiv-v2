@@ -81,6 +81,7 @@ export type DashboardData = {
 };
 
 export type NotificationData = {
+  newScrapRequests?: Array<{ id: string; requestNumber: string; make: string; model: string; manufacturingYear: number; city: string; contactPhone: string }>;
   unassignedLeads: Array<{ id: string; referenceCode: string; make: string; model: string; city: string; createdAt: string }>;
   overdueTasks: Array<{ id: string; type: string; details: string; dueAt: string; lead?: { referenceCode: string } }>;
   pendingTestDrives: Array<{ id: string; requestedDate: string; timeSlot: string; user: { displayName: string | null }; listing: { title: string } }>;
@@ -733,8 +734,34 @@ export const salesApi = {
     call<{ success: boolean }>(user, '/notifications/read-all', { method: 'POST' }),
 
   // Service & Rental Leads
+  scrapRequests: (user: User, params: { status?: string; search?: string } = {}) => {
+    const qs = query({ status: params.status, search: params.search });
+    return call<{ items: ScrapRequestItem[] }>(user, `/scrap-requests${qs ? `?${qs}` : ''}`);
+  },
+  updateScrapRequest: (user: User, id: string, input: { status: 'NEW' | 'CONTACTED' | 'CLOSED'; note?: string }) =>
+    call<{ id: string; status: string }>(user, `/scrap-requests/${id}`, { method: 'PATCH', body: JSON.stringify(input) }),
   serviceBookings: (user: User) =>
     callDirect<{ items: any[]; total: number }>(user, '/operations/service/queue?limit=25'),
   rentalBookings: (user: User) =>
     callDirect<any[]>(user, '/operations/rentals/bookings'),
+};
+
+export type ScrapRequestItem = {
+  id: string;
+  requestNumber: string;
+  status: 'NEW' | 'CONTACTED' | 'CLOSED';
+  registrationNumber: string;
+  make: string;
+  model: string;
+  manufacturingYear: number;
+  fuelType: string | null;
+  odometerKm: number | null;
+  condition: string | null;
+  city: string;
+  pickupAddress: string | null;
+  contactPhone: string;
+  customerName: string;
+  staffNote: string | null;
+  contactedAt: string | null;
+  createdAt: string;
 };

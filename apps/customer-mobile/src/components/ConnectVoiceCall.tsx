@@ -153,10 +153,17 @@ export function ConnectVoiceCall({
   useEffect(() => {
     let active = true;
     let pollTimer: ReturnType<typeof setInterval> | undefined;
+    // If the caller's connection drops without a hang-up (app closed, signal lost), end the call after a short grace period so the
+    // owner is not left on a call nobody is on. A caller who reconnects within the grace period keeps the call.
+    let callerLeftTimer: ReturnType<typeof setTimeout> | undefined;
+    // Likewise if the audio connection itself drops and does not recover.
+    let connectionLostTimer: ReturnType<typeof setTimeout> | undefined;
 
     const cleanup = () => {
       active = false;
       if (pollTimer) clearInterval(pollTimer);
+      if (callerLeftTimer) clearTimeout(callerLeftTimer);
+      if (connectionLostTimer) clearTimeout(connectionLostTimer);
       localStream.current?.getTracks().forEach(t => t.stop());
       localStream.current = null;
       peer.current?.close();
@@ -200,8 +207,19 @@ export function ConnectVoiceCall({
         const hasMic = await ensureMicrophonePermission();
 
         pc.onconnectionstatechange = () => {
-          if (pc?.connectionState === 'connected') {
+          if (!active) return; // this call has already been closed
+          const connection = pc?.connectionState;
+          if (connection === 'connected') {
+            if (connectionLostTimer) { clearTimeout(connectionLostTimer); connectionLostTimer = undefined; }
             setState(hasMic ? 'Connected · private audio' : 'Connected · Hearing caller (Chat to reply)');
+          } else if (connection === 'failed' || connection === 'closed') {
+            onCloseRef.current?.();
+          } else if (connection === 'disconnected' && !connectionLostTimer) {
+            // Often a brief blip that recovers by itself, so wait a few seconds before giving up.
+            connectionLostTimer = setTimeout(() => {
+              connectionLostTimer = undefined;
+              if (active && pc?.connectionState !== 'connected') onCloseRef.current?.();
+            }, 8_000);
           }
         };
 
@@ -306,6 +324,19 @@ export function ConnectVoiceCall({
 
             socket.on('call:hangup', () => {
               if (active) onCloseRef.current?.();
+            });
+
+            socket.on('peer:left', ({ from }: any) => {
+              if (from !== 'VISITOR' || callerLeftTimer) return;
+              callerLeftTimer = setTimeout(() => {
+                if (active) onCloseRef.current?.();
+              }, 10_000);
+            });
+
+            socket.on('peer:joined', ({ from }: any) => {
+              if (from !== 'VISITOR' || !callerLeftTimer) return;
+              clearTimeout(callerLeftTimer);
+              callerLeftTimer = undefined;
             });
           }
         } catch (ticketErr) {

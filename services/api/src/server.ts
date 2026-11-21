@@ -19,6 +19,9 @@ import { readConfig } from './config.js';
 import { PrismaIdentityStore } from './identity-store.js';
 import { PrismaCustomerStore } from './customer-store.js';
 import { PrismaAdminStore } from './admin-store.js';
+import { ScrapRequestStore } from './scrap-requests.js';
+import { HomeContentStore } from './home-content.js';
+import { cloudinaryCloudName } from './cloudinary.js';
 import { PrismaSalesStore } from './sales-store.js';
 import { PrismaInspectionStore } from './inspection-store.js';
 import { PrismaFinanceStore } from './finance-store.js';
@@ -30,6 +33,9 @@ import { attachConnectRealtime } from './connect-realtime.js';
 import { processEmail, resendSender } from './email.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
 import { keepAliveTarget, startKeepAlive } from './keep-alive.js';
+import compression from 'compression';
+import { milliseconds, slowQueryLine } from './request-timing.js';
+import { hasDeliverableEmail, singleFlight } from './email-drain.js';
 import { ensureSchemaAdditions, repairPrematurelyPaidServiceRequests } from './service-repair.js';
 import { parseServiceAccount } from './firebase-credential.js';
 
@@ -82,6 +88,14 @@ const firebase = initializeApp({
 const db = new PrismaClient({
   datasourceUrl: config.DATABASE_URL || undefined,
   transactionOptions: { timeout: 15000, maxWait: 5000 },
+  log: [{ emit: 'event', level: 'query' }],
+});
+// Slow-query and slow-request logging, to find what is actually slow. SLOW_QUERY_MS / SLOW_REQUEST_MS change the thresholds; 0 turns one off.
+const slowQueryMs = milliseconds(process.env.SLOW_QUERY_MS, 1000);
+const slowRequestMs = milliseconds(process.env.SLOW_REQUEST_MS, 1500);
+(db as unknown as { $on: (event: 'query', handler: (e: { duration: number; query: string }) => void) => void }).$on('query', event => {
+  const line = slowQueryLine(event, slowQueryMs);
+  if (line) console.warn(line);
 });
 
 let drainOutbox: (() => Promise<number>) | undefined;
@@ -89,9 +103,12 @@ let emailInterval: NodeJS.Timeout | null = null;
 if (config.EMAIL_DELIVERY_ENABLED === 'true' && config.RESEND_API_KEY && config.EMAIL_FROM) {
   try {
     const send = resendSender(config);
-    drainOutbox = async () => {
+    // One drain at a time, and nothing is claimed when nothing is due: the old loop opened a database transaction every 3 seconds even with an
+    // empty outbox, and several could overlap when the database was slow.
+    drainOutbox = singleFlight(async () => {
       let totalSent = 0;
       try {
+        if (!(await hasDeliverableEmail(db))) return 0;
         let sent = false;
         do {
           sent = await processEmail(db, send, config.EMAIL_FROM!);
@@ -101,11 +118,14 @@ if (config.EMAIL_DELIVERY_ENABLED === 'true' && config.RESEND_API_KEY && config.
         console.error('[EMAIL DISPATCH ERROR]', err?.message || err);
       }
       return totalSent;
-    };
-    emailInterval = setInterval(drainOutbox, 3000);
+    });
+    // New emails trigger a drain right away (see emailDrainInBackground). This timer only catches retries and abandoned leases, which are
+    // never due sooner than about a minute, so it does not need to run every few seconds. EMAIL_POLL_MS changes it (minimum 1000).
+    const pollMs = Math.max(1000, milliseconds(process.env.EMAIL_POLL_MS, 15_000));
+    emailInterval = setInterval(() => { void drainOutbox?.(); }, pollMs);
     emailInterval.unref();
     void drainOutbox();
-    console.info(`[EMAIL ENGINE] Active · Automated outbox dispatcher running every 3s via ${config.EMAIL_FROM}`);
+    console.info(`[EMAIL ENGINE] Active · outbox checked every ${Math.round(pollMs / 1000)}s and right after an email is queued, via ${config.EMAIL_FROM}`);
   } catch (err: any) {
     console.warn('[EMAIL ENGINE] Delivery disabled or not configured:', err?.message || err);
   }
@@ -136,6 +156,9 @@ const notificationRouter = createNotificationRouter({
 });
 
 const app = createApp({
+  emailDrainInBackground: true,
+  compression: compression({ threshold: 1024 }),
+  slowRequestMs,
   verify: verifyToken,
   store: new PrismaIdentityStore(db), customer: new PrismaCustomerStore(db, notificationService), webOrigin: config.WEB_ORIGIN,
   adminWebOrigin,
@@ -143,6 +166,8 @@ const app = createApp({
   adminPortalDestinations: employeePortalOrigins,
   admin: new PrismaAdminStore(db),
   sales: new PrismaSalesStore(db, undefined, notificationService),
+  scrap: new ScrapRequestStore(db, notificationService),
+  homeContent: new HomeContentStore(db, cloudinaryCloudName),
   inspection: new PrismaInspectionStore(db, undefined, notificationService),
   finance: new PrismaFinanceStore(db, notificationService),
   service: new PrismaServiceStore(db, notificationService),

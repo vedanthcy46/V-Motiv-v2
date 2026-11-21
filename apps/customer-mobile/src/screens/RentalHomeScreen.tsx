@@ -45,6 +45,8 @@ import {
 } from '../services/rental-api';
 import { kmPackageSummary } from '../services/rental-km';
 import { BrandLogo } from '../components/BrandLogo';
+import { ComingSoonNotice } from '../components/ComingSoonNotice';
+import { isFeatureOpen } from '../constants/features';
 import { safeBottom } from '../layout/safe-layout';
 
 type Props = NativeStackScreenProps<RootStack, 'RentalHome'>;
@@ -66,38 +68,17 @@ const TIME_SLOTS = [
 
 const PRESET_DAYS = [1, 2, 3, 5, 7, 10, 14];
 
-export function RentalHomeScreen({ navigation }: Props) {
+/** Rentals are coming soon (see constants/features.ts): until they are opened, nobody can reach the booking screens from here. */
+export function RentalHomeScreen(props: Props) {
+  if (!isFeatureOpen('rental')) return <ComingSoonNotice featureKey="rental" onBack={() => props.navigation.goBack()} />;
+  return <RentalHomeContent {...props} />;
+}
+
+function RentalHomeContent({ navigation }: Props) {
   const insets = useSafeAreaInsets();
   const { colors, isDark } = useAppTheme();
   const { state: authState } = useAuth();
 
-  if (authState !== 'signed-in') {
-    return (
-      <View style={{ flex: 1, backgroundColor: colors.background }}>
-        <View
-          style={{
-            paddingTop: insets.top + 8,
-            paddingHorizontal: 16,
-            paddingBottom: 12,
-            flexDirection: 'row',
-            alignItems: 'center',
-            backgroundColor: colors.surface,
-            borderBottomWidth: 1,
-            borderBottomColor: colors.border,
-          }}
-        >
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
-            <ArrowLeft size={22} color={colors.textPrimary} />
-          </TouchableOpacity>
-          <BrandLogo variant="horizontal" size={24} bodyColor={isDark ? '#FFFFFF' : colors.brandNavy} />
-          <View style={{ marginLeft: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7' }}>
-            <Text style={{ fontSize: 10, fontWeight: '800', color: colors.brandAccent }}>RENTALS</Text>
-          </View>
-        </View>
-        <AuthScreen includeTopInset={false} showHeader={false} />
-      </View>
-    );
-  }
 
   const [hubs, setHubs] = useState<RentalHub[]>([]);
   const [selectedHub, setSelectedHub] = useState<RentalHub | null>(null);
@@ -127,6 +108,7 @@ export function RentalHomeScreen({ navigation }: Props) {
   const [calendarMonth, setCalendarMonth] = useState<Date>(() => new Date());
 
   useEffect(() => {
+    if (authState !== 'signed-in') return undefined;
     let mounted = true;
     async function loadData() {
       try {
@@ -154,7 +136,7 @@ export function RentalHomeScreen({ navigation }: Props) {
     return () => {
       mounted = false;
     };
-  }, []);
+  }, [authState]);
 
   const totalDurationHours = Math.max(0, Math.round((endDate.getTime() - startDate.getTime()) / (1000 * 60 * 60)));
   const durationDays = Math.floor(totalDurationHours / 24);
@@ -285,6 +267,35 @@ export function RentalHomeScreen({ navigation }: Props) {
 
     return { adjustedFirstDay, cells, monthName: calendarMonth.toLocaleDateString('en-IN', { month: 'long', year: 'numeric' }) };
   }, [calendarMonth, startDate, endDate]);
+
+  // Signed-out view. It sits below every hook on purpose: returning before a hook changes how many hooks run when the person signs in or out.
+  if (authState !== 'signed-in') {
+    return (
+      <View style={{ flex: 1, backgroundColor: colors.background }}>
+        <View
+          style={{
+            paddingTop: insets.top + 8,
+            paddingHorizontal: 16,
+            paddingBottom: 12,
+            flexDirection: 'row',
+            alignItems: 'center',
+            backgroundColor: colors.surface,
+            borderBottomWidth: 1,
+            borderBottomColor: colors.border,
+          }}
+        >
+          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8, marginRight: 8 }}>
+            <ArrowLeft size={22} color={colors.textPrimary} />
+          </TouchableOpacity>
+          <BrandLogo variant="horizontal" size={24} bodyColor={isDark ? '#FFFFFF' : colors.brandNavy} />
+          <View style={{ marginLeft: 10, paddingHorizontal: 8, paddingVertical: 2, borderRadius: 6, backgroundColor: isDark ? 'rgba(247, 181, 3, 0.15)' : '#FEF3C7' }}>
+            <Text style={{ fontSize: 10, fontWeight: '800', color: colors.brandAccent }}>RENTALS</Text>
+          </View>
+        </View>
+        <AuthScreen includeTopInset={false} showHeader={false} />
+      </View>
+    );
+  }
 
   const handleSearch = () => {
     if (!selectedHub) {

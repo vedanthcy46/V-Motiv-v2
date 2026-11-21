@@ -30,6 +30,8 @@ function setup(options: { actorError?: Error } = {}) {
   const sales: SalesStore = {
     actor: options.actorError ? vi.fn().mockRejectedValue(options.actorError) : vi.fn().mockResolvedValue(actor),
     updateQuotation: vi.fn().mockResolvedValue({ id: 'quote-1', status: 'DRAFT' }),
+    scrapRequests: vi.fn().mockResolvedValue({ items: [] }),
+    updateScrapRequest: vi.fn().mockResolvedValue({ id: '33333333-3333-4333-8333-333333333333', status: 'CONTACTED' }),
     dashboard: vi.fn().mockResolvedValue({
       sellerFunnel: { SUBMITTED: 5, QUALIFYING: 2 },
       buyerFunnel: { RECEIVED: 4, CONTACTED: 1 },
@@ -343,6 +345,26 @@ function setup(options: { actorError?: Error } = {}) {
 }
 
 describe('Sales Executive Portal API Boundaries', () => {
+  it("lists scrap-a-car requests for sales, passing the filters through", async () => {
+    const { app, sales } = setup();
+    const res = await request(app).get("/api/v2/sales/scrap-requests?status=NEW&search=KA01").set("Authorization", "Bearer valid-firebase-token");
+    expect(res.status).toBe(200);
+    expect(sales.scrapRequests).toHaveBeenCalledWith(actor, { status: "NEW", search: "KA01" });
+    expect((await request(app).get("/api/v2/sales/scrap-requests")).status).toBe(401);
+  });
+
+  it("marks a scrap request contacted or closed, and refuses anything else", async () => {
+    const { app, sales } = setup();
+    const id = "33333333-3333-4333-8333-333333333333";
+    const ok = await request(app).patch("/api/v2/sales/scrap-requests/" + id).set("Authorization", "Bearer valid-firebase-token").send({ status: "CONTACTED", note: "Called, will bring the car on Friday" });
+    expect(ok.status).toBe(200);
+    expect(sales.updateScrapRequest).toHaveBeenCalledWith(actor, id, { status: "CONTACTED", note: "Called, will bring the car on Friday" });
+    for (const bad of [{ status: "COMPLETED" }, { status: "CLOSED", extra: true }, {}]) {
+      expect((await request(app).patch("/api/v2/sales/scrap-requests/" + id).set("Authorization", "Bearer valid-firebase-token").send(bad)).status).toBe(400);
+    }
+    expect((await request(app).patch("/api/v2/sales/scrap-requests/not-a-uuid").set("Authorization", "Bearer valid-firebase-token").send({ status: "CLOSED" })).status).toBe(400);
+  });
+
   it('rejects unauthenticated requests with 401', async () => {
     const { app } = setup();
     const res = await request(app).get('/api/v2/sales/me');
