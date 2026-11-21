@@ -6,6 +6,7 @@ import { PrismaCustomerStore } from '../src/customer-store.js';
 import { PrismaFinanceStore } from '../src/finance-store.js';
 import { PrismaInspectionStore } from '../src/inspection-store.js';
 import { NotificationService } from '../src/notification/index.js';
+import { runOutboxOnce } from '../src/employee-notifications/processor.js';
 
 const url = process.env.V2_TEST_DATABASE_URL;
 if (url && (!url.startsWith('postgresql://') || new URL(url).hostname !== '127.0.0.1' || new URL(url).pathname !== '/vmotiv_v2_test')) {
@@ -60,8 +61,9 @@ describe.skipIf(!url)('Hand-offs from offer accepted to ready to pay, with real 
   it('tells Operations when a seller accepts an offer', async () => {
     const { seller, offer } = await acceptedCase();
     await customers.acceptOffer(seller.firebaseUid, offer.id, offer.version);
+    await runOutboxOnce(db);
     const note = await db.notification.findFirst({ where: { userId: opsUserId, eventType: 'ACQUISITION_OFFER_ACCEPTED_STAFF' }, orderBy: { createdAt: 'desc' } });
-    expect(note?.title).toContain('Honda City');
+    expect(note?.body).toContain('Honda City');
   });
 
   it('verifies a document in one step, and tells Finance when the last one is verified', async () => {
@@ -77,6 +79,7 @@ describe.skipIf(!url)('Hand-offs from offer accepted to ready to pay, with real 
     }
     const ready = await db.acquisitionCase.findUniqueOrThrow({ where: { id: kase.id } });
     expect(ready.status).toBe('SETTLEMENT_READY');
+    await runOutboxOnce(db);
     const after = await db.notification.count({ where: { userId: financeUserId, eventType: 'FINANCE_READY_FOR_PAYMENT' } });
     expect(after).toBe(before + 1);
   });

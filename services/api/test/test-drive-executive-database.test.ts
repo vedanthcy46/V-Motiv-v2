@@ -4,6 +4,7 @@ import { PrismaClient } from '@prisma/client';
 import { PrismaCustomerStore } from '../src/customer-store.js';
 import { PrismaSalesStore, type SalesActor } from '../src/sales-store.js';
 import { NotificationService } from '../src/notification/index.js';
+import { runOutboxOnce } from '../src/employee-notifications/processor.js';
 
 const url = process.env.V2_TEST_DATABASE_URL;
 if (url && (!url.startsWith('postgresql://') || new URL(url).hostname !== '127.0.0.1' || new URL(url).pathname !== '/vmotiv_v2_test')) {
@@ -53,7 +54,8 @@ describe.skipIf(!url)('Test drive executive, with real PostgreSQL', () => {
 
     await sales.updateTestDriveStatus(advisor.actor, td.id, { status: 'CONFIRMED', assignedEmployeeId: driver.user.id });
     expect(((await customers.drive(customer.firebaseUid, td.id)) as any).executive.name).toBe('Ravi Kumar');
-    expect(await db.notification.count({ where: { userId: driver.user.id, eventType: 'TEST_DRIVE_CONFIRMED' } })).toBe(1);
+    await runOutboxOnce(db);
+    expect(await db.notification.count({ where: { userId: driver.user.id, eventType: 'TEST_DRIVE_ASSIGNED' } })).toBe(1);
 
     await sales.updateTestDriveStatus(advisor.actor, td.id, { status: 'CONFIRMED', assignedEmployeeId: other.user.id });
     expect(((await customers.drive(customer.firebaseUid, td.id)) as any).executive.name).toBe('Meena Das');

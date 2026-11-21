@@ -498,14 +498,14 @@ export class PrismaFinanceStore {
         },
       });
 
-      await this.notifyApprovers(tx, payout);
+      await this.notifyApprovers(tx, payout, actor.userId);
 
       return payoutView(payout);
     });
   }
 
   /** Tells the people who can approve that a seller payout is waiting for them. */
-  private async notifyApprovers(tx: Prisma.TransactionClient, payout: { id: string; amountPaise: bigint; beneficiaryName: string }) {
+  private async notifyApprovers(tx: Prisma.TransactionClient, payout: { id: string; amountPaise: bigint; beneficiaryName: string }, preparerId?: string) {
     if (!this.notificationService) return;
     await this.notificationService.dispatchDomainEvent(
       {
@@ -519,6 +519,9 @@ export class PrismaFinanceStore {
         actionUrl: `/finance?payoutId=${payout.id}`,
         referenceId: payout.id,
         entityType: 'FinancePayoutInstruction',
+        actorId: preparerId,
+        excludeUserIds: preparerId ? [preparerId] : undefined,
+        metadata: { referenceCode: payout.id.slice(0, 8).toUpperCase() },
       },
       tx
     );

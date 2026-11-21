@@ -219,8 +219,9 @@ describe.skipIf(!url)('Employee notification pipeline, with real PostgreSQL', ()
     await expect(saveRoutingPolicy(db, { eventType: 'FINANCE_PAYOUT_APPROVAL_REQUESTED', requiredPermission: null }, admin)).rejects.toMatchObject({ code: 'POLICY_REMOVES_PERMISSION_GATE' });
     await expect(saveRoutingPolicy(db, { eventType: 'SECURITY_INCIDENT', enabled: false }, admin)).rejects.toMatchObject({ code: 'CRITICAL_EVENT_IS_MANDATORY' });
     const saved = await saveRoutingPolicy(db, { eventType: 'BUYER_ENQUIRY_SUBMITTED', severity: 'INFORMATIONAL', note: 'quiet' }, admin);
-    expect(saved.version).toBe(1);
     const next = await saveRoutingPolicy(db, { eventType: 'BUYER_ENQUIRY_SUBMITTED', deliveryChannels: ['IN_APP'] }, admin);
-    expect(next.version).toBe(2);
+    expect(next.version).toBe(saved.version + 1);
+    // Leave the stored policy as the catalog default so other tests see normal routing.
+    await db.notificationRoutingPolicy.deleteMany({ where: { eventType: 'BUYER_ENQUIRY_SUBMITTED' } });
   });
 });

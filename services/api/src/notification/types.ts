@@ -99,6 +99,30 @@ export type DomainEventType =
   | 'CONNECT_QR_DEACTIVATED'
   | 'CONNECT_QR_REISSUED'
   | 'CONNECT_ABUSE_REPORTED'
+  | 'TEST_DRIVE_ASSIGNED'
+  | 'LEAD_UNASSIGNED_OVERDUE'
+  | 'SALES_FOLLOW_UP_DUE'
+  | 'RENTAL_BALANCE_OVERDUE'
+  | 'RENTAL_PICKUP_BLOCKED'
+  | 'VEHICLE_QC_REWORK_REQUIRED'
+  | 'SECURITY_INCIDENT'
+  | 'INTEGRATION_OUTAGE'
+  | 'CRITICAL_ESCALATION_UNRESOLVED'
+  | 'INSPECTION_CANCELLED'
+  | 'REINSPECTION_REQUESTED'
+  | 'PAYMENT_RECONCILIATION_REQUIRED'
+  | 'PAYMENT_EXCEPTION'
+  | 'REFUND_APPROVAL_PENDING'
+  | 'RENTAL_DEPOSIT_RELEASE_PENDING'
+  | 'PAYMENT_DISPUTE'
+  | 'EMPLOYEE_INVITE_APPROVAL'
+  | 'ROLE_ESCALATION_REQUEST'
+  | 'POLICY_CHANGE_APPROVAL'
+  | 'SENSITIVE_EXPORT_APPROVAL'
+  | 'PARTNER_APPROVAL'
+  | 'VEHICLE_MAINTENANCE_BLOCKING'
+  | 'ACQUISITION_OFFER_APPROVED'
+  | 'ACQUISITION_OFFER_REJECTED'
   // General & System
   | 'SYSTEM_NOTIFICATION';
 
@@ -116,8 +140,10 @@ export interface DomainEventPayload {
   deepLink?: string; // e.g. vmotiv://inspections/:id, vmotiv://activity
   actionUrl?: string; // e.g. /inspection-review?reportId=:id, /admin/approvals
   metadata?: Record<string, unknown>;
-  // Explicit recipient hints if already known
+  // Explicit recipient hints if already known. For an employee event these are the people the business ASSIGNED the work to.
   recipientUserIds?: string[];
+  // Never notify these people (for example the person who asked for an approval).
+  excludeUserIds?: string[];
   // Fallback recipient roles to look up if no explicit user IDs given
   recipientRoles?: string[];
   // People who hold any of these permissions (directly or through a role), e.g. 'finance.payout.approve'

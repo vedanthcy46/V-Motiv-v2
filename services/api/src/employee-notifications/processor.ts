@@ -41,7 +41,8 @@ export async function processOutboxEvent(db: PrismaClient, event: ClaimedEvent, 
   const routing = await resolveRecipients(db, { policy, branchId: event.branchId, assigneeUserIds: assignees, excludeUserIds: exclude });
 
   const route = def.route(event.aggregateId, vars);
-  const actionRoute = isAllowedActionRoute(policy.module, route) ? route : null;
+  // An event with no record id has nothing specific to open.
+  const actionRoute = event.aggregateId !== 'none' && isAllowedActionRoute(policy.module, route) ? route : null;
   const expiresAt = new Date(now.getTime() + (EXPIRES_DAYS[policy.severity] ?? 30) * 86_400_000);
   const portal = MODULE_PORTAL[policy.module];
 

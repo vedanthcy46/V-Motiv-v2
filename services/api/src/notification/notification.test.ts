@@ -107,7 +107,7 @@ describe('NotificationService Unit Tests', () => {
 
   it('dispatches domain events to in-app, push tickets, and email outbox', async () => {
     const res = await service.dispatchDomainEvent({
-      type: 'INSPECTION_ASSIGNED',
+      type: 'SYSTEM_NOTIFICATION',
       category: 'INSPECTION',
       priority: 'HIGH',
       recipientUserIds: ['user-1'],
@@ -126,6 +126,21 @@ describe('NotificationService Unit Tests', () => {
     expect(fakeDb.notification.create).toHaveBeenCalledTimes(1);
     expect(fakeDb.pushTicket.create).toHaveBeenCalledTimes(1);
     expect(fakeDb.emailOutbox.create).toHaveBeenCalledTimes(1);
+  });
+
+  it('routes employee events to the outbox instead of writing inbox rows directly, and never routes customers there', async () => {
+    fakeDb.employee = { count: vi.fn().mockResolvedValue(1) };
+    fakeDb.domainOutboxEvent = { create: vi.fn().mockResolvedValue({ id: 'evt-1' }) };
+    const staff = await service.dispatchDomainEvent({ type: 'INSPECTION_ASSIGNED', category: 'INSPECTION', recipientUserIds: ['00000000-0000-4000-8000-000000000001'], referenceId: 'assign-1234', title: 't', body: 'b' });
+    expect(staff.notificationsCount).toBe(0);
+    expect(fakeDb.domainOutboxEvent.create).toHaveBeenCalledTimes(1);
+    expect(fakeDb.notification.create).not.toHaveBeenCalled();
+    // The same event type addressed to a customer (not an employee) stays on the customer path.
+    fakeDb.employee.count.mockResolvedValue(0);
+    fakeDb.domainOutboxEvent.create.mockClear();
+    await service.dispatchDomainEvent({ type: 'INSPECTION_ASSIGNED', category: 'INSPECTION', recipientUserIds: ['00000000-0000-4000-8000-000000000002'], referenceId: 'assign-1234', title: 't', body: 'b' });
+    expect(fakeDb.domainOutboxEvent.create).not.toHaveBeenCalled();
+    expect(fakeDb.notification.create).toHaveBeenCalledTimes(1);
   });
 
   it('fetches notifications with unread counts and marks read', async () => {

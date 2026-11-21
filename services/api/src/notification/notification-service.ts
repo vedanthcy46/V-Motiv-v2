@@ -1,6 +1,8 @@
 import { Prisma, PrismaClient, type NotificationPriority, type EmployeeRole } from '@prisma/client';
 import { ExpoPushClient, isExpoPushToken, type ExpoPushMessage } from './expo-push.js';
 import type { DomainEventPayload } from './types.js';
+import { isEmployeeEvent } from '../employee-notifications/catalog.js';
+import { enqueueDomainEvent } from '../employee-notifications/outbox.js';
 
 export interface NotificationQueryOptions {
   page?: number;
@@ -79,6 +81,22 @@ export class NotificationService {
   ): Promise<{ notificationsCount: number; pushTicketsCount: number; emailsCount: number }> {
     try {
       const client = txClient || this.db;
+
+      // Events for employees go through the central pipeline: persisted in the outbox (in the caller's transaction when one is
+      // passed), routed by assignment, queue ownership, permission and branch, and delivered by the worker. Customer events do not.
+      if (isEmployeeEvent(event.type) && (await this.targetsEmployees(event, client))) {
+        await enqueueDomainEvent(client, {
+          eventType: event.type,
+          aggregateId: event.referenceId || 'none',
+          branchId: event.branchId,
+          actorId: event.actorId,
+          assigneeUserIds: event.recipientUserIds,
+          excludeUserIds: event.excludeUserIds,
+          payload: event.metadata,
+        });
+        return { notificationsCount: 0, pushTicketsCount: 0, emailsCount: 0 };
+      }
+
       const recipientIds = await this.resolveRecipients(event, client);
 
       if (!recipientIds.length) {
@@ -223,6 +241,14 @@ export class NotificationService {
     return { notificationsCount: 0, pushTicketsCount: 0, emailsCount: 0 };
   }
 }
+
+  /** True when the event is for staff: named recipients are all employees, or it is addressed by role/permission. Customers are never routed here. */
+  private async targetsEmployees(event: DomainEventPayload, client: Prisma.TransactionClient | PrismaClient): Promise<boolean> {
+    const ids = (event.recipientUserIds ?? []).filter(Boolean);
+    if (ids.length === 0) return true;
+    const employees = await client.employee.count({ where: { userId: { in: ids } } });
+    return employees === ids.length;
+  }
 
   /**
    * Dynamically resolves target user IDs based on explicit IDs, roles, and business rules.

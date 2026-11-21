@@ -1,8 +1,9 @@
 // Staff notifications for the hand-offs between Sales, Operations, Finance and the listing team. Each one is best effort:
 // a failed notification must never fail the business action that caused it (dispatchDomainEvent already swallows errors).
 import type { NotificationService } from './notification/index.js';
+import { branchForLead } from './employee-notifications/branches.js';
 
-type Db = { sellerLeadAssignment: { findFirst: (args: any) => Promise<{ employeeId: string | null; branchId: string | null } | null> } };
+type Db = any;
 
 /** A seller accepted an offer (in the app, or in person at the showroom): Operations starts document collection, Sales is told. */
 export async function notifyOfferAccepted(
@@ -21,19 +22,20 @@ export async function notifyOfferAccepted(
     priority: 'HIGH',
     recipientRoles: ['OPERATIONS_MANAGER', 'INVENTORY_MANAGER'],
     recipientUserIds: assignment?.employeeId ? [assignment.employeeId] : undefined,
-    branchId: assignment?.branchId || undefined,
+    branchId: assignment?.branchId || (await branchForLead(db, lead.id)) || undefined,
     title: `Offer accepted: ${car}`,
     body: `${lead.sellerName || 'The seller'} accepted the offer for ${car} (${lead.referenceCode})${source === 'IN_PERSON_OTP' ? ' in person' : ''}. Start collecting and verifying the seller documents.`,
     actionUrl: '/operations?tab=acquisitions',
     referenceId: acquisitionCaseId || lead.id,
     entityType: 'AcquisitionCase',
-    metadata: { targetApp: 'OPS', leadId: lead.id, acquisitionCaseId },
+    metadata: { targetApp: 'OPS', leadId: lead.id, acquisitionCaseId, referenceCode: lead.referenceCode, vehicle: car },
   });
 }
 
 /** All seller documents are verified: Finance can prepare the payout. */
-export async function notifyReadyForPayment(service: NotificationService | undefined, lead: { id: string; referenceCode: string; make: string; model: string }, acquisitionCaseId: string, branchId?: string) {
+export async function notifyReadyForPayment(service: NotificationService | undefined, lead: { id: string; referenceCode: string; make: string; model: string }, acquisitionCaseId: string, branchId?: string, db?: Db) {
   if (!service) return;
+  branchId = branchId ?? (db ? (await branchForLead(db, lead.id)) ?? undefined : undefined);
   await service.dispatchDomainEvent({
     type: 'FINANCE_READY_FOR_PAYMENT',
     category: 'FINANCE',
@@ -46,6 +48,6 @@ export async function notifyReadyForPayment(service: NotificationService | undef
     actionUrl: '/finance?tab=seller-settlements',
     referenceId: acquisitionCaseId,
     entityType: 'AcquisitionCase',
-    metadata: { targetApp: 'FINANCE', acquisitionCaseId },
+    metadata: { targetApp: 'FINANCE', acquisitionCaseId, referenceCode: lead.referenceCode, vehicle: `${lead.make} ${lead.model}`.trim() },
   });
 }

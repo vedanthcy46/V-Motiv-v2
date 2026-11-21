@@ -19,6 +19,7 @@ import {
 import { canonicalMakeModel } from './vehicle-names.js';
 import crypto from 'node:crypto';
 import { accountSummary, resolveWalkInCustomer } from './walk-in-customer.js';
+import { enqueueDomainEvent } from './employee-notifications/outbox.js';
 import { HttpError } from './errors.js';
 import type { NotificationService } from './notification/index.js';
 import { notifyOfferAccepted } from './acquisition-events.js';
@@ -700,6 +701,13 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
           details: { referenceCode: lead.referenceCode, targetEmployeeId: target.userId, reason: input.reason },
         },
       });
+      // Written in the same transaction as the reassignment: the new owner is told, and the previous owner's alert stops being actionable.
+      if (target.userId !== actor.userId) {
+        await enqueueDomainEvent(tx, {
+          eventType: 'LEAD_ASSIGNED', aggregateId: id, branchId: branch?.branchId ?? assignment.branchId ?? null, actorId: actor.userId,
+          assigneeUserIds: [target.userId], payload: { referenceCode: lead.referenceCode }, dedupKey: `LEAD_ASSIGNED:${assignment.id}`,
+        });
+      }
       return assignment;
     });
   }
@@ -936,6 +944,8 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
           details: { leadId: id, referenceCode: lead.referenceCode, status: request.status },
         },
       });
+      // Same transaction: the dispatch queue owner for this branch is told that an inspector is needed.
+      await enqueueDomainEvent(tx, { eventType: 'INSPECTION_REQUESTED', aggregateId: request.id, branchId: branch?.id ?? null, actorId: actor.userId, payload: { referenceCode: lead.referenceCode }, dedupKey: `INSPECTION_REQUESTED:${request.id}` });
       return request;
     });
   }
@@ -1458,22 +1468,13 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
           details: { leadId, referenceCode: lead.referenceCode, valuationId: valuation.id, amountPaise: input.offerAmountPaise.toString(), reportRevision: report.revision },
         },
       });
+      // Same transaction as the request: the approvers are told if and only if it was really filed. The proposer is never one of them.
+      await enqueueDomainEvent(tx, {
+        eventType: 'ACQUISITION_OFFER_APPROVAL_REQUESTED', aggregateId: request.id, branchId: actor.branches[0]?.id ?? null, actorId: actor.userId, excludeUserIds: [actor.userId],
+        payload: { referenceCode: lead.referenceCode, vehicle: vehicleTitle }, dedupKey: `OFFER_APPROVAL:${request.id}`,
+      });
       return { approvalRequestId: request.id, valuationId: valuation.id };
     });
-
-    // After the commit: tell the approvers there is something to decide.
-    await this.notificationService?.dispatchDomainEvent({
-      type: 'ACQUISITION_OFFER_APPROVAL_REQUESTED',
-      category: 'SELLING',
-      priority: 'HIGH',
-      recipientRoles: ['ADMIN', 'SUPER_ADMIN', 'PRICING_APPROVER'],
-      title: `Offer needs approval: ${vehicleTitle}`,
-      body: `${actor.displayName || 'Sales'} proposed ₹${(Number(input.offerAmountPaise) / 100).toLocaleString('en-IN')} for ${lead.sellerName} (${lead.referenceCode}).`,
-      actionUrl: '/admin?page=approvals',
-      referenceId: result.approvalRequestId,
-      entityType: 'ApprovalRequest',
-      metadata: { targetApp: 'ADMIN', leadId },
-    } as any).catch(() => undefined);
 
     return {
       id: result.approvalRequestId,
@@ -2044,16 +2045,10 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
         entityType: 'TestDriveRequest',
       } as any).catch(() => undefined);
       if (executiveId && executiveId !== actor.userId) {
-        await this.notificationService?.dispatchDomainEvent({
-          type: 'TEST_DRIVE_CONFIRMED',
-          category: 'BUYING',
-          recipientUserIds: [executiveId],
-          title: 'You have a test drive',
-          body: `${td.listing.title} on ${td.requestedDate.toISOString().slice(0, 10)}, ${td.timeSlot}.`,
-          actionUrl: '/sales?page=testdrives',
-          referenceId: id,
-          entityType: 'TestDriveRequest',
-        } as any).catch(() => undefined);
+        await enqueueDomainEvent(this.db, {
+          eventType: 'TEST_DRIVE_ASSIGNED', aggregateId: id, actorId: actor.userId, assigneeUserIds: [executiveId],
+          payload: { vehicle: td.listing.title, slot: `${td.requestedDate.toISOString().slice(0, 10)}, ${td.timeSlot}` }, dedupKey: `TEST_DRIVE_ASSIGNED:${id}:${executiveId}`,
+        }).catch(() => undefined);
       }
     }
     return updated;
@@ -2338,7 +2333,8 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
         },
       });
 
-      await tx.approvalRequest.create({
+      const discountApproval = await tx.approvalRequest.create({
+        select: { id: true },
         data: {
           requestType: 'DISCOUNT_REQUEST',
           status: 'PENDING',
@@ -2368,6 +2364,11 @@ async assignSellerLead(actor: SalesActor, id: string, input: { employeeId: strin
           entityId: req.id,
           details: { quotationId, requestedDiscount: input.requestedDiscountPaise.toString() },
         },
+      });
+      // Same transaction as the request. The person who asked cannot be told to approve their own request.
+      await enqueueDomainEvent(tx, {
+        eventType: 'DISCOUNT_APPROVAL_REQUESTED', aggregateId: discountApproval.id, branchId: actor.branches[0]?.id ?? null, actorId: actor.userId,
+        excludeUserIds: [actor.userId], payload: { referenceCode: `VM-QT-${quotationId.slice(0, 8).toUpperCase()}`, vehicle: q.listing.title }, dedupKey: `DISCOUNT_APPROVAL:${discountApproval.id}`,
       });
       return req;
     });
