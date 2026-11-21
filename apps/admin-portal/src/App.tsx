@@ -18,13 +18,15 @@ import {
 } from 'firebase/auth';
 import { adminApi, ApiError } from './api.js';
 import {
-  AppShell, CenterState, EmptyState as UiEmptyState, ErrorState as UiErrorState, MfaChallengeModal, NotificationBell as BellMenu, PageHeader as UiPageHeader, PageLoader,
+  AppShell, CenterState, EmptyState as UiEmptyState, ErrorState as UiErrorState, EmployeeNotificationBell, MfaChallengeModal, NotificationInbox, createEmployeeNotificationsClient, routeToPage, PageHeader as UiPageHeader, PageLoader,
   SkeletonCards as UiSkeletonCards, StatusBadge as UiStatusBadge, TableSkeleton as UiTableSkeleton, Button, announceChange, toast, useAutoRefresh, type NavSection,
 } from '@vmotiv/ui';
 import { auth, firebaseConfigured } from './firebase.js';
 import type {
   RentalKmPolicy,
   AppConfigEntry,
+  ActivityMonitorItem,
+  ActivityMonitorPage as ActivityMonitorData,
   AdminActor,
   Approval,
   ApprovalPage,
@@ -53,7 +55,7 @@ import type {
   SystemHealth,
 } from './types.js';
 
-type Route = '/' | '/employees' | '/access' | '/branches' | '/approvals' | '/business' | '/support' | '/master-data' | '/communications' | '/reports' | '/audit' | '/accept-invitation' | '/not-found';
+type Route = '/' | '/employees' | '/access' | '/branches' | '/approvals' | '/business' | '/support' | '/master-data' | '/communications' | '/reports' | '/audit' | '/notifications' | '/activity-monitor' | '/accept-invitation' | '/not-found';
 const iconPaths: Record<string, ReactNode> = {
   overview: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
   employees: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
@@ -79,7 +81,7 @@ function currentRoute(): Route {
   const hasToken = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('token');
   const path = window.location.pathname.replace(/\/$/, '') || '/';
   if (path === '/accept-invitation' || hasToken) return '/accept-invitation';
-  return ['/', '/employees', '/access', '/branches', '/approvals', '/business', '/support', '/master-data', '/communications', '/reports', '/audit'].includes(path) ? path as Route : '/not-found';
+  return ['/', '/employees', '/access', '/branches', '/approvals', '/business', '/support', '/master-data', '/communications', '/reports', '/audit', '/notifications', '/activity-monitor'].includes(path) ? path as Route : '/not-found';
 }
 function navigate(path: string) { window.history.pushState({}, '', path); window.dispatchEvent(new PopStateEvent('popstate')); }
 function errorMessage(error: unknown) {
@@ -695,66 +697,24 @@ const navItems = [
   { path: '/support' as Route, label: 'Support & Privacy', icon: 'support' as const, permission: 'support.read' },
   { path: '/master-data' as Route, label: 'Master Data', icon: 'masterdata' as const, permission: 'masterdata.read' },
   { path: '/communications' as Route, label: 'Communications', icon: 'communications' as const, permission: 'email.delivery.read' },
+  { path: '/notifications' as Route, label: 'Notifications', icon: 'bell' as const, permission: 'admin.portal.access' },
+  { path: '/activity-monitor' as Route, label: 'Activity Monitor', icon: 'audit' as const, permission: 'audit.read' },
   { path: '/reports' as Route, label: 'Audit & Reports', icon: 'reports' as const, permission: 'audit.read' },
   { path: '/branches' as Route, label: 'Settings & Branches', icon: 'branches' as const, permission: 'branch.read' },
 ];
-function NotificationBell({ user }: { user: User }) {
-  const [unreadCount, setUnreadCount] = useState(0);
-  const [items, setItems] = useState<any[]>([]);
-  const lastUnread = useRef<number | null>(null);
-
-  const loadCount = useCallback(() => {
-    adminApi.unreadNotificationsCount(user)
-      .then(res => {
-        // A higher unread count than last time means something new arrived: show the floating bar.
-        if (lastUnread.current !== null && res.count > lastUnread.current) announceChange(['notifications']);
-        lastUnread.current = res.count;
-        setUnreadCount(res.count);
-      })
-      .catch(() => undefined);
-  }, [user]);
-  const loadItems = useCallback(() => {
-    adminApi.notifications(user, 1)
-      .then(res => setItems(res.items))
-      .catch(error => toast.error('Could not load notifications', { description: errorMessage(error) }));
-  }, [user]);
-
-  useEffect(() => { loadCount(); }, [loadCount]);
-  // Poll for new notifications only while the tab is visible (and back off if the API is failing).
-  useAutoRefresh(() => Promise.resolve(loadCount()), { intervalMs: 60_000, pauseWhen: () => false });
-
-  return (
-    <BellMenu
-      items={items}
-      unread={unreadCount}
-      onOpen={loadItems}
-      onMarkAllRead={async () => {
-        try {
-          await adminApi.markAllNotificationsRead(user);
-          setItems(prev => prev.map(i => ({ ...i, read: true })));
-          setUnreadCount(0);
-        } catch (error) {
-          toast.error('Could not mark notifications as read', { description: errorMessage(error) });
-        }
-      }}
-      onOpenItem={async item => {
-        if (item.read) return;
-        try {
-          await adminApi.markNotificationRead(user, item.id);
-          setItems(prev => prev.map(i => i.id === item.id ? { ...i, read: true } : i));
-          setUnreadCount(prev => Math.max(0, prev - 1));
-        } catch (error) {
-          toast.error('Could not update the notification', { description: errorMessage(error) });
-        }
-      }}
-    />
-  );
-}
+/** Notification routes that have a page in this portal; the rest are explained in the inbox. */
+const ADMIN_ROUTE_PAGES: Record<string, Route> = { '/approvals': '/approvals', '/health': '/', '/activity-monitor': '/activity-monitor' };
 
 function Shell({ actor, user, route, onLogout }: { actor: AdminActor; user: User; route: Route; onLogout: () => void }) {
   const nav = navItems.filter(item => actor.permissions.includes(item.permission));
   const sections: NavSection<Route>[] = [{ items: nav.map(item => ({ key: item.path, label: item.label, icon: <Icon name={item.icon} /> })) }];
   const title = nav.find(item => item.path === route)?.label || 'Not found';
+  const inbox = useMemo(() => createEmployeeNotificationsClient({ apiBase: import.meta.env.VITE_API_BASE, getToken: force => user.getIdToken(force) }), [user]);
+  const openFromNotification = (path: string, item: { module: string }) => {
+    const target = routeToPage<Route>('ADMIN', ADMIN_ROUTE_PAGES, path, item);
+    if (typeof target !== 'string') { toast.info('Cannot open it here', { description: target.redirect }); navigate('/notifications'); return; }
+    navigate(target);
+  };
   return (
     <AppShell
       portalName="Admin"
@@ -767,7 +727,7 @@ function Shell({ actor, user, route, onLogout }: { actor: AdminActor; user: User
       title={title}
       toolbar={
         <>
-          <NotificationBell user={user} />
+          <EmployeeNotificationBell api={inbox.api} stream={inbox.stream} onNavigate={openFromNotification} onViewAll={() => navigate('/notifications')} />
           <span className="hidden text-sm text-base-content/65 md:inline">{user.email}</span>
           <span className="badge badge-soft badge-success hidden font-medium sm:inline-flex">MFA verified</span>
         </>
@@ -784,6 +744,8 @@ function Shell({ actor, user, route, onLogout }: { actor: AdminActor; user: User
       {route === '/reports' && <ReportsPage user={user} actor={actor}/>}
       {route === '/branches' && <><BranchesPage user={user} actor={actor}/>{actor.permissions.includes('branch.manage') && <RentalKmPolicyPanel user={user} actor={actor}/>}{actor.permissions.includes('branch.manage') && <AppVersionPanel user={user} actor={actor}/>}<PoliciesPanel user={user} actor={actor}/></>}
       {route === '/audit' && <AuditPageView user={user}/>}
+      {route === '/notifications' && <><PageHeader eyebrow="Your inbox" title="Notifications" description="Work routed to you by branch, assignment and permission. Routine events never push to your phone."/><NotificationInbox api={inbox.api} stream={inbox.stream} moduleHint="ADMIN" onNavigate={openFromNotification}/></>}
+      {route === '/activity-monitor' && <ActivityMonitorPage user={user}/>}
       {route === '/not-found' && <NotFound/>}
     </AppShell>
   );
@@ -3275,6 +3237,50 @@ function ApprovalDialog({ user, actor, approval, onClose, onDone }: { user: User
   );
 }
 
+const MONITOR_DOMAINS = ['SALES', 'OPERATIONS', 'FINANCE', 'INSPECTION', 'ADMIN'] as const;
+/**
+ * Read-only view of what happened across the business, built from the audit log. It is separate from the notification inbox: it never
+ * creates alerts or tasks, it is scoped to the viewer's branches, and it shows only a safe subset of each event's details.
+ */
+function ActivityMonitorPage({ user }: { user: User }) {
+  const [data, setData] = useState<ActivityMonitorData | null>(null);
+  const [error, setError] = useState('');
+  const [branches, setBranches] = useState<Branch[]>([]);
+  const [page, setPage] = useState(1);
+  const [filters, setFilters] = useState({ domain: '', branchId: '', outcome: '', from: '', to: '', resourceId: '' });
+  const [reload, setReload] = useState(0);
+  useEffect(() => { adminApi.branches(user).then(setBranches).catch(() => setBranches([])); }, [user]);
+  const query = useMemo(() => {
+    const value = new URLSearchParams({ page: String(page), limit: '25' });
+    for (const [key, entry] of Object.entries(filters)) if (entry.trim()) value.set(key, key === 'from' || key === 'to' ? new Date(entry + (key === 'to' ? 'T23:59:59' : 'T00:00:00')).toISOString() : entry.trim());
+    return value;
+  }, [filters, page]);
+  useEffect(() => { setError(''); adminApi.activityMonitor(user, query).then(setData).catch(err => { setData(null); setError(errorMessage(err)); }); }, [user, query, reload]);
+  const set = (key: keyof typeof filters) => (event: { target: { value: string } }) => { setPage(1); setFilters(current => ({ ...current, [key]: event.target.value })); };
+  return <>
+    <PageHeader eyebrow="Business oversight" title="Activity Monitor" description="What staff did across Sales, Operations, Finance and Inspection, from the audit log. Read-only; not part of anyone's notification inbox." action={<button className="button secondary" onClick={() => setReload(value => value + 1)}><Icon name="refresh"/>Refresh</button>}/>
+    <section className="panel filters" aria-label="Filters" style={{ display: 'grid', gap: '0.75rem', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))' }}>
+      <label>Area<select value={filters.domain} onChange={set('domain')}><option value="">All areas</option>{MONITOR_DOMAINS.map(domain => <option key={domain} value={domain}>{humanize(domain)}</option>)}</select></label>
+      <label>Branch<select value={filters.branchId} onChange={set('branchId')}><option value="">All my branches</option>{branches.map(branch => <option key={branch.id} value={branch.id}>{branch.name} · {branch.city}</option>)}</select></label>
+      <label>Outcome<select value={filters.outcome} onChange={set('outcome')}><option value="">Any</option><option value="SUCCEEDED">Succeeded</option><option value="DENIED">Denied</option><option value="FAILED">Failed</option></select></label>
+      <label>From<input type="date" value={filters.from} onChange={set('from')}/></label>
+      <label>To<input type="date" value={filters.to} onChange={set('to')}/></label>
+      <label>Record id<input value={filters.resourceId} placeholder="Lead, case or booking id" onChange={set('resourceId')}/></label>
+    </section>
+    {error ? <ErrorState message={error} retry={() => setReload(value => value + 1)}/> : !data ? <TableSkeleton/> : <>
+      <section className="metric-grid" aria-label="Last 24 hours">
+        <article className="metric-card"><span>events, last 24 hours</span><strong>{data.summary.last24hTotal.toLocaleString()}</strong><small>Within your scope</small></article>
+        {Object.entries(data.summary.last24hByDomain).map(([domain, count]) => <article className="metric-card" key={domain}><span>{humanize(domain)}</span><strong>{count.toLocaleString()}</strong><small>Last 24 hours</small></article>)}
+      </section>
+      {data.summary.exceptions.length > 0 && <section className="panel"><div className="panel-heading"><div><h2>Exceptions</h2><p>Recent denied or failed actions that match the filters.</p></div><span className="count-badge">{data.summary.exceptions.length}</span></div><ul className="event-list">{data.summary.exceptions.map(item => <li key={item.id}><div><strong>{humanize(item.action)}</strong><span>{humanize(item.domain)} · {item.entityType}</span></div><div><StatusBadge value={item.outcome}/><time>{new Date(item.createdAt).toLocaleString()}</time></div></li>)}</ul></section>}
+      <section className="panel table-panel">
+        {data.items.length ? <div className="table-scroll"><table><thead><tr><th>Time</th><th>Area</th><th>Action</th><th>Who</th><th>Record</th><th>Outcome</th></tr></thead><tbody>{data.items.map((event: ActivityMonitorItem) => <tr key={event.id}><td><time>{new Date(event.createdAt).toLocaleString()}</time></td><td>{humanize(event.domain)}</td><td><strong>{humanize(event.action)}</strong>{Object.keys(event.details).length ? <small>{Object.entries(event.details).filter(([key]) => key !== 'branchId').map(([key, value]) => `${humanize(key)}: ${String(value)}`).join(' · ')}</small> : null}</td><td>{event.actor ?? 'System'}</td><td><span>{event.entityType}</span><small>{event.entityId}</small></td><td><StatusBadge value={event.outcome}/></td></tr>)}</tbody></table></div> : <EmptyState title="Nothing matches" text="No recorded activity in your scope matches these filters."/>}
+        <Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/>
+      </section>
+      <p className="helper">Shows only what happened, never reasons, contact details, amounts or bank details. Events are limited to your branches unless you have global access.</p>
+    </>}
+  </>;
+}
 function AuditPageView({ user }: { user: User }) { const [data, setData] = useState<AuditPage | null>(null); const [error, setError] = useState(''); const [page, setPage] = useState(1); useEffect(() => { adminApi.audit(user, page).then(setData).catch(error => setError(errorMessage(error))); }, [user, page]); return <><PageHeader eyebrow="Append-only history" title="Audit" description="Authorization-filtered security and governance events. Audit records cannot be edited from this portal."/>{error ? <ErrorState message={error}/> : !data ? <TableSkeleton/> : <section className="panel table-panel">{data.items.length ? <div className="table-scroll"><table><thead><tr><th>Time</th><th>Action</th><th>Target</th><th>Outcome</th></tr></thead><tbody>{data.items.map(event => <tr key={event.id}><td><time>{new Date(event.createdAt).toLocaleString()}</time></td><td><strong>{humanize(event.action)}</strong></td><td><span>{event.entityType}</span><small>{event.entityId}</small></td><td><StatusBadge value={event.outcome}/></td></tr>)}</tbody></table></div> : <EmptyState title="No audit events" text="No events are visible within your authorized scope."/>}<Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/></section>}</>; }
 function SystemHealthPanel({ user }: { user: User }) { const [data, setData] = useState<SystemHealth | null>(null); const [error, setError] = useState(''); useEffect(() => { adminApi.systemHealth(user).then(setData).catch(error => setError(errorMessage(error))); }, [user]); return <section className="panel"><div className="panel-heading"><div><h2>System health</h2><p>Safe operational diagnostics; no credentials or recipient data.</p></div></div>{error ? <ErrorState message={error}/> : !data ? <TableSkeleton/> : <><ul className="event-list">{data.services.map(service => <li key={service.key}><div><strong>{humanize(service.key)}</strong><span>{service.detail}</span></div><StatusBadge value={service.status}/></li>)}</ul><p className="helper">Outbox: {Object.entries(data.emailOutbox).map(([state, count]) => `${humanize(state)} ${count}`).join(' · ') || 'No queued messages'}</p></>}</section>; }
 /** Mobile app versions: type the newest version (and build number) here and every older app shows an "update available" card. */

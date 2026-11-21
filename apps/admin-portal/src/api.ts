@@ -1,5 +1,6 @@
 import type { User } from 'firebase/auth';
 import type {
+  ActivityMonitorPage,
   RentalKmPolicy,
   AppConfigEntry,
   AdminActor,
@@ -81,6 +82,7 @@ export const adminApi = {
   updateEmployeeAccess: (user: User, id: string, input: { roleIds?: string[]; branchIds?: string[]; designation?: string | null; reason: string }) =>
     call<{ userId: string; roles: string[]; branchIds: string[]; designation: string | null }>(user, `/admin/employees/${id}/access`, { method: 'PATCH', body: JSON.stringify(input) }),
   status: (user: User, id: string, status: string, reason: string) => call<void>(user, `/admin/employees/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, reason }) }),
+  activityMonitor: (user: User, params: URLSearchParams) => call<ActivityMonitorPage>(user, `/admin/activity-monitor?${params}`),
   audit: (user: User, page = 1) => call<AuditPage>(user, `/admin/audit?page=${page}&limit=25`),
   acceptInvitation: (user: User, token: string) => call<AdminActor>(user, '/staff/invitations/accept', { method: 'POST', body: JSON.stringify({ token }) }),
 
