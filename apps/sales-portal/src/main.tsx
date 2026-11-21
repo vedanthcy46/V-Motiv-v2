@@ -1,5 +1,5 @@
 import {
-  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, NotificationBell, PageLoader, SkeletonCards, StatusBadge, toast,
+  Alert, AppShell, AuthLayout, Button, CenterState, EmployeeNotificationBell, MfaChallengeModal, NotificationBell, NotificationInbox, createEmployeeNotificationsClient, routeToPage, PageLoader, SkeletonCards, StatusBadge, toast,
   describeApiError, initTheme, mountLiveChangeBar, useAutoRefresh, useChangeWatcher, type NavSection, type NotificationItem,
 } from '@vmotiv/ui';
 import { VehicleMakeModel } from './components/VehicleMakeModel';
@@ -65,7 +65,13 @@ type PageKey =
   | 'service-leads'
   | 'rental-leads'
   | 'scrap'
-  | 'reports';
+  | 'reports'
+  | 'notifications';
+
+/** Notification routes that open a page in this portal. Anything not listed is explained in the inbox rather than guessed at. */
+const SALES_ROUTE_PAGES: Record<string, PageKey> = {
+  '/seller-leads': 'seller', '/buyer-leads': 'buyer', '/quotations': 'pipeline', '/test-drives': 'testdrives', '/tasks': 'tasks', '/scrap-requests': 'scrap',
+};
 
 const formatCurrency = (paise: string | number | null | undefined): string => {
   if (paise === null || paise === undefined || paise === '') return '₹0';
@@ -202,6 +208,18 @@ function App() {
   const [user, setUser] = useState<User | null>(null);
   const [actor, setActor] = useState<Actor | null>(null);
   const [page, setPage] = useState<PageKey>('overview');
+  // The employee inbox (PostgreSQL-backed, per person). One client per sign-in.
+  const inboxClient = useMemo(() => user ? createEmployeeNotificationsClient({ apiBase: import.meta.env.VITE_API_BASE, getToken: force => user.getIdToken(force) }) : null, [user]);
+  const openFromNotification = async (route: string, item: { module: string }) => {
+    const target = routeToPage<PageKey>('SALES', SALES_ROUTE_PAGES, route, item);
+    if (typeof target !== 'string') { toast.info('Cannot open it here', { description: target.redirect }); setPage('notifications'); return; }
+    const id = route.split('?')[0]!.split('/')[2];
+    try {
+      if (target === 'seller' && id && user) setSelectedSellerLead(await salesApi.sellerLead(user, id));
+      else if (target === 'buyer' && id && user) { const found = (buyerLeads ?? []).find(lead => lead.id === id); if (found) setSelectedBuyerLead(found); }
+    } catch (e) { toast.error('Could not open it', { description: describeApiError(e) }); }
+    setPage(target);
+  };
   const [refreshing, setRefreshing] = useState(false);
   const [loading, setLoading] = useState(true);
   const [denied, setDenied] = useState(false);
@@ -484,6 +502,7 @@ function App() {
         { key: 'customers', label: 'Customers CRM', icon: <Icons.Customers size={17} /> },
         { key: 'communications', label: 'Communications', icon: <Icons.Communications size={17} /> },
         { key: 'reports', label: 'Funnel and reports', icon: <Icons.Reports size={17} /> },
+        { key: 'notifications', label: 'Notifications', icon: <Icons.Communications size={17} /> },
       ],
     },
   ];
@@ -517,8 +536,9 @@ function App() {
       context={actor?.globalScope ? 'All branches (HQ)' : actor?.branches.map(b => b.city).join(', ') || 'Branch'}
       toolbar={
         <>
+          {inboxClient ? <EmployeeNotificationBell api={inboxClient.api} stream={inboxClient.stream} onNavigate={(route, item) => void openFromNotification(route, item)} onViewAll={() => setPage('notifications')} /> : null}
           <NotificationBell
-            title="Action items"
+            title="Work queue"
             items={alertItems}
             unread={notifications?.totalUnread ?? alertItems.length}
             onOpenItem={item => alertActions.get(item.id)?.()}
@@ -528,6 +548,13 @@ function App() {
       }
     >
           {error && <Alert tone="warning" className="mb-4" onDismiss={() => setError('')}>{error}</Alert>}
+
+          {page === 'notifications' && inboxClient && (
+            <div>
+              <div className="page-header"><div><p className="eyebrow">YOUR INBOX</p><h1>Notifications</h1></div></div>
+              <NotificationInbox api={inboxClient.api} stream={inboxClient.stream} moduleHint="SALES" onNavigate={(route, item) => void openFromNotification(route, item)} />
+            </div>
+          )}
 
           {/* ==================================================== */}
           {/* VIEW: OVERVIEW */}

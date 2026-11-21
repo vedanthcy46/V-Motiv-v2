@@ -94,3 +94,18 @@ export function streamEmployeeNotifications(options: { base: string; getToken: (
   void connect();
   return () => { stopped = true; controller?.abort(); };
 }
+
+/** The portal each notification module belongs to, for deciding whether a route can be opened in the portal the person is in. */
+export const MODULE_PORTAL_NAME: Record<string, string> = { SALES: 'Sales', OPERATIONS: 'Operations', FINANCE: 'Finance', ADMIN: 'Admin', INSPECTION: 'Inspector app' };
+
+/**
+ * Turn a notification into a navigation inside this portal. `pages` maps a route prefix (`/seller-leads`) to the portal's own page
+ * key. A notification that belongs to another portal (or a route this portal has no page for) lands in the inbox with an explanation
+ * instead of a broken page.
+ */
+export function routeToPage<K extends string>(portalModule: string, pages: Record<string, K>, route: string, item: { module: string }): K | { redirect: string } {
+  if (item.module !== portalModule) return { redirect: `This belongs to the ${MODULE_PORTAL_NAME[item.module] ?? 'another'} workspace. Open it there.` };
+  const prefix = '/' + (route.split('?')[0]!.split('/')[1] ?? '');
+  const key = pages[route.split('?')[0]!] ?? pages[prefix];
+  return key ?? { redirect: 'This item has no page in this portal yet. It is shown here in your inbox.' };
+}

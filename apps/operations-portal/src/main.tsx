@@ -18,7 +18,7 @@ import {
 } from 'firebase/auth';
 import { auth, firebaseConfigured } from './firebase';
 import { OpeningStockTools } from './components/OpeningStockTools';
-import { api, ApiError, operationsNotifications } from './api';
+import { api, ApiError } from './api';
 import type {
   AcquisitionCase,
   Branch,
@@ -57,7 +57,7 @@ const ServiceOperationsPanel = lazy(() => import('./components/ServiceOperations
 const HomeContentManager = lazy(() => import('./components/HomeContentManager').then(m => ({ default: m.HomeContentManager })));
 const RentalOperationsPanel = lazy(() => import('./components/RentalOperationsPanel').then(m => ({ default: m.RentalOperationsPanel })));
 import {
-  Alert, AppShell, AuthLayout, Button, CenterState, MfaChallengeModal, PageLoader, SkeletonRows, StaffNotificationBell, tabFromDeepLink, toast,
+  Alert, AppShell, AuthLayout, Button, CenterState, EmployeeNotificationBell, MfaChallengeModal, NotificationInbox, PageLoader, SkeletonRows, createEmployeeNotificationsClient, routeToPage, toast,
   initTheme, modalIsOpen, mountLiveChangeBar, registerViewHandler, useAutoRefresh, useChangeWatcher, type NavSection,
 } from '@vmotiv/ui';
 import './styles.css';
@@ -79,7 +79,8 @@ type TabKey =
   | 'service'
   | 'rentals'
   | 'homecontent'
-  | 'team';
+  | 'team'
+  | 'notifications';
 
 const DEFAULT_BODY_TYPES = [
   { code: 'HATCHBACK', name: 'Hatchback' },
@@ -139,6 +140,12 @@ const TAB_GROUPS: Record<TabKey, DataGroup[]> = {
   rentals: ['dashboard'],
   homecontent: [],
   team: ['inspectors'],
+  notifications: [],
+};
+
+/** Notification routes that open a screen in this portal; the rest are explained in the inbox. */
+const OPS_ROUTE_TABS: Record<string, TabKey> = {
+  '/inspections': 'dispatch', '/acquisitions': 'acquisitions', '/inventory': 'inventory', '/service': 'service', '/rentals': 'rentals', '/publication': 'publication', '/refurbishment': 'refurbishment',
 };
 
 function needsQualityControl(stock: VehicleStockUnit) {
@@ -313,6 +320,12 @@ function SignIn() {
 export const App: FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
+  const inboxClient = useMemo(() => user ? createEmployeeNotificationsClient({ apiBase: import.meta.env.VITE_API_BASE, getToken: force => user.getIdToken(force) }) : null, [user]);
+  const openFromNotification = (route: string, item: { module: string }) => {
+    const target = routeToPage<TabKey>('OPERATIONS', OPS_ROUTE_TABS, route, item);
+    if (typeof target !== 'string') { toast.info('Cannot open it here', { description: target.redirect }); setActiveTab('notifications'); return; }
+    setActiveTab(target);
+  };
   const activeTabRef = useRef<TabKey>('overview');
   activeTabRef.current = activeTab;
   const [loading, setLoading] = useState(false);
@@ -1122,6 +1135,7 @@ export const App: FC = () => {
     rentals: 'Rental Fleet & Trips',
     homecontent: 'App Home Content',
     team: 'Operations Team & Tasks',
+    notifications: 'Notifications',
   };
 
   const selectTab = (key: TabKey) => {
@@ -1164,6 +1178,7 @@ export const App: FC = () => {
         { key: 'team', label: 'Operations team', icon: <IconLock /> },
       ],
     },
+    { title: 'Inbox', items: [{ key: 'notifications', label: 'Notifications', icon: <IconDashboard /> }] },
   ];
 
   return (
@@ -1178,14 +1193,7 @@ export const App: FC = () => {
       title={TAB_LABELS[activeTab] || 'Workspace'}
       toolbar={
         <>
-          <StaffNotificationBell
-            title="Operations notifications"
-            source={operationsNotifications(user)}
-            onOpenItem={item => {
-              const next = tabFromDeepLink(item.deepLink);
-              if (next && next in TAB_GROUPS) setActiveTab(next as TabKey);
-            }}
-          />
+          {inboxClient ? <EmployeeNotificationBell api={inboxClient.api} stream={inboxClient.stream} onNavigate={openFromNotification} onViewAll={() => setActiveTab('notifications')} /> : null}
           <span className="hidden text-sm text-base-content/65 md:inline">{user.email}</span>
           <span className="badge badge-soft badge-success hidden font-medium sm:inline-flex">MFA verified</span>
         </>
@@ -1204,6 +1212,13 @@ export const App: FC = () => {
         {/* ======================================================== */}
         {/* VIEW 1: OVERVIEW / DASHBOARD                             */}
         {/* ======================================================== */}
+        {activeTab === 'notifications' && inboxClient ? (
+          <div>
+            <div className="section-heading"><div><h2>Notifications</h2><p>Work routed to you by branch, assignment and permission.</p></div></div>
+            <NotificationInbox api={inboxClient.api} stream={inboxClient.stream} moduleHint="OPERATIONS" onNavigate={openFromNotification} />
+          </div>
+        ) : null}
+
         {activeTab === 'overview' ? (
           <div>
             <div className="action-bar">
