@@ -13,6 +13,10 @@ export { ThemeToggle } from './components/ThemeToggle';
 export { AppShell, SimpleShell, AuthLayout, Sidebar, Topbar, Footer, type NavItem, type NavSection, type AppShellProps, type AccountInfo, type FooterLink } from './components/Shell';
 export { NotificationBell, type NotificationItem } from './components/NotificationBell';
 export { StaffNotificationBell, tabFromDeepLink, type StaffNotification, type StaffNotificationSource } from './components/StaffNotificationBell';
+export { createEmployeeNotificationsApi, streamEmployeeNotifications, OPEN_REFUSAL, type EmployeeNotificationsApi, type InboxItem, type InboxPage, type InboxFilters, type Preferences, type OpenDecision } from './notifications/api';
+export { useEmployeeNotifications } from './notifications/useEmployeeNotifications';
+export { NotificationInbox, openNotification, timeAgo } from './notifications/NotificationInbox';
+export { EmployeeNotificationBell } from './notifications/EmployeeNotificationBell';
 export { Navbar, SiteFooter, type NavbarLink } from './components/Navbar';
 
 export { toast, useToasts, dismissToast, type ToastTone, type ToastAction } from './hooks/toastStore';
