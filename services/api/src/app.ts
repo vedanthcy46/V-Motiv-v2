@@ -49,6 +49,7 @@ import type { PrismaClient } from '@prisma/client';
 import type { PrismaServiceStore } from './service-store.js';
 import { createServiceCustomerRouter, createServiceOperationsRouter } from './service-router.js';
 import { createCashfreeRouter } from './cashfree-router.js';
+import { createEmployeeNotificationRouter } from './employee-notifications/router.js';
 import type { PrismaRentalStore } from './rental-store.js';
 import { createRentalCustomerRouter, createRentalOperationsRouter, createRentalWebhookRouter } from './rental-router.js';
 import type { PrismaConnectStore } from './connect-store.js';
@@ -495,6 +496,9 @@ export function createApp(deps: {
     app.use('/api/webhooks/rentals', rentalLimiter, rentalWebhookRouter);
     app.use('/webhooks/rentals', rentalLimiter, rentalWebhookRouter);
   }
+
+  // Employee inbox, routing governance and the Activity Monitor (see employee-notifications/).
+  if (deps.db) unifiedApiRouter.use(createEmployeeNotificationRouter({ verify: deps.verify, db: deps.db }));
 
   // Cashfree checkout for rental and service payments (see cashfree-router.ts).
   if (deps.db && (deps.rental || deps.service)) {
