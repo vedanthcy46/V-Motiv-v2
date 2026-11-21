@@ -1128,6 +1128,11 @@ export class PrismaAdminStore implements AdminStore {
       await tx.employee.update({ where: { userId: employeeId }, data: { status, active: status === 'ACTIVE' } });
       await tx.user.update({ where: { id: employeeId }, data: { status: status === 'ACTIVE' ? 'ACTIVE' : status } });
       await tx.auditEvent.create({ data: { actorId: actor.userId, action: `EMPLOYEE_${status}`, entityType: 'Employee', entityId: employeeId, details: { reason } } });
+      if (status !== 'ACTIVE') {
+        // No new pushes to their phones, and they stop being a queue owner. Their open alerts remain (and escalate) so the work is not lost.
+        await tx.pushDevice.updateMany({ where: { userId: employeeId, active: true }, data: { active: false } });
+        await tx.notificationQueueMember.updateMany({ where: { userId: employeeId, active: true }, data: { active: false } });
+      }
       return { firebaseUid: target.user.firebaseUid };
     });
   }

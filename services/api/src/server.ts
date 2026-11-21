@@ -31,6 +31,7 @@ import { PrismaConnectStore } from './connect-store.js';
 import { PrismaValuationStore } from './valuation-store.js';
 import { attachConnectRealtime } from './connect-realtime.js';
 import { processEmail, resendSender } from './email.js';
+import { runNotificationCycle } from './employee-notifications/cycle.js';
 import { NotificationService, createNotificationRouter } from './notification/index.js';
 import { keepAliveTarget, startKeepAlive } from './keep-alive.js';
 import compression from 'compression';
@@ -149,6 +150,14 @@ const pushInterval = setInterval(async () => {
   } catch {}
 }, 4000);
 pushInterval.unref();
+// The notification pipeline: outbox -> inbox, detectors, escalations (see employee-notifications/cycle.ts).
+let cycleRunning = false;
+const cycleInterval = setInterval(async () => {
+  if (cycleRunning) return;
+  cycleRunning = true;
+  try { await runNotificationCycle(db); } catch (error: any) { console.error('[NOTIFICATION_CYCLE_ERROR]', error?.message || error); } finally { cycleRunning = false; }
+}, 5000);
+cycleInterval.unref();
 const notificationRouter = createNotificationRouter({
   verify: verifyToken,
   db,

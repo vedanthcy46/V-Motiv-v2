@@ -5,6 +5,7 @@ import { PrismaAdminStore, type AdminActor } from '../src/admin-store.js';
 import { PrismaSalesStore, type SalesActor } from '../src/sales-store.js';
 import { NotificationService } from '../src/notification/index.js';
 import { runOutboxOnce } from '../src/employee-notifications/processor.js';
+import { settleOutbox } from './helpers/outbox.js';
 
 const url = process.env.V2_TEST_DATABASE_URL;
 if (url && (!url.startsWith('postgresql://') || new URL(url).hostname !== '127.0.0.1' || new URL(url).pathname !== '/vmotiv_v2_test')) {
@@ -60,7 +61,7 @@ describe.skipIf(!url)('Seller offers go through administration approval, with re
     const offer = await db.acquisitionOffer.findFirstOrThrow({ where: { leadId: lead.id } });
     expect(offer).toMatchObject({ status: 'OFFERED', offerAmountPaise: 55_000_000n });
     expect((await db.acquisitionLead.findUniqueOrThrow({ where: { id: lead.id } })).status).toBe('OFFERED');
-    await runOutboxOnce(db);
+    await settleOutbox(db);
     expect(await db.notification.count({ where: { userId: seller.id, eventType: 'ACQUISITION_OFFER_RECEIVED' } })).toBe(1);
     expect(await db.notification.count({ where: { userId: requester.id, eventType: 'ACQUISITION_OFFER_APPROVED' } })).toBe(1);
   });
@@ -74,7 +75,7 @@ describe.skipIf(!url)('Seller offers go through administration approval, with re
     await admin.decideApproval(adminActor(approver.id), request.id, { decision: 'REJECT', version: request.version, reason: 'Too high for this model' } as any);
     expect(await db.acquisitionOffer.count({ where: { leadId: lead.id } })).toBe(0);
     expect(await db.notification.count({ where: { userId: seller.id } })).toBe(0);
-    await runOutboxOnce(db);
+    await settleOutbox(db);
     const told = await db.notification.findFirstOrThrow({ where: { userId: requester.id, eventType: 'ACQUISITION_OFFER_REJECTED' } });
     // The note says it was not approved; the reason itself stays on the approval record, not in the alert.
     expect(told.body).toContain('did not approve');

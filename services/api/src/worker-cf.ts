@@ -359,7 +359,7 @@ export async function fetchToExpress(app: Express, webReq: Request): Promise<Res
   });
 }
 
-export default {
+const worker = {
   async fetch(request: Request, env: Record<string, string>, ctx: { waitUntil: (p: Promise<any>) => void }): Promise<Response> {
     const origin = request.headers.get('Origin') || '';
 
@@ -443,5 +443,15 @@ export default {
         ctx?.waitUntil?.(Promise.allSettled(finished.background).then(() => finished.client.$disconnect()).catch(() => undefined));
       }
     }
+  },
+};
+
+export default {
+  fetch: worker.fetch,
+  // Cloudflare's cron trigger (wrangler.jsonc "triggers"): runs one notification pass by calling this Worker's own cron endpoint, so it
+  // uses the same per-request database setup as every other call. CRON_SECRET must be set as a Worker secret.
+  async scheduled(_controller: unknown, env: Record<string, string>, ctx: { waitUntil: (p: Promise<any>) => void }) {
+    const request = new Request('https://internal.vmotiv/api/v2/internal/notifications/run', { method: 'POST', headers: { 'x-cron-secret': env.CRON_SECRET ?? '' } });
+    ctx.waitUntil(worker.fetch(request, env, ctx).then(response => response.text()).then(() => undefined));
   },
 };

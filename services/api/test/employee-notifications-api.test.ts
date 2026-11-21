@@ -9,6 +9,7 @@ import { ensureAdminCatalog } from '../src/admin-catalog.js';
 import { createEmployeeNotificationRouter } from '../src/employee-notifications/router.js';
 import { enqueueDomainEvent } from '../src/employee-notifications/outbox.js';
 import { runOutboxOnce } from '../src/employee-notifications/processor.js';
+import { settleOutbox } from './helpers/outbox.js';
 import { invalidateEmployeeDevices } from '../src/employee-notifications/inbox.js';
 import { resolveNotificationsForResource } from '../src/employee-notifications/resolve.js';
 import { HttpError } from '../src/errors.js';
@@ -30,6 +31,7 @@ describe.skipIf(!url)('Employee notification API, with real PostgreSQL', () => {
 
   beforeAll(async () => {
     await ensureAdminCatalog(db as any);
+    await db.notificationQueueMember.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 3_600_000) } } }); // left by an interrupted earlier run
     blr = (await db.branch.create({ data: { code: `BA${suffix}`, name: 'Blr', city: `Blr-${suffix}` } as any })).id;
     mys = (await db.branch.create({ data: { code: `MA${suffix}`, name: 'Mys', city: `Mys-${suffix}` } as any })).id;
   });
@@ -45,7 +47,7 @@ describe.skipIf(!url)('Employee notification API, with real PostgreSQL', () => {
   const as = (uid: string) => ({ Authorization: `Bearer ${uid}` });
   const give = async (assignee: string, branchId: string, resourceId = crypto.randomUUID()) => {
     await enqueueDomainEvent(db, { eventType: 'LEAD_ASSIGNED', aggregateId: resourceId, branchId, assigneeUserIds: [assignee], payload: { referenceCode: 'VM-ACQ-7', vehicle: 'Honda City' }, dedupKey: `api-${resourceId}-${assignee}` });
-    await runOutboxOnce(db);
+    await settleOutbox(db);
     return resourceId;
   };
 
@@ -97,7 +99,7 @@ describe.skipIf(!url)('Employee notification API, with real PostgreSQL', () => {
     expect((await request(app).get('/api/v2/employees/me/notifications/unread-count').set(as(a.uid))).body).toMatchObject({ count: 0, actionRequired: 0 });
     // A notification that needs no acknowledgement cannot be acknowledged.
     await enqueueDomainEvent(db, { eventType: 'FINANCE_PAYOUT_VERIFIED', aggregateId: crypto.randomUUID(), branchId: blr, assigneeUserIds: [a.id] });
-    await runOutboxOnce(db);
+    await settleOutbox(db);
     const info = (await request(app).get('/api/v2/employees/me/notifications?severity=INFORMATIONAL').set(as(a.uid))).body.items[0];
     expect((await request(app).post(`/api/v2/employees/me/notifications/${info.id}/acknowledge`).set(as(a.uid))).body.code).toBe('ACKNOWLEDGEMENT_NOT_REQUIRED');
   });
@@ -131,7 +133,7 @@ describe.skipIf(!url)('Employee notification API, with real PostgreSQL', () => {
     const owner = await staff('RENTAL_MANAGER', { branches: [blr] });
     await db.notificationQueueMember.create({ data: { queueKey: 'OPS_RENTALS', userId: owner.id, branchId: blr, memberRole: 'OWNER' } });
     await enqueueDomainEvent(db, { eventType: 'RENTAL_RETURN_OVERDUE', aggregateId: crypto.randomUUID(), branchId: blr, payload: { referenceCode: 'VMR-9' } });
-    await runOutboxOnce(db);
+    await settleOutbox(db);
     const id = (await request(app).get('/api/v2/employees/me/notifications').set(as(owner.uid))).body.items[0].id;
     expect((await request(app).get(`/api/v2/employees/me/notifications/${id}/open`).set(as(owner.uid))).body.allowed).toBe(true);
     await db.employeeBranchAssignment.deleteMany({ where: { employeeId: owner.id } });
@@ -146,14 +148,14 @@ describe.skipIf(!url)('Employee notification API, with real PostgreSQL', () => {
     const saved = await request(app).patch('/api/v2/employees/me/notification-preferences').set(as(a.uid)).send({ mutedModules: ['FINANCE'], digestFrequency: 'DAILY', pushEnabled: false });
     expect(saved.body).toMatchObject({ mutedModules: ['FINANCE'], digestFrequency: 'DAILY', pushEnabled: false });
     await enqueueDomainEvent(db, { eventType: 'FINANCE_PAYOUT_VERIFIED', aggregateId: crypto.randomUUID(), branchId: blr, assigneeUserIds: [a.id] });
-    await runOutboxOnce(db);
+    await settleOutbox(db);
     expect((await request(app).get('/api/v2/employees/me/notifications?module=FINANCE').set(as(a.uid))).body.items).toHaveLength(0);
     await db.notificationPreference.update({ where: { userId: a.id }, data: { mutedModules: ['ADMIN', 'FINANCE', 'SALES', 'OPERATIONS', 'INSPECTION'] } });
     const resp = await staff('ADMIN', { branches: [] });
     await db.notificationQueueMember.create({ data: { queueKey: 'ADMIN_SECURITY', userId: a.id, branchId: null, memberRole: 'OWNER' } });
     await db.employee.update({ where: { userId: a.id }, data: { role: 'SECURITY_ADMIN' } });
     await enqueueDomainEvent(db, { eventType: 'SECURITY_INCIDENT', aggregateId: crypto.randomUUID(), payload: { reasonCode: 'TEST' } });
-    await runOutboxOnce(db);
+    await settleOutbox(db);
     expect((await request(app).get('/api/v2/employees/me/notifications?severity=CRITICAL').set(as(a.uid))).body.items.length).toBeGreaterThan(0);
     await db.notificationQueueMember.deleteMany({ where: { userId: a.id } });
     void resp;

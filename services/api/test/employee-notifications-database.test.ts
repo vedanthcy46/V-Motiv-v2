@@ -2,8 +2,9 @@ import crypto from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { PrismaClient } from '@prisma/client';
 import { ensureAdminCatalog } from '../src/admin-catalog.js';
-import { enqueueDomainEvent, claimOutboxBatch } from '../src/employee-notifications/outbox.js';
+import { enqueueDomainEvent } from '../src/employee-notifications/outbox.js';
 import { runOutboxOnce } from '../src/employee-notifications/processor.js';
+import { settleOutbox } from './helpers/outbox.js';
 import { saveRoutingPolicy } from '../src/employee-notifications/policy.js';
 
 const url = process.env.V2_TEST_DATABASE_URL;
@@ -19,6 +20,7 @@ describe.skipIf(!url)('Employee notification pipeline, with real PostgreSQL', ()
 
   beforeAll(async () => {
     await ensureAdminCatalog(db as any);
+    await db.notificationQueueMember.deleteMany({ where: { createdAt: { lt: new Date(Date.now() - 3_600_000) } } }); // left by an interrupted earlier run
     blr = (await db.branch.create({ data: { code: `BLR${suffix}`, name: 'Bengaluru', city: `Bengaluru-${suffix}` } as any })).id;
     mys = (await db.branch.create({ data: { code: `MYS${suffix}`, name: 'Mysuru', city: `Mysuru-${suffix}` } as any })).id;
   });
@@ -37,7 +39,7 @@ describe.skipIf(!url)('Employee notification pipeline, with real PostgreSQL', ()
     return user.id;
   }
   const inbox = (userId: string) => db.notification.findMany({ where: { userId, eventId: { not: null } }, orderBy: { createdAt: 'asc' } });
-  const drain = async () => { for (let i = 0; i < 5; i++) { const r = await runOutboxOnce(db); if (r.processed + r.failed + r.dead === 0) break; } };
+  const drain = () => settleOutbox(db);
   const lead = () => crypto.randomUUID();
 
   it('SALES: the assigned executive is told; a colleague in the same branch and another branch are not', async () => {
@@ -138,15 +140,26 @@ describe.skipIf(!url)('Employee notification pipeline, with real PostgreSQL', ()
   it('RELIABILITY: the event survives with no worker, and replays or duplicates never create a second inbox item', async () => {
     const a = await staff('reliable', ['SALES_EXECUTIVE'], { branches: [blr] });
     const id = lead();
-    const eventId = await enqueueDomainEvent(db, { eventType: 'LEAD_ASSIGNED', aggregateId: id, branchId: blr, assigneeUserIds: [a], dedupKey: `r-${id}` });
-    // The business change committed; the worker is offline.
-    expect((await db.domainOutboxEvent.findUniqueOrThrow({ where: { id: eventId! } })).status).toBe('PENDING');
-    expect(await inbox(a)).toHaveLength(0);
+    // The event is written in the SAME transaction as the business change: a rollback leaves nothing behind...
+    await expect(db.$transaction(async tx => {
+      await enqueueDomainEvent(tx, { eventType: 'LEAD_ASSIGNED', aggregateId: id, branchId: blr, assigneeUserIds: [a], dedupKey: `rb-${id}` });
+      throw new Error('business change failed');
+    })).rejects.toThrow('business change failed');
+    expect(await db.domainOutboxEvent.count({ where: { dedupKey: `rb-${id}` } })).toBe(0);
+    // ...and a commit leaves a durable PENDING event even though no worker has run yet.
+    let status = '';
+    const eventId = await db.$transaction(async tx => {
+      const created = await enqueueDomainEvent(tx, { eventType: 'LEAD_ASSIGNED', aggregateId: id, branchId: blr, assigneeUserIds: [a], dedupKey: `r-${id}` });
+      status = (await tx.domainOutboxEvent.findUniqueOrThrow({ where: { id: created! } })).status;
+      return created;
+    });
+    expect(status).toBe('PENDING');
+    expect(await db.notification.count({ where: { userId: a, resourceId: id } })).toBe(0);
     // The same event raised again (a retry in the caller) is the same event.
     expect(await enqueueDomainEvent(db, { eventType: 'LEAD_ASSIGNED', aggregateId: id, branchId: blr, assigneeUserIds: [a], dedupKey: `r-${id}` })).toBe(eventId);
     // A worker that claimed it and crashed (lease expired) lets another worker take it over.
-    await claimOutboxBatch(db, 'crashed-worker', 20, -1000);
-    expect((await db.domainOutboxEvent.findUniqueOrThrow({ where: { id: eventId! } })).status).toBe('PROCESSING');
+    // (Our own claim, with a lease that has already expired.)
+    await db.domainOutboxEvent.update({ where: { id: eventId! }, data: { status: 'PROCESSING', lockedBy: 'crashed-worker', leaseUntil: new Date(Date.now() - 1000), attempts: 1 } });
     await drain();
     expect(await inbox(a)).toHaveLength(1);
     // Force a replay of the same event: still one.
@@ -160,12 +173,12 @@ describe.skipIf(!url)('Employee notification pipeline, with real PostgreSQL', ()
     const id = lead();
     const eventId = (await enqueueDomainEvent(db, { eventType: 'LEAD_ASSIGNED', aggregateId: id, dedupKey: `x-${id}` }))!;
     await db.domainOutboxEvent.update({ where: { id: eventId }, data: { eventType: 'NO_SUCH_EVENT', maxAttempts: 2 } });
-    await runOutboxOnce(db);
+    await settleOutbox(db);
     let event = await db.domainOutboxEvent.findUniqueOrThrow({ where: { id: eventId } });
     expect(event).toMatchObject({ status: 'FAILED', attempts: 1 });
     expect(event.nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
     await db.domainOutboxEvent.update({ where: { id: eventId }, data: { nextAttemptAt: new Date() } });
-    await runOutboxOnce(db);
+    await settleOutbox(db);
     event = await db.domainOutboxEvent.findUniqueOrThrow({ where: { id: eventId } });
     expect(event.status).toBe('DEAD');
   });

@@ -50,6 +50,7 @@ import type { PrismaServiceStore } from './service-store.js';
 import { createServiceCustomerRouter, createServiceOperationsRouter } from './service-router.js';
 import { createCashfreeRouter } from './cashfree-router.js';
 import { createEmployeeNotificationRouter } from './employee-notifications/router.js';
+import { runNotificationCycle } from './employee-notifications/cycle.js';
 import type { PrismaRentalStore } from './rental-store.js';
 import { createRentalCustomerRouter, createRentalOperationsRouter, createRentalWebhookRouter } from './rental-router.js';
 import type { PrismaConnectStore } from './connect-store.js';
@@ -498,7 +499,19 @@ export function createApp(deps: {
   }
 
   // Employee inbox, routing governance and the Activity Monitor (see employee-notifications/).
-  if (deps.db) unifiedApiRouter.use(createEmployeeNotificationRouter({ verify: deps.verify, db: deps.db }));
+  if (deps.db) {
+    unifiedApiRouter.use(createEmployeeNotificationRouter({ verify: deps.verify, db: deps.db }));
+    // The scheduler's entry point (Cloudflare cron, or any cron service): runs one worker pass. Closed unless CRON_SECRET is set.
+    unifiedApiRouter.post('/internal/notifications/run', async (req, res, next) => {
+      try {
+        const secret = process.env.CRON_SECRET;
+        const given = String(req.headers['x-cron-secret'] ?? '');
+        const ok = Boolean(secret) && given.length === secret!.length && crypto.timingSafeEqual(Buffer.from(given), Buffer.from(secret!));
+        if (!ok) { res.status(404).json({ code: 'NOT_FOUND' }); return; }
+        res.json(await runNotificationCycle(deps.db!));
+      } catch (error) { next(error); }
+    });
+  }
 
   // Cashfree checkout for rental and service payments (see cashfree-router.ts).
   if (deps.db && (deps.rental || deps.service)) {

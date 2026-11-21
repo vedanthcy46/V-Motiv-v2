@@ -95,6 +95,20 @@ async function queueMembers(db: Db, queueKey: string, branchId: string | null | 
   });
 }
 
+/**
+ * Designated queue members who could actually receive this event now: active, holding the permission or role, authorised for the branch.
+ * A designation that no longer fits (the person moved branch, lost the permission, left) is ignored rather than swallowing the event.
+ */
+async function eligibleMembers(db: Db, policy: EventDefinition, queueKey: string | undefined, branchId: string | null | undefined, mode: 'OWNERS_FIRST' | 'MEMBERS' | null): Promise<string[]> {
+  if (!queueKey) return [];
+  const members = await queueMembers(db, queueKey, branchId);
+  const loaded = await loadEmployeeFacts(db, members.map(member => member.userId));
+  const ok = (userId: string) => ineligibleReason(loaded.get(userId), policy, branchId ?? null, { assigned: false }) === null || (policy.branchScope === 'GLOBAL' && loaded.get(userId)?.active === true);
+  const owners = members.filter(member => member.memberRole === 'OWNER' && ok(member.userId)).map(member => member.userId);
+  if (mode === 'OWNERS_FIRST' && owners.length) return owners;
+  return [...new Set(members.filter(member => ok(member.userId)).map(member => member.userId))];
+}
+
 /** Permission/role holders for a branch: the capped fallback and the approver pool. */
 async function holders(db: Db, policy: EventDefinition, branchId: string | null | undefined, cap: number): Promise<string[]> {
   const or: Prisma.EmployeeWhereInput[] = [];
@@ -105,15 +119,15 @@ async function holders(db: Db, policy: EventDefinition, branchId: string | null 
   } else {
     return []; // No gate to look people up by: never guess.
   }
-  const gate: Prisma.EmployeeWhereInput[] = [{ OR: or }];
-  if (branchId) gate.push({ OR: [{ branchAssignments: { some: { branchId } } }, { role: 'SUPER_ADMIN' }] });
-  const rows = await db.employee.findMany({
-    where: { active: true, status: 'ACTIVE', user: { status: 'ACTIVE' }, AND: gate },
-    orderBy: { createdAt: 'asc' },
-    take: cap,
-    select: { userId: true },
-  });
-  return rows.map(row => row.userId);
+  const base = { active: true, status: 'ACTIVE' as const, user: { status: 'ACTIVE' as const } };
+  // People who work in the event's branch come first. Global administrators are only a last resort: with a cap, they must not crowd out
+  // the branch's own staff, and an event should not reach platform administrators just because they hold the permission.
+  if (branchId) {
+    const local = await db.employee.findMany({ where: { ...base, AND: [{ OR: or }, { branchAssignments: { some: { branchId } } }] }, orderBy: { createdAt: 'asc' }, take: cap, select: { userId: true } });
+    if (local.length) return local.map(row => row.userId);
+  }
+  const global = await db.employee.findMany({ where: { ...base, AND: [{ OR: or }, { role: 'SUPER_ADMIN' }] }, orderBy: { createdAt: 'asc' }, take: cap, select: { userId: true } });
+  return global.map(row => row.userId);
 }
 
 export async function resolveRecipients(db: Db, input: RoutingInput): Promise<RoutingResult> {
@@ -137,8 +151,8 @@ export async function resolveRecipients(db: Db, input: RoutingInput): Promise<Ro
         break;
       case 'FINANCE_CASE_OWNER': {
         if (assignees.length) { add(assignees, strategy, true); break; }
-        const members = policy.queueKey ? await queueMembers(db, policy.queueKey, branchId) : [];
-        if (members.length) add(members.map(m => m.userId), strategy);
+        const usable = await eligibleMembers(db, policy, policy.queueKey, branchId, null);
+        if (usable.length) add(usable, strategy);
         else { fallbackUsed = true; add(await holders(db, policy, branchId, FALLBACK_CAP), 'FALLBACK'); }
         break;
       }
@@ -146,10 +160,9 @@ export async function resolveRecipients(db: Db, input: RoutingInput): Promise<Ro
       case 'AUTHORIZED_SUBSCRIBERS':
       case 'ASSIGNED_TEAM':
       case 'ADMIN_RESPONDER': {
-        const members = policy.queueKey ? await queueMembers(db, policy.queueKey, branchId) : [];
-        const owners = members.filter(member => member.memberRole === 'OWNER');
-        const pool = strategy === 'BRANCH_QUEUE_OWNER' || strategy === 'ADMIN_RESPONDER' ? (owners.length ? owners : members) : members;
-        if (pool.length) { add(pool.map(m => m.userId), strategy); break; }
+        // Owners first, then other members: but only people who can actually receive it (a stale or out-of-branch designation is ignored).
+        const usable = await eligibleMembers(db, policy, policy.queueKey, branchId, strategy === 'AUTHORIZED_SUBSCRIBERS' || strategy === 'ASSIGNED_TEAM' ? 'MEMBERS' : 'OWNERS_FIRST');
+        if (usable.length) { add(usable, strategy); break; }
         fallbackUsed = true;
         if (strategy === 'ADMIN_RESPONDER') {
           // Nobody designated: the platform's own administrators, never every employee.
@@ -161,8 +174,8 @@ export async function resolveRecipients(db: Db, input: RoutingInput): Promise<Ro
         break;
       }
       case 'DESIGNATED_APPROVER': {
-        const members = policy.queueKey ? await queueMembers(db, policy.queueKey, branchId) : [];
-        if (members.length) add(members.map(m => m.userId), strategy);
+        const usable = await eligibleMembers(db, policy, policy.queueKey, branchId, 'MEMBERS');
+        if (usable.length) add(usable, strategy);
         else add(await holders(db, policy, branchId, 50), strategy);
         break;
       }

@@ -6,13 +6,13 @@ import { getEventDefinition, pickAllowedFields } from './catalog.js';
 import { claimOutboxBatch, markFailed, markProcessed, type ClaimedEvent } from './outbox.js';
 import { getEffectivePolicy } from './policy.js';
 import { isAllowedActionRoute, MODULE_PORTAL } from './routes.js';
-import { resolveRecipients } from './routing.js';
+import { resolveRecipients, type EffectivePolicy } from './routing.js';
 
 const EXPIRES_DAYS: Record<string, number> = { INFORMATIONAL: 30, ACTION_REQUIRED: 90, CRITICAL: 365 };
 
 const PORTAL_ORIGIN_ENV: Record<string, string> = { sales: 'SALES_WEB_ORIGIN', ops: 'OPERATIONS_WEB_ORIGIN', finance: 'FINANCE_WEB_ORIGIN', admin: 'ADMIN_WEB_ORIGIN' };
 
-function isQuietHours(start?: string | null, end?: string | null, now = new Date()): boolean {
+export function isQuietHours(start?: string | null, end?: string | null, now = new Date()): boolean {
   if (!start || !end) return false;
   const [sh, sm] = start.split(':').map(Number);
   const [eh, em] = end.split(':').map(Number);
@@ -21,6 +21,51 @@ function isQuietHours(start?: string | null, end?: string | null, now = new Date
   const from = (sh! * 60 + sm!) % 1440;
   const to = (eh! * 60 + em!) % 1440;
   return from <= to ? current >= from && current < to : current >= from || current < to;
+}
+
+export interface DeliveryInput {
+  notificationId: string; userId: string; policy: Pick<EffectivePolicy, 'channels' | 'severity' | 'module'>; title: string; body: string; actionRoute: string | null;
+  pref: Awaited<ReturnType<PrismaClient['notificationPreference']['findUnique']>>; now: Date;
+}
+
+/**
+ * The channels for one inbox item: the in-app record, then push (the employee's own Expo devices) and email (Resend) when the policy asks for
+ * them and the preferences allow. The push payload is the safe title and body plus the id and route: nothing else. A critical alert
+ * ignores quiet hours and mute settings; nothing here can remove the work from the person's queue.
+ */
+export async function deliverNotification(db: PrismaClient, input: DeliveryInput): Promise<{ pushQueued: number; emailQueued: number }> {
+  const { notificationId, userId, policy, title, body, actionRoute, pref, now } = input;
+  const critical = policy.severity === 'CRITICAL';
+  const portal = MODULE_PORTAL[policy.module];
+  let pushQueued = 0;
+  let emailQueued = 0;
+  await db.notificationDelivery.create({ data: { notificationId, channel: 'IN_APP', status: 'DELIVERED', sentAt: now } });
+
+  const quiet = !critical && Boolean(pref?.quietHoursEnabled) && isQuietHours(pref?.quietHoursStart, pref?.quietHoursEnd, now);
+  if (policy.channels.includes('PUSH') && (pref?.pushEnabled ?? true) && !quiet && policy.severity !== 'INFORMATIONAL') {
+    const devices = await db.pushDevice.findMany({ where: { userId, active: true } });
+    for (const device of devices.filter(item => isExpoPushToken(item.token))) {
+      await db.pushTicket.create({ data: { deviceId: device.id, notificationId, title, body, data: { notificationId, module: policy.module, actionRoute, severity: policy.severity }, status: 'QUEUED' } });
+      await db.notificationDelivery.create({ data: { notificationId, channel: 'PUSH', status: 'QUEUED', provider: 'EXPO' } });
+      pushQueued++;
+    }
+  }
+
+  if (policy.channels.includes('EMAIL') && (pref?.emailEnabled ?? true) && (critical || !quiet)) {
+    const user = await db.user.findUnique({ where: { id: userId }, select: { email: true } });
+    if (user?.email) {
+      const origin = process.env[PORTAL_ORIGIN_ENV[portal] ?? ''];
+      const link = origin && actionRoute ? `\n\nOpen it: ${origin.replace(/\/$/, '')}${actionRoute}` : '';
+      await db.emailOutbox.upsert({
+        where: { eventKey: `emp-notif/${notificationId}` },
+        update: {},
+        create: { userId, eventKey: `emp-notif/${notificationId}`, recipient: user.email, templateVersion: 'employee-alert-v1', subject: title, text: `${body}${link}\n\nSign in to the V MOTIV ${policy.module.toLowerCase()} portal to act on it.` },
+      });
+      await db.notificationDelivery.create({ data: { notificationId, channel: 'EMAIL', status: 'QUEUED', provider: 'RESEND' } });
+      emailQueued++;
+    }
+  }
+  return { pushQueued, emailQueued };
 }
 
 export interface ProcessOutcome { notifications: number; pushQueued: number; emailQueued: number; fallbackUsed: boolean; skipped: number; suppressed?: boolean }
@@ -77,34 +122,9 @@ export async function processOutboxEvent(db: PrismaClient, event: ClaimedEvent, 
       throw error;
     }
 
-    await db.notificationDelivery.create({ data: { notificationId, channel: 'IN_APP', status: 'DELIVERED', sentAt: now } });
-
-    const quiet = !critical && Boolean(pref?.quietHoursEnabled) && isQuietHours(pref?.quietHoursStart, pref?.quietHoursEnd, now);
-    if (policy.channels.includes('PUSH') && (pref?.pushEnabled ?? true) && !quiet && policy.severity !== 'INFORMATIONAL') {
-      const devices = await db.pushDevice.findMany({ where: { userId: recipient.userId, active: true } });
-      for (const device of devices.filter(item => isExpoPushToken(item.token))) {
-        // The push carries the title, the safe body and the id. Nothing else: the app fetches the job after the person opens it.
-        await db.pushTicket.create({ data: { deviceId: device.id, notificationId, title: def.title(vars), body: def.body(vars), data: { notificationId, module: policy.module, actionRoute, severity: policy.severity }, status: 'QUEUED' } });
-        await db.notificationDelivery.create({ data: { notificationId, channel: 'PUSH', status: 'QUEUED', provider: 'EXPO' } });
-        pushQueued++;
-      }
-    }
-
-    const wantsEmail = policy.channels.includes('EMAIL') && (pref?.emailEnabled ?? true) && (critical || !quiet);
-    if (wantsEmail) {
-      const user = await db.user.findUnique({ where: { id: recipient.userId }, select: { email: true } });
-      if (user?.email) {
-        const origin = process.env[PORTAL_ORIGIN_ENV[portal] ?? ''];
-        const link = origin && actionRoute ? `\n\nOpen it: ${origin.replace(/\/$/, '')}${actionRoute}` : '';
-        await db.emailOutbox.upsert({
-          where: { eventKey: `emp-notif/${notificationId}` },
-          update: {},
-          create: { userId: recipient.userId, eventKey: `emp-notif/${notificationId}`, recipient: user.email, templateVersion: 'employee-alert-v1', subject: def.title(vars), text: `${def.body(vars)}${link}\n\nSign in to the V MOTIV ${policy.module.toLowerCase()} portal to act on it.` },
-        });
-        await db.notificationDelivery.create({ data: { notificationId, channel: 'EMAIL', status: 'QUEUED', provider: 'RESEND' } });
-        emailQueued++;
-      }
-    }
+    const sent = await deliverNotification(db, { notificationId, userId: recipient.userId, policy, title: def.title(vars), body: def.body(vars), actionRoute, pref, now });
+    pushQueued += sent.pushQueued;
+    emailQueued += sent.emailQueued;
   }
 
   // Reassignment: whoever held this same work before no longer has an actionable alert for it. History is kept.
