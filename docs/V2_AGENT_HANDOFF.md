@@ -68,3 +68,14 @@ npx vitest run test/service-api.test.ts
 ---
 ## Audit update 2026-11-04
 See `docs/audit/` (MASTER_AUDIT_REPORT, REMEDIATION_LOG, CODEBASE_INVENTORY). Payment signature checks go through `services/api/src/payment-signature.ts`; production has no demo-payment shortcuts. Webhooks verify the raw body (`req.rawBody`, set in `app.ts` and `worker-cf.ts`). Required production secrets: `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `RAZORPAY_WEBHOOK_SECRET`, `CONNECT_WEBHOOK_SECRET`.
+
+---
+## Employee notification system (2026-11-21)
+
+Full design in `docs/EMPLOYEE_NOTIFICATION_ARCHITECTURE.md` (plus `_EVENT_CATALOG`, `_ROUTING_MATRIX`, `_PERMISSION_MATRIX`, `_OUTBOX`, `_DELIVERY`, `_ESCALATIONS`, `_API_CONTRACTS`, `_TEST_RESULTS`). Code: `services/api/src/employee-notifications/`; shared UI: `packages/ui/src/notifications/`; Inspector inbox: `apps/customer-mobile/src/services/employee-notifications.ts` + `InspectorScreen`.
+
+**To raise a staff notification:** add (or find) the event in `catalog.ts`, then call `enqueueDomainEvent(tx, { eventType, aggregateId, branchId, assigneeUserIds, payload })` inside the business transaction. Never write `Notification` rows for staff directly and never address "all Sales". When work is finished or reassigned call `resolveNotificationsForResource` so old alerts stop being actionable.
+
+**Deploying:** apply migration `20261121030000_employee_notification_pipeline`; run a worker (`worker.ts`) or set `CRON_SECRET` for the Cloudflare cron; designate queue owners in Admin (`/admin/notification-queues`) or alerts fall back to a capped list of branch permission holders.
+
+**Known gaps (do not assume they work):** 17 catalog events are not yet raised by business code (`emitted: false` in the catalog docs); no browser web push; Activity Monitor has no export and cannot filter by branch for events that do not carry `details.branchId`; inspection-review portal still uses the older notification list endpoint (it shows the same rows without acknowledge/severity); external providers (Expo, Resend, Cloudflare cron) were never reached from the build sandbox, so real delivery is unverified.
