@@ -4,6 +4,7 @@ import * as Device from 'expo-device';
 import * as Notifications from 'expo-notifications';
 import { api } from '../api';
 import { emitRefreshSignal } from './refresh-bus';
+import { registerEmployeeDevice } from './employee-notifications';
 
 export const CONNECT_CALL_NOTIFICATION_CATEGORY = 'connect-call-actions';
 export const CONNECT_CALL_ACCEPT_ACTION = 'CONNECT_CALL_ACCEPT';
@@ -126,17 +127,22 @@ export async function registerForPushNotificationsAsync(
 
     const token = tokenData.data;
 
-    // Register device token with V MOTIV API backend
-    await api('/api/v2/push-devices', {
-      method: 'POST',
-      body: JSON.stringify({
-        token,
-        app: appMode,
-        platform: Platform.OS.toUpperCase(),
-      }),
-    }).catch(err => {
-      console.warn('[PUSH_REGISTRATION_BACKEND_WARNING]', err?.message || err);
-    });
+    // Register the device token with the V MOTIV API. Inspectors are employees: their phone is tied to their employee identity
+    // (and released when they sign out or are deactivated). Customers keep the customer device registry.
+    if (appMode === 'INSPECTOR') {
+      await registerEmployeeDevice(token, easProjectId.trim());
+    } else {
+      await api('/api/v2/push-devices', {
+        method: 'POST',
+        body: JSON.stringify({
+          token,
+          app: appMode,
+          platform: Platform.OS.toUpperCase(),
+        }),
+      }).catch(err => {
+        console.warn('[PUSH_REGISTRATION_BACKEND_WARNING]', err?.message || err);
+      });
+    }
 
     pushActive = true;
     return token;
