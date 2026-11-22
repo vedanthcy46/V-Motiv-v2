@@ -56,6 +56,7 @@ import {
   sendPublicConnectAlert,
   type PublicConnectVehicle,
 } from '../services/connect-public';
+import { chatMessagesFromSignals, mergeChatMessages, type ChatMessage } from '../services/connect-chat';
 import {
   setConnectCallSpeakerphone,
   startConnectCallAudio,
@@ -86,12 +87,6 @@ interface AttachedPhoto {
   base64?: string;
 }
 
-interface ChatMessage {
-  id: string;
-  from: 'VISITOR' | 'OWNER';
-  text: string;
-  sentAt: string;
-}
 
 type SessionPhase = 'READY' | 'STARTING' | 'CALLING' | 'CONNECTED' | 'ERROR';
 type SessionMode = 'VOICE' | 'CHAT';
@@ -336,15 +331,16 @@ export function ConnectGuestScreen() {
       });
 
       socket.on('chat:message', (item: any) => {
-        setChatMessages(prev => [
-          ...prev,
-          {
-            id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-            from: item.from || 'OWNER',
-            text: item.message?.text || (typeof item.message === 'string' ? item.message : ''),
-            sentAt: item.sentAt || new Date().toISOString(),
-          },
-        ]);
+        const text = item?.message?.text || (typeof item?.message === 'string' ? item.message : '');
+        if (!text) return;
+        // Shown at once; the saved copy from the poll below replaces it, so it is never doubled.
+        setChatMessages(prev => mergeChatMessages(prev, [{
+          id: `sock_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+          from: item.from === 'VISITOR' ? 'VISITOR' : 'OWNER',
+          text: String(text),
+          sentAt: item.sentAt || new Date().toISOString(),
+          local: true,
+        }]));
         setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 100);
       });
 
@@ -455,6 +451,12 @@ export function ConnectGuestScreen() {
             endSession();
             return;
           }
+          // Chat does not depend on the socket: every message is saved, and this is how a message the socket missed reaches the screen.
+          const saved = chatMessagesFromSignals(response.items);
+          if (saved.length) {
+            setChatMessages(prev => mergeChatMessages(prev, saved));
+            setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 100);
+          }
           for (const signal of response.items) {
             signalCursor.current = signal.createdAt;
             const pc = peerRef.current;
@@ -497,19 +499,22 @@ export function ConnectGuestScreen() {
 
   const sendChatMessage = () => {
     const text = chatInput.trim();
-    if (!text || !socketRef.current) return;
-    socketRef.current.emit('chat:message', { text });
-    setChatMessages(prev => [
-      ...prev,
-      {
-        id: `msg_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        from: 'VISITOR',
-        text,
-        sentAt: new Date().toISOString(),
-      },
-    ]);
+    const live = liveSessionRef.current;
+    if (!text || !live) return;
+    const localId = `out_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    setChatMessages(prev => mergeChatMessages(prev, [{ id: localId, from: 'VISITOR', text, sentAt: new Date().toISOString(), local: true }]));
     setChatInput('');
     setTimeout(() => chatScrollRef.current?.scrollToEnd({ animated: true }), 100);
+    // Instant copy over the socket when it is up, and the saved copy that always gets there (the owner's screen reads it).
+    if (socketRef.current?.connected) socketRef.current.emit('chat:message', { text });
+    sendPublicCallSignal(live.token, live.sessionId, 'CHAT', { text }).catch((error: any) => {
+      setChatMessages(prev => prev.filter(item => item.id !== localId));
+      setChatInput(current => current || text);
+      Alert.alert(
+        'Message not sent',
+        /MESSAGING_DISABLED/.test(String(error?.message)) ? 'The owner has turned messages off. You can still call them.' : /CLOSED/.test(String(error?.message)) ? 'This conversation has ended.' : 'Check your connection and try again.',
+      );
+    });
   };
 
   // Quick Preset Alert handler

@@ -144,7 +144,9 @@ export async function fetchPublicRealtimeTicket(
 
 export type WebRtcSignal = {
   id?: string;
-  kind: 'OFFER' | 'ANSWER' | 'ICE' | 'HANGUP';
+  kind: 'OFFER' | 'ANSWER' | 'ICE' | 'HANGUP' | 'CHAT';
+  /** Who sent it ('VISITOR' or 'OWNER'); set on saved signals. */
+  senderRole?: string;
   payload: Record<string, unknown>;
   createdAt?: string;
 };

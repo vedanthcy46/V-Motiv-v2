@@ -509,6 +509,27 @@ describe('V MOTIV V2 — Connect Integration API Suite', () => {
     expect(incoming.body.items.some((item: { callerType: string }) => item.callerType === 'visitor')).toBe(true);
   });
 
+  it('chat: a message sent by either side is saved and shows up for the other, without any socket', async () => {
+    const { app } = setupApp();
+    const issue = await request(app).post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/issue`).set('Authorization', 'Bearer valid-customer-token').send({});
+    const token = issue.body.stickerUrl.split('/').pop();
+    const chat = await request(app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode: 'CHAT' });
+    const id = chat.body.callSessionId;
+    const owner = (path = '') => request(app).get(`/api/v2/customer/connect/calls/${id}/signals${path}`).set('Authorization', 'Bearer valid-customer-token');
+    const visitor = (path = '') => request(app).get(`/api/v2/public/connect/${token}/calls/${id}/signals${path}`);
+
+    // visitor -> owner
+    expect((await request(app).post(`/api/v2/public/connect/${token}/calls/${id}/signals`).send({ kind: 'CHAT', payload: { text: 'Your lights are on' } })).status).toBe(201);
+    const seenByOwner = (await owner()).body.items.filter((item: any) => item.kind === 'CHAT');
+    expect(seenByOwner.map((item: any) => [item.senderRole, item.payload.text])).toEqual([['VISITOR', 'Your lights are on']]);
+
+    // owner -> visitor
+    expect((await request(app).post(`/api/v2/customer/connect/calls/${id}/signals`).set('Authorization', 'Bearer valid-customer-token').send({ kind: 'CHAT', payload: { text: 'Thanks, coming now' } })).status).toBe(201);
+    const seenByVisitor = (await visitor()).body.items.filter((item: any) => item.kind === 'CHAT');
+    expect(seenByVisitor.map((item: any) => [item.senderRole, item.payload.text])).toEqual([['VISITOR', 'Your lights are on'], ['OWNER', 'Thanks, coming now']]);
+    expect(seenByVisitor.every((item: any) => item.id && item.createdAt)).toBe(true);
+  });
+
   describe('per-vehicle call / message switches', () => {
     async function issued() {
       const ctx = setupApp();
