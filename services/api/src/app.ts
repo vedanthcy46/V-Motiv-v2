@@ -346,7 +346,13 @@ export function createApp(deps: {
   const serviceLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const rentalLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
   const connectLimiter = createLimiter({ windowMs: 60_000, limit: 120 });
-  const connectPublicLimiter = createLimiter({ windowMs: 15 * 60_000, limit: 30 });
+  // Public Connect. The thing that must be rationed is ringing or messaging an owner, and that is limited per vehicle in the database
+  // (CONNECT_CALL_LIMIT per CONNECT_CALL_WINDOW_MINUTES, see connect-store). This IP limiter is only a flood guard for the rest, and
+  // it must never count the live traffic of a conversation: polling for messages and call signals every second or two is normal.
+  const connectPublicBaseLimiter = createLimiter({ windowMs: 15 * 60_000, limit: 60 });
+  const connectPublicLiveLimiter = createLimiter({ windowMs: 60_000, limit: 900 });
+  const connectLivePath = /\/calls\/[^/]+\/(signals|realtime-ticket)\/?$/;
+  const connectPublicLimiter: RequestHandler = (req, res, next) => (connectLivePath.test(req.path) ? connectPublicLiveLimiter(req, res, next) : connectPublicBaseLimiter(req, res, next));
 
   // Home content management (Operations). Must come before the generic /operations router below, which would otherwise answer first.
   if (deps.homeContent && deps.db) {

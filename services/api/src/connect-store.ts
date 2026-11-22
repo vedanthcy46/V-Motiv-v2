@@ -557,6 +557,19 @@ export class PrismaConnectStore {
       return { callSessionId: existing.callSessionId, status: existing.status, alreadyPending: true };
     }
 
+    // Ringing or messaging an owner is rationed per vehicle and per kind (call or chat): by default 3 per hour. Re-opening a request
+    // that is still pending (above) is free, and so is every message inside a conversation. Checked here, in the database, so it holds
+    // on every server instance and cannot be dodged by changing network or by calling the API directly.
+    const limit = Math.max(1, Number(process.env.CONNECT_CALL_LIMIT) || 3);
+    const windowMinutes = Math.max(1, Number(process.env.CONNECT_CALL_WINDOW_MINUTES) || 60);
+    const windowStart = new Date(Date.now() - windowMinutes * 60_000);
+    const recent = await this.db.connectCallSessionReference.findMany({ where: { linkId: link.id, callerType, createdAt: { gte: windowStart } }, orderBy: { createdAt: 'asc' }, select: { createdAt: true }, take: limit });
+    if (recent.length >= limit) {
+      const waitMinutes = Math.max(1, Math.ceil((recent[0]!.createdAt.getTime() + windowMinutes * 60_000 - Date.now()) / 60_000));
+      const what = isChat ? 'chats' : 'calls';
+      throw new HttpError(429, 'CONNECT_CALL_LIMIT_REACHED', `This owner has already been ${isChat ? 'messaged' : 'called'} ${limit} times in the last ${windowMinutes === 60 ? 'hour' : `${windowMinutes} minutes`}. To avoid disturbing them, please try again in about ${waitMinutes} minute${waitMinutes === 1 ? '' : 's'}, or send a quick alert instead of more ${what}.`);
+    }
+
     const callSessionId = crypto.randomUUID();
     const [call] = await this.db.$transaction(async (tx) => {
       const createdCall = await tx.connectCallSessionReference.create({
