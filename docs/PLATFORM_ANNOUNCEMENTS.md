@@ -35,7 +35,7 @@ Everyone who matches gets the in-app notification (category `PROMOTION`). A **pu
 
 ## Deploying
 
-Apply migration `20261122000000_platform_announcements`, and make sure the roles have the new permission (the admin catalog sync runs at startup/seed; re-run it if your environment does not). The worker or the cron trigger must be running, as for employee notifications. Customer apps need a new build to open announcement links from a tap (older builds still show the notification and open the Activity tab).
+Apply BOTH migrations: `20261122000000_platform_announcements` (tables) and `20261122010000_announcement_permission` (creates the `announcement.manage` permission and gives it to Super Admin, Administrator and Operations Manager). Without the second one every request is refused with `PERMISSION_DENIED`, because roles in an existing database are only changed by the seed script. After applying, staff must reload or sign in again so their permissions refresh. The worker or the cron trigger must be running, as for employee notifications. Customer apps need a new build to open announcement links from a tap (older builds still show the notification and open the Activity tab).
 
 ## Not verified
 
