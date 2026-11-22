@@ -6,6 +6,7 @@ import type { PrismaClient } from '@prisma/client';
 import { authentication, type Identity, type VerifyToken } from '../auth.js';
 import { HttpError } from '../errors.js';
 import { loadEmployeeFacts } from '../employee-notifications/routing.js';
+import { signDirectUpload } from '../cloudinary.js';
 import * as announcements from './announcements.js';
 
 const uuid = z.string().uuid();
@@ -14,6 +15,7 @@ const body = z.object({
   body: z.string().trim().min(5).max(178),
   target: z.enum(announcements.ANNOUNCEMENT_TARGETS),
   listingId: z.string().uuid().nullish(),
+  imageUrl: z.string().url().max(500).nullish(),
   city: z.string().trim().min(2).max(100).nullish(),
 }).strict();
 const sendBody = z.object({ expectedRecipients: z.number().int().min(0).max(10_000_000), scheduledFor: z.string().datetime({ offset: true }).nullish() }).strict();
@@ -47,6 +49,9 @@ export function createAnnouncementRouter(deps: { verify: VerifyToken; db: Prisma
   router.get(at(''), wrap(async () => ({ items: await announcements.listAnnouncements(deps.db), settings: await announcements.getSettings(deps.db), targets: announcements.ANNOUNCEMENT_TARGETS })));
   router.get(at('/settings'), wrap(() => announcements.getSettings(deps.db)));
   router.put(at('/settings'), wrap((req, res) => announcements.updateSettings(deps.db, actor(res), parse(settingsBody, req.body))));
+  // A one-time signature so the browser can upload the picture straight to the media account (it never passes through this server).
+  router.post(at('/upload-signature'), wrap(async () => { const signed = signDirectUpload('announcements'); if (!signed) throw new HttpError(503, 'UPLOAD_NOT_CONFIGURED', 'Picture upload is not set up on this server.'); return signed; }));
+  router.get(at('/options'), wrap(() => announcements.formOptions(deps.db)));
   router.get(at('/audience'), wrap(req => announcements.audienceSize(deps.db, typeof req.query.city === 'string' && req.query.city ? req.query.city : null)));
   router.post(at(''), wrap((req, res) => announcements.createAnnouncement(deps.db, actor(res), parse(body, req.body)), 201));
   router.get(at('/:id'), wrap(req => announcements.getAnnouncement(deps.db, parse(uuid, req.params.id))));

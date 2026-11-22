@@ -32,3 +32,9 @@ Rebuild the Android/iOS development or production app after this change: `expo-c
 - Scanned URLs are parsed for a token only; the mobile app never opens an arbitrary scanned URL.
 - The public app experience never displays owner name, telephone number, address, VIN, or full registration details beyond what the existing Connect public service intentionally returns.
 - PSTN masked calling is still blocked pending a verified India-capable provider. The existing Connect WebRTC/call-request flow is the only flow presented.
+
+## Full-screen call screens (owner)
+
+- **Incoming** (`ConnectIncomingCallOverlay`): a full-screen ringing screen with the vehicle, a pulsing caller icon, and three large buttons: Decline, Chat (reply by message instead of calling) and Accept. For a chat request: Dismiss and Open chat.
+- **In call** (`ConnectVoiceCall`): full screen with a timer and Mute, Earpiece/Speaker, Chat and End call. The call starts on the earpiece; the speaker button switches to the loudspeaker. Chat opens inside the call (talk and type at once); messages are saved and merged (see `services/connect-chat.ts`).
+- **Limits:** this screen appears when the app is open, or when the owner taps the incoming-call notification. Making it take over a locked screen on its own (like the phone dialer) needs an Android full-screen-intent notification, which the current notification library cannot create; it needs a native module (for example Notifee) and a new app build. It is deliberately not switched on globally with `showWhenLocked`, because that would let the whole app, including payments and personal data, open over the lock screen.

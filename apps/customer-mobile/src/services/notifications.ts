@@ -107,6 +107,8 @@ export interface InAppNotification {
   body: string;
   deepLink?: string;
   entityId?: string;
+  /** Extra details. An announcement may carry imageUrl. */
+  metadata?: { imageUrl?: string } | null;
   read: boolean;
   createdAt: string;
 }

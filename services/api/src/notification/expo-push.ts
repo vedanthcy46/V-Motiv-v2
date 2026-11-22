@@ -9,6 +9,8 @@ export interface ExpoPushMessage {
   channelId?: string;
   categoryId?: string;
   ttl?: number;
+  /** A picture in the notification. Shown where the phone supports it (iOS); other phones simply ignore it. */
+  richContent?: { image: string };
 }
 
 export interface ExpoPushSuccessTicket {

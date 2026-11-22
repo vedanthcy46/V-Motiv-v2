@@ -588,6 +588,7 @@ export class NotificationService {
         // A call request is no longer actionable after the server's 90s
         // ringing timeout, so never surface it late as a stale push.
         ttl: data.eventType === 'CONNECT_CALL_REQUESTED' && data.callSessionId ? 90 : undefined,
+        richContent: data.type === 'PLATFORM_ANNOUNCEMENT' && typeof data.imageUrl === 'string' && data.imageUrl.startsWith('https://') ? { image: data.imageUrl } : undefined,
       };
     });
 

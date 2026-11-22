@@ -6,13 +6,43 @@ import { EmptyState, ErrorState } from '../components/States';
 import { SelectField, TextField } from '../components/Form';
 import { Modal } from '../components/Modal';
 import { toast } from '../hooks/toastStore';
-import type { Announcement, AnnouncementDraft, AnnouncementList, AnnouncementsApi } from './api';
+import type { Announcement, AnnouncementDraft, AnnouncementList, AnnouncementOptions, AnnouncementsApi } from './api';
 
 const TARGETS: Record<string, string> = { NONE: 'Just show the message', HOME: 'Open the home screen', BUY: 'Open Buy cars', SELL: 'Open Sell your car', RENTALS: 'Open Rentals', SERVICE: 'Open Car service', VEHICLE: 'Open one specific car' };
 const STATUS_TONE: Record<string, Tone> = { DRAFT: 'neutral', SCHEDULED: 'info', SENDING: 'warning', SENT: 'success', CANCELLED: 'neutral' };
 const TITLE_MAX = 65;
 const BODY_MAX = 178;
-const EMPTY: AnnouncementDraft = { title: '', body: '', target: 'NONE', listingId: '', city: '' };
+const EMPTY: AnnouncementDraft = { title: '', body: '', target: 'NONE', listingId: '', city: '', imageUrl: null };
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+
+/** Uploads straight to our media account with a one-time signature, so the picture never passes through the API server. */
+async function uploadImage(api: AnnouncementsApi, file: File, onProgress: (percent: number) => void): Promise<string> {
+  if (!IMAGE_TYPES.includes(file.type)) throw new Error('Use a JPG, PNG or WebP picture.');
+  if (file.size > MAX_IMAGE_BYTES) throw new Error('The picture is larger than 5 MB. Use a smaller one.');
+  const signed = await api.uploadSignature();
+  const body = new FormData();
+  body.append('file', file);
+  body.append('api_key', signed.apiKey);
+  body.append('timestamp', String(signed.timestamp));
+  body.append('folder', signed.folder);
+  body.append('signature', signed.signature);
+  return new Promise((resolve, reject) => {
+    const request = new XMLHttpRequest();
+    request.open('POST', `https://api.cloudinary.com/v1_1/${signed.cloudName}/image/upload`);
+    request.upload.onprogress = event => { if (event.lengthComputable) onProgress(Math.round((event.loaded / event.total) * 100)); };
+    request.onerror = () => reject(new Error('The upload was interrupted. Check your connection and try again.'));
+    request.onload = () => {
+      try {
+        if (request.status < 200 || request.status >= 300) throw new Error('The media service refused the picture. Try a different one.');
+        const url = (JSON.parse(request.responseText) as { secure_url?: string }).secure_url;
+        if (!url) throw new Error('The media service did not return an address for the picture.');
+        resolve(url);
+      } catch (error) { reject(error); }
+    };
+    request.send(body);
+  });
+}
 
 const when = (value: string | null) => (value ? new Date(value).toLocaleString() : '');
 const message = (error: unknown) => {
@@ -35,10 +65,13 @@ export function AnnouncementsManager({ api }: { api: AnnouncementsApi }) {
   const [busy, setBusy] = useState('');
   const [confirm, setConfirm] = useState<{ announcement: Announcement; schedule: string } | null>(null);
   const [schedule, setSchedule] = useState('');
+  const [uploading, setUploading] = useState<number | null>(null);
+  const [options, setOptions] = useState<AnnouncementOptions | null>(null);
 
   const load = useCallback(async () => {
     try { setData(await api.list()); setError(''); } catch (err) { setError(message(err)); }
   }, [api]);
+  useEffect(() => { api.options().then(setOptions).catch(() => setOptions({ cities: [], listings: [] })); }, [api]);
   useEffect(() => { void load(); const timer = setInterval(() => void load(), 15_000); return () => clearInterval(timer); }, [load]);
   useEffect(() => {
     let current = true;
@@ -46,8 +79,11 @@ export function AnnouncementsManager({ api }: { api: AnnouncementsApi }) {
     return () => { current = false; clearTimeout(timer); };
   }, [api, draft.city]);
 
+  const cityName = draft.city?.trim() ?? '';
+  const cars = useMemo(() => (options?.listings ?? []).filter(car => !cityName || (car.city ?? '').toLowerCase() === cityName.toLowerCase()), [options, cityName]);
+  const rupees = (paise: string) => `₹${(Number(paise) / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
   const valid = draft.title.trim().length >= 3 && draft.body.trim().length >= 5 && (draft.target !== 'VEHICLE' || Boolean(draft.listingId?.trim()));
-  const payload = useMemo<AnnouncementDraft>(() => ({ title: draft.title.trim(), body: draft.body.trim(), target: draft.target, listingId: draft.target === 'VEHICLE' ? draft.listingId?.trim() || null : null, city: draft.city?.trim() || null }), [draft]);
+  const payload = useMemo<AnnouncementDraft>(() => ({ title: draft.title.trim(), body: draft.body.trim(), target: draft.target, listingId: draft.target === 'VEHICLE' ? draft.listingId?.trim() || null : null, city: draft.city?.trim() || null, imageUrl: draft.imageUrl || null }), [draft]);
 
   async function run<T>(key: string, action: () => Promise<T>, success?: string): Promise<T | undefined> {
     setBusy(key);
@@ -56,6 +92,13 @@ export function AnnouncementsManager({ api }: { api: AnnouncementsApi }) {
     finally { setBusy(''); }
   }
   const save = async (): Promise<Announcement | undefined> => run('save', () => (editing ? api.update(editing, payload) : api.create(payload)), editing ? 'Draft updated' : 'Draft saved').then(saved => { if (saved) setEditing(saved.id); return saved; });
+  async function pickImage(file: File | undefined) {
+    if (!file) return;
+    setUploading(0);
+    try { const url = await uploadImage(api, file, setUploading); setDraft(current => ({ ...current, imageUrl: url })); }
+    catch (err) { toast.error('Could not add the picture', { description: message(err) }); }
+    finally { setUploading(null); }
+  }
   const reset = () => { setDraft(EMPTY); setEditing(null); setSchedule(''); };
 
   async function review() {
@@ -116,14 +159,37 @@ export function AnnouncementsManager({ api }: { api: AnnouncementsApi }) {
             <SelectField label="When they tap it" value={draft.target} onChange={event => setDraft({ ...draft, target: event.target.value })}>
               {Object.entries(TARGETS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </SelectField>
-            <TextField label="Only customers in city (optional)" placeholder="All cities" value={draft.city ?? ''} onChange={event => setDraft({ ...draft, city: event.target.value })} />
+            <SelectField label="Only customers in city (optional)" value={draft.city ?? ''} onChange={event => setDraft({ ...draft, city: event.target.value, listingId: '' })} hint="Customers pick their city in the app. Leave on All cities to reach everyone.">
+              <option value="">All cities</option>
+              {cityName && !options?.cities.some(city => city.name.toLowerCase() === cityName.toLowerCase()) ? <option value={cityName}>{cityName}</option> : null}
+              {(options?.cities ?? []).map(city => <option key={city.name} value={city.name}>{city.name} ({city.recipients.toLocaleString()} opted in)</option>)}
+            </SelectField>
           </div>
-          {draft.target === 'VEHICLE' ? <TextField label="Vehicle listing ID" placeholder="Paste the published listing's ID" value={draft.listingId ?? ''} onChange={event => setDraft({ ...draft, listingId: event.target.value })} hint="Must be a published car. It opens that car's page." /> : null}
+          {draft.target === 'VEHICLE' ? (
+            <SelectField label="Car to open" value={draft.listingId ?? ''} onChange={event => setDraft({ ...draft, listingId: event.target.value })} hint={cars.length ? `Published cars${cityName ? ` in ${cityName}` : ''}. Tapping the notification opens this car's page.` : `No published cars${cityName ? ` in ${cityName}` : ''} right now.`}>
+              <option value="">Choose a car…</option>
+              {draft.listingId && !cars.some(car => car.id === draft.listingId) ? <option value={draft.listingId}>Currently selected car</option> : null}
+              {cars.map(car => <option key={car.id} value={car.id}>{car.label} · {rupees(car.pricePaise)}{car.city && !cityName ? ` · ${car.city}` : ''}</option>)}
+            </SelectField>
+          ) : null}
+          <div className="grid gap-1">
+            <span className="text-sm font-medium">Picture (optional)</span>
+            {draft.imageUrl ? (
+              <div className="flex items-center gap-3">
+                <img src={draft.imageUrl} alt="Announcement picture" className="h-20 w-32 rounded-lg border border-base-300 object-cover" />
+                <Button size="xs" variant="ghost" onClick={() => setDraft({ ...draft, imageUrl: null })}>Remove picture</Button>
+              </div>
+            ) : (
+              <input type="file" accept="image/jpeg,image/png,image/webp" className="file-input file-input-sm w-full" disabled={uploading !== null} onChange={event => { void pickImage(event.target.files?.[0]); event.target.value = ''; }} />
+            )}
+            {uploading !== null ? <progress className="progress progress-primary w-full" value={uploading} max={100} /> : null}
+            <span className="text-xs text-base-content/60">JPG, PNG or WebP, up to 5 MB. A wide picture works best (about 2:1). It shows in the customer's notifications; on phones that support it, it also shows in the push itself.</span>
+          </div>
           <TextField label="Send later (optional)" type="datetime-local" value={schedule} onChange={event => setSchedule(event.target.value)} hint="Leave empty to send now. Between 9 am and 9 pm India time only; outside it, sending now waits for 9 am." />
           <div className="flex flex-wrap gap-2">
-            <Button variant="outline" disabled={!valid} loading={busy === 'save'} onClick={() => void save()}>{editing ? 'Save changes' : 'Save draft'}</Button>
-            <Button variant="outline" disabled={!valid} loading={busy === 'test'} onClick={() => void sendTest()}>Send a test to me</Button>
-            <Button disabled={!valid || !settings?.enabled || !audience?.recipients} loading={busy === 'save' && Boolean(confirm)} onClick={() => void review()}>Review and send</Button>
+            <Button variant="outline" disabled={!valid || uploading !== null} loading={busy === 'save'} onClick={() => void save()}>{editing ? 'Save changes' : 'Save draft'}</Button>
+            <Button variant="outline" disabled={!valid || uploading !== null} loading={busy === 'test'} onClick={() => void sendTest()}>Send a test to me</Button>
+            <Button disabled={!valid || uploading !== null || !settings?.enabled || !audience?.recipients} loading={busy === 'save' && Boolean(confirm)} onClick={() => void review()}>Review and send</Button>
             {editing || draft.title || draft.body ? <Button variant="ghost" onClick={reset}>Clear</Button> : null}
           </div>
         </div>
@@ -134,6 +200,7 @@ export function AnnouncementsManager({ api }: { api: AnnouncementsApi }) {
               <p className="text-xs text-base-content/55">V MOTIV · now</p>
               <p className="font-semibold">{draft.title || 'Your title'}</p>
               <p className="text-base-content/75">{draft.body || 'Your message appears here.'}</p>
+              {draft.imageUrl ? <img src={draft.imageUrl} alt="" className="mt-2 aspect-[2/1] w-full rounded-lg object-cover" /> : null}
             </div>
           </div>
           <div className="rounded-box border border-base-300 p-3 text-sm">
@@ -166,7 +233,7 @@ export function AnnouncementsManager({ api }: { api: AnnouncementsApi }) {
                   {item.lastError ? <p className="text-xs text-error">Last problem: {item.lastError}</p> : null}
                 </div>
                 <div className="flex gap-2">
-                  {item.status === 'DRAFT' || item.status === 'SCHEDULED' ? <Button size="xs" variant="outline" onClick={() => { setEditing(item.id); setDraft({ title: item.title, body: item.body, target: item.target, listingId: item.listingId ?? '', city: item.city ?? '' }); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Edit</Button> : null}
+                  {item.status === 'DRAFT' || item.status === 'SCHEDULED' ? <Button size="xs" variant="outline" onClick={() => { setEditing(item.id); setDraft({ title: item.title, body: item.body, target: item.target, listingId: item.listingId ?? '', city: item.city ?? '', imageUrl: item.imageUrl }); window.scrollTo({ top: 0, behavior: 'smooth' }); }}>Edit</Button> : null}
                   {['DRAFT', 'SCHEDULED', 'SENDING'].includes(item.status) ? <Button size="xs" variant="ghost" loading={busy === `cancel-${item.id}`} onClick={() => void run(`cancel-${item.id}`, () => api.cancel(item.id), item.status === 'SENDING' ? 'Stopped. People already notified keep it.' : 'Cancelled')}>{item.status === 'SENDING' ? 'Stop sending' : 'Cancel'}</Button> : null}
                 </div>
               </li>
@@ -178,7 +245,7 @@ export function AnnouncementsManager({ api }: { api: AnnouncementsApi }) {
       {confirm && audience ? (
         <Modal title={confirm.schedule ? 'Schedule this announcement?' : 'Send this announcement now?'} description="This notifies real customers and cannot be taken back once it is delivered." busy={busy === 'send'} onClose={() => setConfirm(null)}
           footer={<><Button variant="ghost" disabled={busy === 'send'} onClick={() => setConfirm(null)}>Not yet</Button><Button loading={busy === 'send'} onClick={() => void confirmSend()}>{confirm.schedule ? 'Schedule it' : `Send to ${audience.recipients.toLocaleString()} customers`}</Button></>}>
-          <div className="rounded-2xl border border-base-300 bg-base-200 p-3 text-sm"><p className="font-semibold">{confirm.announcement.title}</p><p>{confirm.announcement.body}</p></div>
+          <div className="rounded-2xl border border-base-300 bg-base-200 p-3 text-sm"><p className="font-semibold">{confirm.announcement.title}</p><p>{confirm.announcement.body}</p>{confirm.announcement.imageUrl ? <img src={confirm.announcement.imageUrl} alt="" className="mt-2 aspect-[2/1] w-full rounded-lg object-cover" /> : null}</div>
           <p className="mt-3 text-sm">It goes to <strong>{audience.recipients.toLocaleString()}</strong> customers ({audience.withPushDevice.toLocaleString()} as a push on their phone){draft.city?.trim() ? ` in ${draft.city.trim()}` : ''}.{confirm.schedule ? ` It will be sent ${new Date(confirm.schedule).toLocaleString()}.` : ' It starts immediately (or at 9 am India time if it is currently night there).'}</p>
         </Modal>
       ) : null}
