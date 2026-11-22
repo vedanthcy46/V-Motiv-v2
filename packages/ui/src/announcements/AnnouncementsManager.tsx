@@ -15,7 +15,12 @@ const BODY_MAX = 178;
 const EMPTY: AnnouncementDraft = { title: '', body: '', target: 'NONE', listingId: '', city: '' };
 
 const when = (value: string | null) => (value ? new Date(value).toLocaleString() : '');
-const message = (error: unknown) => (error instanceof Error ? error.message : 'Something went wrong. Try again.');
+const message = (error: unknown) => {
+  const text = error instanceof Error ? error.message : 'Something went wrong. Try again.';
+  if (/PERMISSION_DENIED/.test(text)) return 'Your account does not have permission to manage announcements. Ask a Super Admin to give you the "announcement.manage" permission (Administrators and Operations Managers have it by default once the latest database update has been applied), then sign in again.';
+  if (/EMPLOYEE_REQUIRED/.test(text)) return 'Only active staff accounts can manage announcements.';
+  return text;
+};
 
 /**
  * Admin and Operations: send a platform update (new feature, new cars, a change) to customers who opted in to promotions.
