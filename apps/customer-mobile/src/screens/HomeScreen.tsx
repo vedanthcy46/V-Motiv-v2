@@ -32,6 +32,7 @@ import { HomeBanners } from '../components/HomeBanners';
 import { HubMedia } from '../components/HubMedia';
 import { useTabBarScroll } from '../components/TabBarVisibility';
 import { PriceBlock } from '../components/PriceBlock';
+import { openAppLink } from '../services/notifications';
 import { NotificationsModal } from '../components/NotificationsModal';
 import { comingSoonMessage, isFeatureOpen } from '../constants/features';
 import { CustomerButton } from '../components/customer-ui';
@@ -403,6 +404,7 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
           const vehicle = /^vmotiv:\/\/vehicles\/([a-zA-Z0-9-]+)$/.exec(n.deepLink || '');
           if (selling) root?.navigate('SellingRequestDetails', { leadId: selling[1] });
           else if (vehicle) root?.navigate('Vehicle', { listingId: vehicle[1] });
+          else if (openAppLink(n.deepLink)) return;
           else navigation.navigate('Activity');
         }}
         title="Notifications"

@@ -18,7 +18,7 @@ import {
 } from 'firebase/auth';
 import { adminApi, ApiError } from './api.js';
 import {
-  AppShell, CenterState, EmptyState as UiEmptyState, ErrorState as UiErrorState, EmployeeNotificationBell, MfaChallengeModal, NotificationInbox, createEmployeeNotificationsClient, routeToPage, PageHeader as UiPageHeader, PageLoader,
+  AppShell, CenterState, EmptyState as UiEmptyState, ErrorState as UiErrorState, AnnouncementsManager, EmployeeNotificationBell, MfaChallengeModal, createAnnouncementsClient, NotificationInbox, createEmployeeNotificationsClient, routeToPage, PageHeader as UiPageHeader, PageLoader,
   SkeletonCards as UiSkeletonCards, StatusBadge as UiStatusBadge, TableSkeleton as UiTableSkeleton, Button, announceChange, toast, useAutoRefresh, type NavSection,
 } from '@vmotiv/ui';
 import { auth, firebaseConfigured } from './firebase.js';
@@ -55,7 +55,7 @@ import type {
   SystemHealth,
 } from './types.js';
 
-type Route = '/' | '/employees' | '/access' | '/branches' | '/approvals' | '/business' | '/support' | '/master-data' | '/communications' | '/reports' | '/audit' | '/notifications' | '/activity-monitor' | '/accept-invitation' | '/not-found';
+type Route = '/' | '/employees' | '/access' | '/branches' | '/approvals' | '/business' | '/support' | '/master-data' | '/communications' | '/reports' | '/audit' | '/notifications' | '/activity-monitor' | '/announcements' | '/accept-invitation' | '/not-found';
 const iconPaths: Record<string, ReactNode> = {
   overview: <><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></>,
   employees: <><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"/></>,
@@ -81,7 +81,7 @@ function currentRoute(): Route {
   const hasToken = typeof window !== 'undefined' && new URLSearchParams(window.location.search).has('token');
   const path = window.location.pathname.replace(/\/$/, '') || '/';
   if (path === '/accept-invitation' || hasToken) return '/accept-invitation';
-  return ['/', '/employees', '/access', '/branches', '/approvals', '/business', '/support', '/master-data', '/communications', '/reports', '/audit', '/notifications', '/activity-monitor'].includes(path) ? path as Route : '/not-found';
+  return ['/', '/employees', '/access', '/branches', '/approvals', '/business', '/support', '/master-data', '/communications', '/reports', '/audit', '/notifications', '/activity-monitor', '/announcements'].includes(path) ? path as Route : '/not-found';
 }
 function navigate(path: string) { window.history.pushState({}, '', path); window.dispatchEvent(new PopStateEvent('popstate')); }
 function errorMessage(error: unknown) {
@@ -696,6 +696,7 @@ const navItems = [
   { path: '/business' as Route, label: 'Business Oversight', icon: 'business' as const, permission: 'business.oversight.read' },
   { path: '/support' as Route, label: 'Support & Privacy', icon: 'support' as const, permission: 'support.read' },
   { path: '/master-data' as Route, label: 'Master Data', icon: 'masterdata' as const, permission: 'masterdata.read' },
+  { path: '/announcements' as Route, label: 'Announcements', icon: 'communications' as const, permission: 'announcement.manage' },
   { path: '/communications' as Route, label: 'Communications', icon: 'communications' as const, permission: 'email.delivery.read' },
   { path: '/notifications' as Route, label: 'Notifications', icon: 'bell' as const, permission: 'admin.portal.access' },
   { path: '/activity-monitor' as Route, label: 'Activity Monitor', icon: 'audit' as const, permission: 'audit.read' },
@@ -746,6 +747,7 @@ function Shell({ actor, user, route, onLogout }: { actor: AdminActor; user: User
       {route === '/audit' && <AuditPageView user={user}/>}
       {route === '/notifications' && <><PageHeader eyebrow="Your inbox" title="Notifications" description="Work routed to you by branch, assignment and permission. Routine events never push to your phone."/><NotificationInbox api={inbox.api} stream={inbox.stream} moduleHint="ADMIN" onNavigate={openFromNotification}/></>}
       {route === '/activity-monitor' && <ActivityMonitorPage user={user}/>}
+      {route === '/announcements' && <AnnouncementsPage user={user}/>}
       {route === '/not-found' && <NotFound/>}
     </AppShell>
   );
@@ -3237,6 +3239,10 @@ function ApprovalDialog({ user, actor, approval, onClose, onDone }: { user: User
   );
 }
 
+function AnnouncementsPage({ user }: { user: User }) {
+  const api = useMemo(() => createAnnouncementsClient({ apiBase: import.meta.env.VITE_API_BASE, getToken: force => user.getIdToken(force) }), [user]);
+  return <><PageHeader eyebrow="Customer communication" title="Announcements" description="Tell customers who opted in to promotions about something new or changed on the platform."/><AnnouncementsManager api={api}/></>;
+}
 const MONITOR_DOMAINS = ['SALES', 'OPERATIONS', 'FINANCE', 'INSPECTION', 'ADMIN'] as const;
 /**
  * Read-only view of what happened across the business, built from the audit log. It is separate from the notification inbox: it never

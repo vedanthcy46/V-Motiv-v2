@@ -5,6 +5,8 @@ import * as Notifications from 'expo-notifications';
 import { api } from '../api';
 import { emitRefreshSignal } from './refresh-bus';
 import { registerEmployeeDevice } from './employee-notifications';
+import { resolveAppLink } from './app-links';
+import { navigationRef } from '../navigation/navigationRef';
 
 export const CONNECT_CALL_NOTIFICATION_CATEGORY = 'connect-call-actions';
 export const CONNECT_CALL_ACCEPT_ACTION = 'CONNECT_CALL_ACCEPT';
@@ -16,6 +18,35 @@ let pushActive = false;
 export const isPushActive = () => pushActive;
 Notifications.addNotificationReceivedListener(() => emitRefreshSignal('push'));
 Notifications.addNotificationResponseReceivedListener(() => emitRefreshSignal('push-open'));
+
+/** Go to the screen a link names. Waits briefly for the app to finish starting, so a tap that launched the app still arrives. */
+export function openAppLink(link: string | null | undefined): boolean {
+  const destination = resolveAppLink(link);
+  if (!destination) return false;
+  const go = () => {
+    const nav = navigationRef as any;
+    if (destination.kind === 'tab') nav.navigate('Tabs', { screen: destination.tab });
+    else if (destination.kind === 'screen') nav.navigate(destination.name);
+    else nav.navigate('Vehicle', { listingId: destination.listingId });
+  };
+  if (navigationRef.isReady()) { go(); return true; }
+  let tries = 0;
+  const timer = setInterval(() => { if (navigationRef.isReady()) { clearInterval(timer); go(); } else if (++tries > 20) clearInterval(timer); }, 500);
+  return true;
+}
+
+// Tapping a push announcement (app closed, in the background, or open) opens what it points at.
+const openedPushes = new Set<string>();
+function handleAnnouncementTap(response: Notifications.NotificationResponse | null) {
+  if (!response) return;
+  const id = response.notification.request.identifier;
+  const data = response.notification.request.content.data as Record<string, unknown> | undefined;
+  if (openedPushes.has(id) || data?.type !== 'PLATFORM_ANNOUNCEMENT') return;
+  openedPushes.add(id);
+  openAppLink(typeof data.deepLink === 'string' ? data.deepLink : null);
+}
+Notifications.addNotificationResponseReceivedListener(handleAnnouncementTap);
+void Notifications.getLastNotificationResponseAsync().then(handleAnnouncementTap).catch(() => undefined);
 
 // Configure foreground notification behavior
 Notifications.setNotificationHandler({

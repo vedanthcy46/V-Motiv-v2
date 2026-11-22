@@ -57,7 +57,7 @@ const ServiceOperationsPanel = lazy(() => import('./components/ServiceOperations
 const HomeContentManager = lazy(() => import('./components/HomeContentManager').then(m => ({ default: m.HomeContentManager })));
 const RentalOperationsPanel = lazy(() => import('./components/RentalOperationsPanel').then(m => ({ default: m.RentalOperationsPanel })));
 import {
-  Alert, AppShell, AuthLayout, Button, CenterState, EmployeeNotificationBell, MfaChallengeModal, NotificationInbox, PageLoader, SkeletonRows, createEmployeeNotificationsClient, routeToPage, toast,
+  Alert, AppShell, AuthLayout, Button, CenterState, AnnouncementsManager, EmployeeNotificationBell, MfaChallengeModal, createAnnouncementsClient, NotificationInbox, PageLoader, SkeletonRows, createEmployeeNotificationsClient, routeToPage, toast,
   initTheme, modalIsOpen, mountLiveChangeBar, registerViewHandler, useAutoRefresh, useChangeWatcher, type NavSection,
 } from '@vmotiv/ui';
 import './styles.css';
@@ -80,6 +80,7 @@ type TabKey =
   | 'rentals'
   | 'homecontent'
   | 'team'
+  | 'announcements'
   | 'notifications';
 
 const DEFAULT_BODY_TYPES = [
@@ -140,6 +141,7 @@ const TAB_GROUPS: Record<TabKey, DataGroup[]> = {
   rentals: ['dashboard'],
   homecontent: [],
   team: ['inspectors'],
+  announcements: [],
   notifications: [],
 };
 
@@ -321,6 +323,7 @@ export const App: FC = () => {
   const [user, setUser] = useState<User | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
   const inboxClient = useMemo(() => user ? createEmployeeNotificationsClient({ apiBase: import.meta.env.VITE_API_BASE, getToken: force => user.getIdToken(force) }) : null, [user]);
+  const announcementsApi = useMemo(() => user ? createAnnouncementsClient({ apiBase: import.meta.env.VITE_API_BASE, getToken: force => user.getIdToken(force) }) : null, [user]);
   const openFromNotification = (route: string, item: { module: string }) => {
     const target = routeToPage<TabKey>('OPERATIONS', OPS_ROUTE_TABS, route, item);
     if (typeof target !== 'string') { toast.info('Cannot open it here', { description: target.redirect }); setActiveTab('notifications'); return; }
@@ -1135,6 +1138,7 @@ export const App: FC = () => {
     rentals: 'Rental Fleet & Trips',
     homecontent: 'App Home Content',
     team: 'Operations Team & Tasks',
+    announcements: 'Customer Announcements',
     notifications: 'Notifications',
   };
 
@@ -1176,6 +1180,7 @@ export const App: FC = () => {
         { key: 'rentals', label: 'Rental fleet and trips', icon: <IconRentals /> },
         { key: 'homecontent', label: 'App home content', icon: <IconPublish /> },
         { key: 'team', label: 'Operations team', icon: <IconLock /> },
+        { key: 'announcements', label: 'Customer announcements', icon: <IconPublish /> },
       ],
     },
     { title: 'Inbox', items: [{ key: 'notifications', label: 'Notifications', icon: <IconDashboard /> }] },
@@ -1212,6 +1217,13 @@ export const App: FC = () => {
         {/* ======================================================== */}
         {/* VIEW 1: OVERVIEW / DASHBOARD                             */}
         {/* ======================================================== */}
+        {activeTab === 'announcements' && announcementsApi ? (
+          <div>
+            <div className="section-heading"><div><h2>Customer announcements</h2><p>Tell customers who opted in to promotions about something new or changed. Needs the announcement permission.</p></div></div>
+            <AnnouncementsManager api={announcementsApi} />
+          </div>
+        ) : null}
+
         {activeTab === 'notifications' && inboxClient ? (
           <div>
             <div className="section-heading"><div><h2>Notifications</h2><p>Work routed to you by branch, assignment and permission.</p></div></div>
