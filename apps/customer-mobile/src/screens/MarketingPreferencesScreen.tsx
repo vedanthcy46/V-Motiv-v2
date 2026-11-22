@@ -62,7 +62,7 @@ export function MarketingPreferencesScreen({ navigation }: Props) {
             <View style={styles.textContainer}>
               <Text style={styles.optionTitle}>Promotional & Inventory Updates</Text>
               <Text style={styles.optionDesc}>
-                Receive optional updates about published inventory and V MOTIV services. You can change this preference at any time.
+                Receive optional updates about new inventory, new features and V MOTIV services, by email and as notifications on your phone (sent between 9 am and 9 pm). You can change this at any time.
               </Text>
             </View>
             <Switch

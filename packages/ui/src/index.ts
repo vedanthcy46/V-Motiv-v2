@@ -14,6 +14,9 @@ export { AppShell, SimpleShell, AuthLayout, Sidebar, Topbar, Footer, type NavIte
 export { NotificationBell, type NotificationItem } from './components/NotificationBell';
 export { StaffNotificationBell, tabFromDeepLink, type StaffNotification, type StaffNotificationSource } from './components/StaffNotificationBell';
 export { createEmployeeNotificationsApi, streamEmployeeNotifications, OPEN_REFUSAL, routeToPage, MODULE_PORTAL_NAME, type EmployeeNotificationsApi, type InboxItem, type InboxPage, type InboxFilters, type Preferences, type OpenDecision } from './notifications/api';
+export { createAnnouncementsApi, type Announcement, type AnnouncementDraft, type AnnouncementsApi } from './announcements/api';
+export { createAnnouncementsClient } from './announcements/client';
+export { AnnouncementsManager } from './announcements/AnnouncementsManager';
 export { createEmployeeNotificationsClient } from './notifications/client';
 export { useEmployeeNotifications } from './notifications/useEmployeeNotifications';
 export { NotificationInbox, openNotification, timeAgo } from './notifications/NotificationInbox';

@@ -27,6 +27,7 @@ import {
   User,
 } from 'lucide-react-native';
 import { BrandLogo } from '../components/BrandLogo';
+import { openAppLink } from '../services/notifications';
 import { NotificationsModal } from '../components/NotificationsModal';
 import {
   fetchUserNotifications,
@@ -89,6 +90,8 @@ export function AccountScreen() {
 
       const event = (n.eventType || '').toUpperCase();
       const cat = (n.category || '').toUpperCase();
+      // Platform announcements open the screen they point at (or just stay as a message when they point nowhere).
+      if (event === 'PLATFORM_ANNOUNCEMENT') { openAppLink(n.deepLink); return; }
       const entityId = n.entityId || (n.deepLink ? n.deepLink.split('/').pop() : undefined);
 
       // Connect notifications (including a call request) always land in the
