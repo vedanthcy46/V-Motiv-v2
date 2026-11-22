@@ -58,7 +58,7 @@ describe.skipIf(!url)('Platform announcements, with real PostgreSQL', () => {
   const send = (admin: { uid: string }, id: string, expected: number, extra: Record<string, unknown> = {}) => request(app).post(`/api/v2/staff/announcements/${id}/send`).set(as(admin.uid)).send({ expectedRecipients: expected, ...extra });
 
   beforeAll(async () => { await ensureAdminCatalog(db as any); });
-  beforeEach(async () => { city = `Announceville-${crypto.randomUUID().slice(0, 8)}`; await db.platformAnnouncement.deleteMany({}); await db.announcementSettings.deleteMany({}); });
+  beforeEach(async () => { city = `Announceville-${crypto.randomUUID().slice(0, 8)}`; await db.supportedCity.create({ data: { name: city } }); await db.platformAnnouncement.deleteMany({}); await db.announcementSettings.deleteMany({}); });
   afterAll(() => db.$disconnect());
 
   it('PERMISSION: Admin and Operations Manager can manage announcements; Sales and customers cannot', async () => {
@@ -118,6 +118,7 @@ describe.skipIf(!url)('Platform announcements, with real PostgreSQL', () => {
     const admin = await staff('ADMIN');
     const bigCity = `Big-${suffix}`;
     const total = BATCH_SIZE * 2 + 37;
+    await db.supportedCity.create({ data: { name: bigCity } });
     await db.user.createMany({ data: Array.from({ length: total }, (_, i) => ({ firebaseUid: `big-${suffix}-${i}`, email: `big-${suffix}-${i}@example.test`, marketingConsent: true, preferredCity: bigCity })) });
     const a = await draft(admin, { city: bigCity });
     await db.platformAnnouncement.update({ where: { id: a.id }, data: { status: 'SENDING', startedAt: DAYTIME } });
@@ -148,7 +149,9 @@ describe.skipIf(!url)('Platform announcements, with real PostgreSQL', () => {
     expect(drift.status).toBe(409);
     expect(drift.body.code).toBe('AUDIENCE_CHANGED');
 
-    const none = await draft(admin, { city: `Nowhere-${suffix}` });
+    const nowhere = `Nowhere-${suffix}-${crypto.randomUUID().slice(0, 4)}`;
+    await db.supportedCity.create({ data: { name: nowhere } });
+    const none = await draft(admin, { city: nowhere });
     expect((await send(admin, none.id, 0)).body.code).toBe('NO_RECIPIENTS');
 
     expect((await request(app).post('/api/v2/staff/announcements').set(as(admin.uid)).send({ title: 'x', body: 'too short', target: 'BUY' })).status).toBe(400);
@@ -235,5 +238,18 @@ describe.skipIf(!url)('Platform announcements, with real PostgreSQL', () => {
     expect(row.metadata).toMatchObject({ imageUrl: picture });
     expect((await tickets(c.device!.id))[0]!.data).toMatchObject({ imageUrl: picture, type: 'PLATFORM_ANNOUNCEMENT' });
     expect((await request(app).get(`/api/v2/staff/announcements/${a.id}`).set(as(admin.uid))).body.imageUrl).toBe(picture);
+  });
+
+  it('OPTIONS: the city and car dropdowns list supported cities with their opted-in customers and published cars; unknown cities are refused', async () => {
+    const admin = await staff('ADMIN');
+    await customer(); await customer(); await customer({ consent: false });
+    const options = (await request(app).get('/api/v2/staff/announcements/options').set(as(admin.uid))).body;
+    expect(options.cities).toContainEqual({ name: city, recipients: 2 });
+    expect(Array.isArray(options.listings)).toBe(true);
+    const typo = await request(app).post('/api/v2/staff/announcements').set(as(admin.uid)).send({ title: 'Hello there', body: 'A fine body for it', target: 'HOME', city: 'Atlantis' });
+    expect(typo.status).toBe(400);
+    expect(typo.body.code).toBe('CITY_NOT_SUPPORTED');
+    // case does not matter for a real city
+    expect((await draft(admin, { city: city.toUpperCase() })).id).toBeTruthy();
   });
 });

@@ -51,6 +51,7 @@ export function createAnnouncementRouter(deps: { verify: VerifyToken; db: Prisma
   router.put(at('/settings'), wrap((req, res) => announcements.updateSettings(deps.db, actor(res), parse(settingsBody, req.body))));
   // A one-time signature so the browser can upload the picture straight to the media account (it never passes through this server).
   router.post(at('/upload-signature'), wrap(async () => { const signed = signDirectUpload('announcements'); if (!signed) throw new HttpError(503, 'UPLOAD_NOT_CONFIGURED', 'Picture upload is not set up on this server.'); return signed; }));
+  router.get(at('/options'), wrap(() => announcements.formOptions(deps.db)));
   router.get(at('/audience'), wrap(req => announcements.audienceSize(deps.db, typeof req.query.city === 'string' && req.query.city ? req.query.city : null)));
   router.post(at(''), wrap((req, res) => announcements.createAnnouncement(deps.db, actor(res), parse(body, req.body)), 201));
   router.get(at('/:id'), wrap(req => announcements.getAnnouncement(deps.db, parse(uuid, req.params.id))));

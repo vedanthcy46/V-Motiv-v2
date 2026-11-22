@@ -6,7 +6,7 @@ import { EmptyState, ErrorState } from '../components/States';
 import { SelectField, TextField } from '../components/Form';
 import { Modal } from '../components/Modal';
 import { toast } from '../hooks/toastStore';
-import type { Announcement, AnnouncementDraft, AnnouncementList, AnnouncementsApi } from './api';
+import type { Announcement, AnnouncementDraft, AnnouncementList, AnnouncementOptions, AnnouncementsApi } from './api';
 
 const TARGETS: Record<string, string> = { NONE: 'Just show the message', HOME: 'Open the home screen', BUY: 'Open Buy cars', SELL: 'Open Sell your car', RENTALS: 'Open Rentals', SERVICE: 'Open Car service', VEHICLE: 'Open one specific car' };
 const STATUS_TONE: Record<string, Tone> = { DRAFT: 'neutral', SCHEDULED: 'info', SENDING: 'warning', SENT: 'success', CANCELLED: 'neutral' };
@@ -66,10 +66,12 @@ export function AnnouncementsManager({ api }: { api: AnnouncementsApi }) {
   const [confirm, setConfirm] = useState<{ announcement: Announcement; schedule: string } | null>(null);
   const [schedule, setSchedule] = useState('');
   const [uploading, setUploading] = useState<number | null>(null);
+  const [options, setOptions] = useState<AnnouncementOptions | null>(null);
 
   const load = useCallback(async () => {
     try { setData(await api.list()); setError(''); } catch (err) { setError(message(err)); }
   }, [api]);
+  useEffect(() => { api.options().then(setOptions).catch(() => setOptions({ cities: [], listings: [] })); }, [api]);
   useEffect(() => { void load(); const timer = setInterval(() => void load(), 15_000); return () => clearInterval(timer); }, [load]);
   useEffect(() => {
     let current = true;
@@ -77,6 +79,9 @@ export function AnnouncementsManager({ api }: { api: AnnouncementsApi }) {
     return () => { current = false; clearTimeout(timer); };
   }, [api, draft.city]);
 
+  const cityName = draft.city?.trim() ?? '';
+  const cars = useMemo(() => (options?.listings ?? []).filter(car => !cityName || (car.city ?? '').toLowerCase() === cityName.toLowerCase()), [options, cityName]);
+  const rupees = (paise: string) => `₹${(Number(paise) / 100).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
   const valid = draft.title.trim().length >= 3 && draft.body.trim().length >= 5 && (draft.target !== 'VEHICLE' || Boolean(draft.listingId?.trim()));
   const payload = useMemo<AnnouncementDraft>(() => ({ title: draft.title.trim(), body: draft.body.trim(), target: draft.target, listingId: draft.target === 'VEHICLE' ? draft.listingId?.trim() || null : null, city: draft.city?.trim() || null, imageUrl: draft.imageUrl || null }), [draft]);
 
@@ -154,9 +159,19 @@ export function AnnouncementsManager({ api }: { api: AnnouncementsApi }) {
             <SelectField label="When they tap it" value={draft.target} onChange={event => setDraft({ ...draft, target: event.target.value })}>
               {Object.entries(TARGETS).map(([key, label]) => <option key={key} value={key}>{label}</option>)}
             </SelectField>
-            <TextField label="Only customers in city (optional)" placeholder="All cities" value={draft.city ?? ''} onChange={event => setDraft({ ...draft, city: event.target.value })} />
+            <SelectField label="Only customers in city (optional)" value={draft.city ?? ''} onChange={event => setDraft({ ...draft, city: event.target.value, listingId: '' })} hint="Customers pick their city in the app. Leave on All cities to reach everyone.">
+              <option value="">All cities</option>
+              {cityName && !options?.cities.some(city => city.name.toLowerCase() === cityName.toLowerCase()) ? <option value={cityName}>{cityName}</option> : null}
+              {(options?.cities ?? []).map(city => <option key={city.name} value={city.name}>{city.name} ({city.recipients.toLocaleString()} opted in)</option>)}
+            </SelectField>
           </div>
-          {draft.target === 'VEHICLE' ? <TextField label="Vehicle listing ID" placeholder="Paste the published listing's ID" value={draft.listingId ?? ''} onChange={event => setDraft({ ...draft, listingId: event.target.value })} hint="Must be a published car. It opens that car's page." /> : null}
+          {draft.target === 'VEHICLE' ? (
+            <SelectField label="Car to open" value={draft.listingId ?? ''} onChange={event => setDraft({ ...draft, listingId: event.target.value })} hint={cars.length ? `Published cars${cityName ? ` in ${cityName}` : ''}. Tapping the notification opens this car's page.` : `No published cars${cityName ? ` in ${cityName}` : ''} right now.`}>
+              <option value="">Choose a car…</option>
+              {draft.listingId && !cars.some(car => car.id === draft.listingId) ? <option value={draft.listingId}>Currently selected car</option> : null}
+              {cars.map(car => <option key={car.id} value={car.id}>{car.label} · {rupees(car.pricePaise)}{car.city && !cityName ? ` · ${car.city}` : ''}</option>)}
+            </SelectField>
+          ) : null}
           <div className="grid gap-1">
             <span className="text-sm font-medium">Picture (optional)</span>
             {draft.imageUrl ? (

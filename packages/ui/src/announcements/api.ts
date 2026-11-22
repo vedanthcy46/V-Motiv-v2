@@ -9,6 +9,7 @@ export interface Announcement {
 }
 export interface AnnouncementSettings { enabled: boolean; maxPerDay: number }
 export interface AnnouncementDraft { title: string; body: string; target: string; listingId?: string | null; city?: string | null; imageUrl?: string | null }
+export interface AnnouncementOptions { cities: Array<{ name: string; recipients: number }>; listings: Array<{ id: string; label: string; city: string | null; pricePaise: string }> }
 export interface UploadSignature { cloudName: string; apiKey: string; timestamp: number; folder: string; signature: string }
 export interface AnnouncementList { items: Announcement[]; settings: AnnouncementSettings; targets: string[] }
 
@@ -17,6 +18,7 @@ export function createAnnouncementsApi(client: Requester) {
   return {
     list: () => client.request<AnnouncementList>(base),
     uploadSignature: () => client.request<UploadSignature>(`${base}/upload-signature`, { method: 'POST' }),
+    options: () => client.request<AnnouncementOptions>(`${base}/options`, { quiet: true }),
     audience: (city?: string) => client.request<{ recipients: number; withPushDevice: number }>(`${base}/audience${city ? `?city=${encodeURIComponent(city)}` : ''}`, { quiet: true }),
     create: (draft: AnnouncementDraft) => client.request<Announcement>(base, { method: 'POST', body: JSON.stringify(draft) }),
     update: (id: string, draft: AnnouncementDraft) => client.request<Announcement>(`${base}/${id}`, { method: 'PATCH', body: JSON.stringify(draft) }),

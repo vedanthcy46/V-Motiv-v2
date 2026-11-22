@@ -72,7 +72,25 @@ export async function audienceSize(db: Db, city?: string | null) {
 
 export interface AnnouncementInput { title: string; body: string; target: AnnouncementTarget; listingId?: string | null; city?: string | null; imageUrl?: string | null }
 
+/** What the form's dropdowns offer: the cities customers can choose (with how many opted-in customers each has) and the cars customers can open. */
+export async function formOptions(db: Db) {
+  const [cities, counts, listings] = await Promise.all([
+    db.supportedCity.findMany({ where: { active: true }, select: { name: true }, orderBy: { name: 'asc' } }),
+    db.user.groupBy({ by: ['preferredCity'], where: audienceWhere(null), _count: { _all: true } }),
+    db.vehicleListing.findMany({
+      where: { status: 'PUBLISHED' }, orderBy: { publishedAt: 'desc' }, take: 300,
+      select: { id: true, title: true, pricePaise: true, vehicle: { select: { city: true, make: true, model: true, variant: true, manufacturingYear: true } } },
+    }),
+  ]);
+  const byCity = new Map(counts.map(row => [(row.preferredCity ?? '').toLowerCase(), row._count._all]));
+  return {
+    cities: cities.map(city => ({ name: city.name, recipients: byCity.get(city.name.toLowerCase()) ?? 0 })),
+    listings: listings.map(item => ({ id: item.id, label: item.title || `${item.vehicle.manufacturingYear} ${item.vehicle.make} ${item.vehicle.model} ${item.vehicle.variant}`, city: item.vehicle.city, pricePaise: item.pricePaise.toString() })),
+  };
+}
+
 async function validate(db: Db, input: AnnouncementInput) {
+  if (input.city && !(await db.supportedCity.findFirst({ where: { active: true, name: { equals: input.city, mode: 'insensitive' } }, select: { id: true } }))) throw new HttpError(400, 'CITY_NOT_SUPPORTED', 'Choose one of the cities from the list.');
   if (input.imageUrl && !isAllowedMediaUrl(input.imageUrl, cloudinaryCloudName())) throw new HttpError(400, 'IMAGE_NOT_ALLOWED', 'The picture must be uploaded through this page (a secure link from our media account).');
   if (input.target === 'VEHICLE') {
     if (!input.listingId) throw new HttpError(400, 'LISTING_REQUIRED', 'Choose the vehicle this announcement should open.');

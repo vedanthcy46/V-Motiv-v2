@@ -9,7 +9,7 @@ An announcement goes to a customer only if **all** of these are true:
 - the account is `ACTIVE`;
 - **Promotional & Inventory Updates is on** in the app (`User.marketingConsent`, the same switch as promotional email; the app's screen now says it covers notifications too);
 - they are not staff (staff have their own inbox);
-- if the announcement names a city, their preferred city matches.
+- if the announcement names a city (chosen from a dropdown of supported cities, each showing how many opted-in customers it has), their preferred city matches. A "Car to open" dropdown lists the published cars (filtered to the chosen city).
 
 Everyone who matches gets the in-app notification (category `PROMOTION`). A **push** is also queued if their push preference is not turned off and the customer app has registered a device for them. People who turned promotions off, suspended accounts and staff are never included. Transactional messages (offers, receipts, calls) are unaffected.
 
