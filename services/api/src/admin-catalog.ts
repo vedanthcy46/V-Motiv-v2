@@ -31,6 +31,7 @@ export const permissionCatalog = {
   'policy.propose': 'Propose a new business policy version.',
   'policy.approve': 'Independently approve business policy changes.',
   'system.health.read': 'View safe system and integration diagnostics.',
+  'announcement.manage': 'Create, test, schedule, send and cancel platform announcements to customers who opted in to promotions, and switch announcements on or off.',
   'business.oversight.read': 'View cross-portal selling, buying, inventory, and finance summaries.',
   'masterdata.read': 'View reference vehicle and document master data.',
   'masterdata.manage': 'Manage canonical vehicle and document reference data.',
@@ -82,7 +83,7 @@ export const roleCatalog: Record<EmployeeRole, RoleDefinition> = {
   },
   ADMIN: {
     name: 'Administrator', description: 'Routine employee onboarding, configuration, support and business oversight.', privileged: true,
-    permissions: ['admin.portal.access', 'employee.read', 'employee.invite', 'employee.update', 'employee.suspend', 'role.read', 'role.assign', 'branch.read', 'branch.manage', 'approval.read', 'support.read', 'support.assign', 'support.respond', 'support.escalate', 'audit.read', 'export.create', 'email.delivery.read', 'policy.read', 'policy.propose', 'system.health.read', 'business.oversight.read', 'masterdata.read', 'masterdata.manage', 'privacy.request.manage'],
+    permissions: ['admin.portal.access', 'employee.read', 'employee.invite', 'employee.update', 'employee.suspend', 'role.read', 'role.assign', 'branch.read', 'branch.manage', 'approval.read', 'support.read', 'support.assign', 'support.respond', 'support.escalate', 'audit.read', 'export.create', 'email.delivery.read', 'policy.read', 'policy.propose', 'system.health.read', 'business.oversight.read', 'masterdata.read', 'masterdata.manage', 'privacy.request.manage', 'announcement.manage'],
   },
   SECURITY_ADMIN: {
     name: 'Security Administrator', description: 'Identity security, access review and security incident oversight.', privileged: true,
@@ -99,7 +100,7 @@ export const roleCatalog: Record<EmployeeRole, RoleDefinition> = {
   SALES_EXECUTIVE: { name: 'Sales Executive', description: 'Customer sales and acquisition workflows.', privileged: false, permissions: [] },
   INSPECTOR: { name: 'Inspector', description: 'Assigned vehicle inspection execution.', privileged: false, permissions: ['inspection.assignment.read_own', 'inspection.start', 'inspection.answer.write', 'inspection.defect.write', 'inspection.media.capture', 'inspection.media.upload', 'inspection.report.submit', 'inspection.report.read_own', 'inspection.report.revise', 'inspection.template.read'] },
   INSPECTION_REVIEWER: { name: 'Inspection Reviewer', description: 'Independent inspection review.', privileged: false, permissions: ['inspection.assignment.read_branch', 'inspection.review.queue.read', 'inspection.review.report.read', 'inspection.review.approve', 'inspection.review.request_correction', 'inspection.review.reject', 'inspection.template.read'] },
-  OPERATIONS_MANAGER: { name: 'Operations Manager', description: 'Vehicle operations and assignments.', privileged: false, permissions: ['inspection.assignment.read_branch', 'inspection.assignment.assign', 'inspection.template.read'] },
+  OPERATIONS_MANAGER: { name: 'Operations Manager', description: 'Vehicle operations and assignments.', privileged: false, permissions: ['inspection.assignment.read_branch', 'inspection.assignment.assign', 'inspection.template.read', 'announcement.manage'] },
   INVENTORY_MANAGER: { name: 'Inventory Manager', description: 'Vehicle custody and inventory workflow.', privileged: false, permissions: [] },
   LISTING_EXECUTIVE: { name: 'Listing Executive', description: 'Listing preparation and publication workflow.', privileged: false, permissions: [] },
   PRICING_APPROVER: { name: 'Pricing Approver', description: 'Independent acquisition and retail pricing authority.', privileged: true, permissions: [] },
