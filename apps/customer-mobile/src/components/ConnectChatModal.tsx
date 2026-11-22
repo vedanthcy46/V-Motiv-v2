@@ -24,6 +24,7 @@ import {
   type IncomingConnectCall,
   type WebRtcSignal,
 } from '../services/connect-api';
+import { chatMessagesFromSignals, mergeChatMessages, type ChatMessage } from '../services/connect-chat';
 import { radius, space, useAppTheme } from '../theme';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from './KeyboardAvoider';
@@ -33,12 +34,6 @@ interface Props {
   onClose: () => void;
 }
 
-interface ChatMessage {
-  id: string;
-  from: 'VISITOR' | 'OWNER';
-  text: string;
-  sentAt: string;
-}
 
 const QUICK_REPLIES = [
   'Coming in 2 mins to move it!',
@@ -87,17 +82,9 @@ export function ConnectChatModal({ call, onClose }: Props) {
       if (response.status === 'CLOSED') {
         setIsResolved(true);
       }
-      const chatSignals = response.items.filter(
-        item => item.kind === 'CHAT' && item.payload && typeof item.payload.text === 'string'
-      );
-      setMessages(
-        chatSignals.map(s => ({
-          id: s.id,
-          from: (s.senderRole as 'VISITOR' | 'OWNER') || 'VISITOR',
-          text: String(s.payload.text),
-          sentAt: s.createdAt,
-        }))
-      );
+      // Merge, never replace: a message that came over the socket (or that was just typed) stays until its saved copy arrives.
+      const saved = chatMessagesFromSignals(response.items);
+      if (saved.length) setMessages(prev => mergeChatMessages(prev, saved));
     } catch {
       // Background polling non-fatal
     }
@@ -127,18 +114,14 @@ export function ConnectChatModal({ call, onClose }: Props) {
 
         socket.on('chat:message', (data: any) => {
           if (!data?.message?.text) return;
-          const newMsg: ChatMessage = {
-            id: String(Date.now()),
+          setMessages(prev => mergeChatMessages(prev, [{
+            id: `sock_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
             from: data.from === 'OWNER' ? 'OWNER' : 'VISITOR',
             text: String(data.message.text),
             sentAt: data.sentAt || new Date().toISOString(),
-          };
-          setMessages(prev => {
-            if (prev.some(m => m.text === newMsg.text && Math.abs(new Date(m.sentAt).getTime() - new Date(newMsg.sentAt).getTime()) < 2000)) {
-              return prev;
-            }
-            return [...prev, newMsg];
-          });
+            local: true,
+          }]));
+          setTimeout(() => listRef.current?.scrollToEnd({ animated: true }), 100);
         });
 
         socket.on('call:hangup', () => {
@@ -152,7 +135,7 @@ export function ConnectChatModal({ call, onClose }: Props) {
     void initRealtime();
     void refreshSignals();
 
-    const interval = setInterval(() => void refreshSignals(), 3000);
+    const interval = setInterval(() => void refreshSignals(), 2000);
 
     return () => {
       unmounted = true;
@@ -168,13 +151,8 @@ export function ConnectChatModal({ call, onClose }: Props) {
     setBusy(true);
     setInputText('');
 
-    const optimistic: ChatMessage = {
-      id: String(Date.now()),
-      from: 'OWNER',
-      text,
-      sentAt: new Date().toISOString(),
-    };
-    setMessages(prev => [...prev, optimistic]);
+    const localId = `out_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    setMessages(prev => mergeChatMessages(prev, [{ id: localId, from: 'OWNER', text, sentAt: new Date().toISOString(), local: true }]));
 
     try {
       if (socketRef.current?.connected) {
@@ -182,6 +160,8 @@ export function ConnectChatModal({ call, onClose }: Props) {
       }
       await sendOwnerCallSignal(call.callSessionId, 'CHAT', { text });
     } catch (e: any) {
+      setMessages(prev => prev.filter(item => item.id !== localId));
+      setInputText(current => current || text);
       Alert.alert('Message not sent', e?.message || 'Please check your connection and try again.');
     } finally {
       setBusy(false);

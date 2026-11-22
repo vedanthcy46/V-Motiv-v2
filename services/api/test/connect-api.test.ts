@@ -180,16 +180,19 @@ function setupApp() {
         const link = links.find((item) => item.id === found.linkId);
         return Promise.resolve({ ...found, link });
       }),
-      findMany: vi.fn().mockImplementation(({ where }) => {
+      findMany: vi.fn().mockImplementation(({ where, take }) => {
         const items = callSessions.filter((call) => {
+          if (where.linkId && call.linkId !== where.linkId) return false;
+          if (where.callerType && call.callerType !== where.callerType) return false;
+          if (where.createdAt?.gte && new Date(call.createdAt) < new Date(where.createdAt.gte)) return false;
           if (where.status?.in && !where.status.in.includes(call.status)) return false;
           const link = links.find((item) => item.id === call.linkId);
           return !where.link?.userId || link?.userId === where.link.userId;
-        }).map((call) => {
+        }).sort((a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()).map((call) => {
           const link = links.find((item) => item.id === call.linkId);
           return { ...call, link: { ...link, vehicle: vehicles.find((vehicle) => vehicle.id === link?.vehicleId) } };
         });
-        return Promise.resolve(items);
+        return Promise.resolve(typeof take === 'number' ? items.slice(0, take) : items);
       }),
       create: vi.fn().mockImplementation(({ data }) => {
         const item = { id: crypto.randomUUID(), ...data, createdAt: new Date(), updatedAt: new Date() };
@@ -507,6 +510,60 @@ describe('V MOTIV V2 — Connect Integration API Suite', () => {
     expect(incoming.status).toBe(200);
     expect(incoming.body.items).toHaveLength(2);
     expect(incoming.body.items.some((item: { callerType: string }) => item.callerType === 'visitor')).toBe(true);
+  });
+
+  it('chat: a message sent by either side is saved and shows up for the other, without any socket', async () => {
+    const { app } = setupApp();
+    const issue = await request(app).post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/issue`).set('Authorization', 'Bearer valid-customer-token').send({});
+    const token = issue.body.stickerUrl.split('/').pop();
+    const chat = await request(app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode: 'CHAT' });
+    const id = chat.body.callSessionId;
+    const owner = (path = '') => request(app).get(`/api/v2/customer/connect/calls/${id}/signals${path}`).set('Authorization', 'Bearer valid-customer-token');
+    const visitor = (path = '') => request(app).get(`/api/v2/public/connect/${token}/calls/${id}/signals${path}`);
+
+    // visitor -> owner
+    expect((await request(app).post(`/api/v2/public/connect/${token}/calls/${id}/signals`).send({ kind: 'CHAT', payload: { text: 'Your lights are on' } })).status).toBe(201);
+    const seenByOwner = (await owner()).body.items.filter((item: any) => item.kind === 'CHAT');
+    expect(seenByOwner.map((item: any) => [item.senderRole, item.payload.text])).toEqual([['VISITOR', 'Your lights are on']]);
+
+    // owner -> visitor
+    expect((await request(app).post(`/api/v2/customer/connect/calls/${id}/signals`).set('Authorization', 'Bearer valid-customer-token').send({ kind: 'CHAT', payload: { text: 'Thanks, coming now' } })).status).toBe(201);
+    const seenByVisitor = (await visitor()).body.items.filter((item: any) => item.kind === 'CHAT');
+    expect(seenByVisitor.map((item: any) => [item.senderRole, item.payload.text])).toEqual([['VISITOR', 'Your lights are on'], ['OWNER', 'Thanks, coming now']]);
+    expect(seenByVisitor.every((item: any) => item.id && item.createdAt)).toBe(true);
+  });
+
+  it('rate limit: 3 calls and 3 chats per hour per vehicle, live conversation traffic is never counted', async () => {
+    const { app } = setupApp();
+    const issue = await request(app).post(`/api/v2/customer/garage/${VEHICLE_ID}/connect/issue`).set('Authorization', 'Bearer valid-customer-token').send({});
+    const token = issue.body.stickerUrl.split('/').pop();
+    const ownerAuth = { Authorization: 'Bearer valid-customer-token' };
+    const ring = (mode: 'VOICE' | 'CHAT') => request(app).post(`/api/v2/public/connect/${token}/call-requests`).send({ consentGiven: true, mode });
+    const hangUp = (id: string) => request(app).post(`/api/v2/customer/connect/calls/${id}/signals`).set(ownerAuth).send({ kind: 'CLOSE', payload: {} });
+
+    for (let i = 0; i < 3; i++) {
+      const call = await ring('VOICE');
+      expect(call.status).toBe(201);
+      await hangUp(call.body.callSessionId);
+    }
+    const fourth = await ring('VOICE');
+    expect(fourth.status).toBe(429);
+    expect(fourth.body.code).toBe('CONNECT_CALL_LIMIT_REACHED');
+    expect(fourth.body.message).toMatch(/3 times in the last hour.*try again in about \d+ minute/);
+
+    // chat has its own allowance, so a used-up call limit does not block a message
+    const chat = await ring('CHAT');
+    expect(chat.status).toBe(201);
+    const id = chat.body.callSessionId;
+    // a conversation is not a "request": hundreds of polls and messages do not hit any limit
+    for (let i = 0; i < 40; i++) {
+      expect((await request(app).get(`/api/v2/public/connect/${token}/calls/${id}/signals`)).status).toBe(200);
+    }
+    for (let i = 0; i < 10; i++) {
+      expect((await request(app).post(`/api/v2/public/connect/${token}/calls/${id}/signals`).send({ kind: 'CHAT', payload: { text: `m${i}` } })).status).toBe(201);
+    }
+    // asking again while a chat is still open just returns that chat, and costs nothing
+    expect((await ring('CHAT')).body.alreadyPending).toBe(true);
   });
 
   describe('per-vehicle call / message switches', () => {
