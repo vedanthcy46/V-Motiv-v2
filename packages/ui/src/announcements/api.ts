@@ -3,18 +3,20 @@ type Requester = { request<T>(path: string, init?: { method?: string; body?: str
 
 export type AnnouncementStatus = 'DRAFT' | 'SCHEDULED' | 'SENDING' | 'SENT' | 'CANCELLED';
 export interface Announcement {
-  id: string; title: string; body: string; target: string; listingId: string | null; city: string | null; status: AnnouncementStatus;
+  id: string; title: string; body: string; target: string; listingId: string | null; imageUrl: string | null; city: string | null; status: AnnouncementStatus;
   scheduledFor: string | null; startedAt: string | null; completedAt: string | null; cancelledAt: string | null;
   recipientCount: number; pushQueued: number; lastError: string | null; createdAt: string;
 }
 export interface AnnouncementSettings { enabled: boolean; maxPerDay: number }
-export interface AnnouncementDraft { title: string; body: string; target: string; listingId?: string | null; city?: string | null }
+export interface AnnouncementDraft { title: string; body: string; target: string; listingId?: string | null; city?: string | null; imageUrl?: string | null }
+export interface UploadSignature { cloudName: string; apiKey: string; timestamp: number; folder: string; signature: string }
 export interface AnnouncementList { items: Announcement[]; settings: AnnouncementSettings; targets: string[] }
 
 export function createAnnouncementsApi(client: Requester) {
   const base = '/staff/announcements';
   return {
     list: () => client.request<AnnouncementList>(base),
+    uploadSignature: () => client.request<UploadSignature>(`${base}/upload-signature`, { method: 'POST' }),
     audience: (city?: string) => client.request<{ recipients: number; withPushDevice: number }>(`${base}/audience${city ? `?city=${encodeURIComponent(city)}` : ''}`, { quiet: true }),
     create: (draft: AnnouncementDraft) => client.request<Announcement>(base, { method: 'POST', body: JSON.stringify(draft) }),
     update: (id: string, draft: AnnouncementDraft) => client.request<Announcement>(`${base}/${id}`, { method: 'PATCH', body: JSON.stringify(draft) }),

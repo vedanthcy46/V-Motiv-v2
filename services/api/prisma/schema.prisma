@@ -3444,6 +3444,8 @@ model PlatformAnnouncement {
   /// Where tapping it goes in the app: NONE, HOME, BUY, SELL, RENTALS, SERVICE, or VEHICLE (with listingId).
   target             String             @default("NONE")
   listingId          String?
+  /// Optional picture (an https address from our own media account), shown in the notification inside the app and, where the phone supports it, in the push.
+  imageUrl           String?
   /// Optional: only customers whose preferred city is this.
   city               String?
   status             AnnouncementStatus @default(DRAFT)

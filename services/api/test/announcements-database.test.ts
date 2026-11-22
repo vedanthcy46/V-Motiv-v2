@@ -214,4 +214,26 @@ describe.skipIf(!url)('Platform announcements, with real PostgreSQL', () => {
     expect(await inbox(c.id)).toHaveLength(0);
     expect((await request(app).post(`/api/v2/staff/announcements/${a.id}/cancel`).set(as(admin.uid))).status).toBe(409);
   });
+
+  it('IMAGE: only a secure https picture is accepted, and it travels with the in-app notification and the push', async () => {
+    const admin = await staff('ADMIN');
+    const c = await customer();
+    const bad = await request(app).post('/api/v2/staff/announcements').set(as(admin.uid)).send({ title: 'Big sale news', body: 'Take a look at what is new.', target: 'HOME', imageUrl: 'http://insecure.example/x.jpg' });
+    expect(bad.status).toBe(400);
+    expect(bad.body.code).toBe('IMAGE_NOT_ALLOWED');
+    const picture = 'https://res.cloudinary.com/demo/image/upload/announcements/new-cars.jpg';
+    const a = await draft(admin, { title: 'New cars have arrived', imageUrl: picture, target: 'HOME' });
+    expect(a.imageUrl).toBe(picture);
+    // it can be removed again
+    const removed = await request(app).patch(`/api/v2/staff/announcements/${a.id}`).set(as(admin.uid)).send({ title: 'New cars have arrived', body: 'Fresh certified cars just arrived. Take a look.', target: 'HOME', imageUrl: null });
+    expect(removed.body.imageUrl).toBeNull();
+    await request(app).patch(`/api/v2/staff/announcements/${a.id}`).set(as(admin.uid)).send({ title: 'New cars have arrived', body: 'Fresh certified cars just arrived. Take a look.', target: 'HOME', imageUrl: picture, city });
+
+    await db.platformAnnouncement.update({ where: { id: a.id }, data: { status: 'SENDING', startedAt: DAYTIME } });
+    await processAnnouncements(db, DAYTIME);
+    const row = (await inbox(c.id))[0]!;
+    expect(row.metadata).toMatchObject({ imageUrl: picture });
+    expect((await tickets(c.device!.id))[0]!.data).toMatchObject({ imageUrl: picture, type: 'PLATFORM_ANNOUNCEMENT' });
+    expect((await request(app).get(`/api/v2/staff/announcements/${a.id}`).set(as(admin.uid))).body.imageUrl).toBe(picture);
+  });
 });

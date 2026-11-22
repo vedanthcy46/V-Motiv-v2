@@ -26,6 +26,7 @@ import {
   MessageSquare,
   Mic,
   MicOff,
+  Phone,
   PhoneOff,
   Send,
   ShieldCheck,
@@ -46,17 +47,13 @@ import {
 } from '../services/call-audio';
 import { candidatePayload, descriptionPayload } from '../services/webrtc-payload';
 import { checkMicrophone, ensureMicrophone, ensureMicrophoneGranted } from '../services/mic-permission';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { chatMessagesFromSignals, mergeChatMessages, type ChatMessage } from '../services/connect-chat';
 import { KeyboardAvoider } from './KeyboardAvoider';
-import { KeyboardScrollView } from './KeyboardScrollView';
 
 const ICE_SERVERS = [{ urls: ['stun:stun.l.google.com:19302', 'stun:stun1.l.google.com:19302'] }];
 
-interface ChatItem {
-  id: string;
-  from: 'VISITOR' | 'OWNER';
-  text: string;
-  sentAt: string;
-}
+type ChatItem = ChatMessage;
 
 const ensureMicrophonePermission = ensureMicrophoneGranted;
 
@@ -69,6 +66,7 @@ export function ConnectVoiceCall({
 }) {
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
+  const insets = useSafeAreaInsets();
 
   const peer = useRef<RTCPeerConnection | null>(null);
   const localStream = useRef<MediaStream | null>(null);
@@ -311,15 +309,9 @@ export function ConnectVoiceCall({
             });
 
             socket.on('chat:message', (item: any) => {
-              setChatMessages(prev => [
-                ...prev,
-                {
-                  id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-                  from: item.from || 'VISITOR',
-                  text: item.message?.text || (typeof item.message === 'string' ? item.message : ''),
-                  sentAt: item.sentAt || new Date().toISOString(),
-                },
-              ]);
+              const text = item?.message?.text || (typeof item?.message === 'string' ? item.message : '');
+              if (!text) return;
+              setChatMessages(prev => mergeChatMessages(prev, [{ id: `sock_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`, from: item.from === 'OWNER' ? 'OWNER' : 'VISITOR', text: String(text), sentAt: item.sentAt || new Date().toISOString(), local: true }]));
             });
 
             socket.on('call:hangup', () => {
@@ -351,29 +343,14 @@ export function ConnectVoiceCall({
               if (active) onCloseRef.current?.();
               return;
             }
+            // Chat is always read from the saved messages (the socket may be down); merged so nothing doubles or vanishes.
+            const saved = chatMessagesFromSignals(response.items);
+            if (saved.length) setChatMessages(prev => mergeChatMessages(prev, saved));
             for (const signal of response.items) {
               cursor.current = signal.createdAt;
-              if (!pc || signal.senderRole === 'OWNER') continue;
+              if (!pc || signal.senderRole === 'OWNER' || signal.kind === 'CHAT') continue;
               if (signal.kind === 'HANGUP' || signal.kind === 'CLOSE') {
                 if (active) onCloseRef.current?.();
-              } else if (signal.kind === 'CHAT' && signal.payload) {
-                const text = typeof (signal.payload as any).text === 'string' ? (signal.payload as any).text : '';
-                if (text) {
-                  setChatMessages(prev => {
-                    if (prev.some(m => m.text === text && Math.abs(new Date(m.sentAt).getTime() - new Date(signal.createdAt).getTime()) < 2000)) {
-                      return prev;
-                    }
-                    return [
-                      ...prev,
-                      {
-                        id: signal.id,
-                        from: 'VISITOR',
-                        text,
-                        sentAt: signal.createdAt,
-                      },
-                    ];
-                  });
-                }
               } else {
                 await handleSignal(signal.kind, signal.payload);
               }
@@ -420,17 +397,16 @@ export function ConnectVoiceCall({
   const sendChat = () => {
     const text = chatInput.trim();
     if (!text) return;
-    socketRef.current?.emit('chat:message', { text });
-    setChatMessages(prev => [
-      ...prev,
-      {
-        id: `m_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        from: 'OWNER',
-        text,
-        sentAt: new Date().toISOString(),
-      },
-    ]);
+    const localId = `out_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    setChatMessages(prev => mergeChatMessages(prev, [{ id: localId, from: 'OWNER', text, sentAt: new Date().toISOString(), local: true }]));
     setChatInput('');
+    // Instant copy over the socket, plus the saved copy the caller's phone reads.
+    if (socketRef.current?.connected) socketRef.current.emit('chat:message', { text });
+    sendOwnerCallSignal(callSessionId, 'CHAT', { text }).catch(() => {
+      setChatMessages(prev => prev.filter(item => item.id !== localId));
+      setChatInput(current => current || text);
+      Alert.alert('Message not sent', 'Check your connection and try again.');
+    });
   };
 
   const handleEndCall = () => {
@@ -439,187 +415,148 @@ export function ConnectVoiceCall({
     onClose();
   };
 
+  const connected = state.includes('Connected');
+  const ringing = state.includes('Connecting') || state.includes('Waiting');
+
   return (
-    <Modal visible transparent animationType="fade" onRequestClose={handleEndCall}>
-      <KeyboardAvoider
-        style={styles.root}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 8 : 0}
-      >
-        <KeyboardScrollView
-          ref={scrollRef}
-          contentContainerStyle={styles.scrollRoot}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="interactive"
-          showsVerticalScrollIndicator={false}
-          bounces={false}
-        >
-          <View style={styles.card}>
-            <View style={styles.headerRow}>
-              <View>
-                <Text style={styles.kicker}>V MOTIV CONNECT</Text>
-                <Text style={styles.title}>Private Owner Call</Text>
-              </View>
-              <View style={styles.privacyBadge}>
-                <ShieldCheck size={14} color="#10B981" />
-                <Text style={styles.privacyText}>Number Masked</Text>
-              </View>
+    <Modal visible animationType="slide" statusBarTranslucent onRequestClose={handleEndCall}>
+      <KeyboardAvoider style={[styles.screen, { paddingTop: insets.top + 12, paddingBottom: insets.bottom + 16 }]} keyboardVerticalOffset={0}>
+        <View style={styles.headerRow}>
+          <View>
+            <Text style={styles.kicker}>V MOTIV CONNECT</Text>
+            <Text style={styles.title}>Private call</Text>
+          </View>
+          <View style={styles.privacyBadge}>
+            <ShieldCheck size={14} color="#10B981" />
+            <Text style={styles.privacyText}>Number hidden</Text>
+          </View>
+        </View>
+
+        {chatOpen ? (
+          <View style={styles.chatPanel}>
+            <View style={styles.chatHeader}>
+              <Text style={styles.chatTitle}>Chat with caller{connected ? `  ·  ${formatTimer(callDuration)}` : ''}</Text>
+              <Pressable onPress={() => setChatOpen(false)} hitSlop={10} accessibilityLabel="Close chat"><X size={20} color="#C7D6EA" /></Pressable>
             </View>
-
-            <View style={styles.statusBox}>
-              <Text style={styles.description}>{state}</Text>
-              {micPermissionDenied ? (
-                <View style={styles.micDeniedBox}>
-                  <Text style={styles.micDeniedNotice}>
-                    Microphone access needed for two-way voice.
-                  </Text>
-                  <Text style={styles.micDeniedSub}>
-                    You can hear the caller live. Tap below to enable microphone, or reply via Chat.
-                  </Text>
-                  <Pressable
-                    onPress={async () => {
-                      const access = await ensureMicrophone();
-                      if (access === 'granted') {
-                        // Allowed: open it now and clear the notice. (It used to stay on screen after the person tapped Allow.)
-                        if (!(await attachMicrophone())) { setMicPermissionDenied(false); setState('Microphone could not be started. Use Chat to reply.'); }
-                      } else if (access === 'blocked') {
-                        void Linking.openSettings();
-                      }
-                    }}
-                    style={styles.enableMicBtn}
-                  >
-                    <Mic size={14} color="#061A38" />
-                    <Text style={styles.enableMicBtnText}>Enable Microphone</Text>
-                  </Pressable>
-                </View>
-              ) : state.includes('Connecting') || state.includes('Waiting') ? (
-                <ActivityIndicator color="#F7B503" style={{ marginTop: 8 }} />
-              ) : (
-                <Text style={styles.timerText}>{formatTimer(callDuration)}</Text>
-              )}
-            </View>
-
-            {/* Chat Expandable Section */}
-            {chatOpen ? (
-              <View style={styles.chatContainer}>
-                <View style={styles.chatHeader}>
-                  <Text style={styles.chatTitle}>Live Chat with Caller</Text>
-                  <Pressable onPress={() => setChatOpen(false)} hitSlop={10}>
-                    <X size={18} color="#C7D6EA" />
-                  </Pressable>
-                </View>
-                <View style={styles.chatMessages}>
-                  {chatMessages.length === 0 ? (
-                    <Text style={styles.chatEmpty}>No messages yet. Send a message below.</Text>
-                  ) : chatMessages.map(item => {
-                    const isMe = item.from === 'OWNER';
-                    return (
-                      <View key={item.id} style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
-                        <Text style={styles.bubbleAuthor}>{isMe ? 'You' : 'Caller'}</Text>
-                        <Text style={styles.bubbleText}>{item.text}</Text>
-                      </View>
-                    );
-                  })}
-                </View>
-                <View style={styles.chatInputRow}>
-                  <TextInput
-                    value={chatInput}
-                    onChangeText={setChatInput}
-                    placeholder="Type a message…"
-                    placeholderTextColor="#7C92AE"
-                    style={styles.chatInput}
-                    returnKeyType="send"
-                    onFocus={() => setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 120)}
-                    onSubmitEditing={sendChat}
-                  />
-                  <Pressable onPress={sendChat} disabled={!chatInput.trim()} style={styles.sendBtn}>
-                    <Send size={16} color="#061A38" />
-                  </Pressable>
-                </View>
-              </View>
-            ) : null}
-
-            {/* Action buttons row */}
-            <View style={styles.controlsRow}>
-              <Pressable
-                onPress={toggleMute}
-                accessibilityRole="button"
-                accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'}
-                accessibilityState={{ selected: isMuted }}
-                style={[styles.circleBtn, isMuted && styles.circleBtnActive]}
-              >
-                {isMuted ? <MicOff size={20} color="#FFFFFF" /> : <Mic size={20} color="#FFFFFF" />}
-                <Text style={styles.circleBtnLabel}>{isMuted ? 'Unmute' : 'Mute'}</Text>
-              </Pressable>
-
-              <Pressable
-                onPress={toggleSpeakerphone}
-                accessibilityRole="button"
-                accessibilityLabel={speakerphoneOn ? 'Use earpiece' : 'Use speakerphone'}
-                accessibilityState={{ selected: speakerphoneOn }}
-                style={[styles.circleBtn, speakerphoneOn && styles.circleBtnActive]}
-              >
-                {speakerphoneOn ? <Volume2 size={20} color="#061A38" /> : <VolumeX size={20} color="#FFFFFF" />}
-                <Text style={[styles.circleBtnLabel, speakerphoneOn && { color: '#061A38' }]}>
-                  {speakerphoneOn ? 'Speaker' : 'Earpiece'}
-                </Text>
-              </Pressable>
-
-              <Pressable
-                onPress={() => setChatOpen(prev => !prev)}
-                style={[styles.circleBtn, chatOpen && styles.circleBtnActive]}
-              >
-                <MessageSquare size={20} color="#FFFFFF" />
-                <Text style={styles.circleBtnLabel}>
-                  Chat{chatMessages.length > 0 ? ` (${chatMessages.length})` : ''}
-                </Text>
-              </Pressable>
-
-              <Pressable onPress={handleEndCall} style={styles.endBtn}>
-                <PhoneOff color="#FFFFFF" size={20} />
-                <Text style={styles.endText}>End Call</Text>
-              </Pressable>
+            <ScrollView ref={scrollRef} style={styles.chatScroll} contentContainerStyle={styles.chatMessages} keyboardShouldPersistTaps="handled" showsVerticalScrollIndicator={false}>
+              {chatMessages.length === 0 ? (
+                <Text style={styles.chatEmpty}>No messages yet. You can talk and type at the same time.</Text>
+              ) : chatMessages.map(item => {
+                const isMe = item.from === 'OWNER';
+                return (
+                  <View key={item.id} style={[styles.bubble, isMe ? styles.bubbleMe : styles.bubbleThem]}>
+                    <Text style={styles.bubbleAuthor}>{isMe ? 'You' : 'Caller'}</Text>
+                    <Text style={[styles.bubbleText, !isMe && { color: '#FFFFFF' }]}>{item.text}</Text>
+                  </View>
+                );
+              })}
+            </ScrollView>
+            <View style={styles.chatInputRow}>
+              <TextInput value={chatInput} onChangeText={setChatInput} placeholder="Type a message…" placeholderTextColor="#7C92AE" style={styles.chatInput} returnKeyType="send" onSubmitEditing={sendChat} />
+              <Pressable onPress={sendChat} disabled={!chatInput.trim()} accessibilityLabel="Send message" style={[styles.sendBtn, !chatInput.trim() && { opacity: 0.5 }]}><Send size={18} color="#061A38" /></Pressable>
             </View>
           </View>
-        </KeyboardScrollView>
+        ) : (
+          <View style={styles.middle}>
+            <View style={[styles.avatarRing, connected && styles.avatarRingLive]}>
+              <View style={styles.avatar}><Phone size={44} color="#F7B503" /></View>
+            </View>
+            <Text style={styles.callerName}>Vehicle passer-by</Text>
+            {micPermissionDenied ? (
+              <View style={styles.micDeniedBox}>
+                <Text style={styles.micDeniedNotice}>Microphone access needed for two-way voice.</Text>
+                <Text style={styles.micDeniedSub}>You can hear the caller live. Allow the microphone, or reply with Chat.</Text>
+                <Pressable
+                  onPress={async () => {
+                    const access = await ensureMicrophone();
+                    if (access === 'granted') {
+                      if (!(await attachMicrophone())) { setMicPermissionDenied(false); setState('Microphone could not be started. Use Chat to reply.'); }
+                    } else if (access === 'blocked') {
+                      void Linking.openSettings();
+                    }
+                  }}
+                  style={styles.enableMicBtn}
+                >
+                  <Mic size={16} color="#061A38" />
+                  <Text style={styles.enableMicBtnText}>Enable microphone</Text>
+                </Pressable>
+              </View>
+            ) : (
+              <>
+                {connected ? <Text style={styles.timerText}>{formatTimer(callDuration)}</Text> : null}
+                <Text style={styles.description}>{state}</Text>
+                {ringing ? <ActivityIndicator color="#F7B503" style={{ marginTop: 10 }} /> : null}
+              </>
+            )}
+          </View>
+        )}
+
+        <View style={styles.controlsRow}>
+          <Pressable onPress={toggleMute} accessibilityRole="button" accessibilityLabel={isMuted ? 'Unmute microphone' : 'Mute microphone'} accessibilityState={{ selected: isMuted }} style={styles.controlItem}>
+            <View style={[styles.circleBtn, isMuted && styles.circleBtnActive]}>{isMuted ? <MicOff size={24} color="#061A38" /> : <Mic size={24} color="#FFFFFF" />}</View>
+            <Text style={styles.circleBtnLabel}>{isMuted ? 'Unmute' : 'Mute'}</Text>
+          </Pressable>
+          <Pressable onPress={toggleSpeakerphone} accessibilityRole="button" accessibilityLabel={speakerphoneOn ? 'Switch to earpiece' : 'Switch to speaker'} accessibilityState={{ selected: speakerphoneOn }} style={styles.controlItem}>
+            <View style={[styles.circleBtn, speakerphoneOn && styles.circleBtnActive]}>{speakerphoneOn ? <Volume2 size={24} color="#061A38" /> : <Phone size={24} color="#FFFFFF" />}</View>
+            <Text style={styles.circleBtnLabel}>{speakerphoneOn ? 'Speaker' : 'Earpiece'}</Text>
+          </Pressable>
+          <Pressable onPress={() => setChatOpen(prev => !prev)} accessibilityRole="button" accessibilityLabel="Chat" accessibilityState={{ selected: chatOpen }} style={styles.controlItem}>
+            <View style={[styles.circleBtn, chatOpen && styles.circleBtnActive]}>
+              <MessageSquare size={24} color={chatOpen ? '#061A38' : '#FFFFFF'} />
+              {!chatOpen && chatMessages.length > 0 ? <View style={styles.badge}><Text style={styles.badgeText}>{chatMessages.length > 9 ? '9+' : chatMessages.length}</Text></View> : null}
+            </View>
+            <Text style={styles.circleBtnLabel}>Chat</Text>
+          </Pressable>
+        </View>
+        <Pressable onPress={handleEndCall} accessibilityRole="button" accessibilityLabel="End call" style={styles.endBtn}>
+          <PhoneOff color="#FFFFFF" size={24} />
+          <Text style={styles.endText}>End call</Text>
+        </Pressable>
       </KeyboardAvoider>
     </Modal>
   );
 }
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: 'rgba(2,11,24,0.85)' },
-  scrollRoot: { flexGrow: 1, justifyContent: 'center', alignItems: 'center', padding: 16, paddingBottom: 24 },
-  card: { alignItems: 'center', gap: 12, borderRadius: 20, padding: 18, backgroundColor: '#0B2342', borderWidth: 1, borderColor: '#1F3C64', width: '100%', maxWidth: 400, maxHeight: '100%' },
-  headerRow: { width: '100%', flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  kicker: { color: '#F7B503', fontWeight: '800', letterSpacing: 1, fontSize: 10 },
-  title: { color: '#FFFFFF', fontSize: 20, fontWeight: '800' },
-  privacyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(16,185,129,0.15)', paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10 },
+  screen: { flex: 1, backgroundColor: '#061A38', paddingHorizontal: 20 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  kicker: { color: '#F7B503', fontWeight: '800', letterSpacing: 1, fontSize: 11 },
+  title: { color: '#FFFFFF', fontSize: 22, fontWeight: '800' },
+  privacyBadge: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: 'rgba(16,185,129,0.15)', paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12 },
   privacyText: { color: '#10B981', fontSize: 11, fontWeight: '700' },
-  statusBox: { alignItems: 'center', marginVertical: 4 },
-  micDeniedBox: { alignItems: 'center', marginTop: 6, paddingHorizontal: 8, gap: 6 },
-  micDeniedNotice: { color: '#F7B503', fontSize: 12, fontWeight: '700', textAlign: 'center' },
-  micDeniedSub: { color: '#C7D6EA', fontSize: 11, textAlign: 'center', lineHeight: 15 },
-  enableMicBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#F7B503', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14, marginTop: 4 },
-  enableMicBtnText: { color: '#061A38', fontSize: 11, fontWeight: '800' },
-  description: { color: '#C7D6EA', textAlign: 'center', fontSize: 13, lineHeight: 18 },
-  timerText: { color: '#F7B503', fontSize: 18, fontWeight: '800', marginTop: 4, letterSpacing: 1 },
-  controlsRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 6, width: '100%', justifyContent: 'center' },
-  circleBtn: { alignItems: 'center', justifyContent: 'center', width: 54, height: 54, borderRadius: 27, backgroundColor: 'rgba(255,255,255,0.12)', gap: 2 },
+  middle: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 6 },
+  avatarRing: { width: 150, height: 150, borderRadius: 75, borderWidth: 2, borderColor: 'rgba(247,181,3,0.25)', alignItems: 'center', justifyContent: 'center', marginBottom: 12 },
+  avatarRingLive: { borderColor: '#10B981' },
+  avatar: { width: 116, height: 116, borderRadius: 58, backgroundColor: 'rgba(247,181,3,0.14)', alignItems: 'center', justifyContent: 'center' },
+  callerName: { color: '#FFFFFF', fontSize: 24, fontWeight: '800' },
+  timerText: { color: '#F7B503', fontSize: 30, fontWeight: '800', letterSpacing: 1.5, marginTop: 2 },
+  description: { color: '#C7D6EA', textAlign: 'center', fontSize: 15, lineHeight: 21, paddingHorizontal: 16 },
+  micDeniedBox: { alignItems: 'center', marginTop: 8, paddingHorizontal: 12, gap: 8 },
+  micDeniedNotice: { color: '#F7B503', fontSize: 14, fontWeight: '700', textAlign: 'center' },
+  micDeniedSub: { color: '#C7D6EA', fontSize: 13, textAlign: 'center', lineHeight: 18 },
+  enableMicBtn: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#F7B503', paddingHorizontal: 18, paddingVertical: 10, borderRadius: 22, marginTop: 4 },
+  enableMicBtnText: { color: '#061A38', fontSize: 14, fontWeight: '800' },
+  controlsRow: { flexDirection: 'row', justifyContent: 'space-evenly', alignItems: 'flex-start', marginTop: 14, marginBottom: 18 },
+  controlItem: { alignItems: 'center', gap: 6, minWidth: 80 },
+  circleBtn: { alignItems: 'center', justifyContent: 'center', width: 64, height: 64, borderRadius: 32, backgroundColor: 'rgba(255,255,255,0.14)' },
   circleBtnActive: { backgroundColor: '#F7B503' },
-  circleBtnLabel: { color: '#C7D6EA', fontSize: 10, fontWeight: '600' },
-  endBtn: { flex: 1, minWidth: 100, height: 54, paddingHorizontal: 14, borderRadius: 27, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#DE3E49' },
-  endText: { color: '#FFFFFF', fontWeight: '800', fontSize: 14 },
-  chatContainer: { width: '100%', backgroundColor: '#061A38', borderRadius: 14, padding: 10, borderWidth: 1, borderColor: '#1F3C64' },
-  chatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1F3C64', paddingBottom: 6 },
-  chatTitle: { color: '#FFFFFF', fontSize: 12, fontWeight: '700' },
-  chatMessages: { gap: 8, paddingVertical: 8 },
-  chatEmpty: { color: '#7C92AE', fontSize: 11, textAlign: 'center', marginVertical: 20 },
-  bubble: { maxWidth: '82%', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 6 },
+  circleBtnLabel: { color: '#C7D6EA', fontSize: 12, fontWeight: '600' },
+  badge: { position: 'absolute', top: 2, right: 2, minWidth: 18, height: 18, borderRadius: 9, backgroundColor: '#EF4444', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 4 },
+  badgeText: { color: '#FFFFFF', fontSize: 10, fontWeight: '800' },
+  endBtn: { height: 60, borderRadius: 30, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10, backgroundColor: '#DE3E49' },
+  endText: { color: '#FFFFFF', fontWeight: '800', fontSize: 17 },
+  chatPanel: { flex: 1, marginTop: 14, backgroundColor: '#0B2342', borderRadius: 18, padding: 12, borderWidth: 1, borderColor: '#1F3C64' },
+  chatHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#1F3C64', paddingBottom: 8 },
+  chatTitle: { color: '#FFFFFF', fontSize: 14, fontWeight: '700' },
+  chatScroll: { flex: 1 },
+  chatMessages: { gap: 8, paddingVertical: 10, flexGrow: 1 },
+  chatEmpty: { color: '#7C92AE', fontSize: 13, textAlign: 'center', marginVertical: 24 },
+  bubble: { maxWidth: '82%', borderRadius: 14, paddingHorizontal: 12, paddingVertical: 8 },
   bubbleMe: { alignSelf: 'flex-end', backgroundColor: '#F7B503' },
   bubbleThem: { alignSelf: 'flex-start', backgroundColor: '#1F3C64' },
-  bubbleAuthor: { fontSize: 9, fontWeight: '700', marginBottom: 2, color: '#061A38' },
-  bubbleText: { fontSize: 12, color: '#061A38' },
-  chatInputRow: { flexDirection: 'row', gap: 6, marginTop: 6 },
-  chatInput: { flex: 1, height: 36, backgroundColor: '#0B2342', borderRadius: 18, paddingHorizontal: 12, color: '#FFFFFF', fontSize: 12, borderWidth: 1, borderColor: '#1F3C64' },
-  sendBtn: { width: 36, height: 36, borderRadius: 18, backgroundColor: '#F7B503', alignItems: 'center', justifyContent: 'center' },
+  bubbleAuthor: { fontSize: 10, fontWeight: '700', marginBottom: 2, color: '#7C92AE' },
+  bubbleText: { fontSize: 14, color: '#061A38' },
+  chatInputRow: { flexDirection: 'row', gap: 8, marginTop: 6 },
+  chatInput: { flex: 1, height: 44, backgroundColor: '#061A38', borderRadius: 22, paddingHorizontal: 16, color: '#FFFFFF', fontSize: 14, borderWidth: 1, borderColor: '#1F3C64' },
+  sendBtn: { width: 44, height: 44, borderRadius: 22, backgroundColor: '#F7B503', alignItems: 'center', justifyContent: 'center' },
 });

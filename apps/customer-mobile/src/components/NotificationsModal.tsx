@@ -1,6 +1,7 @@
 import React, { useMemo } from 'react';
 import {
   Alert,
+  Image,
   Modal,
   Pressable,
   ScrollView,
@@ -190,6 +191,10 @@ export function NotificationsModal({
                       {n.body}
                     </Text>
 
+                    {typeof n.metadata?.imageUrl === 'string' && n.metadata.imageUrl.startsWith('https://') ? (
+                      <Image source={{ uri: n.metadata.imageUrl }} style={styles.cardImage} resizeMode="cover" accessibilityIgnoresInvertColors />
+                    ) : null}
+
                     {hasAction && (
                       <View style={styles.actionRow}>
                         <View style={styles.actionPill}>
@@ -336,6 +341,7 @@ const createStyles = (colors: ThemeColors, isDark: boolean) =>
       backgroundColor: isDark ? 'rgba(247, 181, 3, 0.08)' : 'rgba(247, 181, 3, 0.12)',
       borderColor: isDark ? 'rgba(247, 181, 3, 0.35)' : 'rgba(247, 181, 3, 0.5)',
     },
+    cardImage: { width: '100%', aspectRatio: 2, borderRadius: 12, marginTop: 8, backgroundColor: 'rgba(127,127,127,0.15)' },
     cardPressed: {
       opacity: 0.8,
     },

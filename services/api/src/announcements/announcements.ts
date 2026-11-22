@@ -10,6 +10,8 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { HttpError } from '../errors.js';
 import { isExpoPushToken } from '../notification/expo-push.js';
+import { cloudinaryCloudName } from '../cloudinary.js';
+import { isAllowedMediaUrl } from '../home-content.js';
 
 type Db = PrismaClient;
 
@@ -68,9 +70,10 @@ export async function audienceSize(db: Db, city?: string | null) {
   return { recipients, withPushDevice: withDevice };
 }
 
-export interface AnnouncementInput { title: string; body: string; target: AnnouncementTarget; listingId?: string | null; city?: string | null }
+export interface AnnouncementInput { title: string; body: string; target: AnnouncementTarget; listingId?: string | null; city?: string | null; imageUrl?: string | null }
 
 async function validate(db: Db, input: AnnouncementInput) {
+  if (input.imageUrl && !isAllowedMediaUrl(input.imageUrl, cloudinaryCloudName())) throw new HttpError(400, 'IMAGE_NOT_ALLOWED', 'The picture must be uploaded through this page (a secure link from our media account).');
   if (input.target === 'VEHICLE') {
     if (!input.listingId) throw new HttpError(400, 'LISTING_REQUIRED', 'Choose the vehicle this announcement should open.');
     const listing = await db.vehicleListing.findUnique({ where: { id: input.listingId }, select: { status: true } }).catch(() => null);
@@ -80,7 +83,7 @@ async function validate(db: Db, input: AnnouncementInput) {
 
 export async function createAnnouncement(db: Db, actorId: string, input: AnnouncementInput) {
   await validate(db, input);
-  const row = await db.platformAnnouncement.create({ data: { title: input.title, body: input.body, target: input.target, listingId: input.target === 'VEHICLE' ? input.listingId : null, city: input.city || null, createdById: actorId } });
+  const row = await db.platformAnnouncement.create({ data: { title: input.title, body: input.body, target: input.target, listingId: input.target === 'VEHICLE' ? input.listingId : null, imageUrl: input.imageUrl || null, city: input.city || null, createdById: actorId } });
   await db.auditEvent.create({ data: { actorId, action: 'ANNOUNCEMENT_CREATED', entityType: 'PlatformAnnouncement', entityId: row.id } });
   return view(row);
 }
@@ -95,7 +98,7 @@ export async function updateAnnouncement(db: Db, actorId: string, id: string, in
   const row = await editable(db, id);
   if (row.status !== 'DRAFT' && row.status !== 'SCHEDULED') throw new HttpError(409, 'ANNOUNCEMENT_ALREADY_SENDING', 'Only a draft or a scheduled announcement can be edited.');
   await validate(db, input);
-  const updated = await db.platformAnnouncement.update({ where: { id }, data: { title: input.title, body: input.body, target: input.target, listingId: input.target === 'VEHICLE' ? input.listingId : null, city: input.city || null } });
+  const updated = await db.platformAnnouncement.update({ where: { id }, data: { title: input.title, body: input.body, target: input.target, listingId: input.target === 'VEHICLE' ? input.listingId : null, imageUrl: input.imageUrl || null, city: input.city || null } });
   await db.auditEvent.create({ data: { actorId, action: 'ANNOUNCEMENT_UPDATED', entityType: 'PlatformAnnouncement', entityId: id } });
   return view(updated);
 }
@@ -111,7 +114,7 @@ export async function getAnnouncement(db: Db, id: string) {
 
 function view(row: Awaited<ReturnType<Db['platformAnnouncement']['findUniqueOrThrow']>>) {
   return {
-    id: row.id, title: row.title, body: row.body, target: row.target, listingId: row.listingId, city: row.city, status: row.status,
+    id: row.id, title: row.title, body: row.body, target: row.target, listingId: row.listingId, imageUrl: row.imageUrl, city: row.city, status: row.status,
     scheduledFor: row.scheduledFor, startedAt: row.startedAt, completedAt: row.completedAt, cancelledAt: row.cancelledAt,
     recipientCount: row.recipientCount, pushQueued: row.pushQueued, lastError: row.lastError, createdAt: row.createdAt,
   };
@@ -122,11 +125,11 @@ export async function sendTest(db: Db, actorId: string, id: string) {
   const row = await editable(db, id);
   const deepLink = deepLinkFor(row.target, row.listingId);
   const notification = await db.notification.create({
-    data: { userId: actorId, eventType: 'PLATFORM_ANNOUNCEMENT_TEST', category: 'PROMOTION', priority: 'LOW', title: `[Test] ${row.title}`, body: row.body, deepLink, targetApp: 'CUSTOMER', metadata: { announcementId: row.id, test: true } },
+    data: { userId: actorId, eventType: 'PLATFORM_ANNOUNCEMENT_TEST', category: 'PROMOTION', priority: 'LOW', title: `[Test] ${row.title}`, body: row.body, deepLink, targetApp: 'CUSTOMER', metadata: { announcementId: row.id, test: true, ...(row.imageUrl ? { imageUrl: row.imageUrl } : {}) } },
   });
   const devices = (await db.pushDevice.findMany({ where: { userId: actorId, active: true } })).filter(device => isExpoPushToken(device.token));
   for (const device of devices) {
-    await db.pushTicket.create({ data: { deviceId: device.id, notificationId: notification.id, title: `[Test] ${row.title}`, body: row.body, data: { type: 'PLATFORM_ANNOUNCEMENT', notificationId: notification.id, deepLink } } });
+    await db.pushTicket.create({ data: { deviceId: device.id, notificationId: notification.id, title: `[Test] ${row.title}`, body: row.body, data: { type: 'PLATFORM_ANNOUNCEMENT', notificationId: notification.id, deepLink, ...(row.imageUrl ? { imageUrl: row.imageUrl } : {}) } } });
   }
   return { sent: true, pushDevices: devices.length };
 }
@@ -193,7 +196,7 @@ export async function processBatch(db: Db, announcementId: string): Promise<numb
   const already = new Set((await db.notification.findMany({ where: { announcementId, userId: { in: people.map(p => p.id) } }, select: { userId: true } })).map(n => n.userId));
   const fresh = people.filter(p => !already.has(p.id));
   const deepLink = deepLinkFor(row.target, row.listingId);
-  const base = { eventType: 'PLATFORM_ANNOUNCEMENT', category: 'PROMOTION', priority: 'LOW' as const, title: row.title, body: row.body, deepLink, targetApp: 'CUSTOMER', announcementId, metadata: { announcementId } as Prisma.InputJsonValue };
+  const base = { eventType: 'PLATFORM_ANNOUNCEMENT', category: 'PROMOTION', priority: 'LOW' as const, title: row.title, body: row.body, deepLink, targetApp: 'CUSTOMER', announcementId, metadata: { announcementId, ...(row.imageUrl ? { imageUrl: row.imageUrl } : {}) } as Prisma.InputJsonValue };
   let queued = 0;
   await db.$transaction(async tx => {
     if (fresh.length) {
@@ -203,7 +206,7 @@ export async function processBatch(db: Db, announcementId: string): Promise<numb
       for (const person of fresh) {
         if (person.notificationPreference?.pushEnabled === false) continue;
         for (const device of person.pushDevices.filter(d => isExpoPushToken(d.token))) {
-          tickets.push({ deviceId: device.id, notificationId: ids.get(person.id), title: row.title, body: row.body, data: { type: 'PLATFORM_ANNOUNCEMENT', notificationId: ids.get(person.id), announcementId, deepLink } as Prisma.InputJsonValue });
+          tickets.push({ deviceId: device.id, notificationId: ids.get(person.id), title: row.title, body: row.body, data: { type: 'PLATFORM_ANNOUNCEMENT', notificationId: ids.get(person.id), announcementId, deepLink, ...(row.imageUrl ? { imageUrl: row.imageUrl } : {}) } as Prisma.InputJsonValue });
         }
       }
       if (tickets.length) await tx.pushTicket.createMany({ data: tickets });
