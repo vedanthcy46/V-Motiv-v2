@@ -34,6 +34,7 @@ import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 import type { CustomerVehicleProfile, InspectionAuditDetails, InspectionDefectItem } from '../types';
 import { safeBottom } from '../layout/safe-layout';
+import { INSPECTION_POINTS } from '../constants/inspection';
 
 type Props = NativeStackScreenProps<RootStack, 'InspectionHighlights'>;
 
@@ -155,7 +156,7 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
           >
             <Wrench size={15} color={activeTab === 'SYSTEMS' ? '#061A38' : colors.textMuted} />
             <Text style={[styles.tabButtonText, activeTab === 'SYSTEMS' && styles.tabButtonTextActive]}>
-              200-Pt Inspection
+              {INSPECTION_POINTS}-Pt Inspection
             </Text>
           </TouchableOpacity>
 
@@ -253,7 +254,7 @@ export function InspectionHighlightsScreen({ route, navigation }: Props) {
           </View>
         )}
 
-        {/* TAB 2: 200-POINT SYSTEMS AUDIT */}
+        {/* TAB 2: POINT-BY-POINT SYSTEMS AUDIT */}
         {activeTab === 'SYSTEMS' && (
           <View style={styles.section}>
             <Text style={styles.tabSectionKicker}>

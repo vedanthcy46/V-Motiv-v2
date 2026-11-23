@@ -12,6 +12,7 @@ import { TestDriveScreen } from '../screens/TestDriveScreen';
 import { TestDriveDetailsScreen } from '../screens/TestDriveDetailsScreen';
 import { HomeScreen } from '../screens/HomeScreen';
 import { SupportScreen } from '../screens/SupportScreen';
+import { FaqScreen } from '../screens/FaqScreen';
 import { VehicleGalleryScreen } from '../screens/VehicleGalleryScreen';
 import { InspectionHighlightsScreen } from '../screens/InspectionHighlightsScreen';
 import { CitySelectionScreen } from '../screens/CitySelectionScreen';
@@ -153,6 +154,7 @@ export function CustomerNavigator() {
       <Stack.Screen name="ProfileEditor" component={ProfileEditorScreen} />
       <Stack.Screen name="MarketingPreferences" component={MarketingPreferencesScreen} />
       <Stack.Screen name="PrivacySettings" component={PrivacySettingsScreen} />
+      <Stack.Screen name="Faq" component={FaqScreen} options={{ presentation: 'card', animation: 'slide_from_right' }} />
       <Stack.Screen
         name="Addresses"
         component={AddressesScreen}

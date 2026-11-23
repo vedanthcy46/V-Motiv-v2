@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -13,20 +14,26 @@ import {
   Bell,
   Bookmark,
   Car,
+  Compass,
   QrCode,
   CheckCircle2,
   ChevronRight,
   Headphones,
+  HelpCircle,
   LogOut,
   MapPin,
   Moon,
   RotateCcw,
+  Share2,
   Shield,
   Smartphone,
+  Star,
   Sun,
   User,
 } from 'lucide-react-native';
 import { BrandLogo } from '../components/BrandLogo';
+import { AppIntroScreen } from '../components/AppIntroScreen';
+import { canRateApp, openRatePage, shareApp } from '../services/app-feedback';
 import { openAppLink } from '../services/notifications';
 import { NotificationsModal } from '../components/NotificationsModal';
 import {
@@ -53,6 +60,7 @@ export function AccountScreen() {
   const c = theme.colors;
 
   const [notificationsOpen, setNotificationsOpen] = useState(false);
+  const [tourOpen, setTourOpen] = useState(false);
   const [notifications, setNotifications] = useState<InAppNotification[]>([]);
   const [unreadCount, setUnreadCount] = useState(0);
 
@@ -443,10 +451,86 @@ export function AccountScreen() {
           </View>
         </View>
 
+        {/* Section: Tell people, rate, take the tour */}
+        <View style={styles.sectionWrap}>
+          <Text style={[styles.sectionHeader, { color: c.textMuted }]}>SHARE & RATE</Text>
+          <View style={[styles.menuGroup, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <TouchableOpacity
+              style={[styles.menuItem, { borderBottomColor: c.divider }]}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Share V MOTIV with a friend"
+              onPress={() => { void shareApp().then(ok => { if (!ok) Alert.alert('Could not open sharing', 'Please try again in a moment.'); }); }}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <Share2 size={19} color={c.brandAccent} />
+              </View>
+              <View style={styles.menuText}>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Share V MOTIV</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Send the app to a friend or family member</Text>
+              </View>
+              <ChevronRight size={16} color={c.textMuted} />
+            </TouchableOpacity>
+
+            {canRateApp() ? (
+              <TouchableOpacity
+                style={[styles.menuItem, { borderBottomColor: c.divider }]}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Rate V MOTIV in the store"
+                onPress={() => { void openRatePage().then(ok => { if (!ok) Alert.alert('Could not open the store', 'Please try again in a moment.'); }); }}
+              >
+                <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                  <Star size={19} color={c.brandAccent} />
+                </View>
+                <View style={styles.menuText}>
+                  <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Rate V MOTIV</Text>
+                  <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Your rating helps other drivers find us</Text>
+                </View>
+                <ChevronRight size={16} color={c.textMuted} />
+              </TouchableOpacity>
+            ) : null}
+
+            <TouchableOpacity
+              style={[styles.menuItem, { borderBottomWidth: 0 }]}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Take a quick tour of V MOTIV"
+              onPress={() => setTourOpen(true)}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <Compass size={19} color={c.brandAccent} />
+              </View>
+              <View style={styles.menuText}>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Take a quick tour</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>See what you can do in the app</Text>
+              </View>
+              <ChevronRight size={16} color={c.textMuted} />
+            </TouchableOpacity>
+          </View>
+        </View>
+
         {/* Section: Support & Legal */}
         <View style={styles.sectionWrap}>
           <Text style={[styles.sectionHeader, { color: c.textMuted }]}>SUPPORT & PRIVACY</Text>
           <View style={[styles.menuGroup, { backgroundColor: c.surface, borderColor: c.border }]}>
+            <TouchableOpacity
+              style={[styles.menuItem, { borderBottomColor: c.divider }]}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityLabel="Help and frequently asked questions"
+              onPress={() => navigation.navigate('Faq')}
+            >
+              <View style={[styles.menuIcon, { backgroundColor: c.surfaceSecondary }]}>
+                <HelpCircle size={19} color={c.brandAccent} />
+              </View>
+              <View style={styles.menuText}>
+                <Text style={[styles.menuTitle, { color: c.textPrimary }]}>Help & FAQs</Text>
+                <Text style={[styles.menuDesc, { color: c.textSecondary }]}>Quick answers to common questions</Text>
+              </View>
+              <ChevronRight size={16} color={c.textMuted} />
+            </TouchableOpacity>
+
             <TouchableOpacity
               style={[styles.menuItem, { borderBottomColor: c.divider }]}
               activeOpacity={0.7}
@@ -524,6 +608,10 @@ export function AccountScreen() {
       </ScrollView>
 
       {/* Customer In-App Notifications Modal */}
+      <Modal visible={tourOpen} animationType="fade" onRequestClose={() => setTourOpen(false)} statusBarTranslucent>
+        <AppIntroScreen onFinish={() => setTourOpen(false)} />
+      </Modal>
+
       <NotificationsModal
         visible={notificationsOpen}
         onClose={() => setNotificationsOpen(false)}

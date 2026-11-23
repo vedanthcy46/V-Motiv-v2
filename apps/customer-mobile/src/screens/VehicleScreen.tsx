@@ -41,6 +41,7 @@ import { PriceBlock } from '../components/PriceBlock';
 import type { RootStack } from '../navigation/types';
 import type { VehicleSummary } from '../types';
 import { safeBottom } from '../layout/safe-layout';
+import { INSPECTION_POINT } from '../constants/inspection';
 
 type Props = NativeStackScreenProps<RootStack, 'Vehicle'>;
 
@@ -198,7 +199,7 @@ export function VehicleScreen({ route, navigation }: Props) {
               <Text style={styles.holdBannerTitle}>VEHICLE CURRENTLY ON HOLD</Text>
             </View>
             <Text style={styles.holdBannerText}>
-              A buyer has placed a temporary reservation hold on this car. You can still inspect the full 200-point report, view defect photos, or save it to your Wishlist to be notified if the hold is released.
+              A buyer has placed a temporary reservation hold on this car. You can still inspect the full {INSPECTION_POINT} report, view defect photos, or save it to your Wishlist to be notified if the hold is released.
             </Text>
           </View>
         )}

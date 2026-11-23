@@ -52,7 +52,7 @@ All 19 customer screens have been refactored to consume dynamic theme tokens:
 | **Requests / Activity** | `src/screens/RequestsScreen.tsx`| ✓ | Segment tabs, test-drive cards, selling request tracking, enquiry list |
 | **Account** | `src/screens/AccountScreen.tsx` | ✓ | User identity card, appearance selector (System/Light/Dark), menu rows |
 | **Wishlist** | `src/screens/WishlistScreen.tsx` | ✓ | Empty states, saved vehicles, quick remove buttons |
-| **Vehicle Details** | `src/screens/VehicleScreen.tsx` | ✓ | Gallery trigger, specs grid, 180-pt inspection banner, enquiry & test drive CTAs |
+| **Vehicle Details** | `src/screens/VehicleScreen.tsx` | ✓ | Gallery trigger, specs grid, 200-pt inspection banner, enquiry & test drive CTAs |
 | **Selling Request Details** | `src/screens/SellingRequestDetailsScreen.tsx` | ✓ | Status timeline dots, active offer highlight banner, cancellation modals |
 | **Support / Concierge** | `src/screens/SupportScreen.tsx` | ✓ | Case tabs, category selection pills, input textareas, history cards |
 | **Support Case Details** | `src/screens/SupportCaseDetailsScreen.tsx`| ✓ | Conversation chat bubbles (user vs agent), status pill, message composer |
@@ -63,7 +63,7 @@ All 19 customer screens have been refactored to consume dynamic theme tokens:
 | **City Selection** | `src/screens/CitySelectionScreen.tsx` | ✓ | City search input, supported location rows, active checkmark |
 | **Marketing Preferences**| `src/screens/MarketingPreferencesScreen.tsx`| ✓ | Consent toggle switch, transactional notification disclaimer card |
 | **Privacy & Terms** | `src/screens/PrivacySettingsScreen.tsx`| ✓ | Data access & deletion review triggers, Terms version card |
-| **Inspection Highlights**| `src/screens/InspectionHighlightsScreen.tsx`| ✓ | 180-pt inspection checklist, condition summary, tags |
+| **Inspection Highlights**| `src/screens/InspectionHighlightsScreen.tsx`| ✓ | 200-pt inspection checklist, condition summary, tags |
 | **Auth Screen** | `src/screens/AuthScreen.tsx` | ✓ | Brand lockup, Google sign-in button, MFA OTP input, checkpoints list |
 
 ---

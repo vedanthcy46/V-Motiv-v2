@@ -67,7 +67,8 @@
           "resizeMode": "contain"
         }
       ],
-      "expo-video"
+      "expo-video",
+      "./plugins/with-optional-portrait"
     ],
     "extra": {
       "eas": {

@@ -17,6 +17,7 @@ import {
   openingStockProblems,
   type OpeningStockItem,
 } from './opening-stock.js';
+import { INSPECTION_POINT, INSPECTION_POINTS } from './inspection-claim.js';
 
 export type InspectionActor = {
   userId: string;
@@ -2039,7 +2040,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
             conditionSummary: input.conditionSummary,
             inspectionSummary: input.inspectionSummary,
             features: input.features || [],
-            verifiedTags: input.verifiedTags || ['V MOTIV Certified', '150-Point Inspected'],
+            verifiedTags: input.verifiedTags || ['V MOTIV Certified', `${INSPECTION_POINTS}-Point Inspected`],
           },
         });
         vehicleId = createdVehicle.id;
@@ -2069,7 +2070,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
             conditionSummary: input.conditionSummary,
             inspectionSummary: input.inspectionSummary,
             features: input.features || [],
-            verifiedTags: input.verifiedTags || ['V MOTIV Certified', '150-Point Inspected'],
+            verifiedTags: input.verifiedTags || ['V MOTIV Certified', `${INSPECTION_POINTS}-Point Inspected`],
           },
         });
         await tx.vehicleStockUnit.update({
@@ -3003,7 +3004,7 @@ Please sign in to the Inspection Review Portal to examine the checklist, defect 
             metadata: { targetApp: 'SALES', reportId: id, referenceCode: refCode, vehicle: vehicleTitle },
             emailTemplate: 'inspection-approved-v1',
             emailSubject: `Inspection Certified & Approved: ${vehicleTitle} [${refCode}]`,
-            emailBody: `The 180-point vehicle inspection report for ${vehicleTitle} (${refCode}) has been officially certified and approved.\n\nThe certified valuation and condition grade are now available for customer offer finalization.`,
+            emailBody: `The ${INSPECTION_POINT} vehicle inspection report for ${vehicleTitle} (${refCode}) has been officially certified and approved.\n\nThe certified valuation and condition grade are now available for customer offer finalization.`,
           }, tx);
         } else if (input.decision === 'REJECT') {
           await this.notificationService.dispatchDomainEvent({

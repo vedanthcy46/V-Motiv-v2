@@ -40,7 +40,7 @@ sequenceDiagram
     Note over Inspector,Backend: Step 3: Inspector Opens Job
     Inspector->>Backend: Tap Notification -> Deep link vmotiv://inspections/:id
     Backend->>Backend: Authenticate & Verify Role Assignment
-    Backend-->>Inspector: Render 180-Point Inspection Form
+    Backend-->>Inspector: Render 200-Point Inspection Form
 ```
 
 ---

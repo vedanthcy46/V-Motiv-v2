@@ -46,6 +46,7 @@ import { friendlyError } from '../format';
 import { useAuth } from '../auth/AuthProvider';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
 import { KeyboardScrollView } from '../components/KeyboardScrollView';
+import { INSPECTION_POINTS } from '../constants/inspection';
 
 type Nav = CompositeNavigationProp<
   BottomTabNavigationProp<Tabs, 'Explore'>,
@@ -1423,7 +1424,7 @@ export function ExploreScreen({ navigation }: { navigation: Nav }) {
                     <View style={styles.paneSection}>
                       <Text style={[styles.paneSectionHeading, { color: c.textPrimary }]}>V MOTIV Curations</Text>
                       {[
-                        { key: 'ASSURED', title: 'V MOTIV Assured', desc: '180-pt certified with warranty' },
+                        { key: 'ASSURED', title: 'V MOTIV Assured', desc: `${INSPECTION_POINTS}-pt certified with warranty` },
                         { key: 'PREMIUM', title: 'Premium Selection', desc: 'Single owner under 40k km' },
                         { key: 'BUDGET', title: 'Super Value', desc: 'Certified value under ₹6 Lakh' },
                       ].map((catItem) => {

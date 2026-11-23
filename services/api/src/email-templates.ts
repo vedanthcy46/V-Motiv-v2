@@ -1,5 +1,6 @@
 import type { EmailOutbox } from '@prisma/client';
 import { currentCalendarYear } from './calendar.js';
+import { INSPECTION_POINT, INSPECTION_POINTS } from './inspection-claim.js';
 
 // The look of every V MOTIV email. One layout, light and easy to read:
 //   - a brand-navy header band with the white logo (the logo file is white, so it needs a dark background),
@@ -76,7 +77,7 @@ const ACCOUNT = '/account';
 const TEMPLATES: Record<string, Partial<TemplateSpec>> = {
   'purchase-enquiry-v1': {
     badge: 'ENQUIRY RECORDED', cta: 'View in Activity', ctaPath: ACCOUNT, subtitle: 'Vehicle Purchase Enquiry Confirmation',
-    assurance: ['180-Point Certification:', 'Every V MOTIV pre-owned vehicle undergoes our strict 180-point mechanical, structural, and electrical certification. No surprises. No rollbacks.'],
+    assurance: [`${INSPECTION_POINTS}-Point Certification:`, `Every V MOTIV pre-owned vehicle undergoes our strict ${INSPECTION_POINT} mechanical, structural, and electrical certification. No surprises. No rollbacks.`],
   },
   'test-drive-requested-v1': {
     badge: 'TEST DRIVE REQUEST', cta: 'Manage Appointment', ctaPath: ACCOUNT, subtitle: 'Test Drive Schedule Request',
@@ -84,7 +85,7 @@ const TEMPLATES: Record<string, Partial<TemplateSpec>> = {
   },
   'selling-requested-v1': {
     badge: 'SELLING REQUEST', cta: 'Track Valuation', ctaPath: ACCOUNT, subtitle: 'Doorstep Valuation & Inspection Request',
-    assurance: ['Guaranteed Purchase:', 'Transparent fair-market pricing, free 180-point inspection, instant bank transfer, and free RC transfer.'],
+    assurance: ['Guaranteed Purchase:', `Transparent fair-market pricing, free ${INSPECTION_POINT} inspection, instant bank transfer, and free RC transfer.`],
   },
   'offer-accepted-v1': { badge: 'OFFER ACCEPTED', tone: 'success', cta: 'View Offer Details', ctaPath: ACCOUNT, subtitle: 'Direct Purchase Agreement Confirmation' },
   'offer-declined-v1': { badge: 'OFFER DECLINED', tone: 'neutral', cta: 'View in Activity', ctaPath: ACCOUNT, subtitle: 'Acquisition Offer Update' },

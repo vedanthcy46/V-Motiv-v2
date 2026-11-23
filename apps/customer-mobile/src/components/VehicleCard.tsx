@@ -4,6 +4,7 @@ import { Bookmark, Calendar, CheckCircle2, Fuel, Gauge, MapPin } from 'lucide-re
 import { PriceBlock } from './PriceBlock';
 import { useAppTheme, radius, space } from '../theme';
 import type { VehicleSummary } from '../types';
+import { INSPECTION_POINTS } from '../constants/inspection';
 
 export function VehicleCard({
   vehicle: listing,
@@ -56,7 +57,7 @@ export function VehicleCard({
         ) : (
           <View style={styles.badge}>
             <CheckCircle2 size={12} color={c.brandAccent} />
-            <Text style={[styles.badgeText, { color: c.brandAccent }]}>200-PT CERTIFIED</Text>
+            <Text style={[styles.badgeText, { color: c.brandAccent }]}>{INSPECTION_POINTS}-PT CERTIFIED</Text>
           </View>
         )}
 

@@ -9,6 +9,7 @@ import { HttpError } from './errors.js';
 import { profileSelect } from './identity-store.js';
 import { isInvalidRegNumberOrUuid } from './inspection-store.js';
 import { priceDrop } from './price-drop.js';
+import { INSPECTION_POINT, INSPECTION_POINTS } from './inspection-claim.js';
 
 type ProfileInput = { displayName?: string; phone?: string; marketingConsent?: boolean; preferredCity?: string; termsVersion?: string };
 type SellInput = {
@@ -237,10 +238,10 @@ function buildCustomerProfile(listing: any) {
     source: 'APPROVED_INSPECTION',
     inspectedAt: listing.publishedAt ? (typeof listing.publishedAt === 'string' ? listing.publishedAt : listing.publishedAt.toISOString?.() || String(listing.publishedAt)) : null,
     overallStatus: 'PASSED',
-    totalChecksCount: 200,
-    passedChecksCount: 198,
+    totalChecksCount: INSPECTION_POINTS,
+    passedChecksCount: INSPECTION_POINTS - 2,
     defects: [],
-    summary: vehicle?.inspectionSummary || 'Comprehensive 200-point inspection passed with zero structural damage. All factory pillars intact and OBD clear.',
+    summary: vehicle?.inspectionSummary || `Comprehensive ${INSPECTION_POINT} inspection passed with zero structural damage. All factory pillars intact and OBD clear.`,
   };
 
   const customerConditionSummary = existing?.customerConditionSummary || vehicle?.conditionSummary || 'Engine, transmission, and electrical accessories verified in optimal operating condition.';
@@ -279,12 +280,12 @@ function getInspectionDetailsForVehicle(vehicle: any, listingId: string, custome
   const qualityReport = profile?.qualityReport;
   const v = vehicle?.vehicle || vehicle;
 
-  const totalChecksCount = Number(qualityReport?.totalChecksCount || 200);
-  const passedChecksCount = Number(qualityReport?.passedChecksCount || (totalChecksCount ? totalChecksCount - 2 : 198));
+  const totalChecksCount = Number(qualityReport?.totalChecksCount || INSPECTION_POINTS);
+  const passedChecksCount = Number(qualityReport?.passedChecksCount || (totalChecksCount ? totalChecksCount - 2 : INSPECTION_POINTS - 2));
   const defects = Array.isArray(qualityReport?.defects) ? qualityReport.defects : [];
 
   return {
-    certificationBadge: 'V MOTIV 200-POINT CERTIFIED',
+    certificationBadge: `V MOTIV ${INSPECTION_POINTS}-POINT CERTIFIED`,
     certificationScore: totalChecksCount ? `${passedChecksCount} / ${totalChecksCount}` : '9.8 / 10',
     overallStatus: qualityReport?.overallStatus || 'PASSED',
     totalChecksCount,
@@ -292,7 +293,7 @@ function getInspectionDetailsForVehicle(vehicle: any, listingId: string, custome
     imperfectionsCount: defects.length,
     inspectedDate: qualityReport?.inspectedAt || 'Recently Certified',
     leadInspector: 'V MOTIV Master Quality Engineer',
-    engineerSummary: qualityReport?.summary || v?.inspectionSummary || 'Comprehensive 200-point inspection passed with zero structural damage. All factory pillars intact and OBD clear.',
+    engineerSummary: qualityReport?.summary || v?.inspectionSummary || `Comprehensive ${INSPECTION_POINT} inspection passed with zero structural damage. All factory pillars intact and OBD clear.`,
     conditionSummary: profile?.customerConditionSummary || v?.conditionSummary || 'Powertrain, steering, and electrical components tested optimal.',
     reportUrl: v?.inspectionReportUrl || null,
     systems: STANDARD_INSPECTION_SYSTEMS,
@@ -815,7 +816,7 @@ export class PrismaCustomerStore implements CustomerStore {
         include: leadInclude,
       });
       await tx.auditEvent.create({ data: { actorId: user.id, action: 'ACQUISITION_LEAD_SUBMITTED', entityId: created.id } });
-      await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `selling-requested/${created.id}`, recipient: user.email, templateVersion: 'selling-requested-v1', subject: `Selling Request Received [${created.referenceCode}] · ${created.manufacturingYear} ${created.make} ${created.model}`, text: `We received your request to sell your ${created.manufacturingYear} ${created.make} ${created.model} (${created.variant || 'Standard'}).\n\nReference Code: ${created.referenceCode}\nLocation: ${created.city} (${created.pincode})\nOdometer: ${created.odometerKm.toLocaleString('en-IN')} km\nContact Phone: ${created.sellerPhone}\n\nOur Valuation & Purchase Process:\n1. Transparent pricing evaluation based on current market trends.\n2. 180-Point Doorstep or Hub inspection to certify vehicle condition.\n3. Guaranteed direct purchase offer with same-day payment and free RC transfer.\n\nYou can track this request in your V MOTIV mobile app under Activity.` } });
+      await tx.emailOutbox.create({ data: { userId: user.id, eventKey: `selling-requested/${created.id}`, recipient: user.email, templateVersion: 'selling-requested-v1', subject: `Selling Request Received [${created.referenceCode}] · ${created.manufacturingYear} ${created.make} ${created.model}`, text: `We received your request to sell your ${created.manufacturingYear} ${created.make} ${created.model} (${created.variant || 'Standard'}).\n\nReference Code: ${created.referenceCode}\nLocation: ${created.city} (${created.pincode})\nOdometer: ${created.odometerKm.toLocaleString('en-IN')} km\nContact Phone: ${created.sellerPhone}\n\nOur Valuation & Purchase Process:\n1. Transparent pricing evaluation based on current market trends.\n2. ${INSPECTION_POINT} Doorstep or Hub inspection to certify vehicle condition.\n3. Guaranteed direct purchase offer with same-day payment and free RC transfer.\n\nYou can track this request in your V MOTIV mobile app under Activity.` } });
       return created;
     });
     return leadJson(lead, this.db);

@@ -39,6 +39,7 @@ import type { AcquisitionOffer, SellingRequest } from '../types';
 import { safeBottom } from '../layout/safe-layout';
 import { KeyboardAvoider } from '../components/KeyboardAvoider';
 import { KeyboardScrollView } from '../components/KeyboardScrollView';
+import { INSPECTION_POINT, INSPECTION_POINTS } from '../constants/inspection';
 
 type Props = NativeStackScreenProps<RootStack, 'SellingRequestDetails'>;
 
@@ -389,7 +390,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                 You declined our previous offer{latestDeclinedOffer.declineReason ? ` ("${latestDeclinedOffer.declineReason}")` : ''}. Our sales and pricing specialists are reviewing your expectations and may present an updated counter-offer shortly.
               </Text>
               <Text style={{ fontSize: 11, color: isDark ? '#94A3B8' : '#64748B', marginTop: 2 }}>
-                ✓ Certified 180-point vehicle inspection remains valid. No re-inspection needed.
+                ✓ Certified {INSPECTION_POINT} vehicle inspection remains valid. No re-inspection needed.
               </Text>
             </View>
           </View>
@@ -433,7 +434,7 @@ export function SellingRequestDetailsScreen({ route, navigation }: Props) {
                 <ShieldCheck size={22} color="#10B981" />
               </View>
               <View style={{ flex: 1, gap: 4 }}>
-                <Text style={styles.inspectionDoneTitle}>180-Point Inspection Completed & Certified</Text>
+                <Text style={styles.inspectionDoneTitle}>{INSPECTION_POINTS}-Point Inspection Completed & Certified</Text>
                 <Text style={styles.inspectionDoneSub}>
                   Our certified technician has completed the physical evaluation. Observations, vehicle condition ratings, and photographic evidence have been verified and sealed.
                 </Text>

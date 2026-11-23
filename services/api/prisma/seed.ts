@@ -29,7 +29,7 @@ const VEHICLES = [
     pricePaise: 98500000n, // ₹9,85,000
     title: '2023 Tata Nexon XZ+ (O) Dark Edition',
     conditionSummary: 'Meticulously maintained, single owner, complete service history at authorized dealership. Tyres at 75% tread life remaining.',
-    inspectionSummary: '180-point quality check completed. Engine health rated 4.9/5. All original factory panels, zero structural damage, comprehensive OBD scan clear.',
+    inspectionSummary: '200-point quality check completed. Engine health rated 4.9/5. All original factory panels, zero structural damage, comprehensive OBD scan clear.',
     inspectionReportUrl: 'https://vmotiv.in/reports/nexon-xz-2023.pdf',
     features: ['Electric Sunroof', 'Ventilated Leatherette Seats', 'Air Purifier', 'Touchscreen Navigation', 'Cruise Control', 'Reverse Camera with Dynamic Guidelines'],
     verifiedTags: ['VMOTIV_CERTIFIED', 'NON_ACCIDENTAL', 'SINGLE_OWNER', 'SERVICE_HISTORY_VERIFIED'],
@@ -56,7 +56,7 @@ const VEHICLES = [
     pricePaise: 142000000n, // ₹14,20,000
     title: '2022 Hyundai Creta SX (O) AT',
     conditionSummary: 'Showroom condition, panoramic sunroof, automatic transmission shifting seamlessly. Full insurance active.',
-    inspectionSummary: '180-point inspection passed. Brake pads at 80%, suspension quiet, battery tested optimal.',
+    inspectionSummary: '200-point inspection passed. Brake pads at 80%, suspension quiet, battery tested optimal.',
     inspectionReportUrl: 'https://vmotiv.in/reports/creta-sxo-2022.pdf',
     features: ['Panoramic Sunroof', 'Bose Premium Audio', 'Electronic Parking Brake', 'Paddle Shifters', 'Ventilated Seats', 'Wireless Phone Charger'],
     verifiedTags: ['VMOTIV_CERTIFIED', 'NON_ACCIDENTAL', 'ORIGINAL_PAINT'],
@@ -82,7 +82,7 @@ const VEHICLES = [
     pricePaise: 215000000n, // ₹21,50,000
     title: '2023 Mahindra XUV700 AX7 Luxury Pack',
     conditionSummary: 'Top-tier ADAS package, flush door handles, twin digital HD displays, 12-speaker Sony 3D sound.',
-    inspectionSummary: 'Passed 180-point certification. ADAS camera calibrated, turbocharger inspection verified clear.',
+    inspectionSummary: 'Passed 200-point certification. ADAS camera calibrated, turbocharger inspection verified clear.',
     inspectionReportUrl: 'https://vmotiv.in/reports/xuv700-ax7-2023.pdf',
     features: ['Level 2 ADAS', 'Dual 10.25-inch Screens', 'Blind View Monitor', 'Sony 3D Sound', 'Wireless Android Auto / CarPlay', 'Smart Door Handles'],
     verifiedTags: ['VMOTIV_CERTIFIED', 'WARRANTY_ACTIVE', 'SINGLE_OWNER'],
@@ -108,7 +108,7 @@ const VEHICLES = [
     pricePaise: 89000000n, // ₹8,90,000
     title: '2022 Maruti Suzuki Brezza ZXi Plus AT',
     conditionSummary: 'Smart Hybrid technology with excellent city fuel efficiency. Highly reliable, pristine interiors.',
-    inspectionSummary: '180-point inspection completed. All electrical systems verified, zero suspension play.',
+    inspectionSummary: '200-point inspection completed. All electrical systems verified, zero suspension play.',
     inspectionReportUrl: 'https://vmotiv.in/reports/brezza-zxi-2022.pdf',
     features: ['Head-Up Display (HUD)', '360-degree View Camera', 'Electric Sunroof', 'SmartPlay Pro+ Touchscreen', 'Paddle Shifters'],
     verifiedTags: ['VMOTIV_CERTIFIED', 'LOW_MAINTENANCE', 'SINGLE_OWNER'],
@@ -133,7 +133,7 @@ const VEHICLES = [
     pricePaise: 137500000n, // ₹13,75,000
     title: '2021 Kia Seltos GTX Plus AT',
     conditionSummary: 'GT-Line styling with red accents, BOSE 8-speaker audio, ventilated front seats.',
-    inspectionSummary: '180-point check passed. Transmission fluid checked, no oil leaks, all electronics fully operational.',
+    inspectionSummary: '200-point check passed. Transmission fluid checked, no oil leaks, all electronics fully operational.',
     inspectionReportUrl: 'https://vmotiv.in/reports/seltos-gtx-2021.pdf',
     features: ['Ventilated Seats', 'BOSE Sound System', 'UVO Connected Car', 'Smart Pure Air Purifier', 'Drive & Traction Modes'],
     verifiedTags: ['VMOTIV_CERTIFIED', 'NON_ACCIDENTAL'],
@@ -158,7 +158,7 @@ const VEHICLES = [
     pricePaise: 124000000n, // ₹12,40,000
     title: '2022 Honda City 5th Gen ZX CVT',
     conditionSummary: 'Renowned i-VTEC engine smoothness with CVT automatic. Unrivalled rear legroom and executive ride comfort.',
-    inspectionSummary: '180-point quality check completed. LaneWatch camera operational, suspension smooth, tyres at 80% life.',
+    inspectionSummary: '200-point quality check completed. LaneWatch camera operational, suspension smooth, tyres at 80% life.',
     inspectionReportUrl: 'https://vmotiv.in/reports/city-zx-2022.pdf',
     features: ['Honda LaneWatch Camera', 'Full LED Headlamps', 'Electric Sunroof', '8-inch Touchscreen Infotainment', 'One-Touch Power Windows'],
     verifiedTags: ['VMOTIV_CERTIFIED', 'SINGLE_OWNER', 'COMPLETE_SERVICE_RECORD'],
@@ -183,7 +183,7 @@ const VEHICLES = [
     pricePaise: 78000000n, // ₹7,80,000
     title: '2023 Maruti Suzuki Baleno Alpha AGS',
     conditionSummary: 'Near-new condition premium hatchback with head-up display, 360 camera and Arkamys surround sound.',
-    inspectionSummary: '180-point check passed. Battery at 100%, original tyres, zero dings or paint touchups.',
+    inspectionSummary: '200-point check passed. Battery at 100%, original tyres, zero dings or paint touchups.',
     inspectionReportUrl: 'https://vmotiv.in/reports/baleno-alpha-2023.pdf',
     features: ['Head-Up Display', '360 View Camera', 'Surround Sense Powered by ARKAMYS', 'LED Projector Headlamps', 'Auto-Dimming IRVM'],
     verifiedTags: ['VMOTIV_CERTIFIED', 'SINGLE_OWNER', 'FACTORY_WARRANTY'],
@@ -208,7 +208,7 @@ const VEHICLES = [
     pricePaise: 199000000n, // ₹19,90,000
     title: '2021 Toyota Innova Crysta 2.4 VX 7 STR',
     conditionSummary: 'Legendary bulletproof reliability, 7-seater captain seats layout, driven exclusively on highways with Toyota official service history.',
-    inspectionSummary: '180-point inspection passed. Heavy duty clutch tested, diesel injectors clean, air conditioning cooling verified.',
+    inspectionSummary: '200-point inspection passed. Heavy duty clutch tested, diesel injectors clean, air conditioning cooling verified.',
     inspectionReportUrl: 'https://vmotiv.in/reports/innova-crysta-2021.pdf',
     features: ['Captain Seats with Armrest', 'Rear Automatic AC', 'Cruise Control', '7 Airbags', 'Push Button Start/Stop'],
     verifiedTags: ['VMOTIV_CERTIFIED', 'HIGHWAY_DRIVEN', 'TOYOTA_MAINTAINED'],

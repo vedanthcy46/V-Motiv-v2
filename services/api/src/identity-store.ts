@@ -2,6 +2,7 @@ import { PrismaClient } from '@prisma/client';
 import type { Identity } from './auth.js';
 import { HttpError } from './errors.js';
 import { UNCLAIMED_UID_PREFIX } from './walk-in-customer.js';
+import { INSPECTION_POINT } from './inspection-claim.js';
 
 export const profileSelect = {
   id: true, email: true, displayName: true, phone: true, status: true,
@@ -57,7 +58,7 @@ export class PrismaIdentityStore implements IdentityStore {
           recipient: user.email,
           templateVersion: 'welcome-v1',
           subject: 'Welcome to V MOTIV · Verified Pre-Owned Cars',
-          text: `Welcome to V MOTIV!\n\nYour verified customer account is ready.\n\nWith V MOTIV, you enjoy:\n• 100% 180-Point Inspected & Certified Pre-Owned Vehicles\n• Doorstep Test Drives with flexible scheduling\n• Instant Car Valuation & Guaranteed Direct Purchase Offers\n• 5-Day Money-Back & Exchange Guarantee\n\nExplore verified inventory or request a car valuation anytime in the V MOTIV mobile app.`,
+          text: `Welcome to V MOTIV!\n\nYour verified customer account is ready.\n\nWith V MOTIV, you enjoy:\n• 100% ${INSPECTION_POINT} Inspected & Certified Pre-Owned Vehicles\n• Doorstep Test Drives with flexible scheduling\n• Instant Car Valuation & Guaranteed Direct Purchase Offers\n• 5-Day Money-Back & Exchange Guarantee\n\nExplore verified inventory or request a car valuation anytime in the V MOTIV mobile app.`,
         },
       });
       await tx.auditEvent.create({

@@ -1,4 +1,5 @@
 import React from 'react';
+import { INSPECTION_POINTS } from '../inspection';
 
 interface HeroProps {
   onGetApp: () => void;
@@ -107,7 +108,7 @@ export const Hero: React.FC<HeroProps> = ({ onGetApp, onHowItWorks }) => {
                 <span>Bengaluru</span>
               </div>
               <div className="preview-badge-row">
-                <span className="spec-tag">180-Point Check</span>
+                <span className="spec-tag">{INSPECTION_POINTS}-Point Check</span>
                 <span className="spec-tag">Single Owner</span>
                 <span className="spec-tag">Zero Accidental</span>
               </div>

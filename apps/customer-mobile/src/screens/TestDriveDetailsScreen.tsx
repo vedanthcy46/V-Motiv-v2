@@ -39,6 +39,7 @@ import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
 import type { RootStack } from '../navigation/types';
 import type { TestDrive } from '../types';
 import { safeBottom } from '../layout/safe-layout';
+import { INSPECTION_POINTS } from '../constants/inspection';
 
 type Props = NativeStackScreenProps<RootStack, 'TestDriveDetails'>;
 
@@ -307,7 +308,7 @@ export function TestDriveDetailsScreen({ route, navigation }: Props) {
                 </View>
               )}
               <View style={styles.viewCarRow}>
-                <Text style={styles.viewCarText}>View Car Details & 200-Pt Report</Text>
+                <Text style={styles.viewCarText}>View Car Details & {INSPECTION_POINTS}-Pt Report</Text>
                 <ChevronRight size={14} color={colors.brandAccent} />
               </View>
             </View>

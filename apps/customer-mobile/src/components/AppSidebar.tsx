@@ -53,6 +53,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { navigate, navigateToTab } from '../navigation/navigationRef';
 import type { Tabs, RootStack } from '../navigation/types';
 import { safeBottom } from '../layout/safe-layout';
+import { INSPECTION_POINT } from '../constants/inspection';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const DRAWER_WIDTH = Math.min(320, SCREEN_WIDTH * 0.82);
@@ -449,7 +450,7 @@ export function SidebarProvider({ children }: SidebarProviderProps) {
                     </View>
                     <View style={styles.navTextBox}>
                       <Text style={[styles.navTitle, { color: isDark ? '#F8FAFC' : '#0F172A' }]}>Buy Pre-Owned Fleet</Text>
-                      <Text style={styles.navSubtitle}>200-point certified cars</Text>
+                      <Text style={styles.navSubtitle}>{INSPECTION_POINT} certified cars</Text>
                     </View>
                     <ChevronRight size={15} color={isDark ? '#64748B' : '#94A3B8'} />
                   </TouchableOpacity>

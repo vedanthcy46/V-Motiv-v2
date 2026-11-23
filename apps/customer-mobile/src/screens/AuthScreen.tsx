@@ -18,6 +18,7 @@ import { useAuth } from '../auth/AuthProvider';
 import { BrandLogo } from '../components/BrandLogo';
 import { PrimaryButton, Screen, common, useKeyboard } from '../components/ui';
 import { color, radius, space, useAppTheme, type ThemeColors } from '../theme';
+import { INSPECTION_POINT } from '../constants/inspection';
 
 export interface AuthScreenProps {
   includeTopInset?: boolean;
@@ -192,7 +193,7 @@ export function AuthScreen({
               <View style={styles.pointsList}>
                 <View style={styles.pointRow}>
                   <CheckCircle2 size={16} color={colors.brandAccent} />
-                  <Text style={styles.pointText}>100% verified 180-point vehicle reports</Text>
+                  <Text style={styles.pointText}>100% verified {INSPECTION_POINT} vehicle reports</Text>
                 </View>
                 <View style={styles.pointRow}>
                   <CheckCircle2 size={16} color={colors.brandAccent} />

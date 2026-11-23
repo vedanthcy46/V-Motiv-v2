@@ -191,7 +191,7 @@ Curates public specifications, photos and tags (stock status advances to `LISTIN
 {
   "title": "2022 Hyundai Creta 1.5 SX",
   "color": "Polar White",
-  "conditionSummary": "Flawless condition, verified 150-point inspection",
+  "conditionSummary": "Flawless condition, verified 200-point inspection",
   "features": ["Sunroof", "Wireless Charger", "Ventilated Seats"],
   "mediaUrls": ["https://res.cloudinary.com/..."],
   "expectedVersion": 1

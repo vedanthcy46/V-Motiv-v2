@@ -50,6 +50,7 @@ import {
 } from '../services/notifications';
 import { useAuth } from '../auth/AuthProvider';
 import { useHomeContent } from '../hooks/useHomeContent';
+import { useRatingPrompt } from '../hooks/useRatingPrompt';
 import { useAppTheme } from '../theme';
 import { useTabScreenBottomPadding } from '../layout/safe-layout';
 import { formatPrice } from '../format';
@@ -87,6 +88,8 @@ export function HomeScreen({ navigation }: BottomTabScreenProps<Tabs, 'Home'>) {
   const root = navigation.getParent();
   // Banners and hub media managed by Operations. Empty until something is published, in which case those sections are simply not shown.
   const home = useHomeContent(profile?.preferredCity?.trim() ?? '');
+  // Now and then, politely, asks signed-in people to rate the app (rules in services/rating-prompt.ts).
+  useRatingPrompt(state === 'signed-in');
 
   useFocusEffect(
     useCallback(() => {
