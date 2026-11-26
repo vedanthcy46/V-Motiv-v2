@@ -56,11 +56,10 @@ if (!firebaseUser.emailVerified) {
   await getAuth(firebase).updateUser(firebaseUser.uid, { emailVerified: true });
 }
 
-// Database URLs to seed
-const databases = [
-  { name: 'Local Dev Database', url: 'postgresql://vmotiv_v2@127.0.0.1:5440/vmotiv_v2_dev' },
-  { name: 'Neon Production Database', url: 'postgresql://neondb_owner:npg_ZbytqXH2UKp8@ep-green-band-b52uqy11-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require' },
-];
+// The database to seed comes from the environment (DIRECT_DATABASE_URL if set, else DATABASE_URL). Never put a connection string in this file.
+const targetUrl = process.env.DIRECT_DATABASE_URL || process.env.DATABASE_URL;
+if (!targetUrl) throw new Error('Set DATABASE_URL (or DIRECT_DATABASE_URL) to the database that should receive the first Super Admin.');
+const databases = [{ name: 'Target database (from environment)', url: targetUrl }];
 
 for (const dbConfig of databases) {
   console.log(`\n========================================`);
