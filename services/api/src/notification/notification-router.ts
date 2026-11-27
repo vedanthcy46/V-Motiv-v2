@@ -285,7 +285,7 @@ export function createNotificationRouter(deps: {
           let errorCode: string | null = null;
           if (eventType === 'email.delivered') {
             targetState = 'ACCEPTED';
-          } else if (eventType === 'email.bounced' || eventType === 'email.complained') {
+          } else if (['email.bounced', 'email.complained', 'email.suppressed', 'email.failed'].includes(eventType)) {
             targetState = 'FAILED';
             errorCode = `RESEND_${eventType.replace('email.', '').toUpperCase()}`;
           }

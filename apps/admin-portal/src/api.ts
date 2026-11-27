@@ -13,6 +13,8 @@ import type {
   BusinessSellingPage,
   CommunicationsOutboxPage,
   CommunicationsTemplate,
+  ManualAcceptance,
+  PendingInvitation,
   Dashboard,
   EmployeePage,
   ExportJob,
@@ -77,6 +79,9 @@ export const adminApi = {
   employees: (user: User, params: URLSearchParams) => call<EmployeePage>(user, `/admin/employees?${params}`),
   invite: (user: User, input: { email: string; fullName: string; designation?: string; roleId: string; branchIds: string[]; expiresInHours: number }) => call(user, '/admin/invitations', { method: 'POST', body: JSON.stringify(input) }),
   proposePrivilegedInvitation: (user: User, input: { email: string; fullName: string; designation?: string; roleId: string; branchIds: string[]; expiresInHours: number; reason: string }) => call(user, '/admin/approvals/privileged-invitations', { method: 'POST', body: JSON.stringify(input) }),
+  invitations: (user: User) => call<PendingInvitation[]>(user, '/admin/invitations'),
+  resendInvitation: (user: User, id: string) => call<{ id: string; expiresAt: string }>(user, `/admin/invitations/${id}/resend`, { method: 'POST' }),
+  acceptInvitationManually: (user: User, id: string, reason: string) => call<ManualAcceptance>(user, `/admin/invitations/${id}/accept-manually`, { method: 'POST', body: JSON.stringify({ reason }) }),
   approvals: (user: User, page = 1, status?: string) => call<ApprovalPage>(user, `/admin/approvals?${new URLSearchParams({ page: String(page), limit: '25', ...(status ? { status } : {}) })}`),
   decideApproval: (user: User, id: string, input: { version: number; decision: 'APPROVE' | 'REJECT'; reason: string }) => call(user, `/admin/approvals/${id}/decision`, { method: 'POST', body: JSON.stringify(input) }),
   updateEmployeeAccess: (user: User, id: string, input: { roleIds?: string[]; branchIds?: string[]; designation?: string | null; reason: string }) =>

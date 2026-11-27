@@ -24,6 +24,7 @@ const __filename = typeof import.meta !== 'undefined' && typeof import.meta.url 
 const __dirname = __filename ? path.dirname(__filename) : (typeof process !== 'undefined' && process.cwd ? process.cwd() : '');
 import { rateLimit } from 'express-rate-limit';
 import { withMfaStatusSync } from './mfa-sync.js';
+import { withInvitedEmployeeClaim } from './invited-employee.js';
 import { createPulseRouter } from './pulse.js';
 import { isSandboxPaymentsEnabled } from './payment-signature.js';
 import { authentication, optionalAuthentication, type Identity, type VerifyToken } from './auth.js';
@@ -188,7 +189,8 @@ export function createApp(deps: {
   drainEmails?: () => Promise<number>;
 }) {
   // Keep each employee's MFA status truthful whichever portal or app they signed in to.
-  deps.verify = withMfaStatusSync(deps.verify, (deps as { db?: any }).db);
+  // An invitation accepted by an administrator is claimed on the person's first Google sign-in (before anything looks them up).
+  deps.verify = withMfaStatusSync(withInvitedEmployeeClaim(deps.verify, (deps as { db?: any }).db), (deps as { db?: any }).db);
   const app = express();
   app.disable('x-powered-by');
   if (deps.slowRequestMs) app.use(requestTiming({ slowMs: deps.slowRequestMs }));

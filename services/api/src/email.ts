@@ -2,6 +2,7 @@ import type { EmailOutbox, PrismaClient } from '@prisma/client';
 import { Resend } from 'resend';
 import type { Config } from './config.js';
 import { renderEmailHtml } from './email-templates.js';
+import { classifyEmailError, EmailSendError } from './email-errors.js';
 
 export type EmailSender = (event: EmailOutbox) => Promise<string>;
 
@@ -10,6 +11,15 @@ export type ResendSenderOptions = {
   from: string;
   webOrigin?: string;
 };
+
+/**
+ * The key Resend uses to recognise a repeat of the same send (it keeps keys for 24 hours and answers a repeat without sending again).
+ * Retrying an attempt that failed must reuse the key. But an email the provider already accepted and that is now being sent again (an
+ * administrator resending a bounced message) needs a new key, or nothing would actually go out.
+ */
+export function idempotencyKeyFor(event: Pick<EmailOutbox, 'eventKey' | 'providerMessageId'>) {
+  return event.providerMessageId ? `${event.eventKey}/after/${event.providerMessageId}` : event.eventKey;
+}
 
 export function createResendSender(options: ResendSenderOptions): EmailSender {
   if (!options.apiKey || !options.from) {
@@ -32,12 +42,12 @@ export function createResendSender(options: ResendSenderOptions): EmailSender {
       subject: event.subject,
       text: event.text,
       html,
-    }, { idempotencyKey: event.eventKey });
+    }, { idempotencyKey: idempotencyKeyFor(event) });
 
     if (result.error || !result.data?.id) {
       const msg = result.error?.message || 'EMAIL_PROVIDER_REJECTED';
-      console.error('[EMAIL RESEND REJECTED]', result.error);
-      throw new Error(msg);
+      console.error('[EMAIL RESEND REJECTED]', event.eventKey, result.error);
+      throw new EmailSendError(classifyEmailError(result.error), msg);
     }
     return result.data.id;
   };
@@ -97,10 +107,10 @@ export async function processEmail(db: PrismaClient, send: EmailSender, sender: 
     await db.emailOutbox.updateMany({ where: { id: event.id, state: 'PROCESSING', attempts: event.attempts }, data: {
       state: 'ACCEPTED', providerMessageId, leaseUntil: null, lastErrorCode: null,
     } });
-  } catch {
+  } catch (error) {
     // Provider exception text can contain request metadata. Persist only a stable,
     // non-sensitive operator code; detailed diagnostics belong in protected logs.
-    const errCode = 'EMAIL_SEND_FAILED';
+    const errCode = error instanceof EmailSendError ? error.code : 'EMAIL_SEND_FAILED';
     await db.emailOutbox.updateMany({ where: { id: event.id, state: 'PROCESSING', attempts: event.attempts }, data: {
       state: event.attempts >= 6 ? 'FAILED' : 'PENDING', leaseUntil: null,
       availableAt: new Date(Date.now() + Math.min(3600, 30 * 2 ** event.attempts) * 1000),

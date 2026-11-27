@@ -22,6 +22,8 @@ import {
   SkeletonCards as UiSkeletonCards, StatusBadge as UiStatusBadge, TableSkeleton as UiTableSkeleton, Button, announceChange, toast, useAutoRefresh, type NavSection,
 } from '@vmotiv/ui';
 import { auth, firebaseConfigured } from './firebase.js';
+import { PendingInvitations } from './PendingInvitations.js';
+import { emailErrorText } from './invitation-delivery.js';
 import type {
   RentalKmPolicy,
   AppConfigEntry,
@@ -103,6 +105,13 @@ function errorMessage(error: unknown) {
     APPROVAL_VERSION_MISMATCH: 'This request was updated by another administrator. Please refresh.',
     APPROVAL_EXPIRED: 'This approval request has expired.',
     PRIVACY_REQUEST_NOT_FOUND: 'This privacy request is no longer available. Refresh the queue and try again.',
+    INVITATION_NOT_FOUND: 'This invitation no longer exists. Refresh the list.',
+    INVITATION_NOT_ACTIVE: 'This invitation has already been accepted or closed. Refresh the list.',
+    INVITATION_RESEND_TOO_SOON: 'An invitation email was just queued. Wait a minute before sending another.',
+    MULTIPLE_ACCOUNTS_FOR_EMAIL: 'More than one account uses this email address, so it cannot be accepted manually. Ask the technical team to check the accounts.',
+    ACCOUNT_INACTIVE: 'The account with this email address is suspended.',
+    EMAIL_SUPERSEDED: 'This email was replaced by a newer one and cannot be retried.',
+    EMAIL_IN_PROGRESS: 'This email is being sent right now.',
   };
   return messages[error.code] || `The server rejected this request (${error.code}).`;
 }
@@ -766,7 +775,7 @@ function EmployeesPage({ user, actor }: { user: User; actor: AdminActor }) {
   const params = useMemo(() => { const value = new URLSearchParams({ page: String(page), limit: '25' }); if (search.trim()) value.set('search', search.trim()); if (status) value.set('status', status); return value; }, [page, search, status]);
   useEffect(() => { Promise.all([adminApi.roles(user), adminApi.branches(user)]).then(([roles, branches]) => { setRoles(roles); setBranches(branches); }).catch(error => setError(errorMessage(error))); }, [user]);
   useEffect(() => { const timer = window.setTimeout(() => { setError(''); adminApi.employees(user, params).then(setData).catch(error => setError(errorMessage(error))); }, 250); return () => clearTimeout(timer); }, [user, params, reload]);
-  return <><PageHeader eyebrow="People and access" title="Employees" description="Manage approved employee identities within your role and branch scope." action={actor.permissions.includes('employee.invite') && <button className="button primary" onClick={() => setInviteOpen(true)}>Invite employee</button>}/><section className="panel filters" aria-label="Employee filters"><label>Search<input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Name, email, ID or designation"/></label><label>Status<select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}><option value="">All statuses</option><option>ACTIVE</option><option>SUSPENDED</option><option>DEACTIVATED</option></select></label></section>{error ? <ErrorState message={error} retry={() => setReload(value => value + 1)}/> : !data ? <TableSkeleton/> : <section className="panel table-panel"><div className="panel-heading"><div><h2>Employee directory</h2><p>{data.total.toLocaleString()} authorized record{data.total === 1 ? '' : 's'}</p></div></div>{data.items.length ? <div className="table-scroll"><table><thead><tr><th>Employee</th><th>Role</th><th>Branch</th><th>Status</th><th>MFA</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{data.items.map(employee => <tr key={employee.userId}><td><strong>{employee.displayName || 'Unnamed employee'}</strong><span>{employee.email}</span><small>{employee.employeeCode || 'ID pending'}</small></td><td>{employee.roles.map(role => humanize(role)).join(', ') || 'No role'}</td><td>{employee.branches.map(branch => branch.code).join(', ') || 'No branch'}</td><td><StatusBadge value={employee.status}/></td><td><StatusBadge value={employee.mfaStatus}/></td><td>{employee.userId !== actor.userId && actor.permissions.includes('employee.update') && <button className="text-button" onClick={() => setEditTarget(employee)}>Edit access</button>}{employee.userId !== actor.userId && actor.permissions.includes('employee.suspend') && <button className="text-button" onClick={() => setStatusTarget(employee)}>Suspend / reactivate</button>}</td></tr>)}</tbody></table></div> : <EmptyState title="No employees found" text="Adjust the filters or invite an employee into an approved role and branch."/>}<Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/></section>}{inviteOpen && <InviteDialog user={user} roles={roles} branches={branches} onClose={() => setInviteOpen(false)} onDone={() => { setInviteOpen(false); setReload(value => value + 1); }}/>} {statusTarget && <StatusDialog user={user} employee={statusTarget} onClose={() => setStatusTarget(null)} onDone={() => { setStatusTarget(null); setReload(value => value + 1); }}/>}{editTarget && <EditAccessDialog user={user} employee={editTarget} roles={roles} branches={branches} onClose={() => setEditTarget(null)} onDone={() => { setEditTarget(null); setReload(value => value + 1); }}/>}</>;
+  return <><PageHeader eyebrow="People and access" title="Employees" description="Manage approved employee identities within your role and branch scope." action={actor.permissions.includes('employee.invite') && <button className="button primary" onClick={() => setInviteOpen(true)}>Invite employee</button>}/><section className="panel filters" aria-label="Employee filters"><label>Search<input value={search} onChange={event => { setSearch(event.target.value); setPage(1); }} placeholder="Name, email, ID or designation"/></label><label>Status<select value={status} onChange={event => { setStatus(event.target.value); setPage(1); }}><option value="">All statuses</option><option>ACTIVE</option><option>SUSPENDED</option><option>DEACTIVATED</option></select></label></section>{actor.permissions.includes('employee.invite') && <PendingInvitations user={user} actor={actor} refreshKey={reload} onAccepted={() => setReload(value => value + 1)} errorMessage={errorMessage}/>}{error ? <ErrorState message={error} retry={() => setReload(value => value + 1)}/> : !data ? <TableSkeleton/> : <section className="panel table-panel"><div className="panel-heading"><div><h2>Employee directory</h2><p>{data.total.toLocaleString()} authorized record{data.total === 1 ? '' : 's'}</p></div></div>{data.items.length ? <div className="table-scroll"><table><thead><tr><th>Employee</th><th>Role</th><th>Branch</th><th>Status</th><th>MFA</th><th><span className="sr-only">Actions</span></th></tr></thead><tbody>{data.items.map(employee => <tr key={employee.userId}><td><strong>{employee.displayName || 'Unnamed employee'}</strong><span>{employee.email}</span><small>{employee.employeeCode || 'ID pending'}</small></td><td>{employee.roles.map(role => humanize(role)).join(', ') || 'No role'}</td><td>{employee.branches.map(branch => branch.code).join(', ') || 'No branch'}</td><td><StatusBadge value={employee.status}/></td><td><StatusBadge value={employee.mfaStatus}/></td><td>{employee.userId !== actor.userId && actor.permissions.includes('employee.update') && <button className="text-button" onClick={() => setEditTarget(employee)}>Edit access</button>}{employee.userId !== actor.userId && actor.permissions.includes('employee.suspend') && <button className="text-button" onClick={() => setStatusTarget(employee)}>Suspend / reactivate</button>}</td></tr>)}</tbody></table></div> : <EmptyState title="No employees found" text="Adjust the filters or invite an employee into an approved role and branch."/>}<Pagination page={data.page} limit={data.limit} total={data.total} onPage={setPage}/></section>}{inviteOpen && <InviteDialog user={user} roles={roles} branches={branches} onClose={() => setInviteOpen(false)} onDone={() => { setInviteOpen(false); setReload(value => value + 1); }}/>} {statusTarget && <StatusDialog user={user} employee={statusTarget} onClose={() => setStatusTarget(null)} onDone={() => { setStatusTarget(null); setReload(value => value + 1); }}/>}{editTarget && <EditAccessDialog user={user} employee={editTarget} roles={roles} branches={branches} onClose={() => setEditTarget(null)} onDone={() => { setEditTarget(null); setReload(value => value + 1); }}/>}</>;
 }
 
 function InviteDialog({ user, roles, branches, onClose, onDone }: { user: User; roles: Role[]; branches: Branch[]; onClose: () => void; onDone: () => void }) {
@@ -2246,9 +2255,10 @@ function CommunicationsPage({ user }: { user: User; actor: AdminActor }) {
               <select value={state} onChange={e => { setState(e.target.value); setPage(1); }}>
                 <option value="">All States</option>
                 <option value="PENDING">Pending</option>
-                <option value="SENT">Sent</option>
+                <option value="PROCESSING">Sending</option>
+                <option value="ACCEPTED">Sent</option>
                 <option value="FAILED">Failed</option>
-                <option value="DEAD_LETTER">Dead Letter</option>
+                <option value="REVIEW_REQUIRED">Needs review</option>
               </select>
             </label>
           </section>
@@ -2294,14 +2304,14 @@ function CommunicationsPage({ user }: { user: User; actor: AdminActor }) {
                           <td><code>{item.eventKey}</code></td>
                           <td><strong>{item.recipient}</strong></td>
                           <td>{item.subject}</td>
-                          <td>{item.attempts} / {item.maxAttempts} {item.lastErrorCode ? <small>Err: {item.lastErrorCode}</small> : ''}</td>
+                          <td>{item.attempts} / {item.maxAttempts} {item.lastErrorCode ? <small title={emailErrorText(item.lastErrorCode)}>Err: {item.lastErrorCode}</small> : ''}</td>
                           <td><StatusBadge value={item.state} /></td>
                           <td>
                             <time>{new Date(item.sentAt || item.createdAt).toLocaleString()}</time>
                           </td>
                           <td>
                             <button className="text-button" onClick={() => setSelectedMessage(item)}>View</button>
-                            {(item.state === 'FAILED' || item.state === 'DEAD_LETTER') && (
+                            {(item.state === 'FAILED' || item.state === 'REVIEW_REQUIRED') && item.lastErrorCode !== 'SUPERSEDED' && (
                               <button className="text-button" style={{ marginLeft: '8px' }} onClick={() => retryDelivery(item.id)}>
                                 Retry
                               </button>
@@ -2334,7 +2344,7 @@ function CommunicationsPage({ user }: { user: User; actor: AdminActor }) {
                   {selectedMessage.templateVersion && <div><strong>Template:</strong> <code>{selectedMessage.templateVersion}</code></div>}
                   {selectedMessage.providerMessageId && <div><strong>Resend Message ID:</strong> <code>{selectedMessage.providerMessageId}</code></div>}
                   <div><strong>Attempts:</strong> {selectedMessage.attempts} / {selectedMessage.maxAttempts}</div>
-                  {selectedMessage.lastErrorCode && <div><strong>Error Code:</strong> <span style={{ color: 'var(--red, var(--color-error))' }}>{selectedMessage.lastErrorCode}</span></div>}
+                  {selectedMessage.lastErrorCode && <div><strong>Error Code:</strong> <span style={{ color: 'var(--red, var(--color-error))' }}>{selectedMessage.lastErrorCode}</span><div>{emailErrorText(selectedMessage.lastErrorCode)}</div></div>}
                   <div><strong>Queued At:</strong> {new Date(selectedMessage.createdAt).toLocaleString()}</div>
                   {selectedMessage.sentAt && <div><strong>Delivered At:</strong> {new Date(selectedMessage.sentAt).toLocaleString()}</div>}
                   {selectedMessage.text && (

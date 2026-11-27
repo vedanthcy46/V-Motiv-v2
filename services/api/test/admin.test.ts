@@ -207,10 +207,12 @@ describe('Admin authentication and authorization boundary', () => {
 
   it('supports email outbox monitoring and controlled retry', async () => {
     const { app, admin } = setup();
-    const outbox = await request(app).get('/api/v2/admin/communications/outbox?state=SENT').set('Authorization', 'Bearer admin');
+    const outbox = await request(app).get('/api/v2/admin/communications/outbox?state=ACCEPTED').set('Authorization', 'Bearer admin');
     expect(outbox.status).toBe(200);
     expect(outbox.body.items[0].recipient).toContain('***');
-    expect(admin.communicationsOutbox).toHaveBeenCalledWith(actor, expect.objectContaining({ state: 'SENT' }));
+    expect(admin.communicationsOutbox).toHaveBeenCalledWith(actor, expect.objectContaining({ state: 'ACCEPTED' }));
+    // "SENT" is not a state an email can be in; asking the database for it failed with a server error.
+    expect((await request(app).get('/api/v2/admin/communications/outbox?state=SENT').set('Authorization', 'Bearer admin')).status).toBe(400);
 
     const templates = await request(app).get('/api/v2/admin/communications/templates').set('Authorization', 'Bearer admin');
     expect(templates.status).toBe(200);

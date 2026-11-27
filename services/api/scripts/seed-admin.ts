@@ -59,7 +59,7 @@ if (!firebaseUser.emailVerified) {
 // Database URLs to seed
 const databases = [
   { name: 'Local Dev Database', url: 'postgresql://vmotiv_v2@127.0.0.1:5440/vmotiv_v2_dev' },
-  { name: 'Neon Production Database', url: 'postgresql://neondb_owner:npg_ZbytqXH2UKp8@ep-green-band-b52uqy11-pooler.c-7.us-east-2.aws.neon.tech/neondb?sslmode=require&channel_binding=require' },
+  { name: 'Neon Production Database', url: process.env.DIRECT_DATABASE_URL},
 ];
 
 for (const dbConfig of databases) {

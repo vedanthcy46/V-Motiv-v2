@@ -22,6 +22,7 @@ const inviteInput = z.object({
   expiresInHours: z.number().int().min(1).max(168).default(48),
 }).strict();
 const acceptInput = z.object({ token: z.string().min(40).max(200) }).strict();
+const manualAcceptInput = z.object({ reason: z.string().trim().min(8).max(500) }).strict();
 const statusInput = z.object({ status: z.enum(['ACTIVE', 'SUSPENDED', 'DEACTIVATED']), reason: z.string().trim().min(8).max(500) }).strict();
 const approvalQuery = pagination.extend({ status: z.enum(['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED', 'STALE']).optional() });
 const privilegedInvitationProposal = inviteInput.extend({ reason: z.string().trim().min(8).max(500) }).strict();
@@ -104,7 +105,7 @@ const masterDataUpdateInput = z.object({
 }).strict().refine(value => Object.keys(value).length > 0);
 
 const commsOutboxQuery = pagination.extend({
-  state: z.enum(['PENDING', 'SENT', 'FAILED', 'DEAD_LETTER']).optional(),
+  state: z.enum(['PENDING', 'PROCESSING', 'ACCEPTED', 'FAILED', 'REVIEW_REQUIRED']).optional(),
 });
 
 const privacyQuery = pagination.extend({
@@ -218,6 +219,18 @@ export function createAdminRouter(deps: {
     const invitation = await deps.store.invite(res.locals.adminActor as AdminActor, { ...parse(inviteInput, req.body) as { email: string; fullName: string; designation?: string; roleId: string; branchIds: string[]; expiresInHours: number }, adminOrigin: deps.adminWebOrigin });
     if (deps.drainEmails) void deps.drainEmails().catch(() => undefined);
     res.status(201).json(invitation);
+  });
+  router.get('/admin/invitations', async (_req, res) => res.json(await deps.store.invitations(res.locals.adminActor as AdminActor)));
+  router.post('/admin/invitations/:id/resend', async (req, res) => {
+    const result = await deps.store.resendInvitation(res.locals.adminActor as AdminActor, parse(uuid, req.params.id), deps.adminWebOrigin);
+    if (deps.drainEmails) void deps.drainEmails().catch(() => undefined);
+    res.json(result);
+  });
+  router.post('/admin/invitations/:id/accept-manually', async (req, res) => {
+    const { reason } = parse(manualAcceptInput, req.body);
+    const result = await deps.store.acceptInvitationManually(res.locals.adminActor as AdminActor, parse(uuid, req.params.id), reason);
+    // Where the person should sign in, for the administrator to pass on.
+    res.json({ ...result, ...employeePortalDestination({ roles: [result.role] } as unknown as AdminActor, deps.employeePortalOrigins) });
   });
   router.post('/admin/approvals/privileged-invitations', async (req, res) => {
     const body = parse(privilegedInvitationProposal, req.body);

@@ -194,6 +194,21 @@ export type CommunicationsOutboxPage = {
   items: CommunicationsOutboxItem[];
 };
 
+export type PendingInvitation = {
+  id: string;
+  email: string;
+  fullName: string;
+  designation?: string | null;
+  createdAt: string;
+  expiresAt: string;
+  expired: boolean;
+  role: { key: string; name: string; privileged: boolean };
+  branches: Array<{ code: string; name: string }>;
+  delivery: { state: string; attempts: number; errorCode: string | null; updatedAt: string } | null;
+};
+
+export type ManualAcceptance = { id: string; status: 'ACCEPTED'; employeeId: string; email: string; signedInBefore: boolean; portalUrl: string; portalLabel: string };
+
 export type CommunicationsTemplate = {
   key: string;
   name: string;

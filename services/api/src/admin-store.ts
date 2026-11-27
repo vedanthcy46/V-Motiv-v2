@@ -6,6 +6,8 @@ import { resolveNotificationsForResource } from './employee-notifications/resolv
 import type { Identity } from './auth.js';
 import { HttpError } from './errors.js';
 import type { PermissionKey } from './admin-catalog.js';
+import { INVITED_UID_PREFIX } from './invited-employee.js';
+import { UNCLAIMED_UID_PREFIX } from './walk-in-customer.js';
 
 if (!('toJSON' in BigInt.prototype)) {
   Object.defineProperty(BigInt.prototype, 'toJSON', {
@@ -112,6 +114,9 @@ export interface AdminStore {
   approvals(actor: AdminActor, query: ApprovalListQuery): Promise<unknown>;
   decideApproval(actor: AdminActor, id: string, input: ApprovalDecisionInput): Promise<unknown>;
   acceptInvitation(identity: Identity, token: string): Promise<AdminActor>;
+  invitations(actor: AdminActor): Promise<unknown[]>;
+  resendInvitation(actor: AdminActor, id: string, adminOrigin: string): Promise<unknown>;
+  acceptInvitationManually(actor: AdminActor, id: string, reason: string): Promise<{ id: string; status: 'ACCEPTED'; employeeId: string; email: string; role: EmployeeRole; signedInBefore: boolean }>;
   setEmployeeStatus(actor: AdminActor, employeeId: string, status: EmployeeStatus, reason: string): Promise<{ firebaseUid: string }>;
   updateEmployeeAccess(actor: AdminActor, employeeId: string, input: EmployeeAccessInput): Promise<unknown>;
   audit(actor: AdminActor, page: number, limit: number): Promise<unknown>;
@@ -151,6 +156,37 @@ const privilegedInvitationPayload = z.object({
   roleId: z.string().uuid(), branchIds: z.array(z.string().uuid()).min(1).max(20), expiresInHours: z.number().int().min(1).max(168), reason: z.string().min(8).max(500).optional(),
 }).strict();
 
+export const INVITATION_RESEND_COOLDOWN_MS = 60_000;
+/** Account ids that stand for someone who has never signed in. */
+const NEVER_SIGNED_IN_PREFIXES = [UNCLAIMED_UID_PREFIX, INVITED_UID_PREFIX, 'manual-'];
+
+const invitationLink = (adminOrigin: string, rawToken: string) => `${adminOrigin}/accept-invitation?token=${encodeURIComponent(rawToken)}`;
+
+function invitationEmail(input: { fullName: string; roleName: string; expiresAt: Date; link: string }) {
+  return {
+    subject: 'Your V MOTIV employee invitation',
+    text: `Hello ${input.fullName},\n\nYou have been invited to join V MOTIV as ${input.roleName}. This one-time invitation expires at ${input.expiresAt.toISOString()}.\n\nOpen invitation: ${input.link}\n\nIf you did not expect this invitation, do not use the link and contact V MOTIV security.`,
+  };
+}
+
+/** The one way an invitation becomes an employee, whether the person used their link or an administrator accepted it for them. */
+async function activateInvitedEmployee(
+  tx: Prisma.TransactionClient,
+  invitation: Prisma.EmployeeInvitationGetPayload<{ include: { role: true; branches: true } }>,
+  userId: string,
+  secondFactor: boolean,
+) {
+  const employee = await tx.employee.create({ data: {
+    userId, role: invitation.role.key, active: true, status: 'ACTIVE', designation: invitation.designation,
+    employeeCode: `VM-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
+    mfaStatus: secondFactor ? 'COMPLIANT' : 'REQUIRED',
+    roleAssignments: { create: { roleId: invitation.roleId, assignedById: invitation.createdById } },
+    branchAssignments: { create: invitation.branches.map(branch => ({ branchId: branch.branchId })) },
+  } });
+  await tx.employeeInvitation.update({ where: { id: invitation.id }, data: { status: 'ACCEPTED', acceptedAt: new Date(), activatedEmployeeId: employee.userId } });
+  return employee;
+}
+
 async function createInvitationRecord(
   tx: Prisma.TransactionClient,
   createdById: string,
@@ -169,11 +205,9 @@ async function createInvitationRecord(
     email, fullName: input.fullName, designation: input.designation, tokenHash, expiresAt, createdById, roleId: role.id,
     branches: { create: input.branchIds.map(branchId => ({ branchId })) },
   }, select: { id: true, email: true, fullName: true, status: true, expiresAt: true, createdAt: true } });
-  const link = `${input.adminOrigin}/accept-invitation?token=${encodeURIComponent(rawToken)}`;
   await tx.emailOutbox.create({ data: {
     eventKey: `employee-invitation/${invitation.id}`, recipient: email, templateVersion: 'employee-invitation-v1',
-    subject: 'Your V MOTIV employee invitation',
-    text: `Hello ${input.fullName},\n\nYou have been invited to join V MOTIV as ${role.name}. This one-time invitation expires at ${expiresAt.toISOString()}.\n\nOpen invitation: ${link}\n\nIf you did not expect this invitation, do not use the link and contact V MOTIV security.`,
+    ...invitationEmail({ fullName: input.fullName, roleName: role.name, expiresAt, link: invitationLink(input.adminOrigin, rawToken) }),
   } });
   return invitation;
 }
@@ -1019,19 +1053,119 @@ export class PrismaAdminStore implements AdminStore {
       if (user.status !== 'ACTIVE') throw new HttpError(403, 'ACCOUNT_INACTIVE');
       const existing = await tx.employee.findUnique({ where: { userId: user.id } });
       if (existing) throw new HttpError(409, 'EMPLOYEE_ALREADY_EXISTS');
-      const employee = await tx.employee.create({ data: {
-        userId: user.id, role: invitation.role.key, active: true, status: 'ACTIVE', designation: invitation.designation,
-        employeeCode: `VM-${crypto.randomBytes(4).toString('hex').toUpperCase()}`,
-        mfaStatus: identity.secondFactor ? 'COMPLIANT' : 'REQUIRED',
-        roleAssignments: { create: { roleId: invitation.roleId, assignedById: invitation.createdById } },
-        branchAssignments: { create: invitation.branches.map(branch => ({ branchId: branch.branchId })) },
-      } });
-      await tx.employeeInvitation.update({ where: { id: invitation.id }, data: { status: 'ACCEPTED', acceptedAt: new Date(), activatedEmployeeId: employee.userId } });
+      const employee = await activateInvitedEmployee(tx, invitation, user.id, identity.secondFactor);
       await tx.auditEvent.create({ data: { actorId: employee.userId, action: 'EMPLOYEE_INVITATION_ACCEPTED', entityType: 'Employee', entityId: employee.userId, details: { invitationId: invitation.id, role: invitation.role.key } } });
       return employee.userId;
     });
     const employee = await this.db.employee.findUniqueOrThrow({ where: { userId: employeeId }, include: actorInclude });
     return normalizeEmployee(employee);
+  }
+
+  // ---------------------------------------------------------------------------------------------------------------------------------------
+  // Invitations that are still waiting: see what happened to the email, send it again, or accept on the person's behalf.
+
+  /** The invitation, only if this administrator may act on it: still pending, inside their branches, and (for privileged roles) allowed. */
+  private async openInvitation(tx: Prisma.TransactionClient, actor: AdminActor, id: string) {
+    const found = await tx.employeeInvitation.findUnique({ where: { id }, select: { tokenHash: true } });
+    if (!found) throw new HttpError(404, 'INVITATION_NOT_FOUND');
+    // The same lock acceptInvitation takes, so a link being used and an administrator acting cannot overlap.
+    await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${found.tokenHash}, 0))::text`;
+    const invitation = await tx.employeeInvitation.findUnique({ where: { id }, include: { role: true, branches: true } });
+    if (!invitation) throw new HttpError(404, 'INVITATION_NOT_FOUND');
+    if (invitation.status !== 'PENDING') throw new HttpError(409, 'INVITATION_NOT_ACTIVE');
+    if (!invitation.role.active) throw new HttpError(400, 'ROLE_NOT_AVAILABLE');
+    if (invitation.role.privileged) requirePermission(actor, 'role.assign.privileged');
+    if (!actor.roles.includes('SUPER_ADMIN') && invitation.branches.some(item => !actor.branches.some(branch => branch.id === item.branchId))) throw new HttpError(403, 'BRANCH_SCOPE_DENIED');
+    return invitation;
+  }
+
+  async invitations(actor: AdminActor) {
+    requirePermission(actor, 'employee.invite');
+    const scope: Prisma.EmployeeInvitationWhereInput = actor.roles.includes('SUPER_ADMIN') ? {} : { branches: { every: { branchId: { in: actor.branches.map(branch => branch.id) } } } };
+    const rows = await this.db.employeeInvitation.findMany({
+      where: { status: 'PENDING', ...scope },
+      orderBy: { createdAt: 'desc' },
+      take: 100,
+      select: {
+        id: true, email: true, fullName: true, designation: true, createdAt: true, expiresAt: true,
+        role: { select: { key: true, name: true, privileged: true } },
+        branches: { select: { branch: { select: { code: true, name: true } } } },
+      },
+    });
+    const emails = rows.length === 0 ? [] : await this.db.emailOutbox.findMany({
+      where: { OR: rows.map(row => ({ eventKey: { startsWith: `employee-invitation/${row.id}` } })) },
+      orderBy: { createdAt: 'desc' },
+      select: { eventKey: true, state: true, attempts: true, lastErrorCode: true, updatedAt: true },
+    });
+    const now = Date.now();
+    return rows.map(({ branches, ...row }) => {
+      // Newest first, so this is the latest email sent for the invitation.
+      const email = emails.find(item => item.eventKey.split('/')[1] === row.id);
+      return {
+        ...row,
+        expired: row.expiresAt.getTime() <= now,
+        branches: branches.map(item => item.branch),
+        delivery: email ? { state: email.state, attempts: email.attempts, errorCode: email.lastErrorCode, updatedAt: email.updatedAt } : null,
+      };
+    });
+  }
+
+  /** A new link and a new email. The old link stops working, and the expiry starts again. */
+  async resendInvitation(actor: AdminActor, id: string, adminOrigin: string) {
+    requirePermission(actor, 'employee.invite');
+    return this.db.$transaction(async tx => {
+      const invitation = await this.openInvitation(tx, actor, id);
+      const emails = { eventKey: { startsWith: `employee-invitation/${id}` } };
+      const latest = await tx.emailOutbox.findFirst({ where: emails, orderBy: { createdAt: 'desc' }, select: { createdAt: true } });
+      if (latest && Date.now() - latest.createdAt.getTime() < INVITATION_RESEND_COOLDOWN_MS) throw new HttpError(429, 'INVITATION_RESEND_TOO_SOON');
+      const rawToken = crypto.randomBytes(32).toString('base64url');
+      const expiresAt = new Date(Date.now() + 48 * 60 * 60 * 1000);
+      await tx.employeeInvitation.update({ where: { id }, data: { tokenHash: crypto.createHash('sha256').update(rawToken).digest('hex'), expiresAt } });
+      // An earlier email still waiting to go out now carries a dead link, so it must not be sent.
+      await tx.emailOutbox.updateMany({ where: { ...emails, state: 'PENDING' }, data: { state: 'FAILED', lastErrorCode: 'SUPERSEDED' } });
+      await tx.emailOutbox.create({ data: {
+        eventKey: `employee-invitation/${id}/${Date.now()}`, templateVersion: 'employee-invitation-v1', recipient: invitation.email,
+        ...invitationEmail({ fullName: invitation.fullName, roleName: invitation.role.name, expiresAt, link: invitationLink(adminOrigin, rawToken) }),
+      } });
+      await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'EMPLOYEE_INVITATION_RESENT', entityType: 'EmployeeInvitation', entityId: id, details: { expiresAt: expiresAt.toISOString() } } });
+      return { id, expiresAt };
+    });
+  }
+
+  /**
+   * Make the invited person an employee without the email link, for when the email cannot be delivered. They still have to sign in with Google
+   * using exactly the invited address: if they already have an account it is used, otherwise it is claimed on first sign-in (invited-employee.ts).
+   */
+  async acceptInvitationManually(actor: AdminActor, id: string, reason: string) {
+    requirePermission(actor, 'employee.invite');
+    return this.db.$transaction(async tx => {
+      const invitation = await this.openInvitation(tx, actor, id);
+      if (invitation.expiresAt <= new Date()) throw new HttpError(410, 'INVITATION_EXPIRED');
+      const email = invitation.email.toLowerCase();
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${email}, 0))::text`;
+      const sameEmail = { equals: email, mode: 'insensitive' as const };
+      if (await tx.employee.findFirst({ where: { user: { email: sameEmail } } })) throw new HttpError(409, 'EMPLOYEE_ALREADY_EXISTS');
+      const accounts = await tx.user.findMany({ where: { email: sameEmail }, select: { id: true, firebaseUid: true, status: true } });
+      // Accounts made at a counter or for in-person paperwork have never been signed in to.
+      const signedIn = accounts.filter(account => !NEVER_SIGNED_IN_PREFIXES.some(prefix => account.firebaseUid.startsWith(prefix)));
+      if (signedIn.length > 1) throw new HttpError(409, 'MULTIPLE_ACCOUNTS_FOR_EMAIL');
+      const waiting = accounts.find(account => account.firebaseUid.startsWith(UNCLAIMED_UID_PREFIX));
+      const account = signedIn[0] ?? waiting;
+      if (account && account.status !== 'ACTIVE') throw new HttpError(403, 'ACCOUNT_INACTIVE');
+      let userId: string;
+      if (signedIn[0]) {
+        userId = signedIn[0].id;
+      } else if (waiting) {
+        userId = waiting.id;
+        await tx.user.update({ where: { id: waiting.id }, data: { firebaseUid: `${INVITED_UID_PREFIX}${invitation.id}` } });
+      } else {
+        userId = (await tx.user.create({ data: { firebaseUid: `${INVITED_UID_PREFIX}${invitation.id}`, email, displayName: invitation.fullName }, select: { id: true } })).id;
+      }
+      await activateInvitedEmployee(tx, invitation, userId, false);
+      await tx.emailOutbox.updateMany({ where: { eventKey: { startsWith: `employee-invitation/${id}` }, state: 'PENDING' }, data: { state: 'FAILED', lastErrorCode: 'SUPERSEDED' } });
+      await tx.auditEvent.create({ data: { actorId: actor.userId, action: 'EMPLOYEE_INVITATION_ACCEPTED_MANUALLY', entityType: 'EmployeeInvitation', entityId: id, details: { employeeId: userId, role: invitation.role.key, reason } } });
+      return { id, status: 'ACCEPTED' as const, employeeId: userId, email, role: invitation.role.key, signedInBefore: Boolean(signedIn[0]) };
+    });
   }
 
   /**
@@ -1441,6 +1575,8 @@ export class PrismaAdminStore implements AdminStore {
     const safeItems = items.map(item => ({
       ...item,
       recipient: maskEmail(item.recipient),
+      // One-time links (an employee invitation) are for the recipient only.
+      text: item.text.replace(/(token=)[^\s&"']+/g, '$1[hidden]'),
       maxAttempts: 6,
     }));
     return { page: query.page, limit: query.limit, total, items: safeItems, summary };
@@ -1459,6 +1595,12 @@ export class PrismaAdminStore implements AdminStore {
 
   async retryEmailOutbox(actor: AdminActor, id: string) {
     requirePermission(actor, 'email.delivery.read');
+    const current = await this.db.emailOutbox.findUnique({ where: { id }, select: { state: true, lastErrorCode: true } });
+    if (!current) throw new HttpError(404, 'EMAIL_NOT_FOUND');
+    if (current.lastErrorCode === 'SUPERSEDED') throw new HttpError(409, 'EMAIL_SUPERSEDED');
+    if (current.state === 'PROCESSING') throw new HttpError(409, 'EMAIL_IN_PROGRESS');
+    // A retry is a fresh delivery: the 23-hour automatic retry window starts again (otherwise an older email would be set aside without being
+    // sent), and the sender is chosen again, so a corrected EMAIL_FROM applies.
     const updated = await this.db.emailOutbox.update({
       where: { id },
       data: {
@@ -1467,6 +1609,8 @@ export class PrismaAdminStore implements AdminStore {
         availableAt: new Date(),
         leaseUntil: null,
         lastErrorCode: null,
+        firstAttemptAt: null,
+        sender: null,
       },
     });
     await this.db.auditEvent.create({
